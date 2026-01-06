@@ -2,24 +2,36 @@
 
 ЧТО: Корневой манифест монорепо Duet.
 
-ЗАЧЕМ: Определяет метаданные проекта, структуру монорепо и команды запуска.
+ЗАЧЕМ: Определяет структуру монорепо и команды запуска.
 
 КТО ИСПОЛЬЗУЕТ:
 - `npm` — менеджер пакетов, читает этот файл для всех операций
-- IDE — для понимания структуры проекта
+- IDE — для понимания структуры
 
 ---
 
 ## Поля
 
-### name, version, description
+### name, description
 ```json
 "name": "duet",
-"version": "0.1.0",
 "description": "Duet — Getting Products Done"
 ```
 
-Метаданные проекта. Используются для идентификации.
+Метаданные монорепо. Используются для идентификации.
+
+### version
+```json
+"version": "0.0.0"
+```
+
+Версия `0.0.0` — служебное значение, **ни на что не влияет**.
+
+Корневой пакет `private: true`, поэтому не публикуется в npm.
+Реальные версии — в каждом модуле отдельно:
+- `apps/host/package.json` → версия Electron-приложения
+- `apps/vscode/package.json` → версия VS Code расширения (будет)
+- и т.д.
 
 ### private
 ```json
@@ -37,7 +49,7 @@
 - `apps/*` — приложения (Electron, VS Code extension, ...)
 - `packages/*` — библиотеки (shared код между приложениями)
 
-Каждый под-пакет имеет свой `package.json` со своим `name` (например `@duet/host`).
+Каждый под-пакет имеет свой `package.json` со своим `name` (например `duet-host`).
 
 npm workspaces поднимает общие зависимости в корневой `node_modules` (hoisting),
 что уменьшает дублирование.
@@ -47,18 +59,18 @@ npm workspaces поднимает общие зависимости в корн�
 ### scripts
 ```json
 "scripts": {
-  "dev:host": "npm run dev --workspace=@duet/host",
-  "build:host": "npm run build --workspace=@duet/host"
+  "dev:host": "npm run dev --workspace=duet-host",
+  "build:host": "npm run build --workspace=duet-host"
 }
 ```
 
 Именованные команды (алиасы). Вместо длинной команды пишешь короткую:
 ```bash
-npm run dev:host    # вместо: npm run dev --workspace=@duet/host
+npm run dev:host    # вместо: npm run dev --workspace=duet-host
 ```
 
-Разбор `npm run dev --workspace=@duet/host`:
-- `--workspace=@duet/host` — выбрать пакет с именем `@duet/host` (из `apps/host/package.json`)
+Разбор `npm run dev --workspace=duet-host`:
+- `--workspace=duet-host` — выбрать пакет с именем `duet-host` (из `apps/host/package.json`)
 - `dev` — выполнить скрипт `dev` из того пакета
 
 Подробнее о scripts: https://docs.npmjs.com/cli/v10/using-npm/scripts
@@ -72,14 +84,14 @@ Duet/
 ├── package.json              ← ТЫ ЗДЕСЬ
 ├── node_modules/             ← общие зависимости (hoisted)
 ├── apps/
-│   ├── host/                 ← @duet/host (Electron приложение)
+│   ├── host/                 ← duet-host (Electron приложение)
 │   │   ├── package.json
 │   │   └── node_modules/     ← симлинки на корневой node_modules
-│   ├── vscode/               ← @duet/vscode (VS Code расширение, позже)
-│   └── ai-instructions/      ← legacy проект
+│   ├── vscode/               ← duet-vscode (VS Code расширение, позже)
+│   └── ai-instructions/      ← legacy модуль
 └── packages/
-    ├── core/                 ← @duet/core (общая логика, позже)
-    └── mcp-server/           ← @duet/mcp-server (MCP сервер, позже)
+    ├── core/                 ← duet-core (общая логика, позже)
+    └── mcp-server/           ← duet-mcp-server (MCP сервер, позже)
 ```
 
 ---

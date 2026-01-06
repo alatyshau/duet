@@ -15,6 +15,8 @@ productName: Duet
 directories:
   buildResources: build
 files:
+  - package.json
+  - out/**
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'

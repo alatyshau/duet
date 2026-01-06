@@ -1,0 +1,79 @@
+# build-host.yml
+#
+# ЧТО: GitHub Actions workflow для сборки Duet Host.
+# ЗАЧЕМ: Автоматическая сборка под macOS, Windows, Linux на нативных runner'ах.
+# КТО ИСПОЛЬЗУЕТ: GitHub Actions при push/PR или ручном запуске.
+
+name: Build Duet Host
+
+on:
+  # Ручной запуск
+  workflow_dispatch:
+
+  # При push в main (только если изменился host)
+  push:
+    branches: [main]
+    paths:
+      - 'apps/host/**'
+      - '.github/workflows/build-host.yml'
+
+  # При PR (только если изменился host)
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/host/**'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron app
+        working-directory: apps/host
+        run: npm run build:${{ matrix.platform }}
+        env:
+          # Отключаем code signing для CI (можно включить позже)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: duet-host-${{ matrix.platform }}
+          path: |
+            apps/host/dist/*.dmg
+            apps/host/dist/*.zip
+            apps/host/dist/*.exe
+            apps/host/dist/*.AppImage
+            apps/host/dist/*.deb
+            apps/host/dist/*.snap
+          if-no-files-found: ignore
+
+  # Релиз создаётся вручную через GitHub UI:
+  # 1. Скачать артефакты из успешного workflow run
+  # 2. GitHub → Releases → Create new release
+  # 3. Прикрепить файлы
+  #
+  # Для автоматических релизов использовать теги с префиксом:
+  #   git tag host-v0.1.0 && git push --tags
