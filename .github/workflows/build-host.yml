@@ -58,8 +58,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Delete package-lock.json
+        # package-lock.json сгенерирован на macOS и не содержит platform-specific
+        # optional deps для Linux/Windows (rollup, esbuild, etc.)
+        run: node -e "try{require('fs').unlinkSync('package-lock.json')}catch{}"
+
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Electron app
         working-directory: apps/host
