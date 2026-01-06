@@ -1,0 +1,55 @@
+# electron-builder.yml
+#
+# ЧТО: Конфигурация electron-builder для сборки и упаковки приложения.
+# ЗАЧЕМ: Создаёт дистрибутивы для Windows (.exe), macOS (.dmg), Linux (.AppImage).
+# КТО ИСПОЛЬЗУЕТ: electron-builder при `npm run build:mac/win/linux`.
+#
+# СЕКЦИИ:
+# - appId/productName: идентификаторы приложения
+# - files: что включать/исключать из сборки (! = исключить)
+# - win/mac/linux: платформо-специфичные настройки
+# - publish: конфигурация авто-обновлений (пока заглушка)
+
+appId: com.electron.app
+productName: host
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,package-lock.json}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: host
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates

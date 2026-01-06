@@ -1,0 +1,11 @@
+# .duetignore
+#
+# ЧТО: Файлы/папки, исключаемые из синхронизации с Google Drive
+# ЗАЧЕМ: Не засорять облако временными файлами
+# КТО ИСПОЛЬЗУЕТ: rclone sync --exclude-from .duetignore
+
+# Git (история на GitHub)
+.git/**
+
+# Node.js
+node_modules/**

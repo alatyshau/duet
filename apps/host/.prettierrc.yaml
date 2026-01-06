@@ -1,0 +1,16 @@
+# .prettierrc.yaml
+#
+# ЧТО: Конфигурация Prettier — форматтера кода.
+# ЗАЧЕМ: Единый стиль форматирования для всей команды.
+# КТО ИСПОЛЬЗУЕТ: Prettier при `npm run format`, IDE при сохранении файлов.
+#
+# НАСТРОЙКИ:
+# - singleQuote: одинарные кавычки вместо двойных
+# - semi: без точек с запятой в конце строк
+# - printWidth: максимальная длина строки 100 символов
+# - trailingComma: без trailing comma в массивах/объектах
+
+singleQuote: true
+semi: false
+printWidth: 100
+trailingComma: none

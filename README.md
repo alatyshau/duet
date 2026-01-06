@@ -71,7 +71,6 @@ Duet/
 ### Требования
 
 - Node.js 20+
-- pnpm (`npm install -g pnpm`)
 - Google Drive Desktop (для синхронизации)
 
 ### Установка
@@ -80,26 +79,65 @@ Duet/
 cd ~/Google\ Drive/.../Duet
 
 # Установить зависимости
-pnpm install
+npm install
 
 # Запустить Electron в dev-режиме
-pnpm dev:host
+npm run dev:host
 ```
+
+### Синхронизация с Google Drive (rclone)
+
+Duet использует rclone вместо Google Drive Desktop для синхронизации — это позволяет исключить node_modules и другие временные файлы.
+
+#### Первоначальная настройка
+```bash
+# Установить rclone
+brew install rclone
+
+# Настроить Google Drive
+rclone config --config ~/DuetData/.duet/rclone.conf
+# n → gdrive → drive → scope: 1 (Full access) → авторизация в браузере
+```
+
+#### Ручная синхронизация
+```bash
+cd ~/DuetData
+
+# Скачать из облака (первый раз или обновить локальное)
+rclone sync 'gdrive:!МетаЛаб/ДЕЛА/ТехноЛаб/ДЕЛА/Duet' Duet \
+    --config .duet/rclone.conf \
+    -v
+
+# Загрузить в облако (после локальных изменений)
+rclone sync Duet 'gdrive:!МетаЛаб/ДЕЛА/ТехноЛаб/ДЕЛА/Duet' \
+    --exclude-from Duet/.duetignore \
+    --config .duet/rclone.conf \
+    -v
+
+# Dry-run (проверить что будет сделано, без изменений)
+# Добавь --dry-run к любой команде выше
+```
+
+#### Exclude patterns
+
+При загрузке в облако исключаются:
+- `.git/**` — git история (есть на GitHub)
+- `node_modules/**` — npm зависимости (восстанавливаются через npm install)
+- `dist/**` — билд артефакты
+- `.turbo/**` — кэш Turborepo
+
+#### Планируемая автоматизация
+
+В будущем Duet Host будет автоматически:
+- Upload: при изменении файлов (file watcher + debounce)
+- Download: каждые 1-3 минуты
 
 ### Первый запуск
 
 1. Duet спросит корневые папки ваших дел
 2. Просканирует структуру
-3. Вынесет `node_modules` и прочие derived-папки в `~/.duet-local/`
-4. Запустит индексацию
 
 ## Ключевые концепции
-
-### Derived-папки
-
-Папки типа `node_modules`, `dist`, `.venv` не должны синхронизироваться в Google Drive (гигабайты мусора). Duet автоматически выносит их в `~/.duet-local/` и создаёт симлинки.
-
-Подробнее: [docs/derived-folders.md](docs/derived-folders.md)
 
 ### GPD-онтология
 
@@ -107,7 +145,7 @@ pnpm dev:host
 - **Дело** — ongoing concern внутри предприятия
 - **Продукт** — конкретный результат
 
-Подробнее чуть позже будет тут: [docs/gpd-ontology.md](docs/gpd-ontology.md)
+Подробнее позже будет тут: [docs/gpd-ontology.md](docs/gpd-ontology.md)
 
 ### MCP интеграция
 
@@ -116,20 +154,19 @@ Duet запускает MCP Server, который позволяет Claude и 
 - Понимать контекст текущего дела
 - Создавать задачи и заметки
 
-Подробнее чуть позже будет тут: [docs/mcp-integration.md](docs/mcp-integration.md)
+Подробнее позже будет тут: [docs/mcp-integration.md](docs/mcp-integration.md)
 
 ## Разработка
 ```bash
-pnpm dev:host      # Electron в dev-режиме
-pnpm build:host    # Сборка Electron
-pnpm test          # Тесты (когда будут)
+npm run dev:host      # Electron в dev-режиме
+npm run build:host    # Сборка Electron
+npm test              # Тесты (когда будут)
 ```
 
 ## Документация (ПОЗЖЕ)
 
 - [CLAUDE.md](CLAUDE.md) — правила для ИИ-ассистентов
 - [docs/architecture.md](docs/architecture.md) — подробная архитектура
-- [docs/derived-folders.md](docs/derived-folders.md) — механизм симлинков
 - [docs/gpd-ontology.md](docs/gpd-ontology.md) — GPD методология
 
 ## Философия

@@ -8,11 +8,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:host": "pnpm --filter @duet/host dev",
-    "build:host": "pnpm --filter @duet/host build"
+    "dev:host": "npm run dev --workspace=@duet/host",
+    "build:host": "npm run build --workspace=@duet/host"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
-  "packageManager": "pnpm@10.27.0"
+  "devDependencies": {
+    "electron": "^39.2.6"
+  }
 }

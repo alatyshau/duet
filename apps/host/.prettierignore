@@ -1,0 +1,12 @@
+# .prettierignore
+#
+# ЧТО: Список файлов, которые Prettier не форматирует.
+# ЗАЧЕМ: Не трогать автогенерируемые и бинарные файлы.
+# КТО ИСПОЛЬЗУЕТ: Prettier при `npm run format`.
+
+out
+dist
+package-lock.json
+LICENSE.md
+tsconfig.json
+tsconfig.*.json
