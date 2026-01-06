@@ -3,21 +3,31 @@
 # ЧТО: GitHub Actions workflow для сборки Duet Host.
 # ЗАЧЕМ: Автоматическая сборка под macOS, Windows, Linux на нативных runner'ах.
 # КТО ИСПОЛЬЗУЕТ: GitHub Actions при push/PR или ручном запуске.
+#
+# ТРИГГЕРЫ:
+# - push в main (если изменился apps/host/)
+# - pull request в main (если изменился apps/host/)
+# - ручной запуск (workflow_dispatch)
+#
+# АРТЕФАКТЫ:
+# - Сохраняются на 90 дней в GitHub Actions
+# - Скачать: Actions → выбрать run → Artifacts
+#
+# РЕЛИЗЫ:
+# - Создаются вручную через GitHub UI
+# - GitHub → Releases → Create new release → прикрепить файлы из Artifacts
 
 name: Build Duet Host
 
 on:
-  # Ручной запуск
   workflow_dispatch:
 
-  # При push в main (только если изменился host)
   push:
     branches: [main]
     paths:
       - 'apps/host/**'
       - '.github/workflows/build-host.yml'
 
-  # При PR (только если изменился host)
   pull_request:
     branches: [main]
     paths:
@@ -26,6 +36,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false  # Продолжать сборку других платформ если одна упала
       matrix:
         include:
           - os: macos-latest
@@ -54,8 +65,7 @@ jobs:
         working-directory: apps/host
         run: npm run build:${{ matrix.platform }}
         env:
-          # Отключаем code signing для CI (можно включить позже)
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_IDENTITY_AUTO_DISCOVERY: false  # Отключаем code signing для CI
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -69,11 +79,3 @@ jobs:
             apps/host/dist/*.deb
             apps/host/dist/*.snap
           if-no-files-found: ignore
-
-  # Релиз создаётся вручную через GitHub UI:
-  # 1. Скачать артефакты из успешного workflow run
-  # 2. GitHub → Releases → Create new release
-  # 3. Прикрепить файлы
-  #
-  # Для автоматических релизов использовать теги с префиксом:
-  #   git tag host-v0.1.0 && git push --tags
