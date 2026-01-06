@@ -1,21 +1,34 @@
 /*
  * ЧТО: Точка входа главного процесса Electron (main process).
- * ЗАЧЕМ: Создаёт окно приложения, управляет жизненным циклом, обрабатывает IPC.
+ * ЗАЧЕМ: Создаёт tray-приложение (Menu Bar на macOS, System Tray на Windows).
  * КТО ИСПОЛЬЗУЕТ: Electron при запуске приложения.
  *
- * ФУНКЦИИ:
- * - createWindow(): создаёт BrowserWindow с preload-скриптом
- * - app.whenReady(): инициализация после готовности Electron
- * - IPC: пока только тестовый ping/pong
+ * АРХИТЕКТУРА:
+ * - Приложение живёт в трее, окно показывается по клику
+ * - Закрытие окна скрывает его, а не завершает приложение
+ * - Поддержка автозапуска при старте системы
  */
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
-function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+
+// Пути к иконкам tray
+const getTrayIcon = (): string => {
+  if (process.platform === 'darwin') {
+    // macOS: Template иконка (автоматически адаптируется под тему)
+    return join(__dirname, '../../resources/trayTemplate.png')
+  } else {
+    // Windows/Linux
+    return join(__dirname, '../../resources/tray.ico')
+  }
+}
+
+function createWindow(): BrowserWindow {
+  const window = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -27,58 +40,137 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  // Закрытие окна скрывает его вместо завершения приложения
+  window.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault()
+      window.hide()
+      // На macOS скрываем иконку в Dock когда окно скрыто
+      if (process.platform === 'darwin') {
+        app.dock?.hide()
+      }
+    }
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  window.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  // HMR for renderer based on electron-vite cli
+  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
+    window.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    window.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return window
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+function showWindow(): void {
+  if (!mainWindow) {
+    mainWindow = createWindow()
+  }
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+  // На macOS показываем иконку в Dock когда окно видимо
+  if (process.platform === 'darwin') {
+    app.dock?.show()
+  }
+
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function createTray(): void {
+  const trayIconPath = getTrayIcon()
+  const trayIcon = nativeImage.createFromPath(trayIconPath)
+
+  // Для macOS делаем иконку Template (автоадаптация под тему)
+  if (process.platform === 'darwin') {
+    trayIcon.setTemplateImage(true)
+  }
+
+  tray = new Tray(trayIcon)
+  tray.setToolTip('Duet')
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Открыть Duet',
+      click: showWindow
+    },
+    { type: 'separator' },
+    {
+      label: 'Запускать при старте',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      click: (menuItem): void => {
+        app.setLoginItemSettings({
+          openAtLogin: menuItem.checked,
+          // macOS: скрывать окно при автозапуске
+          openAsHidden: true
+        })
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Выйти',
+      click: (): void => {
+        isQuitting = true
+        app.quit()
+      }
+    }
+  ])
+
+  tray.setContextMenu(contextMenu)
+
+  // Клик по иконке показывает окно (на Windows и Linux)
+  // На macOS правый клик показывает меню, левый - показывает окно
+  tray.on('click', () => {
+    showWindow()
   })
+}
 
-  // IPC test
+app.whenReady().then(() => {
+  // Windows: устанавливаем App User Model ID для правильной группировки в taskbar
+  app.setAppUserModelId('org.ve68.duet')
+
+  // В production отключаем Cmd/Ctrl+R для перезагрузки
+  if (app.isPackaged) {
+    app.on('browser-window-created', (_, window) => {
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.control && input.key.toLowerCase() === 'r') {
+          event.preventDefault()
+        }
+        if (input.meta && input.key.toLowerCase() === 'r') {
+          event.preventDefault()
+        }
+      })
+    })
+  }
+
+  // IPC handlers
   ipcMain.on('ping', () => console.log('pong'))
 
-  createWindow()
+  // Создаём tray и окно
+  createTray()
+  mainWindow = createWindow()
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  // На macOS скрываем Dock иконку по умолчанию (живём в Menu Bar)
+  if (process.platform === 'darwin') {
+    app.dock?.hide()
+  }
+
+  app.on('activate', () => {
+    showWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// Не завершаем приложение при закрытии всех окон — живём в трее
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Ничего не делаем — приложение продолжает работать в трее
 })
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+// Обработка перед выходом
+app.on('before-quit', () => {
+  isQuitting = true
+})
