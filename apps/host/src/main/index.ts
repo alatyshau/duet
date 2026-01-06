@@ -16,14 +16,24 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
+// Путь к ресурсам (разный для dev и production)
+const getResourcePath = (relativePath: string): string => {
+  if (app.isPackaged) {
+    // В production: ресурсы в app.asar.unpacked (см. asarUnpack в electron-builder.yml)
+    return join(process.resourcesPath, 'app.asar.unpacked', relativePath)
+  }
+  // В dev: относительно out/main/
+  return join(__dirname, '../../', relativePath)
+}
+
 // Пути к иконкам tray
 const getTrayIcon = (): string => {
   if (process.platform === 'darwin') {
     // macOS: Template иконка (автоматически адаптируется под тему)
-    return join(__dirname, '../../resources/trayTemplate.png')
+    return getResourcePath('resources/trayTemplate.png')
   } else {
     // Windows/Linux
-    return join(__dirname, '../../resources/tray.ico')
+    return getResourcePath('resources/tray.ico')
   }
 }
 

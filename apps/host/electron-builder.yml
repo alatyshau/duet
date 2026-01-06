@@ -27,11 +27,15 @@ asarUnpack:
   - resources/**
 win:
   executableName: Duet
+  icon: build/icon.ico         # Иконка для .exe и ярлыков
 nsis:
   artifactName: ${productName}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  oneClick: false              # Показать мастер установки (не silent)
+  allowToChangeInstallationDirectory: true  # Позволить выбрать папку
+  runAfterFinish: true         # Предложить запустить после установки
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
