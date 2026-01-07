@@ -143,8 +143,8 @@ let isFirstRun = false
  */
 const getResourcePath = (relativePath: string): string => {
   if (app.isPackaged) {
-    // В production: ресурсы в app.asar.unpacked (см. asarUnpack в electron-builder.yml)
-    return join(process.resourcesPath, 'app.asar.unpacked', relativePath)
+    // В production: ресурсы копируются в process.resourcesPath через extraResources
+    return join(process.resourcesPath, relativePath)
   }
   // В dev: относительно out/main/
   return join(__dirname, '../../', relativePath)
@@ -208,7 +208,7 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false
     }
   })

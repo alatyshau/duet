@@ -14,8 +14,14 @@ function App(): React.JSX.Element {
 
   // При загрузке получаем AppState и подписываемся на изменения
   useEffect(() => {
+    // Проверяем что preload загрузился
+    if (!window.api) {
+      console.error('window.api не определён — preload не загрузился')
+      return
+    }
+
     // Получаем начальное состояние
-    window.api.getAppState().then(setAppState)
+    window.api.getAppState().then(setAppState).catch(console.error)
 
     // Подписываемся на изменения
     const unsubscribe = window.api.onAppStateChanged(setAppState)
@@ -44,6 +50,15 @@ function App(): React.JSX.Element {
 
   // Определяем готовность
   const isReady = appState?.status === 'ready'
+
+  // Если preload не загрузился — показываем ошибку
+  if (!window.api) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-red-500">Ошибка: preload не загрузился</div>
+      </div>
+    )
+  }
 
   // Если ещё загружается - показываем пустой экран
   if (!appState) {
