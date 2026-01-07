@@ -14,147 +14,240 @@
 - Показ/скрытие окна по клику
 - Автозапуск при старте системы
 - Сборка под macOS, Windows, Linux (DMG, EXE, AppImage)
+- GitHub Actions CI/CD
+- SQLite (better-sqlite3) готов к использованию
+- **UI дизайн-система**: Tailwind CSS v4 + shadcn/ui
+- **Шаг 1 (завершён)**: Выбор папки DuetData с проверкой
 
 **Не готово:**
-- UI приложения (сейчас заглушка electron-vite)
-- Интеграция с Google Drive
-- MCP сервер
+- Tray иконки warning/syncing (пока используется одна иконка)
+- Интеграция с rclone
 - Синхронизация данных
 
 ---
 
-## Фаза 1: Базовый UI
+## Шаг 1: Выбор папки DuetData ✅
 
-### 1.1 Дизайн-система
-- [ ] Выбрать UI-фреймворк (Tailwind CSS / Radix UI / shadcn/ui)
-- [ ] Определить цветовую палитру (поддержка light/dark theme)
-- [ ] Создать базовые компоненты: Button, Input, Card, Modal
+### Задачи
+- [x] UI: экран первого запуска (onboarding) — `SetupPage.tsx`
+- [x] Выбор папки через native dialog (`dialog.showOpenDialog`)
+- [x] Сохранение пути в конфиг: `~/.org.ve68.duet/config.json`
+- [x] Проверка папки при каждом запуске (существует ли?)
+- [x] Если папка не найдена — показать страницу Установка с warning
+- [x] AppState архитектура: main process владеет состоянием
+- [x] UI дизайн-система:
+  - [x] Tailwind CSS v4 + shadcn/ui
+  - [x] Стиль Google Drive (светлая тема, мягкие тени)
+  - [x] Sidebar: Логотип, Открыть DuetData, Синхронизация, Настройки, Установка
+  - [x] SetupPage: чеклист с состоянием папки
+- [x] Кнопка "Открыть в Finder" — `shell.openPath()`
+- [x] Молчаливый старт: при status=ready → только tray, без окна
 
-### 1.2 Главное окно
-- [ ] Заменить заглушку на реальный UI
-- [ ] Навигация: боковая панель с секциями
-- [ ] Секция "Статус" — текущее состояние синхронизации
-- [ ] Секция "Настройки"
+### Архитектура
 
-### 1.3 Popover окно (опционально)
-- [ ] Альтернатива: маленькое окно прямо под tray-иконкой
-- [ ] Quick actions: быстрое добавление задачи, заметки
+```
+~/.org.ve68.duet/
+└── config.json    ← { "duetDataPath": "/path/to/DuetData" }
+```
+
+**AppState (main process):**
+```typescript
+type AppStatus = 'no_config' | 'path_lost' | 'ready'
+interface AppState {
+  status: AppStatus
+  duetDataPath: string | null
+  pathExists: boolean
+}
+```
+
+### Реализованные файлы
+- `src/main/index.ts` — AppState, IPC handlers, tray логика
+- `src/preload/index.ts` — Duet API (getAppState, onAppStateChanged, etc.)
+- `src/preload/index.d.ts` — TypeScript типы для window.api
+- `src/renderer/src/App.tsx` — подписка на AppState
+- `src/renderer/src/pages/SetupPage.tsx` — чеклист установки
+- `src/renderer/src/components/layout/Sidebar.tsx` — навигация
+- `src/renderer/src/components/layout/Layout.tsx` — обёртка
+- `src/renderer/src/assets/main.css` — Tailwind v4 + тема
+
+### Интеграция с VS Code
+- [x] **Решено**: Глобальный конфиг `~/.org.ve68.duet/config.json`
+- VS Code расширение читает тот же файл для получения пути к DuetData
+
+### Deliverable
+Пользователь может выбрать папку DuetData, приложение проверяет её при каждом запуске.
 
 ---
 
-## Фаза 2: Интеграция с Google Drive
+## Шаг 2: Установка rclone
 
-### 2.1 Авторизация
-- [ ] OAuth 2.0 flow для Google Drive API
-- [ ] Безопасное хранение токенов (electron-keytar или safeStorage)
-- [ ] Выбор папки для синхронизации
+### Задачи
+- [ ] Проверка наличия rclone в PATH (`which rclone` / `where rclone`)
+- [ ] UI: страница "Настройка синхронизации"
+- [ ] Инструкции по установке для каждой платформы:
+  - **macOS**: `brew install rclone`
+  - **Windows**: `winget install Rclone.Rclone` или скачать с сайта
+  - **Linux**: `sudo apt install rclone` / snap / etc.
+- [ ] Кнопка "Проверить установку"
+- [ ] Статус: установлен / не установлен
 
-### 2.2 Файловая структура
-- [ ] Определить структуру Duet Data в Google Drive:
+### Deliverable
+Пользователь видит инструкции, устанавливает rclone, приложение подтверждает установку.
+
+---
+
+## Шаг 3: Конфигурация rclone и авторизация
+
+### Задачи
+- [ ] Запуск `rclone config` в embedded terminal или через UI-wizard
+- [ ] OAuth flow для Google Drive / Dropbox
+- [ ] Безопасное хранение конфига rclone (`~/.config/rclone/rclone.conf`)
+- [ ] UI: список подключённых облачных хранилищ
+- [ ] Выбор корневых папок для синхронизации
+
+### UI страницы
+- [ ] Список remote'ов (Google Drive, Dropbox, etc.)
+- [ ] Кнопка "Добавить хранилище"
+- [ ] Для каждого remote — список папок с чекбоксами
+
+### Deliverable
+Пользователь авторизован в Google Drive/Dropbox, выбраны папки для синхронизации.
+
+---
+
+## Шаг 4: Синхронизация: облако → локально
+
+### Задачи
+- [ ] Команда `rclone sync remote:path local:path`
+- [ ] Progress UI: прогресс-бар, текущий файл, скорость
+- [ ] Фоновая синхронизация (child process)
+- [ ] Логирование операций в SQLite
+- [ ] Расписание: sync при запуске + периодически (настраиваемо)
+
+### Обработка ошибок
+- [ ] Нет интернета — показать статус, retry
+- [ ] Файл занят — skip и показать в логах
+- [ ] Превышение квоты — уведомление
+
+### Deliverable
+Файлы из облака скачиваются в локальную папку DuetData.
+
+---
+
+## Шаг 5: Синхронизация: локально → облако
+
+### Задачи
+- [ ] File watcher (chokidar) для отслеживания изменений
+- [ ] Debounce: не загружать сразу, ждать паузу в редактировании
+- [ ] Очередь загрузки (upload queue)
+- [ ] Команда `rclone copy local:file remote:path`
+- [ ] Важно: ещё поддержку исключений сделать правильно
+
+### Конфликт-резолюшен
+- [ ] Проверка: файл изменён в облаке пока мы его редактировали?
+- [ ] Стратегии:
+  - Last-write-wins (по умолчанию)
+  - Создать `.conflict` копию
+  - Спросить пользователя
+- [ ] Блокировка: не скачивать пока идёт загрузка того же файла
+
+### Lock-механизм
+- [ ] Глобальный lock на время операций
+- [ ] Или per-file locks в SQLite
+
+### Deliverable
+Локальные изменения автоматически загружаются в облако без конфликтов.
+
+---
+
+## Шаг 6: Индекс Дел
+
+### Задачи
+- [ ] Сканирование папок DuetData
+- [ ] Парсинг структуры по GPD-онтологии:
   ```
-  Duet/
-  ├── .duet/           ← метаданные, индексы
-  ├── Дела/            ← GPD-онтология
-  ├── Знания/          ← заметки, документы
-  └── Задачи/          ← todo-листы
+  DuetData/
+  ├── Предприятия/
+  │   └── CompanyName/
+  │       └── Дела/
+  │           └── ProjectName/
+  │               └── .deal.yaml  ← метаданные дела
   ```
-- [ ] Парсеры для MD, CSV, YAML файлов
+- [ ] Индекс в SQLite: id, path, name, type, metadata
+- [ ] Обновление индекса при изменении файлов (file watcher)
+- [ ] важно ещё при первом сканировании выявить папки типа node_modules или dist которые есть в google drive — и скачав их, предложить пользователю их удалить на google drive
 
-### 2.3 Синхронизация
-- [ ] Watch mode: отслеживание изменений в Google Drive
-- [ ] Локальный кэш для офлайн-работы
-- [ ] Конфликт-резолюшен (last-write-wins / manual merge)
+### API для VS Code
+- [ ] IPC endpoint: `getDealsList()` → список дел
+- [ ] IPC endpoint: `getDealDetails(id)` → метаданные дела
+- [ ] WebSocket или named pipe для real-time updates
 
----
-
-## Фаза 3: Индексация и поиск
-
-### 3.1 Локальный индекс
-- [ ] SQLite / LevelDB для хранения индекса
-- [ ] Full-text search по контенту файлов
-- [ ] Metadata индекс: теги, даты, связи
-
-### 3.2 UI поиска
-- [ ] Cmd/Ctrl+K — глобальный поиск
-- [ ] Фильтры: тип файла, дата, теги
-- [ ] Preview результатов
+### Deliverable
+SQLite содержит актуальный индекс всех Дел, доступный для VS Code.
 
 ---
 
-## Фаза 4: MCP интеграция
+## Шаг 7: VS Code расширение
 
-### 4.1 MCP Server
+### Задачи
+- [ ] Создать `apps/vscode` workspace
+- [ ] Sidebar: Tree View с деревом Дел (как Project Manager)
+- [ ] Команды:
+  - Открыть дело (переключить workspace)
+  - Создать новое дело
+  - Обновить список
+- [ ] Статус бар: текущее дело, статус синхронизации
+
+### Интеграция с Host
+- [ ] Подключение к Host через IPC/WebSocket
+- [ ] Получение списка дел из индекса
+- [ ] Получение статуса синхронизации
+
+### Deliverable
+VS Code расширение с боковой панелью списка Дел.
+
+---
+
+## Бэклог (после основных шагов)
+
+### UI/UX
+- [x] Дизайн-система (Tailwind CSS v4 + shadcn/ui) — реализовано
+- [ ] Темная тема (светлая уже есть)
+- [ ] Popover окно под tray-иконкой
+
+### MCP интеграция
 - [ ] Вынести в `packages/mcp-server`
-- [ ] Tools для LLM:
-  - `search_notes` — поиск по заметкам
-  - `create_task` — создание задачи
-  - `get_context` — получение контекста по теме
-  - `update_file` — редактирование файла
+- [ ] Tools: `search_notes`, `create_task`, `get_context`
+- [ ] Запуск MCP как child process
 
-### 4.2 Запуск MCP
-- [ ] Host запускает MCP сервер как child process
-- [ ] Конфигурация для Claude Desktop / Cursor / VS Code
+### Поиск
+- [ ] Full-text search по файлам
+- [ ] Cmd/Ctrl+K глобальный поиск
+- [ ] Фильтры: тип, дата, теги
 
----
+### Уведомления
+- [ ] Напоминания о задачах
+- [ ] Daily digest
 
-## Фаза 5: VS Code расширение
-
-### 5.1 Базовое расширение
-- [ ] Sidebar с деревом файлов из Duet Data
-- [ ] Quick pick для поиска
-- [ ] Команды: открыть заметку, создать задачу
-
-### 5.2 Интеграция с Host
-- [ ] IPC между VS Code extension и Host
-- [ ] Общий индекс (не дублировать)
-
----
-
-## Фаза 6: Продвинутые фичи
-
-### 6.1 Умные уведомления
-- [ ] Напоминания о задачах (native notifications)
-- [ ] Daily digest: что сделано, что впереди
-
-### 6.2 Widgets (macOS)
-- [ ] WidgetKit интеграция для Today View
-- [ ] Показ ближайших задач / заметок
-
-### 6.3 Автоматизация
-- [ ] URL schemes: `duet://open/path/to/file`
-- [ ] AppleScript / Shortcuts интеграция
-- [ ] Hotkeys для быстрых действий
-
----
-
-## Технический долг / Инфраструктура
-
-### Тестирование
-- [ ] Unit-тесты для core логики (Vitest)
-- [ ] E2E тесты для Electron (Playwright)
-- [ ] CI/CD: GitHub Actions для сборки
-
-### Качество кода
-- [ ] Stricter TypeScript (strict mode)
-- [ ] Линтинг и форматирование уже настроены
-- [ ] Документация API
+### Автоматизация
+- [ ] URL schemes: `duet://open/path`
+- [ ] Shortcuts интеграция (macOS)
 
 ### Безопасность
-- [ ] Code signing для macOS (Apple Developer ID)
-- [ ] Code signing для Windows (EV certificate)
-- [ ] Auto-updater (electron-updater)
+- [ ] Code signing (Apple Developer ID, EV cert)
+- [ ] Auto-updater
 
 ---
 
-## Приоритеты (рекомендация)
+## Технический стек
 
-**MVP (первый релиз):**
-1. Фаза 1.2 — Реальный UI вместо заглушки
-2. Фаза 2.1 — Google Drive авторизация
-3. Фаза 2.2 — Базовая файловая структура
-4. Фаза 3.1 — Локальный индекс
-
-**После MVP:**
-- MCP интеграция (Фаза 4)
-- VS Code расширение (Фаза 5)
-- Продвинутые фичи по мере необходимости
+| Компонент | Технология |
+|-----------|------------|
+| Desktop app | Electron + React + TypeScript |
+| Сборка | electron-vite + electron-builder |
+| UI | Tailwind CSS v4 + shadcn/ui |
+| База данных | SQLite (better-sqlite3) |
+| Синхронизация | rclone (external) |
+| File watching | chokidar |
+| VS Code ext | VS Code Extension API |
+| CI/CD | GitHub Actions |

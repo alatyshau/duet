@@ -5,13 +5,46 @@
  *
  * ЭКСПОРТЫ:
  * - window.electron: стандартный electronAPI из @electron-toolkit/preload
- * - window.api: кастомные API (пока пустой объект)
+ * - window.api: кастомные API для Duet
  */
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
+// Типы для AppState (должны совпадать с main/index.ts)
+type AppStatus = 'no_config' | 'path_lost' | 'ready'
+
+interface AppState {
+  status: AppStatus
+  duetDataPath: string | null
+  pathExists: boolean
+}
+
 // Custom APIs for renderer
-const api = {}
+const api = {
+  // Получить текущий AppState
+  getAppState: (): Promise<AppState> => ipcRenderer.invoke('app:get-state'),
+
+  // Подписка на изменения AppState
+  onAppStateChanged: (callback: (state: AppState) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: AppState): void => {
+      callback(state)
+    }
+    ipcRenderer.on('app-state-changed', handler)
+    // Возвращаем функцию отписки
+    return () => {
+      ipcRenderer.removeListener('app-state-changed', handler)
+    }
+  },
+
+  // Выбор папки через диалог
+  selectFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-folder'),
+
+  // Сохранить путь к DuetData
+  setDuetPath: (path: string): Promise<AppState> => ipcRenderer.invoke('config:set-duet-path', path),
+
+  // Открыть папку в Finder/Explorer
+  openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:open-path', path)
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

@@ -11,6 +11,7 @@
 | Поле | Описание |
 |------|----------|
 | `name` | Имя пакета: `duet-host` (без `@` — иначе ломает пути на Windows) |
+| `type` | `"module"` — используем ES modules (import/export вместо require) |
 | `main` | Точка входа для Electron: `./out/main/index.js` |
 | `scripts` | Команды npm (см. ниже) |
 
@@ -48,13 +49,31 @@ Electron использует свою версию Node.js, поэтому на
 ## Dependencies
 
 **Runtime** (`dependencies`):
-- `@electron-toolkit/preload`, `@electron-toolkit/utils` — утилиты для Electron
-- `better-sqlite3` — SQLite база данных (нативный модуль)
+
+| Пакет | Описание |
+|-------|----------|
+| `@electron-toolkit/preload` | Утилиты для preload-скриптов |
+| `@electron-toolkit/utils` | Общие утилиты Electron |
+| `better-sqlite3` | SQLite база данных (нативный модуль) |
+| `@radix-ui/react-slot` | Примитив для shadcn/ui компонентов |
+| `class-variance-authority` | Утилита для вариантов CSS классов (shadcn/ui) |
+| `clsx` | Условное объединение CSS классов |
+| `tailwind-merge` | Умное слияние Tailwind классов без конфликтов |
+| `lucide-react` | Иконки (замена Heroicons/Feather) |
 
 **Dev** (`devDependencies`):
-- `electron`, `electron-builder`, `electron-vite` — Electron toolchain
-- `@electron/rebuild` — пересборка нативных модулей под Electron
-- `react`, `react-dom` — UI фреймворк
-- `typescript`, `vite` — сборка
-- `eslint`, `prettier` — линтинг/форматирование
-- `@electron-toolkit/*` — конфиги ESLint/TypeScript для Electron
+
+| Пакет | Описание |
+|-------|----------|
+| `electron` | Electron runtime |
+| `electron-builder` | Сборка дистрибутивов (DMG, EXE, AppImage) |
+| `electron-vite` | Сборка с Vite для Electron |
+| `@electron/rebuild` | Пересборка нативных модулей |
+| `react`, `react-dom` | UI фреймворк |
+| `typescript`, `vite` | Сборка и типизация |
+| `tailwindcss` | CSS фреймворк (v4) |
+| `@tailwindcss/postcss` | PostCSS плагин для Tailwind v4 |
+| `postcss`, `autoprefixer` | CSS процессинг |
+| `eslint`, `prettier` | Линтинг и форматирование |
+| `@electron-toolkit/*` | ESLint/TypeScript конфиги для Electron |
+| `@types/*` | TypeScript типы |
