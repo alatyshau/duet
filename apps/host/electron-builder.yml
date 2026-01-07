@@ -37,6 +37,9 @@ nsis:
   allowToChangeInstallationDirectory: true  # Позволить выбрать папку
   runAfterFinish: true         # Предложить запустить после установки
 mac:
+  # identity: null пропускает code signing (для CI без сертификата)
+  # При наличии Apple Developer ID — удалить эту строку
+  identity: null
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
