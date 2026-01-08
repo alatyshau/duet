@@ -1,32 +1,61 @@
 /*
  * ЧТО: Конфигурация сборки electron-vite для Electron приложения.
- * ЗАЧЕМ: Настраивает Vite для трёх процессов: main, preload, renderer.
+ * ЗАЧЕМ: Настраивает Vite для трёх процессов Electron-архитектуры.
  * КТО ИСПОЛЬЗУЕТ: electron-vite при `npm run dev` и `npm run build`.
  *
- * СЕКЦИИ:
- * - main: настройки для главного процесса Electron (Node.js)
- * - preload: настройки для preload-скриптов (мост main↔renderer)
- * - renderer: настройки для UI (React + Vite), включая алиасы путей
+ * АРХИТЕКТУРА ELECTRON (для новичков):
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  MAIN PROCESS (Node.js)                                     │
+ * │  - Точка входа приложения (src/main/index.ts)              │
+ * │  - Полный доступ к ОС: файлы, сеть, системный трей         │
+ * │  - Создаёт окна (BrowserWindow)                            │
+ * └─────────────────────────────────────────────────────────────┘
+ *          │ IPC (межпроцессное общение)
+ *          ▼
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  PRELOAD SCRIPT (мост)                                      │
+ * │  - Выполняется ДО загрузки страницы в окне                 │
+ * │  - Ограниченный доступ к Node.js API                       │
+ * │  - Безопасно "пробрасывает" функции в renderer             │
+ * └─────────────────────────────────────────────────────────────┘
+ *          │ contextBridge.exposeInMainWorld()
+ *          ▼
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  RENDERER PROCESS (браузер)                                 │
+ * │  - Обычный веб: HTML, CSS, JS (React в нашем случае)       │
+ * │  - НЕТ доступа к Node.js (безопасность!)                   │
+ * │  - Общается с main через preload-функции                   │
+ * └─────────────────────────────────────────────────────────────┘
+ *
+ * ДОКУМЕНТАЦИЯ: https://electron-vite.org/config/
  */
 import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  // Main process — пустой объект = настройки по умолчанию (достаточно для большинства случаев)
   main: {},
+
+  // Preload — особые требования к формату модулей
   preload: {
     build: {
       rollupOptions: {
         output: {
-          // Windows требует CommonJS для preload скриптов
+          // CommonJS (require/module.exports) вместо ESM (import/export).
+          // Windows Electron требует CJS для preload. Без этого — белый экран.
           format: 'cjs'
         }
       }
     }
   },
+
+  // Renderer — обычное Vite-приложение (React)
   renderer: {
     resolve: {
       alias: {
+        // @renderer/components → src/renderer/src/components
+        // Позволяет писать короткие импорты вместо длинных относительных путей
         '@renderer': resolve('src/renderer/src')
       }
     },

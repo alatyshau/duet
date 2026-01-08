@@ -1,12 +1,30 @@
 /*
- * ЧТО: Конфигурация ESLint для линтинга кода.
- * ЗАЧЕМ: Проверяет код на ошибки и стилистические проблемы.
+ * ЧТО: Конфигурация ESLint — статического анализатора кода.
+ * ЗАЧЕМ: Находит баги и плохие практики ДО запуска кода. Ошибки подсвечиваются в IDE.
  * КТО ИСПОЛЬЗУЕТ: ESLint при `npm run lint`, IDE в реальном времени.
  *
- * ПРАВИЛА:
- * - Базовые: @electron-toolkit/eslint-config-ts (TypeScript)
- * - React: eslint-plugin-react + react-hooks + react-refresh
- * - Prettier: отключает конфликтующие правила форматирования
+ * ИСПОЛЬЗУЕМЫЕ ПЛАГИНЫ:
+ *
+ * @electron-toolkit/eslint-config-ts
+ *   - Правила для TypeScript: неиспользуемые переменные, any-типы, и т.д.
+ *
+ * eslint-plugin-react
+ *   - Правила для React: корректность JSX, пропсы, key в списках
+ *   - jsx-runtime — разрешает JSX без import React (React 17+)
+ *
+ * eslint-plugin-react-hooks
+ *   - Проверяет правила хуков: нельзя вызывать условно, зависимости useEffect
+ *   - Предотвращает баги с замыканиями и бесконечными ререндерами
+ *
+ * eslint-plugin-react-refresh
+ *   - Правила для Vite HMR: компоненты должны быть экспортированы правильно
+ *   - Без этого Hot Module Replacement может не работать
+ *
+ * @electron-toolkit/eslint-config-prettier
+ *   - Отключает правила ESLint, конфликтующие с Prettier
+ *   - Prettier занимается форматированием, ESLint — логикой
+ *
+ * ДОКУМЕНТАЦИЯ: https://eslint.org/docs/latest/use/configure/
  */
 import { defineConfig } from 'eslint/config'
 import tseslint from '@electron-toolkit/eslint-config-ts'

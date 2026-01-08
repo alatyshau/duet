@@ -1,3 +1,14 @@
+/*
+ * ЧТО: Legacy CSS из шаблона electron-vite (тёмная тема).
+ * ЗАЧЕМ: Базовые CSS-сбросы и переменные от генератора проекта.
+ * КТО ИСПОЛЬЗУЕТ: index.html подключает через main.css → base.css.
+ *
+ * СТАТУС: Частично устарел — основные стили теперь в main.css (Tailwind v4).
+ *         CSS-переменные --ev-* не используются; --color-* переопределены в main.css.
+ *         Сохранён для CSS-сбросов (box-sizing, margin, list-style).
+ *
+ * TODO: Вынести нужные сбросы в main.css и удалить этот файл.
+ */
 :root {
   --ev-c-white: #ffffff;
   --ev-c-white-soft: #f8f8f8;

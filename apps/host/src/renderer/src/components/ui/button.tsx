@@ -1,3 +1,11 @@
+/*
+ * ЧТО: Переиспользуемый компонент кнопки (shadcn/ui).
+ * ЗАЧЕМ: Обеспечивает консистентные стили кнопок с вариантами (default, outline, ghost и др.).
+ * КТО ИСПОЛЬЗУЕТ: Все UI-компоненты, требующие кнопки.
+ *
+ * ИСТОЧНИК: https://ui.shadcn.com/docs/components/button
+ * КАСТОМИЗАЦИЯ: Стили через buttonVariants (CVA), цвета — через CSS-переменные в main.css.
+ */
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"

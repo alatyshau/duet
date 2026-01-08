@@ -18,7 +18,7 @@ Duet/
 ├── .gitignore           # Список файлов/папок, которые Git игнорирует.
 ├── CLAUDE.md            # CLAUDE.md — Инструкции для AI-ассистентов
 ├── LICENSE
-├── package-lock.json    # [MISSING DOCS!]
+├── package-lock.json    # Точный снимок (lockfile) всех установленных npm-зависимостей.
 ├── package.json         # Корневой манифест монорепо Duet.
 ├── README.md
 ├── section.json         # Мета-данные корневой секции
@@ -44,9 +44,13 @@ Duet/
 │
 ├── scripts/                   # Скрипты автоматизации
 │   ├── ai_doc_updater.py      # Скрипт генерации карты репозитория (docs/WORKSPACE_MAP.md).
-│   └── ai_git_updater.py      # Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md).
+│   ├── ai_git_updater.py      # Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md).
+│   │
+│   └── __pycache__/                         # [MISSING DOCS!]
+│       ├── ai_doc_updater.cpython-39.pyc    # Скрипт генерации карты репозитория (docs/WORKSPACE_MAP.md).
+│       └── ai_git_updater.cpython-39.pyc    # Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md).
 │
-└── theory/**/                 # [РАЗДЕЛ] Теоретическая база
+└── theory/**/                               # [РАЗДЕЛ] Теоретическая база
 ```
 
 ---
@@ -103,18 +107,18 @@ apps/
 
 ```
 host/
-├── .prettierignore            # Список файлов, которые Prettier не форматирует.
-├── .prettierrc.yaml           # Конфигурация Prettier — форматтера кода.
+├── .prettierignore            # Список файлов и папок, которые Prettier НЕ форматирует.
+├── .prettierrc.yaml           # Конфигурация Prettier — автоматического форматтера кода.
 ├── BUILD.md                   # BUILD.md — Инструкции по сборке Duet Host
-├── components.json            # [MISSING DOCS!]
+├── components.json            # Конфигурация CLI-инструмента shadcn/ui для генерации компонентов.
 ├── electron-builder.yml       # Конфигурация electron-builder для сборки и упаковки приложения.
 ├── electron.vite.config.ts    # Конфигурация сборки electron-vite для Electron приложения.
-├── eslint.config.mjs          # Конфигурация ESLint для линтинга кода.
+├── eslint.config.mjs          # Конфигурация ESLint — статического анализатора кода.
 ├── package.json               # Манифест npm-пакета для Duet Host (Electron приложение).
-├── postcss.config.js          # Конфигурация PostCSS.
+├── postcss.config.js          # Конфигурация PostCSS — препроцессора CSS.
 ├── README.md
 ├── section.json               # Мета-данные секции apps/host
-├── tailwind.config.js         # Конфигурация Tailwind CSS v4.
+├── tailwind.config.js         # Конфигурация Tailwind CSS v4 — utility-first CSS-фреймворка.
 ├── tsconfig.json              # Корневой конфиг TypeScript — project references.
 ├── tsconfig.node.json         # TypeScript конфиг для Node.js частей Electron (main + preload).
 ├── tsconfig.web.json          # TypeScript конфиг для браузерной части Electron (renderer).
@@ -122,11 +126,11 @@ host/
 ├── .vscode/                   # Настройки VS Code для проекта
 │   ├── extensions.json        # Рекомендуемые расширения VS Code для проекта.
 │   ├── launch.json            # Конфигурации отладки VS Code для Electron.
-│   └── settings.json          # Настройки VS Code для этого проекта.
+│   └── settings.json          # Настройки VS Code для проекта apps/host (Electron-приложение).
 │
 ├── build/                        # Иконки и ресурсы для сборщика (electron-builder)
-│   ├── entitlements.mac.plist    # [MISSING DOCS!]
-│   ├── icon.icns                 # [MISSING DOCS!]
+│   ├── entitlements.mac.plist    # Файл разрешений (entitlements) для подписи macOS-приложения.
+│   ├── icon.icns
 │   ├── icon.ico
 │   └── icon.png
 │
@@ -156,7 +160,7 @@ host/
     │   └── index.ts              # Preload-скрипт — мост между main и renderer процессами.
     │
     └── renderer/                 # UI (React + Vite)
-        ├── index.html            # [MISSING DOCS!]
+        ├── index.html            # HTML-шаблон для renderer process (React UI).
         │
         └── src/                  # Исходники UI
             ├── App.tsx           # Корневой React-компонент приложения.
@@ -164,7 +168,7 @@ host/
             ├── main.tsx          # Точка входа React-приложения (renderer process).
             │
             ├── assets/           # CSS стили и статические ресурсы
-            │   ├── base.css      # [MISSING DOCS!]
+            │   ├── base.css      # Legacy CSS из шаблона electron-vite (тёмная тема).
             │   ├── electron.svg
             │   ├── main.css      # Главный CSS файл приложения.
             │   └── wavy-lines.svg
@@ -177,7 +181,7 @@ host/
             │   │   └── Sidebar.tsx    # Компонент боковой панели навигации.
             │   │
             │   └── ui/                # UI-примитивы (shadcn/ui)
-            │       └── button.tsx     # [MISSING DOCS!]
+            │       └── button.tsx     # Переиспользуемый компонент кнопки (shadcn/ui).
             │
             ├── lib/                   # Утилиты и хелперы
             │   └── utils.ts           # Утилиты для работы с CSS классами.
@@ -195,7 +199,7 @@ host/
 ```
 ai-instructions/
 ├── AI_INSTRUCTIONS.md    # AI_INSTRUCTIONS.md: Операционная Конституция (Operational Constitution)
-├── Methodology.md        # Methodology
+├── Methodology.md        # Методология развития протоколов Duet
 ├── Playbook.md           # Duet Playbook (Боевой Устав)
 ├── README.md
 ├── section.json          # Мета-данные для ai-instructions
@@ -241,18 +245,18 @@ docs/
 drafts/
 ├── 260107_windows-error.jpg
 ├── host-roadmap.md      # Duet Host — План разработки
-├── principal_chat.md    # [MISSING DOCS!]
-├── README.txt           # [MISSING DOCS!]
+├── principal_chat.md    # Обсуждение системы ролей AI-агентов
+├── README.txt           # Папка черновиков — хранилище незавершённых идей и экспортированных чатов с AI.
 ├── section.json         # Мета-данные секции drafts
 │
 └── ai-instructions/                                  # Черновики по AI-инструкциям (режимы, протоколы)
-    ├── AI_MODES_DRAFT.md                             # AI_MODES_DRAFT.md: Концепция Режимов (State Machine)
-    ├── Gemini-VS Code, AI и антихрупкие знания.md    # VS Code, AI и антихрупкие знания
-    ├── Task_Plan.md                                  # Task Plan
+    ├── AI_MODES_DRAFT.md                             # Концепция режимов работы AI (State Machine)
+    ├── Gemini-VS Code, AI и антихрупкие знания.md    # Философия Local-First: VS Code, AI и антихрупкие знания
+    ├── Task_Plan.md                                  # Task Plan (Архивная версия)
     ├── Варианты реструктуризации.md                  # Варианты реструктуризации AI_INSTRUCTIONS.md
-    ├── Переделка на режимы работы.md                 # Переделка на режимы работы
+    ├── Переделка на режимы работы.md                 # Проектирование трёхрежимной архитектуры AI (ДИАЛОГ / ПЛАНИРОВАНИЕ / ВЫПОЛНЕНИЕ)
     ├── Протокол Навигационного Маяка.md              # Протокол Навигационного Маяка (Navigation Beacon Protocol)
-    └── Режим Дуэта.md                                # [MISSING DOCS!]
+    └── Режим Дуэта.md                                # Калибровка "Архитектуры Личности" AI
 ```
 
 ---

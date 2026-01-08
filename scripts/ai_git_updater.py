@@ -11,15 +11,16 @@ import json
 from pathlib import Path
 from typing import List, Set, Tuple, Dict
 
-# Config
+# Конфигурация
 ROOT_DIR = Path(__file__).parent.parent.absolute()
 OUTPUT_FILE = ROOT_DIR / ".ai" / "GIT_HISTORY.md"
 MAX_COMMITS = 5
 
 def run_git(args: List[str]) -> str:
+    """Выполняет git-команду и возвращает stdout."""
     try:
         result = subprocess.run(
-            ["git"] + args,
+            ["git", "-c", "core.quotepath=false"] + args,
             cwd=ROOT_DIR,
             capture_output=True,
             text=True,
@@ -27,18 +28,18 @@ def run_git(args: List[str]) -> str:
         )
         return result.stdout.rstrip()
     except subprocess.CalledProcessError as e:
-        # Don't print error if it's just empty diff or invalid range (handled later)
+        # Не выводим ошибку для пустого diff или невалидного range (обрабатывается позже)
         return ""
 
 def get_uncommitted_files() -> List[str]:
     """
-    Get list of files that are modified or added (staged or unstaged).
-    Ignores deleted files.
-    Uses git ls-files for untracked to get individual files (not directories).
+    Возвращает список файлов, которые изменены или добавлены (staged или unstaged).
+    Игнорирует удалённые файлы.
+    Использует git ls-files для untracked (получает файлы, не директории).
     """
     files = set()
 
-    # Source 1: Tracked files that are modified/staged (from status)
+    # Источник 1: Отслеживаемые файлы, которые изменены/staged (из status)
     output = run_git(["status", "--porcelain"])
     for line in output.splitlines():
         if not line: continue
@@ -46,7 +47,7 @@ def get_uncommitted_files() -> List[str]:
         status = line[:2]
         path = line[3:].strip()
 
-        # Skip untracked (handled separately) and deleted
+        # Пропускаем untracked (обрабатываются отдельно) и удалённые
         if status == '??' or 'D' in status:
             continue
 
@@ -55,7 +56,7 @@ def get_uncommitted_files() -> List[str]:
 
         files.add(path)
 
-    # Source 2: Untracked files (recursive, individual files)
+    # Источник 2: Неотслеживаемые файлы (рекурсивно, отдельные файлы)
     untracked = run_git(["ls-files", "--others", "--exclude-standard"])
     for line in untracked.splitlines():
         if line.strip():
@@ -64,9 +65,7 @@ def get_uncommitted_files() -> List[str]:
     return sorted(list(files))
 
 def get_recent_commits(limit: int) -> List[dict]:
-    """
-    Get recent commits with file stats.
-    """
+    """Возвращает последние коммиты со статистикой файлов."""
     cmd = [
         "log", 
         f"-n {limit}", 
@@ -111,49 +110,49 @@ def get_recent_commits(limit: int) -> List[dict]:
     return commits
 
 def get_agent_states() -> List[Dict]:
-    """Scan .ai/ for *_state.json and return deltas (history + uncommitted)."""
+    """Сканирует .ai/ на *_state.json и возвращает дельты (история + uncommitted)."""
     states = []
     ai_dir = ROOT_DIR / ".ai"
     if not ai_dir.exists(): return []
-    
-    # 1. Get current dirty files (they are relevant for everyone)
+
+    # 1. Получаем текущие "грязные" файлы (релевантны для всех)
     uncommitted = set(get_uncommitted_files())
-    
+
     for f in ai_dir.glob("*_state.json"):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             role = data.get("role", f.stem.replace("_state", "").title())
             last_commit = data.get("last_commit", "").strip()
-            
-            # Use set to merge unique files from both sources
+
+            # Используем set для объединения уникальных файлов из обоих источников
             all_changes = set()
-            
-            # Source A: History (Since last_commit)
+
+            # Источник A: История (с last_commit)
             if last_commit:
-                # 1. Verify commit exists (it might be lost due to rebase/squash)
+                # 1. Проверяем существование коммита (мог потеряться из-за rebase/squash)
                 chk = subprocess.run(
-                    ["git", "cat-file", "-e", last_commit], 
-                    cwd=ROOT_DIR, 
+                    ["git", "cat-file", "-e", last_commit],
+                    cwd=ROOT_DIR,
                     capture_output=True
                 )
-                
+
                 if chk.returncode != 0:
                     print(f"⚠️ Commit {last_commit} not found for {role}. Forcing full scan.")
-                    last_commit = None # Treat as new run
+                    last_commit = None  # Считаем как новый запуск
                 else:
-                    # 2. Get changes
+                    # 2. Получаем изменения
                     diff_out = run_git(["diff", "--name-only", f"{last_commit}..HEAD"])
                     if diff_out:
                         for l in diff_out.splitlines():
                             if l.strip():
                                 all_changes.add(l.strip())
-            
-            # Source B: Dirty files (Always relevant)
+
+            # Источник B: "Грязные" файлы (всегда релевантны)
             all_changes.update(uncommitted)
-            
-            # Convert to sorted list
+
+            # Конвертируем в отсортированный список
             final_changes = sorted(list(all_changes))
-            
+
             states.append({
                 "role": role,
                 "last_commit": last_commit,
@@ -162,17 +161,18 @@ def get_agent_states() -> List[Dict]:
             })
         except Exception as e:
             print(f"⚠️ Error reading state {f}: {e}")
-            
+
     return states
 
 def generate_markdown(uncommitted: List[str], commits: List[dict], agent_contexts: List[dict]) -> str:
+    """Генерирует markdown-отчёт о состоянии Git."""
     lines = []
     lines.append("# Git History & Context")
     lines.append("")
     lines.append("> Auto-generated by `scripts/ai_git_updater.py`. Contains strictly Added/Modified files (Deleted files ignored).")
     lines.append("")
-    
-    # Metadata Summary
+
+    # Сводка метаданных
     lines.append("## 📌 Summary")
     
     head_commit = commits[0] if commits else None
@@ -188,8 +188,8 @@ def generate_markdown(uncommitted: List[str], commits: List[dict], agent_context
     lines.append("")
     lines.append("---")
     lines.append("")
-    
-    # NEW: Agent Contexts
+
+    # Контексты агентов
     if agent_contexts:
         lines.append("## 🤖 Agent Interaction Context")
         lines.append("")
@@ -210,7 +210,7 @@ def generate_markdown(uncommitted: List[str], commits: List[dict], agent_context
         lines.append("---")
         lines.append("")
 
-    # 1. Uncommitted
+    # 1. Незакоммиченные изменения
     lines.append("## 🚧 Uncommitted Changes (Dirty State)")
     
     if not uncommitted:
@@ -223,8 +223,8 @@ def generate_markdown(uncommitted: List[str], commits: List[dict], agent_context
     lines.append("")
     lines.append("---")
     lines.append("")
-    
-    # 2. Recent History
+
+    # 2. Недавняя история
     lines.append(f"## 📜 Recent History (Last {len(commits)} Commits)")
     
     for c in commits:

@@ -4,15 +4,21 @@
 # ЗАЧЕМ: Создаёт дистрибутивы для Windows (.exe), macOS (.dmg), Linux (.AppImage).
 # КТО ИСПОЛЬЗУЕТ: electron-builder при `npm run build:mac/win/linux`.
 #
-# СЕКЦИИ:
-# - appId/productName: идентификаторы приложения
-# - files: что включать/исключать из сборки (! = исключить)
-# - win/mac/linux: платформо-специфичные настройки
-# - publish: конфигурация авто-обновлений (пока заглушка)
+# ДОКУМЕНТАЦИЯ: https://www.electron.build/configuration
+#
+# СТРУКТУРА ФАЙЛА:
+# 1. Идентификация приложения (appId, productName)
+# 2. Что включать в сборку (files, extraResources)
+# 3. Платформо-специфичные секции (win, mac, linux)
+# 4. Авто-обновления (publish)
 
+# Уникальный ID приложения в формате reverse-DNS (для ОС и магазинов)
 appId: org.ve68.duet
 productName: Duet
+
 directories:
+  # Папка с ресурсами для сборки: иконки (icon.png, icon.ico, icon.icns),
+  # entitlements для macOS, background для DMG
   buildResources: build
 files:
   - package.json
@@ -23,8 +29,14 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,package-lock.json}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+# ASAR — архивный формат Electron. Весь код упаковывается в один файл app.asar.
+# asarUnpack — файлы, которые нужно ИЗВЛЕЧЬ из архива (для доступа через fs).
+# Tray-иконки должны быть распакованы, иначе Electron не сможет их загрузить.
 asarUnpack:
   - resources/**
+
+# Файлы, копируемые РЯДОМ с приложением (не внутрь app.asar).
+# Используются для ресурсов, к которым нужен доступ из файловой системы.
 extraResources:
   - from: resources/
     to: resources/
@@ -45,8 +57,12 @@ mac:
   # identity: null пропускает code signing (для CI без сертификата)
   # При наличии Apple Developer ID — удалить эту строку
   identity: null
+  # Entitlements — разрешения для macOS sandbox. Без них app не пройдёт нотаризацию.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # extendInfo — дополнительные ключи для Info.plist (манифест macOS-приложения).
+  # NS*Description — обязательные строки для App Store: объясняют ЗАЧЕМ нужен доступ.
+  # Без них Apple отклонит приложение. Текст показывается пользователю в системном диалоге.
   extendInfo:
     NSCameraUsageDescription: Application requests access to the device's camera.
     NSMicrophoneUsageDescription: Application requests access to the device's microphone.
@@ -68,7 +84,15 @@ linux:
   category: Utility
 appImage:
   artifactName: ${productName}-${version}.${ext}
+
+# npmRebuild: пересборка нативных модулей (C/C++ аддонов) под версию Electron.
+# false — отключено, т.к. у нас нет нативных зависимостей (только JS/TS).
+# Если добавите пакеты вроде sqlite3, better-sqlite3 — включите (true).
 npmRebuild: false
+
+# Конфигурация авто-обновлений через electron-updater.
+# generic — простой HTTP-сервер с файлами. Альтернативы: github, s3, spaces.
+# TODO: Заменить URL на реальный сервер обновлений перед production-релизом.
 publish:
   provider: generic
   url: https://example.com/auto-updates
