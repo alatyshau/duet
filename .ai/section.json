@@ -1,0 +1,14 @@
+{
+    "_DOC": {
+        "ЧТО": "Мета-данные секции .ai",
+        "ЗАЧЕМ": "Описание AI-инфраструктуры репозитория",
+        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+    },
+    "title": "AI-инфраструктура",
+    "description": "Роли, схемы и состояние AI-агентов. Определяет поведение, компетенции и форматы данных.",
+    "emoji": "🤖",
+    "folders": {
+        "roles": "Роли AI-агентов (Keeper, Principal, L6 Engineer и др.)",
+        "schemas": "Схемы JSON-файлов (section.json, workspace_map.json и др.)"
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "_DOC": {
+        "ЧТО": "Мета-данные секции apps",
+        "ЗАЧЕМ": "Описание группы приложений для карты",
+        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+    },
+    "title": "Приложения и сервисы",
+    "description": "Конечные продукты (Applications).\n*В отличие от `packages/` (библиотек кода), здесь лежат запускаемые приложения.*",
+    "emoji": "🚀",
+    "folders": {
+        "ai-instructions": "База знаний AI",
+        "extension": "VS Code Extension (Placeholder)",
+        "host": "Duet Host (Electron)"
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "_DOC": {
+        "ЧТО": "Мастер-план структуры (Flat List Architecture).",
+        "ЗАЧЕМ": "Определяет порядок секций в карте. Иерархия строится скриптом автоматически.",
+        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, AI Agents, Principal"
+    },
+    "target_file": "docs/WORKSPACE_MAP.md",
+    "ignore_patterns": [
+        ".DS_Store",
+        ".git/",
+        "node_modules/",
+        "dist/",
+        "out/"
+    ],
+    "section_folders": [
+        ".",
+        ".ai",
+        "apps",
+        "apps/host",
+        "apps/ai-instructions",
+        "apps/extension",
+        "docs",
+        "drafts",
+        "theory"
+    ]
+}

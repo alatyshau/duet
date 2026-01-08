@@ -14,7 +14,16 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {},
-  preload: {},
+  preload: {
+    build: {
+      rollupOptions: {
+        output: {
+          // Windows требует CommonJS для preload скриптов
+          format: 'cjs'
+        }
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {

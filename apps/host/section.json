@@ -1,0 +1,26 @@
+{
+    "_DOC": {
+        "ЧТО": "Мета-данные секции apps/host",
+        "ЗАЧЕМ": "Описание Host-приложения и его внутренней архитектуры",
+        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+    },
+    "title": "Duet Host (Electron)",
+    "description": "Основное десктопное приложение. Обертка над веб-интерфейсом.",
+    "emoji": "🖥️",
+    "folders": {
+        ".vscode": "Настройки VS Code для проекта",
+        "build": "Иконки и ресурсы для сборщика (electron-builder)",
+        "resources": "Иконки трея и иконка приложения (исходники)",
+        "src": "Исходный код",
+        "src/main": "Electron Main process",
+        "src/preload": "Electron Preload scripts",
+        "src/renderer": "UI (React + Vite)",
+        "src/renderer/src": "Исходники UI",
+        "src/renderer/src/assets": "CSS стили и статические ресурсы",
+        "src/renderer/src/components": "React компоненты",
+        "src/renderer/src/components/layout": "Layout компоненты (Sidebar, Shell)",
+        "src/renderer/src/components/ui": "UI-примитивы (shadcn/ui)",
+        "src/renderer/src/lib": "Утилиты и хелперы",
+        "src/renderer/src/pages": "Страницы приложения"
+    }
+}

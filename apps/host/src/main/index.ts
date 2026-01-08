@@ -150,6 +150,13 @@ const getResourcePath = (relativePath: string): string => {
   return join(__dirname, '../../', relativePath)
 }
 
+/** Тексты tooltip для каждого статуса */
+const TRAY_TOOLTIPS: Record<AppStatus, string> = {
+  no_config: 'Duet — требуется настройка',
+  path_lost: 'Duet — папка не найдена',
+  ready: 'Duet'
+}
+
 /**
  * Возвращает путь к tray иконке в зависимости от платформы и статуса
  *
@@ -160,15 +167,27 @@ const getResourcePath = (relativePath: string): string => {
  */
 const getTrayIconPath = (warning: boolean): string => {
   if (process.platform === 'darwin') {
-    // macOS: Template иконка (автоматически адаптируется под тему)
     return getResourcePath(warning ? 'resources/trayWarningTemplate.png' : 'resources/trayTemplate.png')
   } else if (process.platform === 'win32') {
-    // Windows: ICO файлы
     return getResourcePath(warning ? 'resources/tray-warning.ico' : 'resources/tray.ico')
   } else {
-    // Linux: PNG (используем те же что и macOS, но без Template)
     return getResourcePath(warning ? 'resources/trayWarningTemplate.png' : 'resources/trayTemplate.png')
   }
+}
+
+/**
+ * Создаёт NativeImage для tray иконки
+ */
+const createTrayImage = (status: AppStatus): Electron.NativeImage => {
+  const isWarning = status !== 'ready'
+  const iconPath = getTrayIconPath(isWarning)
+  const image = nativeImage.createFromPath(iconPath)
+
+  if (process.platform === 'darwin') {
+    image.setTemplateImage(true)
+  }
+
+  return image
 }
 
 /**
@@ -177,23 +196,8 @@ const getTrayIconPath = (warning: boolean): string => {
 const updateTrayIcon = (): void => {
   if (!tray) return
 
-  const isWarning = appState.status !== 'ready'
-  const iconPath = getTrayIconPath(isWarning)
-  const trayIcon = nativeImage.createFromPath(iconPath)
-
-  if (process.platform === 'darwin') {
-    trayIcon.setTemplateImage(true)
-  }
-
-  tray.setImage(trayIcon)
-
-  // Обновляем tooltip с информацией о статусе
-  const tooltips: Record<AppStatus, string> = {
-    'no_config': 'Duet — требуется настройка',
-    'path_lost': 'Duet — папка не найдена',
-    'ready': 'Duet'
-  }
-  tray.setToolTip(tooltips[appState.status])
+  tray.setImage(createTrayImage(appState.status))
+  tray.setToolTip(TRAY_TOOLTIPS[appState.status])
 }
 
 // =============================================================================
@@ -208,7 +212,7 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false
     }
   })
@@ -241,6 +245,8 @@ function createWindow(): BrowserWindow {
 }
 
 function showWindow(): void {
+  const isNewWindow = !mainWindow
+
   if (!mainWindow) {
     mainWindow = createWindow()
   }
@@ -250,13 +256,22 @@ function showWindow(): void {
     app.dock?.show()
   }
 
-  mainWindow.show()
-  mainWindow.focus()
-
-  // Отправляем текущий state при показе окна
-  mainWindow.webContents.once('did-finish-load', () => {
-    mainWindow?.webContents.send('app-state-changed', appState)
-  })
+  // Для нового окна — ждём готовности перед показом (избегаем мерцания)
+  // Для существующего — показываем сразу
+  if (isNewWindow) {
+    mainWindow.once('ready-to-show', () => {
+      mainWindow?.show()
+      mainWindow?.focus()
+    })
+    // Отправляем state после загрузки контента
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow?.webContents.send('app-state-changed', appState)
+    })
+  } else {
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('app-state-changed', appState)
+  }
 }
 
 // =============================================================================
@@ -264,23 +279,8 @@ function showWindow(): void {
 // =============================================================================
 
 function createTray(): void {
-  const isWarning = appState.status !== 'ready'
-  const trayIconPath = getTrayIconPath(isWarning)
-  const trayIcon = nativeImage.createFromPath(trayIconPath)
-
-  // Для macOS делаем иконку Template (автоадаптация под тему)
-  if (process.platform === 'darwin') {
-    trayIcon.setTemplateImage(true)
-  }
-
-  tray = new Tray(trayIcon)
-
-  const tooltips: Record<AppStatus, string> = {
-    'no_config': 'Duet — требуется настройка',
-    'path_lost': 'Duet — папка не найдена',
-    'ready': 'Duet'
-  }
-  tray.setToolTip(tooltips[appState.status])
+  tray = new Tray(createTrayImage(appState.status))
+  tray.setToolTip(TRAY_TOOLTIPS[appState.status])
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -401,11 +401,7 @@ app.whenReady().then(() => {
   // - path_lost → показываем окно (нужно исправить)
   // - ready → молча в tray
   if (isFirstRun || appState.status !== 'ready') {
-    mainWindow = createWindow()
-    // Показываем окно после загрузки
-    mainWindow.once('ready-to-show', () => {
-      showWindow()
-    })
+    showWindow()
   }
 
   app.on('activate', () => {

@@ -1,0 +1,14 @@
+{
+    "_DOC": {
+        "ЧТО": "Мета-данные для ai-instructions",
+        "ЗАЧЕМ": "Описание legacy модуля инструкций",
+        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+    },
+    "title": "База знаний AI",
+    "description": "\"Legacy модуль\". Содержит методологию и боевой устав для AI-агентов.",
+    "emoji": "📜",
+    "folders": {
+        "src": "Исходники инструкций",
+        "src/prompts": "Промпты для AI (AI_INSTRUCTIONS, AI_SEED)"
+    }
+}
