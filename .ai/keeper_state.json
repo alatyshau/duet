@@ -2,10 +2,13 @@
     "_DOC": {
         "ЧТО": "Файл состояния для ИИ-роли The Keeper",
         "ЗАЧЕМ": "Хранит хеш последнего проверенного коммита и бэклог незавершённых задач",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, The Keeper"
+        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, scripts/ai_git_updater.py, scripts/backlog_update.py, The Keeper"
     },
     "role": "keeper",
-    "last_commit": "5b4e9f61c9eafa7abd9d397eda1aa03c60ab9e9c",
-    "updated_at": "2026-01-08",
-    "backlog": []
+    "last_commit": "09a9c6817b81f0be8e39c25c24172e258ca25528",
+    "updated_at": "2026-01-09T03:23:39Z",
+    "backlog": {
+        "sections": {},
+        "files": []
+    }
 }

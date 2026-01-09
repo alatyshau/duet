@@ -1,24 +1,49 @@
 #!/usr/bin/env python3
 """
-ЧТО: Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md).
-ЗАЧЕМ: Предоставляет ИИ-агентам контекст о последних изменениях (commit history) и текущем "грязном" состоянии (uncommitted changes), чтобы уменьшить скоуп анализа.
-КТО_ИСПОЛЬЗУЕТ: Keeper, Все агенты.
+ЧТО: Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md) и обновления бэклога Keeper.
+ЗАЧЕМ: 
+1. Предоставляет ИИ контекст о последних изменениях.
+2. Добавляет изменённые файлы в очередь задач (backlog) Keeper'а, используя mtime как источник истины.
+КТО_ИСПОЛЬЗУЕТ: Keeper, backlog_update.py.
 """
 
 import subprocess
 import os
 import json
 from pathlib import Path
-from typing import List, Set, Tuple, Dict
+from typing import List, Set
+from datetime import datetime, timezone
+
+# Импортируем утилиты (предполагаем, что они в той же папке scripts/)
+try:
+    from keeper_utils import load_keeper_state, save_keeper_state, ROOT_DIR, KEEPER_STATE_FILE
+except ImportError:
+    # Fallback если запуск не из корня или проблемы с путями
+    # Пытаемся добавить текущую директорию в sys.path
+    import sys
+    sys.path.append(str(Path(__file__).parent))
+    from keeper_utils import load_keeper_state, save_keeper_state, ROOT_DIR, KEEPER_STATE_FILE
 
 # Конфигурация
-ROOT_DIR = Path(__file__).parent.parent.absolute()
 OUTPUT_FILE = ROOT_DIR / ".ai" / "GIT_HISTORY.md"
 MAX_COMMITS = 5
+
+# Файлы, которые никогда не должны попадать в backlog (автогенерируемые или служебные)
+IGNORED_FILES = {
+    ".ai/GIT_HISTORY.md",
+    ".ai/keeper_state.json",
+    "docs/WORKSPACE_MAP.md",
+}
+
+# Паттерны по имени файла (basename) — исключаются везде
+IGNORED_BASENAMES = {
+    "section.json",  # Паспорта секций обрабатываются через механизм секций, не файлов
+}
 
 def run_git(args: List[str]) -> str:
     """Выполняет git-команду и возвращает stdout."""
     try:
+        # core.quotepath=false — чтобы кириллица и спецсимволы в путях не экранировались
         result = subprocess.run(
             ["git", "-c", "core.quotepath=false"] + args,
             cwd=ROOT_DIR,
@@ -32,35 +57,20 @@ def run_git(args: List[str]) -> str:
         return ""
 
 def get_uncommitted_files() -> List[str]:
-    """
-    Возвращает список файлов, которые изменены или добавлены (staged или unstaged).
-    Игнорирует удалённые файлы.
-    Использует git ls-files для untracked (получает файлы, не директории).
-    """
+    """Возвращает список файлов (staged + unstaged), кроме удалённых."""
     files = set()
-
-    # Источник 1: Отслеживаемые файлы, которые изменены/staged (из status)
     output = run_git(["status", "--porcelain"])
     for line in output.splitlines():
         if not line: continue
-
         status = line[:2]
         path = line[3:].strip()
-
-        # Пропускаем untracked (обрабатываются отдельно) и удалённые
-        if status == '??' or 'D' in status:
-            continue
-
-        if "->" in path:
-            path = path.split("->")[-1].strip()
-
+        if status == '??' or 'D' in status: continue  # Untracked handled separately, deleted ignored
+        if "->" in path: path = path.split("->")[-1].strip()  # Rename: берём новое имя
         files.add(path)
 
-    # Источник 2: Неотслеживаемые файлы (рекурсивно, отдельные файлы)
     untracked = run_git(["ls-files", "--others", "--exclude-standard"])
     for line in untracked.splitlines():
-        if line.strip():
-            files.add(line.strip())
+        if line.strip(): files.add(line.strip())
 
     return sorted(list(files))
 
@@ -81,13 +91,11 @@ def get_recent_commits(limit: int) -> List[dict]:
     
     for line in output.splitlines():
         if not line.strip(): continue
-        
+
         if line.startswith("COMMIT_START|"):
             parts = line.split("|")
             if len(parts) >= 5:
-                if current_commit:
-                    commits.append(current_commit)
-                
+                if current_commit: commits.append(current_commit)
                 current_commit = {
                     "hash": parts[1],
                     "author": parts[2],
@@ -100,158 +108,179 @@ def get_recent_commits(limit: int) -> List[dict]:
                 parts = line.split(maxsplit=1)
                 if len(parts) == 2:
                     status, path = parts
-                    if 'D' in status:
-                        continue
+                    if 'D' in status: continue
                     current_commit["files"].append(path)
     
-    if current_commit:
-        commits.append(current_commit)
-        
+    if current_commit: commits.append(current_commit)
     return commits
 
-def get_agent_states() -> List[Dict]:
-    """Сканирует .ai/ на *_state.json и возвращает дельты (история + uncommitted)."""
-    states = []
-    ai_dir = ROOT_DIR / ".ai"
-    if not ai_dir.exists(): return []
-
-    # 1. Получаем текущие "грязные" файлы (релевантны для всех)
-    uncommitted = set(get_uncommitted_files())
-
-    for f in ai_dir.glob("*_state.json"):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            role = data.get("role", f.stem.replace("_state", "").title())
-            last_commit = data.get("last_commit", "").strip()
-
-            # Используем set для объединения уникальных файлов из обоих источников
-            all_changes = set()
-
-            # Источник A: История (с last_commit)
-            if last_commit:
-                # 1. Проверяем существование коммита (мог потеряться из-за rebase/squash)
-                chk = subprocess.run(
-                    ["git", "cat-file", "-e", last_commit],
-                    cwd=ROOT_DIR,
-                    capture_output=True
-                )
-
-                if chk.returncode != 0:
-                    print(f"⚠️ Commit {last_commit} not found for {role}. Forcing full scan.")
-                    last_commit = None  # Считаем как новый запуск
-                else:
-                    # 2. Получаем изменения
-                    diff_out = run_git(["diff", "--name-only", f"{last_commit}..HEAD"])
-                    if diff_out:
-                        for l in diff_out.splitlines():
-                            if l.strip():
-                                all_changes.add(l.strip())
-
-            # Источник B: "Грязные" файлы (всегда релевантны)
-            all_changes.update(uncommitted)
-
-            # Конвертируем в отсортированный список
-            final_changes = sorted(list(all_changes))
-
-            states.append({
-                "role": role,
-                "last_commit": last_commit,
-                "changes": final_changes,
-                "filename": f.name
-            })
-        except Exception as e:
-            print(f"⚠️ Error reading state {f}: {e}")
-
-    return states
-
-def generate_markdown(uncommitted: List[str], commits: List[dict], agent_contexts: List[dict]) -> str:
-    """Генерирует markdown-отчёт о состоянии Git."""
+def generate_markdown(uncommitted: List[str], commits: List[dict]) -> str:
+    """Генерирует markdown-отчёт о состоянии Git, без контекста агентов."""
     lines = []
     lines.append("# Git History & Context")
     lines.append("")
     lines.append("> Auto-generated by `scripts/ai_git_updater.py`. Contains strictly Added/Modified files (Deleted files ignored).")
     lines.append("")
 
-    # Сводка метаданных
-    lines.append("## 📌 Summary")
-    
     head_commit = commits[0] if commits else None
-    if head_commit:
-        head_val = f"`{head_commit['hash']}` ({head_commit['date']})"
-    else:
-        head_val = "Unknown"
-        
+    head_val = f"`{head_commit['hash']}` ({head_commit['date']})" if head_commit else "Unknown"
     status_val = f"🚧 Dirty ({len(uncommitted)} uncommitted items)" if uncommitted else "✅ Clean"
     
+    lines.append("## 📌 Summary")
     lines.append(f"- **HEAD**: {head_val}")
     lines.append(f"- **Status**: {status_val}")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # Контексты агентов
-    if agent_contexts:
-        lines.append("## 🤖 Agent Interaction Context")
-        lines.append("")
-        for ctx in agent_contexts:
-            role = ctx['role']
-            last = ctx['last_commit']
-            changes = ctx['changes']
-            
-            if not last:
-                lines.append(f"### {role}: ⚠️ Needs Full Scan")
-            elif not changes:
-                lines.append(f"### {role}: ✅ Up to date (Verified at `{last[:7]}`)")
-            else:
-                lines.append(f"### {role}: 🆕 {len(changes)} changes since last run (`{last[:7]}`)")
-                for f in changes:
-                    lines.append(f"- `{f}`")
-            lines.append("")
-        lines.append("---")
-        lines.append("")
-
-    # 1. Незакоммиченные изменения
     lines.append("## 🚧 Uncommitted Changes (Dirty State)")
-    
     if not uncommitted:
         lines.append("_Working tree is clean._")
     else:
         lines.append(f"**{len(uncommitted)} files changed:**")
-        for f in uncommitted:
-            lines.append(f"- `{f}`")
-            
+        for f in uncommitted: lines.append(f"- `{f}`")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # 2. Недавняя история
     lines.append(f"## 📜 Recent History (Last {len(commits)} Commits)")
-    
     for c in commits:
         lines.append(f"### [`{c['hash']}`] {c['date']} — {c['message']}")
         lines.append(f"> By **{c['author']}**")
-        
         if c['files']:
             lines.append("")
-            for f in c['files']:
-                lines.append(f"- `{f}`")
+            for f in c['files']: lines.append(f"- `{f}`")
         else:
             lines.append("")
             lines.append("_No file changes (or only deletions)_")
-            
         lines.append("")
         
     return "\n".join(lines)
 
+# --- Keeper Backlog Logic ---
+
+def commit_exists(commit_hash: str) -> bool:
+    """Проверяет существует ли коммит в репозитории."""
+    if not commit_hash: return False
+    res = subprocess.run(
+        ["git", "cat-file", "-e", commit_hash],
+        cwd=ROOT_DIR,
+        capture_output=True
+    )
+    return res.returncode == 0
+
+def get_git_diff_files(since_commit: str) -> Set[str]:
+    """Возвращает файлы, изменённые с since_commit до HEAD."""
+    files = set()
+    output = run_git(["diff", "--name-only", f"{since_commit}..HEAD"])
+    for line in output.splitlines():
+        if line.strip(): files.add(line.strip())
+    # Также добавляем файлы, которые есть в uncommitted (они всегда 'fresh')
+    # хотя логика фильтрации mtime всё равно всё проверит, но нужно добавить их в список кандидатов
+    return files
+
+def get_all_repo_files() -> Set[str]:
+    """Возвращает все текстовые файлы в репо (Full Scan source)."""
+    files = set()
+    output = run_git(["ls-files"])
+    for line in output.splitlines():
+        if line.strip(): files.add(line.strip())
+    return files
+
+def filter_by_mtime(candidates: Set[str], updated_at_iso: str) -> List[str]:
+    """
+    Фильтрует список файлов, оставляя только те, у которых mtime > updated_at.
+    Если updated_at пуст, возвращает всё (Initial Scan).
+    """
+    if not updated_at_iso:
+        return sorted(list(candidates))
+
+    # Парсим updated_at
+    # Python 3.7+ fromisoformat не всегда парсит 'Z', но 3.11 ок. 
+    # Формат 'YYYY-MM-DDTHH:MM:SSZ' или с оффсетом.
+    # Если строка пустая - уже вернули всё выше.
+    try:
+        # Для совместимости заменяем Z на +00:00
+        iso_str = updated_at_iso.replace("Z", "+00:00")
+        threshold_dt = datetime.fromisoformat(iso_str)
+        threshold_ts = threshold_dt.timestamp()
+    except Exception as e:
+        print(f"⚠️ Error parsing updated_at '{updated_at_iso}': {e}. Treating as full scan.")
+        return sorted(list(candidates))
+
+    filtered = []
+    for rel_path in candidates:
+        full_path = ROOT_DIR / rel_path
+        if not full_path.exists(): continue
+        
+        try:
+            mtime = full_path.stat().st_mtime
+            if mtime > threshold_ts:
+                filtered.append(rel_path)
+        except Exception:
+            pass # ignore errors
+
+    return sorted(filtered)
+
+def update_backlog() -> None:
+    """
+    Обновляет backlog Keeper'а изменёнными файлами.
+
+    Алгоритм:
+    1. Определяет режим (Full Scan или Normal)
+    2. Собирает кандидатов (git diff + uncommitted)
+    3. Фильтрует по mtime > updated_at
+    4. Мержит с существующим backlog (union)
+    """
+    state = load_keeper_state()
+    last_commit = state.get("last_commit", "").strip()
+    updated_at = state.get("updated_at", "").strip()
+    
+    candidates = set()
+    mode = "UNKNOWN"
+
+    # 1. Определяем режим
+    if not last_commit or not commit_exists(last_commit):
+        mode = "FULL SCAN (No commit anchor)"
+        candidates = get_all_repo_files()
+        candidates.update(get_uncommitted_files())  # untracked тоже нужны
+    else:
+        mode = "NORMAL MODE"
+        # Diff candidates
+        candidates = get_git_diff_files(last_commit)
+        # + Uncommitted candidates (always check them)
+        candidates.update(get_uncommitted_files())
+
+    # 2. Фильтрация
+    # Exclude self-generated/ignored files from candidates
+    candidates = {c for c in candidates
+                  if c not in IGNORED_FILES
+                  and Path(c).name not in IGNORED_BASENAMES}
+
+    print(f"🔍 Mode: {mode}. Candidates: {len(candidates)}. Threshold: {updated_at or 'NONE'}")
+    changed = filter_by_mtime(candidates, updated_at)
+
+    # 3. Обновление (Union)
+    if changed:
+        backlog = state.get("backlog", {})
+        existing = set(backlog.get("files", []))
+        merged = existing | set(changed)
+        backlog["files"] = sorted(list(merged))
+        state["backlog"] = backlog
+        save_keeper_state(state)
+        print(f"✅ Backlog updated: +{len(changed)} files found. Total in backlog: {len(merged)}")
+    else:
+        print("✅ Backlog updated: No new changed files found.")
+
 if __name__ == "__main__":
-    print("🔄 Scanning git history...")
+    print("🔄 Generating GIT_HISTORY.md...")
     uncommitted = get_uncommitted_files()
     commits = get_recent_commits(MAX_COMMITS)
-    agent_contexts = get_agent_states()
-    
-    md_content = generate_markdown(uncommitted, commits, agent_contexts)
+    md_content = generate_markdown(uncommitted, commits)
     
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_FILE.write_text(md_content, encoding="utf-8")
-    
-    print(f"✅ Git history updated: {OUTPUT_FILE}")
+    print(f"📄 Report saved to {OUTPUT_FILE}")
+
+    print("🔄 Updating Keeper Backlog...")
+    update_backlog()

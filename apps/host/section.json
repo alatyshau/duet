@@ -10,6 +10,9 @@
     "folders": {
         ".vscode": "Настройки VS Code для проекта",
         "build": "Иконки и ресурсы для сборщика (electron-builder)",
+        "dist": "Результат сборки Vite",
+        "node_modules": "Локальные зависимости npm",
+        "out": "Результат сборки Electron",
         "resources": "Иконки трея и иконка приложения (исходники)",
         "src": "Исходный код",
         "src/main": "Electron Main process",
