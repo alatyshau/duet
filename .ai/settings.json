@@ -1,0 +1,12 @@
+{
+    "_DOC": {
+        "ЧТО": "Настройки для AI-скриптов",
+        "ЗАЧЕМ": "Хранит timezone и другие параметры для генерации timestamp",
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/timestamp.py",
+        "СПЕКА": ".ai/schemas/settings.json.md"
+    },
+    "timezone": {
+        "id": "M",
+        "value": "Europe/Moscow"
+    }
+}

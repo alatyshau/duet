@@ -2,7 +2,7 @@
 
 ЧТО: Паспорт секции (Section Folder).
 ЗАЧЕМ: Мета-данные модуля для карты и навигации.
-КТО ИСПОЛЬЗУЕТ: `scripts/ai_doc_updater.py`, Keeper.
+ИСПОЛЬЗОВАНИЕ: `packages/ai-kit/scripts/ai_doc_updater.py`, Keeper.
 
 ---
 
@@ -22,7 +22,8 @@ packages/core/section.json
 {
   "_DOC": {
     "ЧТО": "Мета-данные секции",
-    "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+    "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+    "СПЕКА": ".ai/schemas/section.json.md"
   },
   "title": "Красивое название",
   "description": "Описание секции (ОБЯЗАТЕЛЬНО)",

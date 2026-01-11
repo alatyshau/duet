@@ -2,20 +2,25 @@
 """
 ЧТО: Утилиты для работы с keeper_state.json.
 ЗАЧЕМ: Единая точка загрузки/сохранения состояния Keeper, избегаем дублирования кода.
-КТО_ИСПОЛЬЗУЕТ: ai_doc_updater.py, ai_git_updater.py, backlog_update.py.
+ИСПОЛЬЗОВАНИЕ: ai_doc_updater.py, ai_git_updater.py, backlog_updater.py.
 """
 
 import json
 from pathlib import Path
 from typing import Dict, Any
 
-# Определяем ROOT_DIR (родитель папки scripts)
-# Предполагаем, что utils лежит в scripts/
-try:
-    ROOT_DIR = Path(__file__).parent.parent.absolute()
-except NameError:
+# Определяем ROOT_DIR — корень git репозитория
+def _find_repo_root() -> Path:
+    """Ищет корень git репозитория."""
+    current = Path(__file__).parent
+    while current != current.parent:
+        if (current / ".git").is_dir():
+            return current
+        current = current.parent
     # Fallback для интерактивного режима
-    ROOT_DIR = Path.cwd()
+    return Path.cwd()
+
+ROOT_DIR = _find_repo_root()
 
 KEEPER_STATE_FILE = ROOT_DIR / ".ai" / "keeper_state.json"
 
@@ -25,7 +30,8 @@ def get_default_state() -> Dict[str, Any]:
         "_DOC": {
             "ЧТО": "Файл состояния для ИИ-роли The Keeper",
             "ЗАЧЕМ": "Хранит хеш последнего проверенного коммита и бэклог незавершённых задач",
-            "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, scripts/ai_git_updater.py, scripts/backlog_update.py, The Keeper"
+            "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py, packages/ai-kit/scripts/ai_git_updater.py, packages/ai-kit/scripts/backlog_updater.py, The Keeper",
+            "СПЕКА": ".ai/schemas/keeper_state.json.md"
         },
         "role": "keeper",
         "last_commit": "",

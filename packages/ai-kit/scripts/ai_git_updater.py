@@ -4,7 +4,7 @@
 ЗАЧЕМ: 
 1. Предоставляет ИИ контекст о последних изменениях.
 2. Добавляет изменённые файлы в очередь задач (backlog) Keeper'а, используя mtime как источник истины.
-КТО_ИСПОЛЬЗУЕТ: Keeper, backlog_update.py.
+ИСПОЛЬЗОВАНИЕ: Keeper, backlog_updater.py.
 """
 
 import subprocess
@@ -38,6 +38,12 @@ IGNORED_FILES = {
 # Паттерны по имени файла (basename) — исключаются везде
 IGNORED_BASENAMES = {
     "section.json",  # Паспорта секций обрабатываются через механизм секций, не файлов
+}
+
+# Префиксы папок — содержимое не обрабатывается Keeper (но показывается в WORKSPACE_MAP)
+IGNORED_PREFIXES = {
+    ".ai/",      # AI-инфраструктура управляется ai-kit, не Keeper
+    "drafts/",   # Черновики — временные файлы, не требуют документирования
 }
 
 def run_git(args: List[str]) -> str:
@@ -253,24 +259,47 @@ def update_backlog() -> None:
 
     # 2. Фильтрация
     # Exclude self-generated/ignored files from candidates
-    candidates = {c for c in candidates
-                  if c not in IGNORED_FILES
-                  and Path(c).name not in IGNORED_BASENAMES}
+    def is_ignored(path: str) -> bool:
+        if path in IGNORED_FILES:
+            return True
+        if Path(path).name in IGNORED_BASENAMES:
+            return True
+        for prefix in IGNORED_PREFIXES:
+            if path.startswith(prefix):
+                return True
+        return False
+
+    candidates = {c for c in candidates if not is_ignored(c)}
 
     print(f"🔍 Mode: {mode}. Candidates: {len(candidates)}. Threshold: {updated_at or 'NONE'}")
     changed = filter_by_mtime(candidates, updated_at)
 
-    # 3. Обновление (Union)
+    # 3. Обновление (Union) + очистка legacy
+    backlog = state.get("backlog", {})
+    existing = set(backlog.get("files", []))
+
+    # Фильтруем существующие файлы тоже (очистка legacy записей)
+    existing_cleaned = {f for f in existing if not is_ignored(f)}
+    removed_count = len(existing) - len(existing_cleaned)
+
     if changed:
-        backlog = state.get("backlog", {})
-        existing = set(backlog.get("files", []))
-        merged = existing | set(changed)
-        backlog["files"] = sorted(list(merged))
-        state["backlog"] = backlog
-        save_keeper_state(state)
-        print(f"✅ Backlog updated: +{len(changed)} files found. Total in backlog: {len(merged)}")
+        merged = existing_cleaned | set(changed)
     else:
-        print("✅ Backlog updated: No new changed files found.")
+        merged = existing_cleaned
+
+    backlog["files"] = sorted(list(merged))
+    state["backlog"] = backlog
+    save_keeper_state(state)
+
+    if changed or removed_count:
+        msg_parts = []
+        if changed:
+            msg_parts.append(f"+{len(changed)} new")
+        if removed_count:
+            msg_parts.append(f"-{removed_count} ignored")
+        print(f"✅ Backlog updated: {', '.join(msg_parts)}. Total: {len(merged)}")
+    else:
+        print("✅ Backlog updated: No changes.")
 
 if __name__ == "__main__":
     print("🔄 Generating GIT_HISTORY.md...")

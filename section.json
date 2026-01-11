@@ -1,7 +1,8 @@
 {
     "_DOC": {
         "ЧТО": "Мета-данные корневой секции",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+        "СПЕКА": ".ai/schemas/section.json.md"
     },
     "title": "Корневой уровень",
     "description": "Монорепозиторий Duet — система управления знаниями и делами.",

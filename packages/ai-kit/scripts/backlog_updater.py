@@ -2,11 +2,11 @@
 """
 ЧТО: Единая точка входа для управления backlog Keeper.
 ЗАЧЕМ: Решает race condition при параллельной работе Keeper и пользователя.
-КТО_ИСПОЛЬЗУЕТ: Keeper.
+ИСПОЛЬЗОВАНИЕ: Keeper.
 
 Использование:
-    python scripts/backlog_update.py                     # Только добавить новое (union)
-    python scripts/backlog_update.py --done file1 file2  # Закрыть файлы + добавить новое
+    python scripts/backlog_updater.py                     # Только добавить новое (union)
+    python scripts/backlog_updater.py --done file1 file2  # Закрыть файлы + добавить новое
 """
 
 import subprocess
@@ -17,9 +17,18 @@ from datetime import datetime, timezone
 from typing import List
 
 # Конфигурация
-ROOT_DIR = Path(__file__).parent.parent.absolute()
+def find_repo_root() -> Path:
+    """Ищет корень git репозитория."""
+    current = Path(__file__).parent
+    while current != current.parent:
+        if (current / ".git").is_dir():
+            return current
+        current = current.parent
+    raise RuntimeError("Git repository root not found")
+
+ROOT_DIR = find_repo_root()
 KEEPER_STATE_FILE = ROOT_DIR / ".ai" / "keeper_state.json"
-SCRIPTS_DIR = ROOT_DIR / "scripts"
+SCRIPTS_DIR = Path(__file__).parent  # scripts лежат рядом со скриптом
 
 
 def run_script(script_name: str) -> bool:

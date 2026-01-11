@@ -36,17 +36,11 @@ Duet/
 │
 ├── docs/**/                   # [РАЗДЕЛ] Документация проекта
 │
-├── drafts/**/                 # [РАЗДЕЛ] Черновики и рабочие материалы
+├── drafts/**/                 # (git ignored) Черновики и рабочие материалы
 │
 ├── node_modules/**/           # (git ignored) Зависимости npm
 │
-├── scripts/                   # Скрипты автоматизации
-│   ├── ai_doc_updater.py      # Скрипт генерации карты репозитория (docs/WORKSPACE_MAP.md).
-│   ├── ai_git_updater.py      # Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md) и обновления бэклога Keeper.
-│   ├── backlog_update.py      # Единая точка входа для управления backlog Keeper.
-│   ├── keeper_utils.py        # Утилиты для работы с keeper_state.json.
-│   │
-│   └── __pycache__/**/        # (git ignored) Кэш байткода Python
+├── packages/**/               # [РАЗДЕЛ]
 │
 └── theory/**/                 # [РАЗДЕЛ] Теоретическая база
 ```
@@ -60,11 +54,18 @@ Duet/
 ```
 .ai/
 ├── GIT_HISTORY.md        # Git History & Context
+├── INSTRUCTIONS.md       # [MISSING DOCS!]
 ├── keeper_state.json     # Файл состояния для ИИ-роли The Keeper
 ├── section.json          # Мета-данные секции .ai
+├── settings.json         # Настройки для AI-скриптов
 ├── workspace_map.json    # Мастер-план структуры (Flat List Architecture).
 │
 ├── roles/                           # Роли AI-агентов (Keeper, Principal, L6 Engineer и др.)
+│   ├── _keeper.md                   # ROLE: Keeper (Хранитель Знаний)
+│   ├── _l6-engineer.md              # ROLE: Software Engineer
+│   ├── _principal.md                # ROLE: Principal (Repository Architect)
+│   ├── _se.md                       # ROLE: Software Engineer
+│   ├── _secretary.md                # ROLE: Secretary (Секретарь)
 │   ├── keeper.md                    # ROLE: Keeper (Хранитель Знаний)
 │   ├── l6-engineer.md               # ROLE: L6 Senior Software Engineer
 │   ├── principal.md                 # ROLE: Principal (Repository Architect)
@@ -72,13 +73,12 @@ Duet/
 │   ├── tech-lead-shadow.md          # ROLE: Tech Lead Shadow
 │   └── Новый файл для теста.json    # Тестовый файл для проверки работы Keeper
 │
-└── schemas/                           # Схемы JSON-файлов (section.json, workspace_map.json и др.)
-    ├── keeper_state.json.md           # Схема: keeper_state.json
-    ├── keeper_state_update.json.md    # Схема: keeper_state.json
+└── schemas/                         # Схемы JSON-файлов (section.json, workspace_map.json и др.)
+    ├── keeper_state.json.md         # Схема: keeper_state.json
     ├── README.md
-    ├── section.json.md                # Схема: section.json
-    ├── workspace_map.json.md          # Схема: workspace_map.json
-    └── WORKSPACE_MAP.md.md            # Схема: WORKSPACE_MAP.md
+    ├── section.json.md              # Схема: section.json
+    ├── workspace_map.json.md        # Схема: workspace_map.json
+    └── WORKSPACE_MAP.md.md          # Схема: WORKSPACE_MAP.md
 ```
 
 ---
@@ -237,29 +237,48 @@ docs/
 
 ---
 
-## `drafts/` — Черновики и рабочие материалы
-
-Временные документы, эксперименты, рабочие заметки. Не является частью продукта.
+## `packages/` — Untitled
 
 ```
-drafts/
-├── 260107_windows-error.jpg
-├── backlog_update_spec.md       # Backlog Update — Design Doc
-├── git_updater_redesign.md      # Git Updater — Design Doc
-├── host-roadmap.md              # Duet Host — План разработки
-├── keeper_workflow_update.md    # Keeper Workflow Update — Design Doc
-├── principal_chat.md            # Обсуждение системы ролей AI-агентов
-├── README.txt                   # Папка черновиков — хранилище незавершённых идей и экспортированных чатов с AI.
-├── section.json                 # Мета-данные секции drafts
+packages/
+└── ai-kit/**/    # [РАЗДЕЛ]
+```
+
+---
+
+### `packages/ai-kit/` — AI Roles Package
+
+Шаблоны и скрипты для AI-ролей. Переиспользуемый модуль для подключения через git submodule.
+
+```
+ai-kit/
+├── build.py        # [MISSING DOCS!]
+├── README.md
+├── section.json    # [MISSING DOCS!]
 │
-└── ai-instructions/                                  # Черновики по AI-инструкциям (режимы, протоколы)
-    ├── AI_MODES_DRAFT.md                             # Концепция режимов работы AI (State Machine)
-    ├── Gemini-VS Code, AI и антихрупкие знания.md    # Философия Local-First: VS Code, AI и антихрупкие знания
-    ├── Task_Plan.md                                  # Task Plan (Архивная версия)
-    ├── Варианты реструктуризации.md                  # Варианты реструктуризации AI_INSTRUCTIONS.md
-    ├── Переделка на режимы работы.md                 # Проектирование трёхрежимной архитектуры AI (ДИАЛОГ / ПЛАНИРОВАНИЕ / ВЫПОЛНЕНИЕ)
-    ├── Протокол Навигационного Маяка.md              # Протокол Навигационного Маяка (Navigation Beacon Protocol)
-    └── Режим Дуэта.md                                # Калибровка "Архитектуры Личности" AI
+├── scripts/                  # [MISSING DOCS!]
+│   ├── ai_doc_updater.py     # Скрипт генерации карты репозитория (docs/WORKSPACE_MAP.md).
+│   ├── ai_git_updater.py     # Скрипт генерации отчета о состоянии Git (.ai/GIT_HISTORY.md) и обновления бэклога Keeper.
+│   ├── backlog_updater.py    # Единая точка входа для управления backlog Keeper.
+│   ├── keeper_utils.py       # Утилиты для работы с keeper_state.json.
+│   ├── timestamp.py          # [MISSING DOCS!]
+│   │
+│   └── __pycache__/**/       # (git ignored) [MISSING DOCS!]
+│
+└── templates/                # [MISSING DOCS!]
+    ├── INSTRUCTIONS.md.j2    # [MISSING DOCS!]
+    │
+    ├── _includes/            # [MISSING DOCS!]
+    │   ├── chat_doc.md       # [MISSING DOCS!]
+    │   ├── dialectics.md     # [MISSING DOCS!]
+    │   ├── header.md         # [MISSING DOCS!]
+    │   └── red_lines.md      # [MISSING DOCS!]
+    │
+    └── roles/                  # [MISSING DOCS!]
+        ├── _keeper.md.j2       # [MISSING DOCS!]
+        ├── _principal.md.j2    # [MISSING DOCS!]
+        ├── _se.md.j2           # [MISSING DOCS!]
+        └── _secretary.md.j2    # [MISSING DOCS!]
 ```
 
 ---

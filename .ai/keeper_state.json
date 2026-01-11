@@ -2,13 +2,39 @@
     "_DOC": {
         "ЧТО": "Файл состояния для ИИ-роли The Keeper",
         "ЗАЧЕМ": "Хранит хеш последнего проверенного коммита и бэклог незавершённых задач",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, scripts/ai_git_updater.py, scripts/backlog_update.py, The Keeper"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py, packages/ai-kit/scripts/ai_git_updater.py, packages/ai-kit/scripts/backlog_updater.py, The Keeper",
+        "СПЕКА": ".ai/schemas/keeper_state.json.md"
     },
     "role": "keeper",
-    "last_commit": "09a9c6817b81f0be8e39c25c24172e258ca25528",
-    "updated_at": "2026-01-09T03:23:39Z",
+    "last_commit": "cc0e31905128866773865cf7a49dc65ed48204b3",
+    "updated_at": "2026-01-11T01:49:40Z",
     "backlog": {
-        "sections": {},
-        "files": []
+        "sections": {
+            "packages/ai-kit": [
+                "packages/ai-kit/scripts/",
+                "packages/ai-kit/scripts/__pycache__/",
+                "packages/ai-kit/templates/",
+                "packages/ai-kit/templates/_includes/",
+                "packages/ai-kit/templates/roles/"
+            ]
+        },
+        "files": [
+            "packages/ai-kit/README.md",
+            "packages/ai-kit/build.py",
+            "packages/ai-kit/scripts/ai_doc_updater.py",
+            "packages/ai-kit/scripts/ai_git_updater.py",
+            "packages/ai-kit/scripts/backlog_updater.py",
+            "packages/ai-kit/scripts/keeper_utils.py",
+            "packages/ai-kit/scripts/timestamp.py",
+            "packages/ai-kit/templates/INSTRUCTIONS.md.j2",
+            "packages/ai-kit/templates/_includes/chat_doc.md",
+            "packages/ai-kit/templates/_includes/dialectics.md",
+            "packages/ai-kit/templates/_includes/header.md",
+            "packages/ai-kit/templates/_includes/red_lines.md",
+            "packages/ai-kit/templates/roles/_keeper.md.j2",
+            "packages/ai-kit/templates/roles/_principal.md.j2",
+            "packages/ai-kit/templates/roles/_se.md.j2",
+            "packages/ai-kit/templates/roles/_secretary.md.j2"
+        ]
     }
 }

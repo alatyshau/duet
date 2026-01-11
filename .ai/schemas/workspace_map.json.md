@@ -2,7 +2,7 @@
 
 ЧТО: Мастер-план структуры репозитория.
 ЗАЧЕМ: Определяет какие папки являются "Секциями" и порядок их отображения в карте.
-КТО ИСПОЛЬЗУЕТ: `scripts/ai_doc_updater.py`, Principal.
+ИСПОЛЬЗОВАНИЕ: `packages/ai-kit/scripts/ai_doc_updater.py`, Principal.
 
 ---
 
@@ -19,7 +19,8 @@
     "_DOC": {
         "ЧТО": "Мастер-план структуры (Flat List Architecture).",
         "ЗАЧЕМ": "Определяет порядок секций в карте.",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, Principal"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py, Principal",
+        "СПЕКА": ".ai/schemas/workspace_map.json.md"
     },
     "target_file": "docs/WORKSPACE_MAP.md",
     "ignore_patterns": [ ... ],

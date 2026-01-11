@@ -2,7 +2,8 @@
     "_DOC": {
         "ЧТО": "Мета-данные секции apps/host",
         "ЗАЧЕМ": "Описание Host-приложения и его внутренней архитектуры",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+        "СПЕКА": ".ai/schemas/section.json.md"
     },
     "title": "Duet Host (Electron)",
     "description": "Основное десктопное приложение. Обертка над веб-интерфейсом.",

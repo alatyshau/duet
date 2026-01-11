@@ -2,7 +2,8 @@
     "_DOC": {
         "ЧТО": "Мета-данные секции apps",
         "ЗАЧЕМ": "Описание группы приложений для карты",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+        "СПЕКА": ".ai/schemas/section.json.md"
     },
     "title": "Приложения и сервисы",
     "description": "Конечные продукты (Applications).\n*В отличие от `packages/` (библиотек кода), здесь лежат запускаемые приложения.*",

@@ -2,7 +2,7 @@
 
 ЧТО: Состояние агента Keeper.
 ЗАЧЕМ: Отслеживание прогресса и управление бэклогом задач.
-КТО ИСПОЛЬЗУЕТ: Keeper, `scripts/ai_git_updater.py`.
+ИСПОЛЬЗОВАНИЕ: Keeper, `packages/ai-kit/scripts/ai_doc_updater.py`, `packages/ai-kit/scripts/ai_git_updater.py`, `packages/ai-kit/scripts/backlog_updater.py`.
 
 ---
 
@@ -16,20 +16,26 @@
 
 ```json
 {
-    "_DOC": {
-        "ЧТО": "Состояние Keeper",
-        "КТО_ИСПОЛЬЗУЕТ": "Keeper, scripts/ai_git_updater.py"
-    },
+    "_DOC": {...},
     "role": "keeper",
-    "last_commit": "abc123...",
-    "updated_at": "2025-01-08T12:00:00Z",
-    "backlog": [
-        "apps/host/components.json",
-        "apps/host/section.json",
-        "apps/ai-instructions/section.json"
-    ]
+    "last_commit": "09a9c68",
+    "updated_at": "2026-01-09T12:30:00Z",
+    "backlog": {
+        "sections": {
+            ".": ["packages/ai-kit/scripts/"],
+            "apps/host": ["apps/host/src/components/"]
+        },
+        "files": [
+            "packages/ai-kit/scripts/new_script.py",
+            "apps/host/src/main/index.ts"
+        ]
+    }
 }
 ```
+
+- `_DOC` — генерируется в `keeper_utils.py`
+- `sections` — папки с `[MISSING DOCS!]`, сгруппированные по родительской секции (см. [workspace_map.json.md](workspace_map.json.md))
+- `files` — файлы с `[MISSING DOCS!]` или изменённые (по mtime)
 
 ---
 
@@ -41,38 +47,47 @@
 ### `last_commit`
 SHA хеш последнего обработанного коммита.
 
-Keeper записывает сюда `HEAD` после обработки всех файлов из `GIT_HISTORY.md`.
-Скрипт использует это значение чтобы показывать только новые изменения.
+Используется как якорь для `git diff` — скрипт `ai_git_updater.py` ищет изменения между `last_commit..HEAD`.
 
 ### `updated_at`
-ISO timestamp последнего обновления.
+ISO 8601 timestamp (UTC) последнего обновления.
 
-### `backlog` (опционально)
-Массив путей к файлам для обработки. Backfill-очередь.
+**Формат:** `YYYY-MM-DDTHH:MM:SSZ`
 
-**Формат путей:**
-- Обычный файл: `apps/host/components.json`
-- Папка (через section.json): `apps/host/section.json`
-- Файл-компаньон: основной файл (`package.json`), компаньон подразумевается
+Используется для фильтрации файлов по mtime — файлы с `mtime <= updated_at` считаются "уже обработанными" и не попадают в backlog.
 
-> Алгоритм работы с бэклогом — см. [keeper.md](../roles/keeper.md)
+### `backlog`
+Структурированная очередь задач для Keeper.
+
+#### `backlog.sections`
+Объект, где ключ — parent section (из `workspace_map.json`), значение — массив папок без документации.
+
+**Формат путей:** Папки всегда с trailing `/` (`packages/ai-kit/scripts/__pycache__/`).
+
+**Источник:** `ai_doc_updater.py` — находит папки с `[MISSING DOCS!]` в `WORKSPACE_MAP.md`.
+
+#### `backlog.files`
+Массив файлов для обработки (без trailing `/`).
+
+**Источники:**
+- `ai_doc_updater.py` — файлы с `[MISSING DOCS!]`
+- `ai_git_updater.py` — изменённые файлы (по mtime)
+
+**Union:** Оба скрипта добавляют файлы через union — существующие не теряются.
 
 ---
 
-## Пример
+## Исключения
 
-```json
-{
-    "_DOC": {
-        "ЧТО": "Состояние Keeper",
-        "КТО_ИСПОЛЬЗУЕТ": "Keeper, scripts/ai_git_updater.py"
-    },
-    "role": "keeper",
-    "last_commit": "76d6d9d",
-    "updated_at": "2026-01-08T15:30:00Z",
-    "backlog": [
-        "apps/host/components.json",
-        "drafts/section.json"
-    ]
-}
-```
+Следующие файлы **никогда не попадают** в backlog (автогенерируемые):
+- `.ai/GIT_HISTORY.md`
+- `.ai/keeper_state.json`
+- `docs/WORKSPACE_MAP.md`
+
+---
+
+## Trailing / конвенция
+
+- Папки **всегда** с `/` в конце: `packages/ai-kit/scripts/`, `.github/`
+- Файлы **никогда** с `/`: `apps/host/src/main/index.ts`
+

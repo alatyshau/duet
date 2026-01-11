@@ -2,7 +2,7 @@
 """
 ЧТО: Скрипт генерации карты репозитория (docs/WORKSPACE_MAP.md).
 ЗАЧЕМ: Автоматизирует обновление структуры, чтобы люди и агенты видели актуальное состояние проекта.
-КТО_ИСПОЛЬЗУЕТ: Keeper, Все агенты, Разработчики.
+ИСПОЛЬЗОВАНИЕ: Keeper, Все агенты, Разработчики.
 """
 
 import json
@@ -21,6 +21,11 @@ except ImportError:
 # Конфигурация
 WORKSPACE_MAP_CONFIG_PATH = ROOT_DIR / ".ai" / "workspace_map.json"
 DEFAULT_OUTPUT_PATH = ROOT_DIR / "docs" / "WORKSPACE_MAP.md"
+
+# Префиксы папок — содержимое не добавляется в backlog Keeper (но показывается в карте)
+KEEPER_IGNORE_PREFIXES = {
+    ".ai/",      # AI-инфраструктура управляется ai-kit, не Keeper
+}
 
 def load_json(path: Path) -> Dict:
     if not path.exists():
@@ -408,7 +413,11 @@ class WorkspaceMapper:
                  if not is_self_documenting and not is_binary:
                      comment_parts.append("[MISSING DOCS!]")
                      # Папки с trailing /, файлы без
-                     self.missing_docs.append(rel_from_root + "/" if is_dir else rel_from_root)
+                     missing_path = rel_from_root + "/" if is_dir else rel_from_root
+                     # Не добавляем в backlog если путь в KEEPER_IGNORE_PREFIXES
+                     should_add = not any(missing_path.startswith(p) for p in KEEPER_IGNORE_PREFIXES)
+                     if should_add:
+                         self.missing_docs.append(missing_path)
 
             comment = " ".join(comment_parts)
 

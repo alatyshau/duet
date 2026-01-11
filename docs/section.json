@@ -2,7 +2,8 @@
     "_DOC": {
         "ЧТО": "Мета-данные секции docs",
         "ЗАЧЕМ": "Описание документации",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+        "СПЕКА": ".ai/schemas/section.json.md"
     },
     "title": "Документация проекта",
     "description": "Карта и другие документы.",

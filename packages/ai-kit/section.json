@@ -1,0 +1,7 @@
+{
+  "title": "AI Roles Package",
+  "description": "Шаблоны и скрипты для AI-ролей. Переиспользуемый модуль для подключения через git submodule.",
+  "status": "active",
+  "owner": "ALA",
+  "tags": ["ai", "roles", "templates", "jinja2"]
+}

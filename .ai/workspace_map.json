@@ -2,8 +2,8 @@
     "_DOC": {
         "ЧТО": "Мастер-план структуры (Flat List Architecture).",
         "ЗАЧЕМ": "Определяет порядок секций в карте. Иерархия строится скриптом автоматически.",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py, AI Agents, Principal",
-        "СХЕМА": ".ai/schemas/workspace_map.json.md"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py, AI Agents, Principal",
+        "СПЕКА": ".ai/schemas/workspace_map.json.md"
     },
     "target_file": "docs/WORKSPACE_MAP.md",
     "ignore_patterns": [
@@ -12,7 +12,8 @@
         "node_modules/",
         "dist/",
         "out/",
-        "__pycache__/"
+        "__pycache__/",
+        "drafts/"
     ],
     "section_folders": [
         ".",
@@ -22,7 +23,8 @@
         "apps/ai-instructions",
         "apps/extension",
         "docs",
-        "drafts",
+        "packages",
+        "packages/ai-kit",
         "theory"
     ]
 }

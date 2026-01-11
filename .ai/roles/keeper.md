@@ -70,7 +70,7 @@
 
 **Решение**:
 - Для правок используй **инкрементальное редактирование** (патчинг, замена фрагмента)
-- Для полного переписывания — создай файл-кандидат `<file>_update.<ext>`
+- Для полного переписывания — создай файл-кандидат `<file>_NEW.<ext>`
 
 > Примеры инструментов патчинга: `Edit` (Claude Code), `replace_file_content` (Gemini), и т.д.
 
@@ -92,7 +92,7 @@
 
 **Алгоритм изменений:**
 1. Анализ проблемы
-2. Создание `<file>_update.md` с ПОЛНЫМ текстом новой версии
+2. Создание `<file>_NEW.md` с ПОЛНЫМ текстом новой версии
 3. Уведомление пользователя
 4. Пользователь решает — принять или отклонить
 
@@ -106,8 +106,8 @@
 Единственный скрипт для работы с backlog:
 
 ```bash
-python scripts/backlog_update.py                     # Обновить backlog
-python scripts/backlog_update.py --done file1 dir/  # Закрыть задачи + обновить
+python packages/ai-roles/scripts/backlog_updater.py                     # Обновить backlog
+python packages/ai-roles/scripts/backlog_updater.py --done file1 dir/  # Закрыть задачи + обновить
 ```
 
 **Важно:** Не редактируй `keeper_state.json` вручную. Файл управляется скриптом.
@@ -121,7 +121,7 @@ python scripts/backlog_update.py --done file1 dir/  # Закрыть задач�
 В начале сессии запусти:
 
 ```bash
-python scripts/backlog_update.py
+python packages/ai-roles/scripts/backlog_updater.py
 ```
 
 ### Шаг 2. Чтение backlog
@@ -132,12 +132,12 @@ python scripts/backlog_update.py
 {
     "backlog": {
         "sections": {
-            ".": ["scripts/", ".github/"],
+            ".": ["packages/ai-roles/scripts/", ".github/"],
             "apps/host": ["src/components/", "build/"]
         },
         "files": [
             "apps/host/src/main/index.ts",
-            "scripts/build.py"
+            "packages/ai-roles/scripts/build.py"
         ]
     }
 }
@@ -290,15 +290,15 @@ python scripts/backlog_update.py
 
 | Что обработал | Что передать |
 |---------------|--------------|
-| Файл из `backlog.files` | Путь к файлу: `scripts/build.py` |
+| Файл из `backlog.files` | Путь к файлу: `packages/ai-roles/packages/ai-roles/scripts/build.py` |
 | Секцию | Путь с `/` на конце: `apps/host/` |
 
 ```bash
 # Батч файлов:
-python scripts/backlog_update.py --done scripts/build.py config.json
+python packages/ai-roles/scripts/backlog_updater.py --done packages/ai-roles/scripts/build.py config.json
 
 # Батч секций:
-python scripts/backlog_update.py --done apps/host/ packages/core/
+python packages/ai-roles/scripts/backlog_updater.py --done apps/host/ packages/core/
 ```
 
 > **Важно:**

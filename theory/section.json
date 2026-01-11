@@ -2,7 +2,8 @@
     "_DOC": {
         "ЧТО": "Мета-данные секции theory",
         "ЗАЧЕМ": "Описание теоретической базы",
-        "КТО_ИСПОЛЬЗУЕТ": "scripts/ai_doc_updater.py"
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+        "СПЕКА": ".ai/schemas/section.json.md"
     },
     "title": "Теоретическая база",
     "description": "Философские и фундаментальные тексты, лежащие в основе подхода Duet.",
