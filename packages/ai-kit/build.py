@@ -169,6 +169,32 @@ def main():
 
     print(f"\nGenerated {len(generated)} files.")
 
+    # Step 12: Sync root files
+    copy_to_root(ai_dir)
+
+
+def copy_to_root(ai_dir: Path):
+    """
+    Step 12: Copy .ai/INSTRUCTIONS.md to root aliases:
+    - AGENTS.md
+    - CLAUDE.md
+    - GEMINI.md
+    """
+    source = ai_dir / "INSTRUCTIONS.md"
+    if not source.exists():
+        print(f"⚠️ Warning: {source} not found, skipping root sync.")
+        return
+
+    content = source.read_text(encoding="utf-8")
+    
+    root_aliases = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"]
+    
+    print("\nSyncing root aliases:")
+    for alias in root_aliases:
+        dest = REPO_ROOT / alias
+        dest.write_text(content, encoding="utf-8")
+        print(f"  -> {dest.name} (synced)")
+
 
 if __name__ == "__main__":
     main()

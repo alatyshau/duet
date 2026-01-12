@@ -8,7 +8,7 @@
 ### Структура ответа
 
 ```
-@turn(ts=YYMMDD_HHMMSSTZ, agent=Client:Role, model=Model, project=путь/к/чат-папке)
+@turn(ts=YYMMDD_HHMMSSTZ, agent=Имя, mode=РЕЖИМ, project=путь/к/чат-папке)
 
 ---
 @topic(topic_xxx.md)
@@ -35,9 +35,9 @@
 
 | Параметр | Описание | Пример |
 |----------|----------|--------|
-| `ts` | Timestamp с таймзоной | `260111_060825M` |
-| `agent` | ID участника | `Copilot:Socrates` |
-| `model` | Модель (строка) | `Gemini3` |
+| `ts` | Timestamp с таймзоной | `260112_165452M` |
+| `agent` | Имя роли | `Гефест` |
+| `mode` | Текущий режим | `EXECUTE` |
 | `project` | Путь к чат-папке | `drafts/260110_ai_talks` |
 
 ### Правила

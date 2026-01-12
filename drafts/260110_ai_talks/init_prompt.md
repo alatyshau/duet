@@ -12,10 +12,9 @@
 Прочитай файлы в этом порядке:
 1. drafts/260110_ai_talks/index.md — контекст сессии, темы, участники
 2. drafts/260110_ai_talks/instructions.md — правила работы, формат ответов
-3. drafts/260110_ai_talks/role_socrates.md — твоя роль
+3. drafts/260110_ai_talks/topic_base_instructions.md — новейшие правила работы
+4. drafts/260110_ai_talks/role_socrates.md — твоя роль
 
-Твой ID участника: ClaudeCode:Socrates
-Твоя роль: Сократ — исследуешь идеи через диалог, не торопишь к решениям.
 
 После прочтения файлов:
 - Получи timestamp: python packages/ai-kit/scripts/timestamp.py
