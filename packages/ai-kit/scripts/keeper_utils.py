@@ -28,12 +28,12 @@ def get_default_state() -> Dict[str, Any]:
     """Возвращает структуру состояния по умолчанию."""
     return {
         "_DOC": {
-            "ЧТО": "Файл состояния для ИИ-роли The Keeper",
+            "ЧТО": "Файл состояния для режима работы Keeper",
             "ЗАЧЕМ": "Хранит хеш последнего проверенного коммита и бэклог незавершённых задач",
             "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py, packages/ai-kit/scripts/ai_git_updater.py, packages/ai-kit/scripts/backlog_updater.py, The Keeper",
             "СПЕКА": ".ai/schemas/keeper_state.json.md"
         },
-        "role": "keeper",
+
         "last_commit": "",
         "updated_at": "",
         "backlog": {
