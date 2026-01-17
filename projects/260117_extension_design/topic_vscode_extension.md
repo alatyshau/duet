@@ -59,6 +59,8 @@
 - **business.json** — если нет при добавлении папки, создаём автоматически (name=папка, icon=📁)
 - **ДЕЛА: визуальный корень (костыль)** — элемент `[МОИ ДЕЛА]` в начале списка с `collapsibleState: None` (без стрелки, без детей). Бизнесы — тоже top-level элементы (со стрелками). Все на одном уровне, но визуально `[МОИ ДЕЛА]` выглядит как заголовок. При CollapseAll видны все top-level: и `[МОИ ДЕЛА]`, и свёрнутые бизнесы. **План Б:** если костыль не сработает — убрать `[МОИ ДЕЛА]`, кнопку [→] для multi-root workspace вынести в шапку секции ДЕЛА
 - **Atomic write: `write-file-atomic`** — вместо ручной реализации temp+rename используем библиотеку. Причина: Windows `fs.rename()` не перезаписывает существующий файл (в отличие от Unix). Библиотека инкапсулирует платформенные различия. Критерий: код должен быть понятен через 30 лет без археологии.
+- **Async I/O везде** — используем `fs/promises` для всех файловых операций (config.json, index.db, scan). Даже для маленьких файлов — консистентность важнее микрооптимизаций. Event Loop свободен всегда.
+- **camelCase/snake_case mapping** — JSON-контракт использует snake_case (`business_folders`), TypeScript-интерфейс camelCase (`businessFolders`). Маппинг на границе сериализации: в `validate()` при чтении, в `write()` при записи. `eslint-disable` только на JSON-литерале в write().
 
 ---
 
@@ -572,17 +574,18 @@ Picker: выбрать папку
 ---
 
 ### Шаг 2: Settings & Config
-**Статус:** TODO
+**Статус:** IN_REVIEW
 **Выход:** [Конфигурация](#2-конфигурация)
 
 Реализовать чтение/запись конфигурации.
 
 **Ход работы:**
-- [ ] Добавить setting `duet.data_folder` в `package.json` (contributes.configuration)
-- [ ] Создать `src/core/config.ts` — чтение/запись `~/DuetData/config.json`
-- [ ] Создать `src/core/paths.ts` — резолвинг путей (data_folder, repos/, config.json)
-- [ ] Unit-тесты для config.ts и paths.ts
-- [ ] Проверить: setting читается, config.json создаётся/обновляется
+- [x] Добавить setting `duet.data_folder` в `package.json` (contributes.configuration)
+- [x] Создать `src/core/config.ts` — чтение/запись `~/DuetData/config.json`
+- [x] Создать `src/core/paths.ts` — резолвинг путей (data_folder, repos/, config.json)
+- [x] Unit-тесты для config.ts и paths.ts
+- [x] **Рефакторинг:** config.ts → async (`fs/promises`) — см. решение "Async I/O везде"
+- [x] Проверить: setting читается, config.json создаётся/обновляется
 
 > Config перечитывается при 🔄 (re-scan). Отдельный watcher не нужен.
 
