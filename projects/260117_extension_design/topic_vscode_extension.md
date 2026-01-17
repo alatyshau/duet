@@ -574,7 +574,7 @@ Picker: выбрать папку
 ---
 
 ### Шаг 2: Settings & Config
-**Статус:** IN_REVIEW
+**Статус:** DONE
 **Выход:** [Конфигурация](#2-конфигурация)
 
 Реализовать чтение/запись конфигурации.
@@ -592,17 +592,17 @@ Picker: выбрать папку
 ---
 
 ### Шаг 3: Onboarding
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [Состояния UI](#состояния-ui)
 
 UI для первого запуска (нет data_folder). Секция DUET (в боковой панели) вместо трёх обычных.
 
 **Ход работы:**
-- [ ] Создать `src/vscode/providers/OnboardingProvider.ts` (TreeDataProvider)
-- [ ] Кнопка "Выбрать папку" → folder picker → сохранить в settings
-- [ ] Кнопка "Создать ~/DuetData" → создать папку + сохранить
-- [ ] После выбора → переход к обычному sidebar
-- [ ] Проверить: Onboarding показывается при пустом setting
+- [x] Создать `src/vscode/providers/OnboardingProvider.ts` (TreeDataProvider)
+- [x] Кнопка "Выбрать папку" → folder picker → сохранить в settings
+- [x] Кнопка "Создать ~/DuetData" → создать папку + сохранить
+- [x] После выбора → переход к обычному sidebar
+- [x] Проверить: Onboarding показывается при пустом setting
 
 ---
 

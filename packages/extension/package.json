@@ -17,8 +17,8 @@
     "contributes": {
         "commands": [
             {
-                "command": "duet.helloWorld",
-                "title": "Duet: Hello World"
+                "command": "duet.selectDataFolder",
+                "title": "Duet: Select Data Folder"
             }
         ],
         "configuration": {
@@ -29,6 +29,39 @@
                     "description": "Path to DuetData folder (e.g. ~/DuetData)"
                 }
             }
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "duet-explorer",
+                    "title": "Duet",
+                    "icon": "resources/duet-icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "duet-explorer": [
+                {
+                    "id": "duet.onboarding",
+                    "name": "DUET",
+                    "when": "!config.duet.data_folder"
+                },
+                {
+                    "id": "duet.context",
+                    "name": "КОНТЕКСТ",
+                    "when": "config.duet.data_folder"
+                },
+                {
+                    "id": "duet.businesses",
+                    "name": "ДЕЛА",
+                    "when": "config.duet.data_folder"
+                },
+                {
+                    "id": "duet.projects",
+                    "name": "ПРОЕКТЫ",
+                    "when": "config.duet.data_folder"
+                }
+            ]
         }
     },
     "scripts": {

@@ -24,6 +24,10 @@ export class Paths {
         return path.join(this.dataFolder, 'repos');
     }
 
+    get workspacesPath(): string {
+        return path.join(this.dataFolder, 'workspaces');
+    }
+
     get allBusinessesWorkspacePath(): string {
         return path.join(this.dataFolder, 'all-businesses.code-workspace');
     }

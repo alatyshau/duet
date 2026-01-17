@@ -9,6 +9,7 @@ describe('Paths', () => {
         const paths = new Paths();
         expect(paths.configPath).toBe(path.join(os.homedir(), 'DuetData', 'config.json'));
         expect(paths.allBusinessesWorkspacePath).toBe(path.join(os.homedir(), 'DuetData', 'all-businesses.code-workspace'));
+        expect(paths.workspacesPath).toBe(path.join(os.homedir(), 'DuetData', 'workspaces'));
     });
 
     it('should use provided data folder', () => {
