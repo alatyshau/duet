@@ -718,13 +718,9 @@ packages/ai-kit/templates/
 ---
 
 ### Шаг 13: Мета-ревью структуры итогового INSTRUCTIONS
-**Статус:** TODO
-**Выход:** Упрощённая и непротиворечивая структура `.ai/INSTRUCTIONS.md` (через templates)
+**Статус:** ВЫНЕСЕН → [topic_instructions_quality.md](topic_instructions_quality.md)
 
-**Ход работы:**
-- [ ] Проанализировать generated `.ai/INSTRUCTIONS.md` как продукт (структура, оглавление, повторения, уровни заголовков)
-- [ ] Найти и устранить структурные проблемы: избыточные H2, дубли секций, “ломающие чтение” блоки
-- [ ] Внести правки в source-of-truth (`packages/ai-kit/templates/*`), затем regeneration и повторная проверка
+Объём работы потребовал отдельного топика. См. topic_instructions_quality.md.
 
 ---
 
