@@ -1,0 +1,60 @@
+{
+    "name": "duet",
+    "displayName": "Duet",
+    "description": "Life OS for VS Code",
+    "version": "0.0.1",
+    "publisher": "duet-org",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "duet.helloWorld",
+                "title": "Duet: Hello World"
+            }
+        ],
+        "configuration": {
+            "title": "Duet",
+            "properties": {
+                "duet.data_folder": {
+                    "type": "string",
+                    "description": "Path to DuetData folder (e.g. ~/DuetData)"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run package",
+        "compile": "npm run check-types && npm run lint && node esbuild.js",
+        "watch": "npm-run-all -p watch:*",
+        "watch:esbuild": "node esbuild.js --watch",
+        "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+        "package": "npm run check-types && npm run lint && node esbuild.js --production",
+        "compile-tests": "tsc -p . --outDir out",
+        "watch-tests": "tsc -p . -w --outDir out",
+        "pretest": "npm run compile-tests && npm run compile && npm run lint",
+        "check-types": "tsc --noEmit",
+        "lint": "eslint src --ext ts",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "devDependencies": {
+        "@types/node": "18.x",
+        "@types/vscode": "^1.85.0",
+        "@typescript-eslint/eslint-plugin": "^6.15.0",
+        "@typescript-eslint/parser": "^6.15.0",
+        "esbuild": "^0.19.8",
+        "eslint": "^8.56.0",
+        "npm-run-all": "^4.1.5",
+        "typescript": "^5.3.3",
+        "vitest": "^1.0.4"
+    }
+}
