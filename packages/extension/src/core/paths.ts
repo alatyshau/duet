@@ -35,4 +35,8 @@ export class Paths {
     get dbPath(): string {
         return path.join(this.dataFolder, 'data', 'index.db');
     }
+
+    get dbDir(): string {
+        return path.join(this.dataFolder, 'data');
+    }
 }

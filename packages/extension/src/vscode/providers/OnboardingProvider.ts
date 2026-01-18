@@ -18,12 +18,12 @@ export class OnboardingProvider implements vscode.TreeDataProvider<vscode.TreeIt
         infoItem.contextValue = 'info';
         items.push(infoItem);
 
-        // Select/Create Folder Button
-        const selectItem = new vscode.TreeItem('📁 Выбрать папку DuetData...', vscode.TreeItemCollapsibleState.None);
+        // Select Folder Button
+        const selectItem = new vscode.TreeItem('📁 Выбрать папку...', vscode.TreeItemCollapsibleState.None);
         selectItem.command = {
             command: 'duet.selectDataFolder',
             title: 'Выбрать папку',
-            tooltip: 'Выбрать или создать папку DuetData'
+            tooltip: 'Выбрать существующую папку DuetData'
         };
         items.push(selectItem);
 

@@ -19,8 +19,80 @@
             {
                 "command": "duet.selectDataFolder",
                 "title": "Duet: Select Data Folder"
+            },
+            {
+                "command": "duet.refresh",
+                "title": "Duet: Refresh Index",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "duet.dumpIndex",
+                "title": "Duet: Dump Index (Debug)"
+            },
+            {
+                "command": "duet.addBusiness",
+                "title": "Add Business",
+                "icon": "$(plus)"
+            },
+            {
+                "command": "duet.openInCurrentWindow",
+                "title": "Open",
+                "icon": "$(go-to-file)"
+            },
+            {
+                "command": "duet.openInNewWindow",
+                "title": "Open in New Window",
+                "icon": "$(link-external)"
+            },
+            {
+                "command": "duet.expandAll",
+                "title": "Expand All",
+                "icon": "$(expand-all)",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.collapseAll",
+                "title": "Collapse All",
+                "icon": "$(collapse-all)",
+                "category": "Duet"
             }
         ],
+        "menus": {
+            "view/title": [
+                {
+                    "command": "duet.refresh",
+                    "when": "view == duet.businesses",
+                    "group": "navigation"
+                },
+                {
+                    "command": "duet.addBusiness",
+                    "when": "view == duet.businesses",
+                    "group": "navigation"
+                },
+                {
+                    "command": "duet.collapseAll",
+                    "when": "view == duet.businesses",
+                    "group": "navigation"
+                },
+                {
+                    "command": "duet.expandAll",
+                    "when": "view == duet.businesses",
+                    "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "duet.openInCurrentWindow",
+                    "when": "view == duet.businesses && viewItem != header && viewItem != placeholder",
+                    "group": "inline"
+                },
+                {
+                    "command": "duet.openInNewWindow",
+                    "when": "view == duet.businesses && viewItem != header && viewItem != placeholder",
+                    "group": "inline"
+                }
+            ]
+        },
         "configuration": {
             "title": "Duet",
             "properties": {
@@ -81,13 +153,19 @@
     },
     "devDependencies": {
         "@types/node": "18.x",
+        "@types/sql.js": "^1.4.9",
         "@types/vscode": "^1.85.0",
-        "@typescript-eslint/eslint-plugin": "^6.15.0",
-        "@typescript-eslint/parser": "^6.15.0",
+        "@types/write-file-atomic": "^4.0.3",
+        "@typescript-eslint/eslint-plugin": "^8.52.0",
+        "@typescript-eslint/parser": "^8.52.0",
         "esbuild": "^0.19.8",
         "eslint": "^8.56.0",
         "npm-run-all": "^4.1.5",
         "typescript": "^5.3.3",
         "vitest": "^1.0.4"
+    },
+    "dependencies": {
+        "sql.js": "^1.13.0",
+        "write-file-atomic": "^7.0.0"
     }
 }

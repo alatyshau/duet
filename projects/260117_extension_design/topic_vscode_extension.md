@@ -44,7 +44,7 @@
 - **Cursor/VS Code** — общая DuetData, настройки в каждом IDE отдельно (только путь)
 - **Sidebar структура** — три секции: Breadcrumb, Бизнес-Структура, Проекты
 - **Кнопка добавления бизнеса** — ВСЕГДА в шапке, независимо от контекста
-- **Дерево бизнесов** — всегда строится от корня, не зависит от текущего окна
+- **Дерево бизнесов** — всегда строится от корня, не зависит от текущего окна VS Code
 - **Папка вне структуры** — два подсценария:
   - git-repo → Orphan (ошибка в breadcrumb)
   - просто папка → аналогично (ошибка в breadcrumb → Editor Tab)
@@ -110,7 +110,8 @@ CREATE TABLE entities (
   name TEXT,
   icon TEXT,
   drive_path TEXT UNIQUE, -- используется как TreeItem.id для стабильности UI
-  parent_id INTEGER REFERENCES entities(id)
+  parent_id INTEGER REFERENCES entities(id),
+  git_url TEXT            -- только для product (из product.json)
 );
 ```
 
@@ -263,7 +264,7 @@ index.db есть? ─НЕТ→ Сканировать Drive → создать
 Построить sidebar (три секции)
   │
   ▼
-Определить контекст текущего окна:
+Определить контекст текущего окна VS Code:
   │
   ├─ Нет открытой папки → Breadcrumb пуст
   │
@@ -465,8 +466,6 @@ Picker: выбрать папку
 │                                     │
 │   [📁 Выбрать папку...]             │
 │                                     │
-│   [✨ Создать ~/DuetData]           │
-│                                     │
 └─────────────────────────────────────┘
 ```
 
@@ -600,14 +599,13 @@ UI для первого запуска (нет data_folder). Секция DUET 
 **Ход работы:**
 - [x] Создать `src/vscode/providers/OnboardingProvider.ts` (TreeDataProvider)
 - [x] Кнопка "Выбрать папку" → folder picker → сохранить в settings
-- [x] Кнопка "Создать ~/DuetData" → создать папку + сохранить
 - [x] После выбора → переход к обычному sidebar
 - [x] Проверить: Onboarding показывается при пустом setting
 
 ---
 
 ### Шаг 4: Scanner & Database
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [Схема index.db](#схема-indexdb)
 
 Сканирование Drive и построение SQLite индекса.
@@ -626,22 +624,22 @@ UI для первого запуска (нет data_folder). Секция DUET 
 - **Почему это ок:** оба сканировали одни и те же business_folders, результат идентичен. Если Drive изменился между сканами — нажать 🔄 ещё раз
 
 **Ход работы:**
-- [ ] Добавить зависимости: `sql.js` (WASM), `write-file-atomic`
-- [ ] Создать `src/core/db/index.ts` — инициализация БД, схема
-- [ ] Persist: load from file, save via `write-file-atomic`
-- [ ] Создать `src/core/scanner.ts` — рекурсивный обход business_folders
-- [ ] Флаг `scanInProgress` — блокировка повторного запуска в том же окне
-- [ ] Парсить `business.json`, `stream.json`, `product.json`
-- [ ] Детектировать проекты (папки внутри `projects/`)
-- [ ] Сохранять в `entities` таблицу
-- [ ] **Debug output:** команда `Duet: Dump Index` → JSON в Output channel
-- [ ] Unit-тесты: scanner с test fixtures, db с in-memory SQLite
-- [ ] Проверить: после scan в БД есть записи, dump читаем
+- [x] Добавить зависимости: `sql.js` (WASM), `write-file-atomic`
+- [x] Создать `src/core/db/index.ts` — инициализация БД, схема
+- [x] Persist: load from file, save via `write-file-atomic`
+- [x] Создать `src/core/scanner.ts` — рекурсивный обход business_folders
+- [x] Флаг `scanInProgress` — блокировка повторного запуска в том же окне
+- [x] Парсить `business.json`, `stream.json`, `product.json`
+- [x] Детектировать проекты (папки внутри `projects/`)
+- [x] Сохранять в `entities` таблицу
+- [x] **Debug output:** команда `Duet: Dump Index` → JSON в Output channel
+- [x] Unit-тесты: scanner с test fixtures, db с in-memory SQLite
+- [x] Проверить: после scan в БД есть записи, dump читаем
 
 ---
 
 ### Шаг 5: TreeView — Секция ДЕЛА
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [UI](#5-ui)
 
 Sidebar с деревом бизнесов.
@@ -651,21 +649,18 @@ Sidebar с деревом бизнесов.
 - Бизнесы — тоже top-level, `collapsibleState: Collapsed/Expanded` (со стрелками)
 - При CollapseAll видны все: `[МОИ ДЕЛА]` + свёрнутые бизнесы
 
-**План Б (если костыль не сработает):**
-- Убрать `[МОИ ДЕЛА]` из дерева
-- Кнопку [→] для all-businesses.code-workspace вынести в шапку секции
-
 **Ход работы:**
-- [ ] Зарегистрировать ViewContainer в `package.json` (activitybar icon)
-- [ ] Создать `src/core/tree/businessTree.ts` — логика построения дерева (данные)
-- [ ] Создать `src/vscode/providers/BusinessTreeProvider.ts` — TreeDataProvider обёртка
-- [ ] Костыль: `[МОИ ДЕЛА]` с `collapsibleState: None`, кнопка [→]
-- [ ] Иерархия: Business → Stream → Product (из index.db)
-- [ ] Иконки из поля `icon` манифестов
-- [ ] Кнопки в шапке: 🔄, ➕, [−], [+]
-- [ ] Кнопки у элементов: [↵], [→]
-- [ ] Unit-тесты для core/tree/businessTree.ts
-- [ ] Проверить: дерево отображается, CollapseAll показывает `[МОИ ДЕЛА]` + бизнесы
+- [x] Зарегистрировать ViewContainer в `package.json` (activitybar icon)
+- [x] Создать `src/core/tree/businessTree.ts` — логика построения дерева (данные)
+- [x] Создать `src/vscode/providers/BusinessTreeProvider.ts` — TreeDataProvider обёртка
+- [x] Костыль: `[МОИ ДЕЛА]` с `collapsibleState: None`
+- [x] Кнопки действий (Open in New Window и т.д.) в `package.json` и команды
+- [x] Иерархия: Business → Stream → Product (из index.db)
+- [x] Иконки из поля `icon` манифестов
+- [x] Кнопки в шапке: 🔄, ➕, [−], [+]
+- [x] Кнопки у элементов: [↵], [→]
+- [x] Unit-тесты для core/tree/businessTree.ts
+- [x] Проверить: дерево отображается, CollapseAll показывает `[МОИ ДЕЛА]` + бизнесы
 
 ---
 
@@ -673,7 +668,7 @@ Sidebar с деревом бизнесов.
 **Статус:** TODO
 **Выход:** [UI](#5-ui)
 
-Секция breadcrumb с контекстом текущего окна.
+Секция breadcrumb с контекстом текущего окна VS Code.
 
 **Ход работы:**
 - [ ] Создать `src/core/tree/contextBreadcrumb.ts` — логика определения контекста
@@ -682,6 +677,11 @@ Sidebar с деревом бизнесов.
 - [ ] Кнопка [⚙️] → QuickPick (открыть/изменить DuetData)
 - [ ] Unit-тесты для core/tree/contextBreadcrumb.ts
 - [ ] Проверить: контекст показывается корректно
+
+#### Предварительные замечания
+
+1. **Баг: контекст окна нельзя определять через `activeTextEditor`** — `ContextProvider` берёт путь из активного файла (`editor.document.uri.fsPath`), но по смыслу спеки "контекст текущего окна" = какие папки открыты в этом окне VS Code (workspace root folders).
+   - **Исправить:** брать контекст из `vscode.workspace.workspaceFolders` (workspace root folder(s)), не из активного файла.
 
 ---
 
@@ -732,6 +732,7 @@ Sidebar с деревом бизнесов.
 - [ ] При клике на продукт: проверить есть ли `workspaces/Duet.code-workspace`
 - [ ] Если нет → сгенерировать (относительный путь к repos/, абсолютный к Drive)
 - [ ] Открыть workspace-файл через `vscode.commands.executeCommand('vscode.openFolder', uri)`
+- [ ] `.vscodeignore`: добавить `out/**` перед публикацией
 - [ ] Проверить: workspace открывается с обеими папками в Explorer
 
 ---
@@ -759,6 +760,8 @@ Sidebar с деревом бизнесов.
 Финальная доработка.
 
 **Ход работы:**
+- [ ] Onboarding: добавить `reloadWindow` после сохранения папки
+- [ ] Scanner: агрегировать ошибки парсинга манифестов в OutputChannel (не спамить попапами)
 - [ ] README.md для расширения
 - [ ] Иконка расширения
 - [ ] Тестирование на чистой установке

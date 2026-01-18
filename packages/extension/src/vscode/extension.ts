@@ -1,13 +1,22 @@
 import * as vscode from 'vscode';
 import { OnboardingProvider } from './providers/OnboardingProvider';
+import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
+import { ContextProvider } from './providers/ContextProvider';
+import { ProjectsProvider } from './providers/ProjectsProvider';
 import { selectDataFolder } from './commands/onboarding';
+import { refresh } from './commands/refresh';
+import { addBusiness } from './commands/addBusiness';
+import { openInCurrentWindow, openInNewWindow } from './commands/openFolder';
+import { dumpIndex } from './commands/refresh';
+import { DatabaseManager } from '../core/db';
+import { Paths } from '../core/paths';
 
 class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
     getChildren(): vscode.ProviderResult<vscode.TreeItem[]> { return Promise.resolve([]); }
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     console.log('Duet extension is active');
 
     // Onboarding View
@@ -16,18 +25,78 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerTreeDataProvider('duet.onboarding', onboardingProvider)
     );
 
-    // Register stubs for future views to prevent UI errors
-    const stubProvider = new StubProvider();
-    context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('duet.context', stubProvider),
-        vscode.window.registerTreeDataProvider('duet.businesses', stubProvider),
-        vscode.window.registerTreeDataProvider('duet.projects', stubProvider)
-    );
-
+    const config = vscode.workspace.getConfiguration('duet');
+    const dataFolder = config.get<string>('data_folder');
+    
     // Commands
     context.subscriptions.push(
         vscode.commands.registerCommand('duet.selectDataFolder', selectDataFolder)
     );
+
+    if (dataFolder) {
+        const paths = new Paths(dataFolder);
+        const db = new DatabaseManager(paths);
+        const wasmPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'sql-wasm.wasm').fsPath;
+        
+        try {
+            await db.init({ wasmPath });
+            const businessProvider = new BusinessTreeProvider(db, wasmPath);
+            const contextProvider = new ContextProvider(db);
+            const projectsProvider = new ProjectsProvider(db);
+            
+            const businessTreeView = vscode.window.createTreeView('duet.businesses', { treeDataProvider: businessProvider });
+
+            context.subscriptions.push(
+                businessTreeView,
+                vscode.window.registerTreeDataProvider('duet.context', contextProvider),
+                vscode.window.registerTreeDataProvider('duet.projects', projectsProvider),
+                // Add disposables
+                { dispose: () => contextProvider.dispose() },
+                { dispose: () => projectsProvider.dispose() },
+                vscode.commands.registerCommand('duet.refresh', async () => {
+                   await refresh(context);
+                   await businessProvider.refresh();
+                   contextProvider.refresh();
+                   projectsProvider.refresh();
+                }),
+                vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(context)),
+                vscode.commands.registerCommand('duet.expandAll', async () => {
+                    const nodes = businessProvider.getAllNodes();
+                    for (const node of nodes) {
+                        try {
+                            await businessTreeView.reveal(node, { expand: true, focus: false, select: false });
+                        } catch (e) {
+                            console.error('Expand error:', e);
+                        }
+                    }
+                }),
+                vscode.commands.registerCommand('duet.collapseAll', async () => {
+                    await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
+                }),
+                vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
+                vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
+                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context))
+            );
+        } catch (e) {
+            console.error('Failed to init DB:', e);
+            // Fallback to stubs if DB fails
+            registerStubs(context);
+        }
+    } else {
+        registerStubs(context);
+    }
 }
+
+function registerStubs(context: vscode.ExtensionContext) {
+    const stubProvider = new StubProvider();
+    context.subscriptions.push(
+        vscode.window.registerTreeDataProvider('duet.businesses', stubProvider),
+        vscode.window.registerTreeDataProvider('duet.context', stubProvider),
+        vscode.window.registerTreeDataProvider('duet.projects', stubProvider)
+        // refresh command is not registered here to avoid collision if dataFolder is set but DB init fails
+        // If exact stub needed: use a check or try-catch block wrapping registration
+    );
+}
+
 
 export function deactivate() { }

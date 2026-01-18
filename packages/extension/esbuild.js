@@ -1,4 +1,6 @@
 const esbuild = require("esbuild");
+const fs = require("fs");
+const path = require("path");
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -24,6 +26,27 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
+    // Copy sql-wasm.wasm to dist
+    const wasmSource = path.join(__dirname, '../../node_modules/sql.js/dist/sql-wasm.wasm');
+    const distDir = path.join(__dirname, 'dist');
+    
+    // Check if wasm exists at workspace root (monorepo structure)
+    let finalWasmSource = wasmSource;
+    if (!fs.existsSync(wasmSource)) {
+         // Fallback to local node_modules
+         finalWasmSource = path.join(__dirname, 'node_modules/sql.js/dist/sql-wasm.wasm');
+    }
+
+    if (fs.existsSync(finalWasmSource)) {
+        if (!fs.existsSync(distDir)) {
+            fs.mkdirSync(distDir, { recursive: true });
+        }
+        fs.copyFileSync(finalWasmSource, path.join(distDir, 'sql-wasm.wasm'));
+        console.log(`Copied sql-wasm.wasm from ${finalWasmSource} to dist/`);
+    } else {
+        console.error('Could not find sql-wasm.wasm to copy!');
+    }
+
     const ctx = await esbuild.context({
         entryPoints: [
             'src/vscode/extension.ts'
