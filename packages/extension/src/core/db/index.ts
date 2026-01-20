@@ -60,6 +60,10 @@ export class DatabaseManager {
                 git_url TEXT
             );
         `);
+
+        // Global unique index on name - ensures no duplicate names across all entity types
+        // When duplicates occur during scanning, scanner adds suffix (1), (2) to deeper entities
+        this.db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name);`);
     }
 
     async save(): Promise<void> {
@@ -189,6 +193,48 @@ export class DatabaseManager {
         }
 
         return this.mapRow(result[0].columns, result[0].values[0]);
+    }
+
+    /**
+     * Find entity by name (global unique lookup).
+     * Used for: repo→product linking, duplicate detection during scan.
+     */
+    findByName(name: string): Entity | null {
+        if (!this.db) {
+             throw new Error('Database not initialized');
+        }
+
+        const result = this.db.exec('SELECT * FROM entities WHERE name = ?', [name]);
+        if (result.length === 0 || result[0].values.length === 0) {
+            return null;
+        }
+
+        return this.mapRow(result[0].columns, result[0].values[0]);
+    }
+
+    /**
+     * Check if a name exists in the database.
+     * Used by scanner to detect duplicates before insert.
+     */
+    nameExists(name: string): boolean {
+        if (!this.db) {
+             throw new Error('Database not initialized');
+        }
+
+        const result = this.db.exec('SELECT 1 FROM entities WHERE name = ? LIMIT 1', [name]);
+        return result.length > 0 && result[0].values.length > 0;
+    }
+
+    /**
+     * Update entity name by id.
+     * Used by scanner when a higher-priority entity claims the name.
+     */
+    updateEntityName(id: number, newName: string): void {
+        if (!this.db) {
+             throw new Error('Database not initialized');
+        }
+
+        this.db.run('UPDATE entities SET name = ? WHERE id = ?', [newName, id]);
     }
 
     findClosestEntity(path: string): Entity | null {

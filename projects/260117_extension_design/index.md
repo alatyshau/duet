@@ -8,8 +8,10 @@
 
 | ID | Персона | Клиент | Роль |
 |----|---------|--------|------|
-| ClaudeCode:Daedalus | Дедал | Claude Code | Архитектура, планирование |
-| Gemini:Hephaestus | Гефест | Gemini | Реализация, код |
+| Гефест@ClaudeCode(Opus4.5) | Гефест | Claude Code | Реализация, код |
+| Дедал@Copilot(Gemini3Pro) | Дедал | GitHub Copilot | Архитектура, ревью |
+| Дедал@Codex(GPT5.2) | Дедал | Codex CLI | Архитектура, ревью |
+| Сократ@ClaudeCode(Opus4.5) | Сократ | ClaudeCode | Мета-ревью, диалектика и планирование |
 
 ---
 

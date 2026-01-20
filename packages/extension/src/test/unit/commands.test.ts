@@ -23,6 +23,11 @@ vi.mock('vscode', () => ({
         showWarningMessage: vi.fn(),
         showOpenDialog: vi.fn(),
         withProgress: vi.fn((_options, task) => task()),
+        createOutputChannel: vi.fn().mockReturnValue({
+            appendLine: vi.fn(),
+            clear: vi.fn(),
+            show: vi.fn(),
+        }),
     },
     workspace: {
         getConfiguration: vi.fn().mockReturnValue({
@@ -205,7 +210,7 @@ describe('VS Code Commands', () => {
             expect(scanMock).not.toHaveBeenCalled();
         });
 
-        it('should show error message if scan fails', async () => {
+        it('should log to OutputChannel and show warning if scan fails', async () => {
             scanMock.mockRejectedValue(new Error('Scan error'));
 
             // Reset configuration mock
@@ -217,7 +222,14 @@ describe('VS Code Commands', () => {
 
             await refresh(context);
 
-            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Scan failed: Error: Scan error');
+            // Summary warning is shown with error count (errors logged to OutputChannel)
+            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+                expect.stringContaining('error(s)'),
+                'Show Output'
+            );
+
+            // Verify showErrorMessage is NOT called (errors go to OutputChannel instead)
+            expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
         });
     });
 

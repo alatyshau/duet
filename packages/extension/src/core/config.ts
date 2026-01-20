@@ -1,22 +1,15 @@
-import * as fs from 'fs';
 import * as path from 'path';
+import { FileSystem, nodeFs } from './fs';
 
 export interface DuetConfig {
     businessFolders: string[];
-}
-
-export interface FileSystem {
-    access(path: string): Promise<void>;
-    readFile(path: string, options: { encoding: 'utf8' } | 'utf8'): Promise<string>;
-    writeFile(path: string, data: string, options: { encoding: 'utf8' } | 'utf8'): Promise<void>;
-    mkdir(path: string, options?: { recursive?: boolean }): Promise<string | undefined>;
 }
 
 export class ConfigManager {
     private readonly fs: FileSystem;
 
     constructor(private readonly configPath: string, fileSystem?: FileSystem) {
-        this.fs = fileSystem || fs.promises;
+        this.fs = fileSystem ?? nodeFs;
     }
 
     async read(): Promise<DuetConfig> {

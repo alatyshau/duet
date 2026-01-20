@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
 import * as os from 'os';
-import { ConfigManager, FileSystem } from '../../core/config';
+import { ConfigManager } from '../../core/config';
+import { FileSystem } from '../../core/fs';
 import { Paths } from '../../core/paths';
 
 describe('Paths', () => {
@@ -40,6 +41,8 @@ describe('ConfigManager', () => {
             readFile: vi.fn(),
             writeFile: vi.fn(),
             mkdir: vi.fn(),
+            readdir: vi.fn(), // Not used by ConfigManager, but required by interface
+            rename: vi.fn(),  // Not used by ConfigManager, but required by interface
         };
         configManager = new ConfigManager(mockConfigPath, mockFs);
     });

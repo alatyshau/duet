@@ -4,6 +4,16 @@ import { DatabaseManager } from '../../core/db';
 import { ConfigManager } from '../../core/config';
 import { Paths } from '../../core/paths';
 
+// Singleton OutputChannel for scan errors
+let outputChannel: vscode.OutputChannel | undefined;
+
+function getOutputChannel(): vscode.OutputChannel {
+    if (!outputChannel) {
+        outputChannel = vscode.window.createOutputChannel('Duet Scanner');
+    }
+    return outputChannel;
+}
+
 export async function refresh(context: vscode.ExtensionContext): Promise<void> {
     const config = vscode.workspace.getConfiguration('duet');
     const dataFolder = config.get<string>('data_folder');
@@ -18,7 +28,7 @@ export async function refresh(context: vscode.ExtensionContext): Promise<void> {
 
     // In VSIX environment, we need to locate the WASM file manually
     const wasmPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'sql-wasm.wasm').fsPath;
-    
+
     // Scanner will init db, but we need to pass options somehow?
     // Scanner calls db.init(), but doesn't pass options.
     // Solution: Init DB here with options before passing to Scanner.
@@ -26,7 +36,16 @@ export async function refresh(context: vscode.ExtensionContext): Promise<void> {
     await db.init({ wasmPath });
 
     const configManager = new ConfigManager(paths.configPath);
-    const scanner = new Scanner(db, configManager, (msg) => vscode.window.showErrorMessage(msg));
+
+    // Collect errors during scan - write to OutputChannel instead of toasts
+    const errors: string[] = [];
+    const channel = getOutputChannel();
+    channel.clear();
+
+    const scanner = new Scanner(db, configManager, (msg) => {
+        errors.push(msg);
+        channel.appendLine(`[${new Date().toLocaleTimeString()}] ${msg}`);
+    });
 
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
@@ -36,9 +55,21 @@ export async function refresh(context: vscode.ExtensionContext): Promise<void> {
         try {
             await scanner.scan();
         } catch (error) {
-            vscode.window.showErrorMessage(`Scan failed: ${error}`);
+            errors.push(`Scan failed: ${error}`);
+            channel.appendLine(`[${new Date().toLocaleTimeString()}] Scan failed: ${error}`);
         }
     });
+
+    // Show one summary notification if there were errors
+    if (errors.length > 0) {
+        const action = await vscode.window.showWarningMessage(
+            `Scan completed with ${errors.length} error(s). See Output for details.`,
+            'Show Output'
+        );
+        if (action === 'Show Output') {
+            channel.show();
+        }
+    }
 }
 
 export async function dumpIndex(context: vscode.ExtensionContext): Promise<void> {
