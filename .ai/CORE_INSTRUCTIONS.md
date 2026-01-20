@@ -1,0 +1,64 @@
+
+<!-- GENERATED FILE — DO NOT EDIT MANUALLY
+     Source: packages/ai-kit/templates/CORE_INSTRUCTIONS.md.j2
+     Script: python packages/ai-kit/build.py
+
+     All changes must be made in source templates, then regenerated. -->
+
+# Системные инструкции для ИИ-агентов
+
+<!-- TODO: Шаг 2 — перенести контент из INSTRUCTIONS.md.j2 -->
+
+## Режимы работы
+
+<!-- TODO: обзорная таблица режимов -->
+
+---
+
+## Алгоритм выбора режима
+
+<!-- TODO: Шаг 3 — decision tree -->
+
+---
+
+## Режим DIALOGUE
+
+<!-- TODO: перенести DIALOGUE + принципы дискуссий -->
+
+---
+
+## Базовые правила
+
+<!-- TODO: перенести и почистить -->
+
+---
+
+## Красные линии
+
+<!-- TODO: перенести и почистить -->
+
+---
+
+## Тезаурус
+
+<!-- TODO: перенести -->
+
+---
+
+## Формат ответов
+
+<!-- TODO: перенести -->
+
+---
+
+## Timestamp
+
+<!-- TODO: перенести -->
+
+---
+
+## Старт сессии
+
+<!-- TODO: перенести -->
+
+---
