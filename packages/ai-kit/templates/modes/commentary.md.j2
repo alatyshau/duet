@@ -1,24 +1,25 @@
+{# modes/commentary.md.j2 — Режим COMMENTARY #}
+{# Генерирует: .ai/modes/commentary.md #}
+
+<!-- GENERATED FILE — DO NOT EDIT MANUALLY
+     Source: packages/ai-kit/templates/modes/commentary.md.j2
+     Script: python packages/ai-kit/build.py
+
+     All changes must be made in source templates, then regenerated. -->
+
 # Режим COMMENTARY
 
 > Прочитай этот файл когда переходишь в режим COMMENTARY.
 > После завершения — возврат в DIALOGUE.
 
-<!-- TODO: Шаг 2 — перенести контент из INSTRUCTIONS.md.j2 -->
+---
 
 ## Когда входить
 
-<!-- TODO -->
+Переход в COMMENTARY происходит по **явному запросу** пользователя:
+- "Прокомментируй файл X"
+- "Добавь комментарии к Y"
 
 ---
 
-## Формат комментариев
-
-<!-- TODO: ::: АВТОР ::: -->
-
----
-
-## Правила редактирования
-
-<!-- TODO -->
-
----
+{% include '_instructions/3_dialogue/comments_format.md' %}

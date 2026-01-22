@@ -1,42 +1,21 @@
+{# modes/execute.md.j2 — Режим EXECUTE #}
+{# Генерирует: .ai/modes/execute.md #}
+
+<!-- GENERATED FILE — DO NOT EDIT MANUALLY
+     Source: packages/ai-kit/templates/modes/execute.md.j2
+     Script: python packages/ai-kit/build.py
+
+     All changes must be made in source templates, then regenerated. -->
+
 # Режим EXECUTE
 
 > Прочитай этот файл когда переходишь в режим EXECUTE.
 > После завершения — возврат в DIALOGUE.
 
-<!-- TODO: Шаг 2 — перенести контент из INSTRUCTIONS.md.j2 -->
+---
 
-## Алгоритм работы
-
-<!-- TODO -->
+{% include '_instructions/5_execute/state_machine.md' %}
 
 ---
 
-## State machine шагов
-
-<!-- TODO: TODO → WIP → IN_REVIEW → DONE -->
-
----
-
-## Команды
-
-<!-- TODO: /next, /done, /done-next -->
-
----
-
-## Формат шага
-
-<!-- TODO -->
-
----
-
-## Правила репортинга
-
-<!-- TODO -->
-
----
-
-## Запрет автопродолжения
-
-<!-- TODO -->
-
----
+{% include '_instructions/5_execute/execute_rules.md' %}

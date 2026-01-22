@@ -231,16 +231,18 @@ packages/ai-kit/templates/
 ---
 
 ### Шаг 2: Распределить контент по файлам
-**Статус:** TODO
+**Статус:** IN_REVIEW
 **Выход:** [Выход 1: Новая структура файлов](#выход-1-новая-структура-файлов)
 
 **Ход работы:**
-- [ ] Скопировать PLANNING секции из INSTRUCTIONS.md.j2 → modes/planning.md.j2
-- [ ] Скопировать EXECUTE секции → modes/execute.md.j2
-- [ ] Скопировать SECRETARY секции → modes/secretary.md.j2
-- [ ] Скопировать REVIEW секции → modes/review.md.j2
-- [ ] Создать modes/commentary.md.j2 (формат комментариев)
-- [ ] В CORE_INSTRUCTIONS.md.j2: DIALOGUE, базовые правила, тезаурус, форматы (без режимов)
+- [x] Скопировать PLANNING секции из INSTRUCTIONS.md.j2 → modes/planning.md.j2
+- [x] Скопировать EXECUTE секции → modes/execute.md.j2
+- [x] Скопировать SECRETARY секции → modes/secretary.md.j2
+- [x] Скопировать REVIEW секции → modes/review.md.j2
+- [x] Создать modes/commentary.md.j2 (формат комментариев)
+- [x] В CORE_INSTRUCTIONS.md.j2: DIALOGUE, базовые правила, тезаурус, форматы (без режимов)
+
+**Примечание:** Использованы Jinja2 includes для DRY — mode-файлы ссылаются на существующие partials в `_instructions/`.
 
 ---
 
@@ -252,6 +254,8 @@ packages/ai-kit/templates/
 - [ ] Добавить секцию "Алгоритм выбора режима" в core
 - [ ] Decision tree с явными инструкциями какой файл читать
 - [ ] Проверить что все переходы покрыты
+- [ ] Внедрить workflow sddg.md
+- [ ] Перевести все инструкции на английский язык
 
 ---
 
