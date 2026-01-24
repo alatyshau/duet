@@ -721,11 +721,3 @@ packages/ai-kit/templates/
 **Статус:** ВЫНЕСЕН → [topic_instructions_quality.md](topic_instructions_quality.md)
 
 Объём работы потребовал отдельного топика. См. topic_instructions_quality.md.
-
----
-
-### Шаг 14: Библиотека Effective Guides (post-MVP)
-**Статус:** TODO
-
-**Ход работы:**
-- [ ] Вернуться после стабилизации канона INSTRUCTIONS и build pipeline
