@@ -105,6 +105,45 @@
 - Test runner конфиг
 - Smoke-тесты: активация, команды, TreeView
 
+**Примеры багов, которые ловятся только UI-тестами:**
+
+| Баг | Почему только UI-тест |
+|-----|----------------------|
+| Welcome view не показывает кнопку "Open folder" | Рендеринг welcome content |
+| QuickPick появляется в неправильном месте | Позиционирование VS Code UI |
+| Tooltips не отображаются при наведении | Hover state |
+| Текущий узел не выделен (bold/green) | TreeItem decoration rendering |
+| Hover-иконки не появляются | Inline actions visibility |
+| Иконка не там где ожидается | Layout/alignment |
+
+**Альтернативные фреймворки:**
+
+| Фреймворк | Плюсы | Минусы |
+|-----------|-------|--------|
+| `@vscode/test-electron` | Официальный, простой setup | Ограниченный API |
+| `vscode-extension-tester` | Полноценный Selenium, богатый API | Медленный, flaky |
+| Playwright + VS Code | Быстрый, современный | Сложная настройка |
+
+**Пример теста (vscode-extension-tester):**
+
+```typescript
+import { TreeView, Workbench } from 'vscode-extension-tester';
+
+describe('Context TreeView', () => {
+  it('should show breadcrumb for git repo', async () => {
+    const workbench = new Workbench();
+    const sidebar = await workbench.getActivityBar().getViewControl('Duet');
+    const view = await sidebar.openView();
+
+    const tree = await view.getContent().getSection('КОНТЕКСТ') as TreeView;
+    const items = await tree.getVisibleItems();
+
+    expect(items.length).toBeGreaterThan(0);
+    expect(await items[0].getLabel()).toContain('МетаЛаб');
+  });
+});
+```
+
 ---
 
 ## ПЛАН ВНЕДРЕНИЯ

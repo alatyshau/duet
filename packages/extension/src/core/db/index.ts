@@ -244,10 +244,11 @@ export class DatabaseManager {
 
         // Find entity where path starts with drive_path
         // Sort by length desc to get the deepest match
+        // Use instr() instead of LIKE to avoid issues with _ and % in paths
         const result = this.db.exec(
-            `SELECT * FROM entities 
-             WHERE ? LIKE drive_path || '%' 
-             ORDER BY length(drive_path) DESC 
+            `SELECT * FROM entities
+             WHERE instr(?, drive_path) = 1
+             ORDER BY length(drive_path) DESC
              LIMIT 1`,
             [path]
         );

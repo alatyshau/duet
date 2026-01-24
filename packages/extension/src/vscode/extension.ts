@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
-import { ContextProvider } from './providers/ContextProvider';
+import { ContextProvider, contextSettingsCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { selectDataFolder } from './commands/onboarding';
 import { refresh } from './commands/refresh';
@@ -41,10 +41,13 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             await db.init({ wasmPath });
             const businessProvider = new BusinessTreeProvider(db, wasmPath);
-            const contextProvider = new ContextProvider(db);
+            const contextProvider = new ContextProvider(db, paths);
             const projectsProvider = new ProjectsProvider(db);
             
-            const businessTreeView = vscode.window.createTreeView('duet.businesses', { treeDataProvider: businessProvider });
+            const businessTreeView = vscode.window.createTreeView('duet.businesses', {
+                treeDataProvider: businessProvider,
+                showCollapseAll: true
+            });
 
             context.subscriptions.push(
                 businessTreeView,
@@ -75,7 +78,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 }),
                 vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
                 vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
-                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context))
+                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context)),
+                vscode.commands.registerCommand('duet.contextSettings', () => contextSettingsCommand(paths)),
+                vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand)
             );
         } catch (e) {
             console.error('Failed to init DB:', e);

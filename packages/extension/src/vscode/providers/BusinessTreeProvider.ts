@@ -45,7 +45,7 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
 
         const node = element as TreeNode;
         const collapsibleState = node.hasChildren
-            ? vscode.TreeItemCollapsibleState.Collapsed
+            ? vscode.TreeItemCollapsibleState.Expanded
             : vscode.TreeItemCollapsibleState.None;
 
         // Use emoji in label
