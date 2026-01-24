@@ -35,45 +35,48 @@
 
 ## Roadmap
 
-> Обновлено @turn(260112_174500M). Итеративный процесс — база → обогащение → усиление.
+> Обновлено @turn(260123_1730M). Фокус на модульной архитектуре инструкций.
 
-### 1. БАЗА — topic_base_instructions.md
-**Статус:** План готов (9 шагов), готов к EXECUTE
+### ✓ БАЗА — topic_base_instructions.md
+**Статус:** DONE (шаги 1-12 выполнены)
 
-Первая рабочая версия базовых инструкций.
+Первая рабочая версия базовых инструкций. Шаг 13 (quality review) вынесен в topic_instructions_quality.md.
 
-**Продукт:** `packages/ai-kit/templates/INSTRUCTIONS.md.j2` → CLAUDE.md, AGENTS.md
+**Продукт:** `packages/ai-kit/templates/INSTRUCTIONS.md.j2` → CLAUDE.md (legacy)
 
-### 2. Обогащение — структура и персистентность
-- topic_document_structure.md — структура чат-документов
-- topic_context_persistence.md — state machine шагов
+---
 
-### 3. Обогащение — режим Secretary
-- topic_secretary.md — спецификация /secretary
+### П1. Модульная архитектура (EN) — topic_instructions_quality.md
+**Статус:** В работе (Шаг 3 DONE, Шаг 4 TODO)
+**Агент:** ClaudeCode:Socrates
 
-### 4. Персоны (с именами)
-- topic_socrates.md — формализовать
-- Hermes (Keeper) — документирование
-- Daedalus (Architect) — планирование
-- Hephaestus (Master) — реализация
-- Loki (Trickster) — провокация
+Переход от монолитного INSTRUCTIONS.md.j2 к модульным standalone .md файлам на английском.
 
-**Принцип:** персоны называем именами (не функциями). Несколько агентов одной персоны допустимо.
+**Структура:**
+```
+templates/
+├── core_instructions.md    ← DONE (386 строк)
+├── modes/*.md              ← TODO (5 файлов)
+└── workflows/*.md          ← TODO (sddg, solo)
+```
 
-### 5. Перенос из параллельного проекта
-**Статус:** Выполнен @turn(260112_161222M). См. АРХИВ.
+**План:** 7 шагов (3-7 осталось)
 
-**Перенесённые темы:**
-- @topic(topic_socrates.md)
-@topic(topic_hephaestus.md)
-@topic(topic_softeng.md)
-@topic(topic_principal_feedback.md) ✅
-- topic_softeng.md ✅
+---
 
-### 6. Пользовательская документация
-- README.md — getting started
-- docs/USAGE.md — user guide
-- docs/GLOSSARY.md — тезаурус
+### П2. Редизайн AI Kit — topic_ai_kit_redesign.md
+**Статус:** В работе
+**Агент:** АЛ (параллельно)
+
+Системный подход к перепроектированию: use cases, компоненты, валидация.
+
+**6 аспектов:** token efficiency, компоненты, use cases, валидация, бенчмаркинг, ретроспектива.
+
+---
+
+### Остальное — позже
+
+Все остальные темы (topic_base_instructions, topic_secretary, topic_review_mode, и т.д.) будут вынесены в отдельную проектную папку или интегрированы в П1/П2.
 
 ---
 
@@ -285,6 +288,25 @@
 2. **Содержательное ревью** — починка текста внутри контейнеров
 
 **Продукт**: Упрощённая и непротиворечивая структура инструкций.
+
+---
+
+### ТЕМА: topic_ai_kit_redesign.md
+> Перепроектирование AI Kit
+
+**Статус**: В работе @turn(260123_1155M).
+
+**Суть**: Системный подход к перепроектированию AI Kit.
+
+**6 аспектов:**
+1. Применить instructions-architect (token efficiency, progressive disclosure)
+2. Переосмыслить компоненты (режимы, персоны, skills, stances, форматы)
+3. Исследование use cases — опираться на факты
+4. Валидация архитектуры — удобно? нужно?
+5. Изучить как другие работают — может есть слон в комнате?
+6. Ретроспектива проекта — как развивался, что улучшить?
+
+**Продукт**: Обновлённая архитектура AI Kit.
 
 ---
 

@@ -231,7 +231,7 @@ packages/ai-kit/templates/
 ---
 
 ### Шаг 2: Распределить контент по файлам
-**Статус:** IN_REVIEW
+**Статус:** DONE
 **Выход:** [Выход 1: Новая структура файлов](#выход-1-новая-структура-файлов)
 
 **Ход работы:**
@@ -246,50 +246,82 @@ packages/ai-kit/templates/
 
 ---
 
-### Шаг 3: Написать decision tree
+### Шаг 3: core_instructions.md (EN)
+**Статус:** DONE
+**Выход:** [Выход 2: Decision tree](#выход-2-decision-tree)
+
+Создан новый core_instructions.md — standalone файл на английском (386 строк).
+
+**Ключевые решения:**
+- Standalone .md (без Jinja2 includes) — проще, понятнее
+- `_instructions/` и `INSTRUCTIONS.md.j2` — legacy, не трогаем
+- Язык инструкций — EN, чат — RU
+- Тезаурус — EN с RU переводами (stream = дело, project = проект GTD)
+
+**Ход работы:**
+- [x] Modes overview + decision tree (какой файл загружать)
+- [x] Session start (5 шагов идентификации)
+- [x] Spec-driven development — NEW! (spec = source of truth)
+- [x] Thesaurus EN↔RU
+- [x] Base rules (9 правил), Red lines (3 запрета)
+- [x] Response format (@turn, @topic), timestamp
+- [x] DIALOGUE philosophy, zone separation
+
+---
+
+### Шаг 4: modes/*.md (EN, standalone)
+**Статус:** TODO
+**Выход:** [Выход 1: Новая структура файлов](#выход-1-новая-структура-файлов)
+
+Переписать mode-файлы: убрать Jinja2 includes, сделать standalone на английском.
+Каждый файл — самодостаточная инструкция для одного режима.
+
+**Ход работы:**
+- [ ] planning.md — topic structure (5 sections), plan format, PLANNING→EXECUTE transition
+- [ ] execute.md — state machine (TODO→WIP→IN_REVIEW→DONE), step rules, proactivity limits
+- [ ] secretary.md — archiving algorithm, checkpoint format, what to preserve
+- [ ] review.md — review format, "all issues are equal", checklist
+- [ ] commentary.md — comment syntax `::: AUTHOR :::`, nesting rules
+
+---
+
+### Шаг 5: workflows/*.md (EN)
 **Статус:** TODO
 **Выход:** [Выход 2: Decision tree](#выход-2-decision-tree)
 
+Создать workflow-файлы — описание ритма работы и правил коммитов.
+
 **Ход работы:**
-- [ ] Добавить секцию "Алгоритм выбора режима" в core
-- [ ] Decision tree с явными инструкциями какой файл читать
-- [ ] Проверить что все переходы покрыты
-- [ ] Внедрить workflow sddg.md
-- [ ] Перевести все инструкции на английский язык
+- [ ] sddg.md — multi-agent spec-driven flow (Socrates→Daedalus→Hephaestus), когда коммит, как обновлять spec
+- [ ] solo.md — single agent flow, упрощённый ритм для работы одного агента
 
 ---
 
-### Шаг 4: Обновить терминологию
+### Шаг 6: Smoke test
 **Статус:** TODO
-**Выход:** [Выход 3: Чистка содержания](#выход-3-чистка-содержания)
+**Выход:** Подтверждение работоспособности
+
+Проверить что файлы готовы к использованию.
+
+**Решение:** Jinja2 не нужен для новых файлов — просто .md, копируются куда надо.
+Deployment strategy (куда копировать) — отдельный вопрос, решим позже.
 
 **Ход работы:**
-- [ ] Заменить "чат-папка" → "проектная папка" везде
-- [ ] Проверить другие устаревшие термины
+- [ ] Проверить что все .md файлы созданы в templates/
+- [ ] Протестировать загрузку в новой сессии (скопировать вручную в .ai/)
+- [ ] Убедиться что агент понимает инструкции
 
 ---
 
-### Шаг 5: Почистить содержание
+### Шаг 7: Интеграция и миграция
 **Статус:** TODO
-**Выход:** [Выход 3: Чистка содержания](#выход-3-чистка-содержания)
+**Выход:** Production-ready система
+
+Переключить production на новые инструкции.
 
 **Ход работы:**
-- [ ] Пересмотреть 9 базовых правил — убрать лишнее/очевидное
-- [ ] Пересмотреть красные линии
-- [ ] Удалить дубли (формат ответов, типы файлов)
-- [ ] Сократить где возможно
-
----
-
-### Шаг 6: Regenerate и проверка
-**Статус:** TODO
-**Выход:** Все выходы
-
-**Ход работы:**
-- [ ] Запустить build.py
-- [ ] Проверить что .ai/CORE_INSTRUCTIONS.md создан
-- [ ] Проверить что .ai/modes/*.md созданы
-- [ ] Тест на реальной задаче (разные клиенты)
-- [ ] Когда всё ок: заменить CLAUDE.md на CORE_INSTRUCTIONS.md
+- [ ] Обновить CLAUDE.md → ссылка на core_instructions.md
+- [ ] Тест на реальной задаче (разные IDE: Cursor, Claude Code)
+- [ ] После подтверждения: пометить legacy как deprecated
 
 ---
