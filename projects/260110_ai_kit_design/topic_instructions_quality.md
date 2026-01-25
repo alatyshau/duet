@@ -219,7 +219,7 @@ packages/ai-kit/templates/
 ---
 
 ### Шаг 1: Создать структуру файлов
-**Статус:** IN_REVIEW
+**Статус:** DONE
 **Выход:** [Выход 1: Новая структура файлов](#выход-1-новая-структура-файлов)
 
 **Ход работы:**
@@ -270,18 +270,18 @@ packages/ai-kit/templates/
 ---
 
 ### Шаг 4: modes/*.md (EN, standalone)
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [Выход 1: Новая структура файлов](#выход-1-новая-структура-файлов)
 
 Переписать mode-файлы: убрать Jinja2 includes, сделать standalone на английском.
 Каждый файл — самодостаточная инструкция для одного режима.
 
 **Ход работы:**
-- [ ] planning.md — topic structure (5 sections), plan format, PLANNING→EXECUTE transition
-- [ ] execute.md — state machine (TODO→WIP→IN_REVIEW→DONE), step rules, proactivity limits
-- [ ] secretary.md — archiving algorithm, checkpoint format, what to preserve
-- [ ] review.md — review format, "all issues are equal", checklist
-- [ ] commentary.md — comment syntax `::: AUTHOR :::`, nesting rules
+- [x] planning.md — topic structure (5 sections), plan format, PLANNING→EXECUTE transition
+- [x] execute.md — state machine (TODO→WIP→IN_REVIEW→DONE), step rules, proactivity limits
+- [x] secretary.md — archiving algorithm, checkpoint format, what to preserve
+- [x] review.md — review format, "all issues are equal", checklist
+- [x] commentary.md — comment syntax `::: AUTHOR :::`, nesting rules
 
 ---
 
