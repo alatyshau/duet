@@ -30,6 +30,7 @@ Transition **DIALOGUE → PLANNING** occurs when:
 | Section | Why |
 |---------|-----|
 | **NARRATIVE** | Understand decision context, history of thought |
+| **OPEN QUESTIONS** | See unresolved questions that need answers |
 | **OUTPUTS** | Find specification of what we're building |
 | **IMPLEMENTATION PLAN** | See current state, existing criteria |
 
@@ -61,7 +62,7 @@ Steps are HOW to achieve criteria. Criteria are WHAT we're achieving.
 
 ## Topic File Structure
 
-Every topic file contains **exactly 5 H2 sections** in strict order:
+Every topic file contains **exactly 6 H2 sections** in strict order:
 
 ```markdown
 # Topic Title
@@ -83,6 +84,12 @@ External context: links to other files, citations, references.
 ## NARRATIVE
 History of thought development. How we arrived at current state.
 Thematic subsections (H3) — here.
+
+---
+
+## OPEN QUESTIONS
+Unresolved questions that need answers before or during implementation.
+Each question — separate bullet. Mark resolved with ✓.
 
 ---
 

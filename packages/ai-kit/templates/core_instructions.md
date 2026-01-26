@@ -1,6 +1,6 @@
 # Core Instructions for AI Agents
 
-These are the base instructions. Modes (PLANNING, EXECUTE, etc.) are described in `.ai/modes/*.md`. Workflows (SDDG, Solo) are in `.ai/workflows/*.md`.
+These are the base instructions. Modes (PLANNING, EXECUTE, etc.) are described in `modes/*.md`. Workflows (SDDG, Solo) are in `workflows/*.md`.
 
 ---
 
@@ -36,8 +36,8 @@ Mode answers: **"What is happening now and what is the agent allowed to do?"**
 SESSION START
     │
     ├── Load core_instructions.md (always)
-    ├── Load personas/<name>.md (from settings)
-    ├── Load workflows/<name>.md (from settings)
+    ├── Load personas/<name>.md (ask user if not specified)
+    ├── Load workflows/<name>.md (if multi-agent session)
     │
     ▼
 Mode = DIALOGUE (instructions in this file)
@@ -46,19 +46,19 @@ Mode = DIALOGUE (instructions in this file)
 WAITING FOR EVENT
     │
     ├── /secretary
-    │   └─→ Read .ai/modes/secretary.md, follow instructions
+    │   └─→ Read modes/secretary.md, follow instructions
     │
     ├── /next (or "yes, execute")
-    │   └─→ Read .ai/modes/execute.md, follow instructions
+    │   └─→ Read modes/execute.md, follow instructions
     │
     ├── Request for changes OUTSIDE project folder
-    │   └─→ Read .ai/modes/planning.md, follow instructions
+    │   └─→ Read modes/planning.md, follow instructions
     │
     ├── "Review X"
-    │   └─→ Read .ai/modes/review.md, follow instructions
+    │   └─→ Read modes/review.md, follow instructions
     │
     ├── "Comment on file X"
-    │   └─→ Read .ai/modes/commentary.md, follow instructions
+    │   └─→ Read modes/commentary.md, follow instructions
     │
     └── Everything else
         └─→ Stay in DIALOGUE
@@ -97,7 +97,7 @@ After getting the project folder, read:
 ### Step 4: Load persona
 
 Read your persona file (mission, method, focus) from:
-- `.ai/personas/<name>.md`
+- `personas/<name>.md`
 
 ### Step 5: Business context (if needed)
 
@@ -110,45 +110,56 @@ Read your persona file (mission, method, focus) from:
 
 ## Spec-Driven Development
 
-### Principle
-
-> **The codebase is always in integrity.**
-> After each commit: code + spec = complete truth.
-> Topic file can disappear — and nothing is lost.
-
-### Source Priority
+### Key Concept
 
 ```
-For DONE steps:     spec/ > topic file
-For TODO steps:     topic file > spec/
-On conflict:        ask the human
+Topic file = "where we're going" (plan, temporary)
+spec/      = "where we are now" (implemented, source of truth)
 ```
 
-### What to read when
+After project completion, topic can be deleted — spec/ has everything.
+
+### Location
+
+spec/ lives in the component being developed:
 
 ```
-Understand current state    → read spec/
-Execute a step              → read topic (OUTPUTS + step) + spec/
-Verify implementation       → compare code with spec/
+<component>/spec/
+├── DOMAIN.md       — glossary, concept hierarchy
+├── DATA_MODEL.md   — schemas, constraints
+├── ARCHITECTURE.md — modules, layers
+└── UI.md           — states, flows
 ```
 
-### When decision changes mid-process
+Examples: `packages/ai-kit/spec/`, `apps/extension/spec/`
+
+All specs in English.
+
+If spec/ doesn't exist — ask human when to create.
+
+### Algorithm
 
 ```
-1. Update spec/ (source of truth)
-2. Add note to topic NARRATIVE
-3. NOT required to edit topic OUTPUTS (it's temporary)
+BEFORE step:
+  read spec/ (baseline) + topic (plan)
+
+AFTER step:
+  update spec/ (what was actually done)
+  commit = code + spec in integrity
+
+IF decision changes mid-work:
+  1. Update spec/ first
+  2. Then update code
+  3. Note in topic NARRATIVE (optional)
 ```
 
-### Spec structure
+### Priority
 
-```
-packages/<component>/spec/
-├── DOMAIN.md        ← glossary (EN + RU keys), hierarchy
-├── DATA_MODEL.md    ← schemas, formats, constraints
-├── ARCHITECTURE.md  ← code structure, layer separation
-└── UI.md            ← states, flows, edge cases
-```
+| When | Read first |
+|------|------------|
+| DONE steps | spec/ > topic |
+| TODO steps | topic > spec/ |
+| Conflict | ask human |
 
 ---
 
@@ -162,12 +173,26 @@ packages/<component>/spec/
 | **Persona** | WHO am I? | Yes | Entire session | Socrates, Hermes, Daedalus |
 | **Mode** | WHAT is happening? | No | Switches | DIALOGUE, PLANNING, EXECUTE |
 
+### Entity Hierarchy
+
+```
+Business → Stream* → Product → (Component) → Project
+```
+
+| EN | RU | Meaning | Example |
+|----|-----|---------|---------|
+| **business** | бизнес | Root-level stream | `МетаЛаб`, `Семья` |
+| **stream** | дело | Intermediate level (0..N nesting) | `ТехноЛаб`, `ДомоДел` |
+| **product** | продукт | Leaf stream with git repo | `Duet`, `Kreator` |
+| **component** | компонент | Part of product (package in monorepo) | `packages/ai-kit` |
+| **project** | проект | GTD project: tasks with completion criteria | `projects/260110_ai_talks` |
+
+> *Streams can be nested. Business = root stream, Product = terminal stream.
+
 ### Key Terms
 
 | EN | RU | Meaning |
 |----|-----|---------|
-| **stream** | дело | Long-lived entity, business, workstream (NOT "поток") |
-| **project** | проект (GTD) | Group of tasks with completion criteria |
 | **project folder** | проектная папка | Folder with index.md and topic files |
 | **topic file** | топик-файл | topic_*.md — discussion of one theme |
 | **spec** | спецификация | Source of truth for AI (EN, in spec/ folder) |
@@ -192,11 +217,19 @@ packages/<component>/spec/
 
 > In step state machine use `IN_REVIEW`, not `REVIEW`.
 
+### Language
+
+**Chat:** RU
+
 ---
 
 ## Base Rules
 
 Applicable to any persona. These are universal working rules (HOW).
+
+**Axiom:** AI agents write all code. Never give time estimates or frame work as user's effort.
+- ❌ "~20 minutes", "quick fix", "you need to..."
+- ✅ "Should I fix this?" → then fix it
 
 ### 9 Rules
 
@@ -241,8 +274,8 @@ Applicable to any persona. These are universal working rules (HOW).
 **Prohibition**: Do not edit documentation `.md` files directly.
 
 **What counts as documentation:**
-- `.ai/personas/*.md` — personas
-- `.ai/schemas/*.md` — schemas
+- `personas/*.md` — personas
+- `schemas/*.md` — schemas
 - `CLAUDE.md` — AI instructions
 - `docs/*.md` — documentation (except auto-generated)
 
@@ -311,29 +344,9 @@ text
 
 ## Timestamp
 
-Chronology of events. Without timestamp, impossible to understand order of changes, reference specific moments.
+Format: `YYMMDD_HHMMSS<tz>` (e.g., `260126_201530M`)
 
-### Format
-
-```
-YYMMDD_HHMMSS<tz>
-```
-
-Example: `260111_060825M` (Jan 11 2026, 06:08:25, Moscow)
-
-### Getting timestamp
-
-Run script each time you need a timestamp:
-
-```bash
-python packages/ai-kit/scripts/timestamp.py
-```
-
-### Timezone source
-
-File `.ai/settings.json` contains:
-- `timezone.id` — identifier (e.g., `Europe/Moscow`)
-- `timezone.value` — short code (e.g., `M`)
+Use the `timestamp` MCP tool to get current time.
 
 ---
 

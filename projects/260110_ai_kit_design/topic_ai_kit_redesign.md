@@ -336,9 +336,20 @@ packages/ai-kit/templates/
 │   ├── typescript.md
 │   └── instructions-architect.md
 └── stances/
-    ├── dialectic.md
-    └── pragmatic.md
+    ├── dialectic.md    — explore, question, hold open (DEFAULT)
+    ├── pragmatic.md    — solve now, minimal ceremony
+    ├── briefing.md     — deep analysis → compact decisions
+    ├── critical.md     — find what's wrong
+    └── facilitator.md  — extract knowledge via questions
 ```
+
+**Статус:** Создано ✅
+
+### Выход 1.1: STANCE_GUIDE.md
+
+Гайд для пользователя по выбору позы.
+
+- `packages/ai-kit/docs/STANCE_GUIDE.md`
 
 **Статус:** Создано ✅
 
@@ -432,11 +443,11 @@ packages/ai-kit/templates/
 - [ ] Таблица "как отличить X от Y" для смежных понятий
 
 #### По Принципу 3: Богатое разнообразие
-- [ ] ≥8 modes (сейчас: 8 — DIALOGUE, EXECUTE, REVIEW, PLANNING, SECRETARY, COMMENTARY, DIAGNOSTIC, AUDIT)
-- [ ] ≥7 stances (сейчас: 7 — systematic, pragmatic, dialectic, self-correcting, constructive, adversarial, coordinator)
-- [ ] ≥10 skills (сейчас: ~5, нужно больше)
+- [ ] ≥8 modes (сейчас: 6 базовых — DIALOGUE, EXECUTE, REVIEW, PLANNING, SECRETARY, COMMENTARY)
+- [x] ≥5 stances (сейчас: 5 — dialectic, pragmatic, briefing, critical, facilitator) ✅
+- [ ] ≥10 skills (сейчас: ~3, нужно больше)
 - [ ] ≥4 workflows (сейчас: 4 — solo, pair, sddg, multi)
-- [ ] Персоны с различимыми default stances
+- [x] Default stance = dialectic ✅
 
 #### По Принципу 4: Запоминаемость гайдов
 - [ ] Quick reference на 1 экран (≤30 строк)

@@ -20,6 +20,7 @@
 | Файл | Название | Статус |
 |------|----------|--------|
 | [topic_vscode_extension.md](topic_vscode_extension.md) | VS Code Extension "Duet" | черновик |
+| [topic_dependency_check.md](topic_dependency_check.md) | Проверка зависимостей AI Kit | backlog |
 | [topic_nice_to_have.md](topic_nice_to_have.md) | Nice to Have | backlog |
 
 ---

@@ -96,6 +96,11 @@ def build_all(
         if template_file.name.endswith(".md.j2"):
             output_rel = rel_path.parent / template_file.name.replace(".j2", "")
 
+        # Map source folders to output folders (for isolation)
+        output_rel_str = str(output_rel)
+        if output_rel_str.startswith("old_personas"):
+            output_rel = Path(output_rel_str.replace("old_personas", "personas", 1))
+
         output_path = ai_dir / output_rel
 
         # Ensure parent directory exists
@@ -141,6 +146,11 @@ def main():
         action="store_true",
         help="Show what would be generated without writing files"
     )
+    parser.add_argument(
+        "--sync-root",
+        action="store_true",
+        help="Sync to root aliases (CLAUDE.md, GEMINI.md, AGENTS.md)"
+    )
 
     args = parser.parse_args()
     ai_dir = args.output or get_ai_dir()
@@ -169,8 +179,11 @@ def main():
 
     print(f"\nGenerated {len(generated)} files.")
 
-    # Step 12: Sync root files
-    copy_to_root(ai_dir)
+    # Step 12: Sync root files (only with --sync-root flag)
+    if args.sync_root:
+        copy_to_root(ai_dir)
+    else:
+        print("\nSkipped root sync (use --sync-root to update CLAUDE.md, GEMINI.md, AGENTS.md)")
 
 
 def copy_to_root(ai_dir: Path):

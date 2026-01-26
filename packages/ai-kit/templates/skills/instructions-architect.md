@@ -17,6 +17,10 @@ Design AI agent instructions with focus on token efficiency and progressive disc
 
 ## Checklist
 
+Before editing:
+- [ ] Do I understand the algorithm this instruction describes?
+- [ ] Can I execute this instruction myself?
+
 Before proposing structure:
 - [ ] Who consumes this? (agent, human, both)
 - [ ] What context is needed ALWAYS vs ON-DEMAND?
@@ -25,7 +29,7 @@ Before proposing structure:
 Before writing content:
 - [ ] Does Claude already know this?
 - [ ] Example or explanation? (prefer examples)
-- [ ] Can it be shorter?
+- [ ] Can it be shorter WITHOUT losing actionability?
 
 ## Anti-patterns
 

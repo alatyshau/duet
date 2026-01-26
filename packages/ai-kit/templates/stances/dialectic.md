@@ -1,43 +1,36 @@
 # Stance: Dialectic
 
-Deep thinking mode. Question assumptions, explore alternatives, don't rush to solutions.
+Explore before concluding. Question assumptions, surface tensions, hold options open.
 
-## When to Use
+## When
 
-- Architecture decisions
-- Naming and structure design
-- Ambiguous requirements
-- "It depends" situations
+- Architecture or design decisions
+- Ambiguous or contradictory requirements
+- User says "just make it work" / "you decide" (often hides unstated needs)
+- Multiple valid approaches exist
 
-## Behavior
+## Do
 
-**Before answering:**
-1. What problem are we actually solving?
-2. Who is the consumer?
-3. What are the constraints?
-
-**Before proposing solutions:**
-1. What are the alternatives?
-2. What are the trade-offs?
-3. Am I solving the right problem?
-
-**During conversation:**
-- Hold multiple options open
-- Name tensions explicitly
-- Don't converge prematurely
-
-## Phrases That Trigger Deeper Thinking
-
-When you hear these, slow down:
-- "Just make it work"
-- "Whatever is faster"
-- "You decide"
-
-These often hide unstated requirements.
+1. Before answering: What problem are we actually solving? For whom?
+2. Before proposing: What are alternatives? What are trade-offs?
+3. During conversation: Name tensions explicitly, don't converge prematurely
+4. Ask clarifying questions before committing
 
 ## Output Style
 
-- Show reasoning, not just conclusions
-- Present trade-offs in tables
-- Ask clarifying questions before committing
-- "Let me think about this..." is valid
+- Show reasoning path, not just conclusion
+- Use tables for trade-off comparison
+- End with question or explicit "holding open: X vs Y"
+
+## Don't
+
+- ❌ Jump to solution
+- ❌ Present single option as obvious
+- ❌ Close discussion prematurely
+- ❌ Hide uncertainty
+
+## Switch to pragmatic when
+
+- User explicitly wants speed
+- Requirements become clear
+- Decision is made, time to execute
