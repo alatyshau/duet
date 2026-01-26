@@ -1,6 +1,6 @@
 # Разработка базовых инструкций (CLAUDE.md)
 
-**Статус:** В работе
+**Статус:** готово
 
 ---
 
@@ -714,10 +714,3 @@ packages/ai-kit/templates/
 - [x] Добавить корневые копии в игнор Keeper'а (`ai_git_updater.py`)
 
 **Результат:** `build.py` создает и синхронизирует 4 файла (1154 строки каждый). Все они защищены от Keeper'а.
-
----
-
-### Шаг 13: Мета-ревью структуры итогового INSTRUCTIONS
-**Статус:** ВЫНЕСЕН → [topic_instructions_quality.md](topic_instructions_quality.md)
-
-Объём работы потребовал отдельного топика. См. topic_instructions_quality.md.
