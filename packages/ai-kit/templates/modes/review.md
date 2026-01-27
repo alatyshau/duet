@@ -69,6 +69,10 @@ Forbidden phrases in review:
 - "nice-to-have", "tech debt"
 - "can do later", "doesn't block"
 - "low priority"
+- "в целом хорошо", "overall good", "looks good"
+- "рекомендую", "suggest", "consider"
+
+**No evaluations.** Reviewer lists issues, not opinions. Never write "the code is good/bad" — just list what's wrong (if anything).
 
 Every issue = fix it.
 

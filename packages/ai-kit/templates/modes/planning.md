@@ -7,18 +7,38 @@
 
 ## When to Enter
 
-Transition **DIALOGUE → PLANNING** occurs when:
-- User requests changes **outside project folder** (code, configs)
-- Need to create or update a topic file with a plan
+### Explicit (user command)
 
-**Key rule:** EXECUTE only with a plan. No plan — PLANNING first.
+User switches mode:
+- `!режим=ПЛАНИРОВАНИЕ` or `!режим=ПЛАН`
+- `@mode(PLANNING)`
+- "режим ПЛАНИРОВАНИЕ", "mode PLANNING"
+
+Context is already in chat + NARRATIVE + OUTPUTS. Generate IMPLEMENTATION PLAN from that.
+
+### Implicit (agent-initiated)
+
+User requests something complex without a plan:
+- Multiple files to change
+- Non-trivial architecture decision
+- Risk of breaking existing code
+
+**Threshold:** Only for significant work. Simple fixes don't need a plan.
+
+**Pattern:**
+```
+User: "Добавь авторизацию в API"
+Agent: "Это затронет несколько файлов. Сначала составлю план."
+       [switches to PLANNING, formulates plan]
+       "Вот план. Выполнять?"
+```
 
 ---
 
 ## What Agent Does
 
 1. **Load context** — if topic exists, read the entire topic file
-2. **Create/update topic file** — following canonical structure (5 H2 sections)
+2. **Create/update topic file** — following `schemas/topic_file.md`
 3. **Formulate IMPLEMENTATION PLAN** — completion criteria FIRST, then steps
 4. **Propose plan** — "Is this what you want?"
 5. **Wait for permission** — transition to EXECUTE only after explicit "yes" / `/next`
@@ -27,24 +47,15 @@ Transition **DIALOGUE → PLANNING** occurs when:
 
 ## What to Read
 
-| Section | Why |
-|---------|-----|
-| **NARRATIVE** | Understand decision context, history of thought |
-| **OPEN QUESTIONS** | See unresolved questions that need answers |
-| **OUTPUTS** | Find specification of what we're building |
-| **IMPLEMENTATION PLAN** | See current state, existing criteria |
+| Source | Why |
+|--------|-----|
+| **NARRATIVE** | Decision context, history of thought |
+| **OPEN QUESTIONS** | What needs resolution |
+| **OUTPUTS** | Specification of what we're building |
+| **IMPLEMENTATION PLAN** | Current state, existing criteria |
+| **spec/** folder | Baseline of what's already implemented |
 
 > **Deep context:** PLANNING is bound to ONE topic file. Read it entirely before formulating a plan.
-
----
-
-## Granularity Principle
-
-> **One document = one topic/project/idea.**
-
-If during narrative a new independent topic crystallizes — create a new `topic_*.md` file.
-
-Don't overload one topic with unrelated concerns.
 
 ---
 
@@ -62,83 +73,10 @@ Steps are HOW to achieve criteria. Criteria are WHAT we're achieving.
 
 ## Topic File Structure
 
-Every topic file contains **exactly 6 H2 sections** in strict order:
-
-```markdown
-# Topic Title
-
-**Status:** ...
-
----
-
-## MOTIVATION
-Why this document exists. What problem it solves.
-
----
-
-## REFERENCES
-External context: links to other files, citations, references.
-
----
-
-## NARRATIVE
-History of thought development. How we arrived at current state.
-Thematic subsections (H3) — here.
-
----
-
-## OPEN QUESTIONS
-Unresolved questions that need answers before or during implementation.
-Each question — separate bullet. Mark resolved with ✓.
-
----
-
-## OUTPUTS
-Structured result of work on the topic.
-Focus on product, not process.
-
----
-
-## IMPLEMENTATION PLAN
-Completion criteria. Implementation steps.
-```
-
-**All sections required.** Additional content — only as subsections (H3, H4).
-
----
-
-## Implementation Plan Stages
-
-| Stage | Status | Description |
-|-------|--------|-------------|
-| **Uncertainty** | `unclear` | Topic just emerged, unclear why |
-| **Planning** | `planning` | Outputs appeared, formulating criteria |
-| **Execution** | `in progress` | Steps with TODO/WIP/IN_REVIEW/DONE |
-| **Completion** | `done` | All criteria met, can archive |
-
----
-
-## Implementation Plan Format
-
-```markdown
-## IMPLEMENTATION PLAN
-
-**Status:** planning | in progress | done
-
-**Completion criteria:**
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-### Step 1: Title
-**Status:** TODO | WIP | IN_REVIEW | DONE
-**Output:** [Link to output](#anchor) or topic_xxx.md
-
-**Work log:**
-- [ ] Item 1
-- [ ] Item 2
-
-### Step 2: ...
-```
+See `schemas/topic_file.md` for:
+- Canonical structure (6 H2 sections)
+- IMPLEMENTATION PLAN format
+- Plan lifecycle (unclear → planning → in progress → done)
 
 ---
 
@@ -170,13 +108,3 @@ Transition happens **only after explicit permission**:
 
 **Key rule:** interjections are feedback, NOT `/next` command.
 
----
-
-## File Types in Project Folder
-
-| File | Description |
-|------|-------------|
-| `index.md` | Project folder index |
-| `instructions.md` | Session-specific instructions |
-| `draft_*` | Personal notebook, AI doesn't touch |
-| `topic_*` | Discussion of topics/projects/ideas |
