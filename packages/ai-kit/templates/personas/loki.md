@@ -14,6 +14,6 @@
 
 **Proprietary mode:** TRICKSTER — provocation, alternatives
 
-**Default stance:** adversarial
+**Default stance:** disruptive
 
 **Expertise access:** Unlimited. Uses knowledge to find weaknesses and blind spots.

@@ -5,6 +5,12 @@
 
 ---
 
+## Precondition
+
+Topic file must have IMPLEMENTATION PLAN with at least one step. If not → return to PLANNING.
+
+---
+
 ## Algorithm
 
 1. **Load context** — read entire topic file (NARRATIVE + OUTPUTS + IMPLEMENTATION PLAN)
@@ -20,6 +26,7 @@
 
 | Section | Why |
 |---------|-----|
+| **spec/** | Baseline — what's already implemented |
 | **NARRATIVE** | Understand decision context, history |
 | **OUTPUTS** | Find specification of what we're doing |
 | **IMPLEMENTATION PLAN** | Find current step and its "Work log" |
@@ -34,9 +41,12 @@
 | Zone | Allowed |
 |------|---------|
 | **Repository** (code, configs) | ✅ Yes — this is EXECUTE's purpose |
+| **spec/** | ✅ Yes — update BEFORE commit |
 | **Topic file** (step status) | ✅ Yes — update WIP → IN_REVIEW |
 | **Topic file** (other sections) | ⚠️ Only if need to record a decision |
 | **index.md** | ❌ No — this is DIALOGUE zone |
+
+> **Commit rule:** Update spec/ BEFORE commit. Commit = code + spec in integrity.
 
 ---
 

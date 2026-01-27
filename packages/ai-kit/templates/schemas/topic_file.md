@@ -1,8 +1,15 @@
 # Schema: Topic File
 
 **What:** Format of `topic_*.md` files in project folders.
-**Why:** Unified format = predictability. AI knows where to find what.
 **Used by:** All personas, all modes (with different permissions).
+
+## Writing Principle
+
+**Write for humans first.** The primary reader is a person returning to the project after a break — not the AI agent, not a "dry technician".
+
+- Formulations must be self-explanatory without chat context
+- Each item answers: what is the problem, why it matters, what to do
+- Avoid cryptic shorthand that only makes sense mid-conversation
 
 ---
 
@@ -67,6 +74,15 @@ Each topic file contains **6 H2 sections** in strict order:
 ---
 
 ## IMPLEMENTATION PLAN Structure
+
+### Plan Lifecycle
+
+| Stage | Status | What it means |
+|-------|--------|---------------|
+| **Uncertainty** | `unclear` | Topic just emerged, not yet clear why it matters |
+| **Planning** | `planning` | OUTPUTS appeared, formulating criteria and steps |
+| **Execution** | `in progress` | Steps being worked on (TODO/WIP/IN_REVIEW/DONE) |
+| **Completion** | `done` | All criteria met, topic can be archived |
 
 This section has **three mandatory parts**:
 

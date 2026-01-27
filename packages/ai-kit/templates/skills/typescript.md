@@ -2,6 +2,13 @@
 
 Idiomatic TypeScript for modern applications.
 
+## Quality Criteria
+
+- Type-safe, no `any` without justification
+- Exhaustive discriminated unions
+- Explicit return types on exports
+- Clean barrel exports
+
 ## Sources
 
 - "Effective TypeScript" (Dan Vanderkam)

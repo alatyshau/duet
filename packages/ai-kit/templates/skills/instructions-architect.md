@@ -2,10 +2,17 @@
 
 Design AI agent instructions with focus on token efficiency and progressive disclosure.
 
+## Quality Criteria
+
+- Token-justified (every paragraph earns its place)
+- Progressive disclosure (layers, not walls)
+- Flat references (one hop to details)
+- Actionable (examples over explanations)
+
 ## When to Use
 
 - Designing or reviewing CLAUDE.md, AGENTS.md
-- Structuring mode files, skill files
+- Structuring mode files, skill files → see `schemas/skill_file.md`
 - Optimizing context window usage
 
 ## Principles

@@ -2,6 +2,13 @@
 
 Idiomatic Python following modern best practices.
 
+## Quality Criteria
+
+- Readable, explicit over implicit
+- Type-hinted public API
+- Proper error handling (specific exceptions)
+- Clean structure (minimal utils)
+
 ## Sources
 
 - PEP 8, PEP 20 (Zen of Python)
