@@ -10,7 +10,6 @@
     "emoji": "🚀",
     "folders": {
         "ai-instructions": "База знаний AI",
-        "extension": "VS Code Extension (Placeholder)",
         "host": "Duet Host (Electron)"
     }
 }

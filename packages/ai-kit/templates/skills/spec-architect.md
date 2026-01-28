@@ -1,62 +1,72 @@
 # Skill: Spec Architect
 
-Write specifications as source of truth for a component. Specs describe WHAT EXISTS, not how to behave.
+Write specifications as source of truth for AI agents. Specs ≠ docs (docs/ is for humans).
 
-## Quality Criteria
+## Core Principle
 
-- Clear boundaries (what's in, what's out)
-- Minimal ambiguity (no guessing)
-- Developer-oriented (humans read specs)
-- Current vs legacy marked explicitly
+Spec exists when:
+1. Knowledge **scattered** across many files → consolidate
+2. Knowledge **not in code** (decisions, rationale, future) → capture
+3. Behavior **easy to accidentally break** → contract
+4. Mapping **saves search** → navigation shortcut
 
-## When to Use
+## What Goes in Spec
 
-- Creating `spec/` folder for a package or component
-- Documenting domain concepts (glossary, relationships)
-- Describing architecture (folder structure, modules, boundaries)
-- Marking legacy vs current
+### Consolidation (agent won't read 100 files)
 
-## Spec vs Instructions
+| Type | Example |
+|------|---------|
+| Glossary | "stream" = intermediate container, can nest |
+| Business rules | Name globally unique, priority: business > stream > product |
+| Boundaries | core/ never imports vscode |
 
-| Aspect | Spec | Instructions |
-|--------|------|--------------|
-| Question | What exists? | How to behave? |
-| Audience | Developers | Agents |
-| Location | `<component>/spec/` | `core_instructions.md`, `modes/` |
-| Example | "These folders exist" | "When you see X, do Y" |
+### Not in Code (decisions, rationale, future)
+
+| Type | Example |
+|------|---------|
+| Decision | "Why sql.js?" → works in extension sandbox |
+| Rationale | "Why unique names?" → unambiguous lookups |
+| Future | "collapseAll planned" → don't implement differently |
+
+### Behavioral Contracts (easy to break, hard to notice)
+
+| Category | Example |
+|----------|---------|
+| UI behavior | "Nodes expanded by default" — agent changes to Collapsed, UX breaks |
+| Data format | "config.json uses `snake_case` keys" — agent uses camelCase, migration breaks |
+| Schema fields | "entities table has `git_url` field" — agent renames, queries break |
+| Visibility | "Onboarding shown when `!config.duet.data_folder`" — agent changes condition, UX breaks |
+
+```
+# Bad: requirement only in chat/topic, lost after implementation
+# Good: contract in spec, agent checks before changing
+```
+
+### Navigation Shortcuts (saves grep)
+
+| Mapping | Example |
+|---------|---------|
+| Concept → file | View "КОНТЕКСТ" → `ContextProvider.ts` |
+| Feature → module | Self-healing → `scanner.ts` |
+
+### Exclude (single source exists)
+
+- Commands → package.json
+- Interface signatures → the .ts file
+- File structure → Glob
 
 ## Standard Files
 
 ```
 spec/
-├── DOMAIN.md       — concepts, glossary, relationships
-├── ARCHITECTURE.md — folder structure, modules, legacy markers
-├── DATA_MODEL.md   — schemas, constraints (if applicable)
-└── UI.md           — states, flows (if applicable)
+├── DOMAIN.md       — glossary, business rules
+├── ARCHITECTURE.md — layers, decisions, boundaries
+├── DATA_MODEL.md   — constraints, persistence
+└── UI.md           — view purposes, behavioral contracts
 ```
-
-## Principles
-
-1. **Describe, don't prescribe** — spec says what IS, not what to DO
-2. **Current vs legacy** — explicitly mark deprecated parts
-3. **For humans** — specs are for developers reading the codebase
-4. **Minimal** — only what's needed to orient in the codebase
-
-## Checklist
-
-Before writing spec:
-- [ ] What component am I specifying?
-- [ ] Who will read this? (developers, not agents)
-- [ ] Is this describing structure, not behavior?
-
-Before each section:
-- [ ] Does this belong in spec or in instructions?
-- [ ] Is this WHAT EXISTS or HOW TO ACT?
 
 ## Anti-patterns
 
-- Lookup tables (that's instructions)
-- Load order (that's instructions)
-- Decision trees (that's instructions)
-- "When X happens, do Y" (that's instructions)
-
+- Duplicating package.json / code (read source directly)
+- "For humans" (that's docs/)
+- Verbose prose (use tables)

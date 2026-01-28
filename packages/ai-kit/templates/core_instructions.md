@@ -2,7 +2,11 @@
 
 **Chat language:** RU
 
-**Self-check:** After `@turn()`, report loading status for Mode, Stance, Skill. Status must reflect reality: which file, and whether you loaded it now or how you access it otherwise.
+**Self-check:** After `@turn()`, report:
+1. Loading status for Mode, Stance, Skill (which file, loaded now or cached)
+2. Axiom check — which [Axioms](#axioms) were relevant this turn, how followed (or "none relevant")
+
+**!! Axioms** — see [Axioms](#axioms). Always follow, no exceptions.
 
 ---
 

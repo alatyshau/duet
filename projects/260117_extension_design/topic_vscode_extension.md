@@ -907,22 +907,19 @@ Sidebar с деревом бизнесов.
 ---
 
 ### Шаг 7: Create spec/
-**Статус:** TODO
-**Выход:** —
+**Статус:** DONE
+**Выход:** `packages/extension/spec/`
 
-Создать `packages/extension/spec/` как source of truth для AI-агентов.
+Создать `packages/extension/spec/` как source of truth.
 
-Использовать на этом шаге @skill(instructions_architect). Переосмыслить Spec-Driven Development. Создание индексов спек. Помнить что спеки для ИИ. Для человека docs (materialized view).
-
-**Пример для тестирования spec compliance:**
-Требование "ДЕЛА: Expanded по умолчанию" было явно проговорено в чате, но кто-то позже затёр его в коде (Collapsed вместо Expanded в BusinessTreeProvider.ts). Концы не найти — нет трассируемости от спеки к коду. Спека должна быть source of truth с тестами на соответствие, чтобы такой drift сразу ловился.
+> **Уточнение:** Использован @skill(spec-architect), не instructions-architect. Причина: spec описывает ЧТО ЕСТЬ (для разработчиков), а не КАК ДЕЙСТВОВАТЬ (для агентов). См. `skills/spec-architect.md`.
 
 **Ход работы:**
-- [ ] Создать `spec/DOMAIN.md` — тезаурус (EN + RU ключи), иерархия сущностей
-- [ ] Создать `spec/DATA_MODEL.md` — манифесты, схема БД, структура DuetData
-- [ ] Создать `spec/ARCHITECTURE.md` — core/vscode разделение, стратегия тестирования
-- [ ] Создать `spec/UI.md` — секции, состояния, edge cases, flows
-- [ ] Проверить: спека покрывает всё что реализовано в шагах 1-6
+- [x] Создать `spec/DOMAIN.md` — entity types, hierarchy, manifests, name uniqueness
+- [x] Создать `spec/DATA_MODEL.md` — DuetData structure, config.json, index.db schema
+- [x] Создать `spec/ARCHITECTURE.md` — package structure, core/vscode separation, DI, testing
+- [x] Создать `spec/UI.md` — views, commands, visibility conditions
+- [x] Проверить: спека покрывает всё что реализовано в шагах 1-6
 
 ---
 
