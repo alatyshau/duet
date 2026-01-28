@@ -8,6 +8,25 @@
 |-----------|--------|----------|
 | Python | >= 3.10 | `python3 --version` |
 | Claude Code | установлен | `claude --version` |
+| Codex (опционально) | установлен | `codex --version` |
+
+## Установка Codex CLI (опционально)
+
+> Нужен только для шага “Codex MCP” (tools). Entrypoint инструкций для Codex пишется в `~/.codex/config.toml`, когда `codex` CLI установлен или `~/.codex` уже существует.
+
+### Вариант A: npm
+
+```bash
+npm i -g @openai/codex
+codex --version
+```
+
+### Вариант B: Homebrew
+
+```bash
+brew install codex
+codex --version
+```
 
 ## Шаг 1: Проверка Python
 
@@ -39,6 +58,9 @@ python3 install.py -o ~/DuetData/ai-kit
 4. **Настраивает Claude Code** (если установлен):
    - `~/.claude/CLAUDE.md` — добавляет импорт инструкций
    - `~/.claude/settings.json` — добавляет MCP сервер
+5. **Настраивает Codex**:
+   - `~/.codex/config.toml` — выставляет `model_instructions_file` на `~/DuetData/ai-kit/core_instructions.md` (always-on entrypoint)
+   - `codex mcp add ai-kit -- <venv_python> <server.py>` — добавляет MCP сервер (если `codex` CLI установлен)
 
 ## Шаг 3: Перезапуск Claude Code
 

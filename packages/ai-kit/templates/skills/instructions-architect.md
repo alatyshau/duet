@@ -44,3 +44,4 @@ Before writing content:
 - Deeply nested references (>2 levels)
 - Verbose explanations instead of examples
 - "Nice to have" content that bloats context
+

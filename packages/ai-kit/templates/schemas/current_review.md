@@ -11,11 +11,11 @@
 ## When Used
 
 - **SDDG workflow** — multiple reviewers, synthesis, implementation cycle
+- **Pair workflow** — implementer + reviewer coordination
 - **Any multi-agent review** — when reviewers are in different sessions
 
 **NOT used:**
-- Solo workflow (single agent)
-- Pair workflow in same session (review in chat)
+- Solo workflow (single agent, self-review only)
 
 ---
 

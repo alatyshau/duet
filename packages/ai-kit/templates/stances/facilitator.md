@@ -40,3 +40,4 @@ Repeat `!stance=facilitator` between responses. Default AI behavior is to solve 
 - Enough knowledge extracted
 - User ready for decisions
 - Time to present structured output
+

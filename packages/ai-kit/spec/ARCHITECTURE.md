@@ -3,7 +3,9 @@
 ## Entry Point
 
 ```
-core_instructions.md — main file, always loaded via CLAUDE.md
+core_instructions.md — main file, loaded by clients:
+- Claude Code: via `~/.claude/CLAUDE.md`
+- Codex: via `~/.codex/config.toml` → `model_instructions_file`
 ```
 
 ## Folder Structure
@@ -17,7 +19,7 @@ core_instructions.md — main file, always loaded via CLAUDE.md
 
 ### install.py
 
-Copies templates to user's ai-kit directory and configures Claude Code.
+Copies templates to user's ai-kit directory and configures Claude Code and Codex.
 
 ```bash
 python3 install.py -o ~/DuetData/ai-kit
@@ -29,6 +31,8 @@ Steps:
 3. Copy `templates/` → output dir (preserves `settings.json`)
 4. Register MCP server `ai-kit` with Claude Code
 5. Create/check `~/.claude/CLAUDE.md` import
+6. Update Codex config: `~/.codex/config.toml` → `model_instructions_file = "<output>/core_instructions.md"`
+7. Register MCP server `ai-kit` with Codex (if `codex` CLI is available)
 
 ## ⚠️ Edit Rule
 
@@ -65,4 +69,3 @@ After editing templates, run `install.py` to apply changes.
 | Skill | `skills/<name>.md` | `skills/python.md` |
 | Persona | `personas/<name>.md` | `personas/socrates.md` |
 | Schema | `schemas/<name>.md` | `schemas/topic_file.md` |
-

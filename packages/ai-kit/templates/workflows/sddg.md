@@ -58,6 +58,7 @@
 ## Rules
 
 **For all agents:**
+- ⛔️ **Agent NEVER marks step as DONE** — only human after testing
 - spec/ = source of truth for current state
 - Update spec/ BEFORE commit (not after)
 - Topic file is temporary — don't rely on it for long-term truth

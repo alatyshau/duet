@@ -35,3 +35,4 @@ Thorough before fast. Check everything, skip nothing, verify each step.
 - User explicitly wants speed over thoroughness
 - Task is truly simple (single file, obvious change)
 - Time pressure acknowledged by user
+

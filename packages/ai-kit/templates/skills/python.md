@@ -82,3 +82,4 @@ package/
 - Bare `except:`
 - Deep inheritance hierarchies
 - `type()` instead of `isinstance()`
+

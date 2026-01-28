@@ -36,3 +36,4 @@ Break the frame. Propose something so different it changes the question.
 - Disruption sparked useful direction
 - Time to evaluate options seriously
 - User wants to synthesize ideas
+

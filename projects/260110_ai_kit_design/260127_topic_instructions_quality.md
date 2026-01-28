@@ -286,42 +286,16 @@ packages/ai-kit/templates/
 ---
 
 ### Шаг 5: workflows/*.md (EN)
-**Статус:** TODO
+**Статус:** DONE @turn(260127_120346M)
 **Выход:** [Выход 2: Decision tree](#выход-2-decision-tree)
 
-Создать workflow-файлы — описание ритма работы и правил коммитов.
-
-**Ход работы:**
-- [ ] sddg.md — multi-agent spec-driven flow (Socrates→Daedalus→Hephaestus), когда коммит, как обновлять spec
-- [ ] solo.md — single agent flow, упрощённый ритм для работы одного агента
+Созданы workflow-файлы:
+- [x] sddg.md — multi-agent spec-driven flow
+- [x] solo.md — single agent flow
 
 ---
 
-### Шаг 6: Smoke test
-**Статус:** TODO
-**Выход:** Подтверждение работоспособности
-
-Проверить что файлы готовы к использованию.
-
-**Решение:** Jinja2 не нужен для новых файлов — просто .md, копируются куда надо.
-Deployment strategy (куда копировать) — отдельный вопрос, решим позже.
-
-**Ход работы:**
-- [ ] Проверить что все .md файлы созданы в templates/
-- [ ] Протестировать загрузку в новой сессии (скопировать вручную в .ai/)
-- [ ] Убедиться что агент понимает инструкции
-
----
-
-### Шаг 7: Интеграция и миграция
-**Статус:** TODO
-**Выход:** Production-ready система
-
-Переключить production на новые инструкции.
-
-**Ход работы:**
-- [ ] Обновить CLAUDE.md → ссылка на core_instructions.md
-- [ ] Тест на реальной задаче (разные IDE: Cursor, Claude Code)
-- [ ] После подтверждения: пометить legacy как deprecated
+### Шаги 6-7: Smoke test + Интеграция
+**Статус:** Перенесено → [topic_ai_kit_redesign.md](topic_ai_kit_redesign.md) (Фаза 4: Валидация)
 
 ---

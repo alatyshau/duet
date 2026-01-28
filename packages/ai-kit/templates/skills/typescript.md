@@ -76,3 +76,4 @@ import { parseConfig } from './parser';
 - Implicit return types on exported functions
 - `@ts-ignore` without comment
 - Enums (prefer unions or const objects)
+

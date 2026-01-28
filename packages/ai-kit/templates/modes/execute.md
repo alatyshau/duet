@@ -87,6 +87,20 @@ TODO ──/next──► WIP ──(agent)──► IN_REVIEW ──/done──
 
 ## Critical Rules
 
+### 0. Agent NEVER marks DONE
+
+> ⛔️ **RED LINE.** Only human can close a task.
+
+Agent completes work → status = IN_REVIEW → **STOP and WAIT**.
+
+```
+❌ Agent: "Step completed, marking as done"
+❌ Agent: (silently sets status to DONE)
+✅ Agent: "Step completed. Awaiting /done or feedback."
+```
+
+This is non-negotiable. Even if work seems perfect — human reviews.
+
 ### 1. `/done` ≠ `/next`
 
 Closing a step **does NOT give** permission to start next.
