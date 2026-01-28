@@ -47,18 +47,24 @@ After editing templates, run `install.py` to apply changes.
 
 ### Templates (deployed to users)
 
-| Folder | Status | Purpose |
-|--------|--------|---------|
-| `core_instructions.md` | Current | Main instructions file |
-| `modes/` | Current | Mode-specific instructions |
-| `stances/` | Current | Thinking approach instructions |
-| `skills/` | Current | Domain expertise |
-| `personas/` | Current | Agent identities |
-| `workflows/` | Current | Multi-agent coordination |
-| `schemas/` | Current | File format specs (topic, index) |
-| `mcp-server/` | Current | MCP tools (timestamp) |
-| `_instructions/` | **Legacy** | Old modular structure — do not use |
-| `old_personas/` | **Legacy** | Deprecated persona drafts — do not use |
+| Folder | Purpose |
+|--------|---------|
+| `core_instructions.md` | Main instructions file |
+| `modes/` | Mode-specific instructions |
+| `stances/` | Thinking approach instructions |
+| `skills/` | Domain expertise |
+| `personas/` | Agent identities |
+| `workflows/` | Multi-agent coordination |
+| `schemas/` | File format specs (topic, index) |
+
+### Legacy (do not use)
+
+| Location | Note |
+|----------|------|
+| `templates/_legacy/` | Old jinja2 templates, will be deleted |
+| `.ai/` (repo root) | Generated from legacy, will be deleted |
+
+Regenerate legacy (if needed): `python3 build_legacy.py`
 
 ## File Naming
 

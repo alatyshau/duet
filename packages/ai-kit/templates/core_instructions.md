@@ -2,7 +2,7 @@
 
 **Chat language:** RU
 
-These are the base instructions. Modes (PLANNING, EXECUTE, etc.) are described in `modes/*.md`. Workflows (SDDG, Solo) are in `workflows/*.md`.
+**Self-check:** After `@turn()`, report loading status for Mode, Stance, Skill. Status must reflect reality: which file, and whether you loaded it now or how you access it otherwise.
 
 ---
 
@@ -204,11 +204,6 @@ Skills = domain expertise for quality check. Always output in `@turn()`.
 ```
 Criteria must reflect expert-level thinking, not intern-level.
 
-### Self-Check
-
-After `@turn()`, report loading status for Mode, Stance, Skill.
-
-Status must reflect reality: which file, and whether you loaded it now or how you access it otherwise.
 
 ### Spec Workflow
 
@@ -294,10 +289,6 @@ text
 ---
 @topic(topic_yyy.md)
 text
-
----
-@instructions()
-text
 ```
 
 ### Annotations
@@ -306,7 +297,6 @@ text
 |------------|---------|
 | `@turn()` | Response metadata (see parameters below) |
 | `@topic()` | Link to topic file |
-| `@instructions()` | Changes to instructions |
 
 ### @turn() Parameters
 
@@ -323,6 +313,5 @@ text
 
 1. **`@turn()`** — always first, no `---` before it. **Never skip** — if can't compute parameters, report error
 2. **`---`** — before each annotation except @turn()
-3. **`@instructions()`** — always last
-4. **Each topic** — gets explicit ack, even if "nothing to say" → `OK — understood.`
+3. **Each topic** — gets explicit ack, even if "nothing to say" → `OK — understood.`
 
