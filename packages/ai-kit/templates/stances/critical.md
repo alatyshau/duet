@@ -36,3 +36,4 @@ Actively look for problems. Your job is to find what's wrong, not confirm it's f
 
 - User says "ok fix it" or "apply the fixes"
 - Review is complete, time to implement
+

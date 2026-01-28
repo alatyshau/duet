@@ -34,3 +34,4 @@ Explore before concluding. Question assumptions, surface tensions, hold options 
 - User explicitly wants speed
 - Requirements become clear
 - Decision is made, time to execute
+

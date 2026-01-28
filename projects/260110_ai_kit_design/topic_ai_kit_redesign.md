@@ -280,22 +280,16 @@ stances/
 **Цель:** Формализовать и сделать запоминаемым.
 
 #### Шаг 12: Формальные определения
-**Статус:** TODO
+**Статус:** DONE @turn(260127_114601M)
 **Выход:** spec/DOMAIN.md
 
-Для каждого компонента: определение + вопрос + отличие от смежных.
+Уже содержит: Core Concepts (Question, Duration, Example), Key Distinctions (Mode vs Stance, Skill vs Stance, Persona vs Mode).
 
-#### Шаг 13: Синтаксис переключения
-**Статус:** TODO
-**Выход:** docs/ANNOTATION_SYNTAX.md
-
-Маркеры `!режим=`, `!поза=`, `!опыт=` + короткие коды.
-
-#### Шаг 14: Quick Reference
-**Статус:** TODO
+#### Шаги 13-14: Quick Reference (объединены)
+**Статус:** DONE @turn(260127_114601M)
 **Выход:** docs/QUICK_REFERENCE.md
 
-Шпаргалка ≤30 строк.
+Объединено: синтаксис `!поза=`, `!опыт=` + таблицы modes/stances/skills. STANCE_GUIDE.md удалён (контент включён в QUICK_REFERENCE).
 
 ---
 
