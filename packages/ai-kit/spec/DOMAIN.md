@@ -60,7 +60,7 @@ Session
 | **Axioms** | 3 universal principles | Foundational rules that override everything else |
 | **Session Start** | 4-step initialization | Runs before Main Algorithm, same after compaction |
 | **Main Algorithm** | Mode/Stance/Skill selection, Spec Workflow, DIALOGUE mode | Core decision loop — what agent does each turn |
-| **Response Format** | @turn(), @topic(), @instructions() | Output structure for parsing and traceability |
+| **Response Format** | @turn(), @topic() | Output structure for parsing and traceability |
 
 ### Glossary Subsections
 

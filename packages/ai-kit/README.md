@@ -1,60 +1,80 @@
 # AI Kit
 
-Набор инструментов для работы с AI — инструкции, роли, схемы, workflows, скрипты.
+Instructions, modes, stances, skills, and workflows for AI agents.
 
-## Структура
+## Installation
+
+```bash
+python3 packages/ai-kit/install.py -o ~/DuetData/ai-kit
+```
+
+This will:
+1. Create venv and install dependencies
+2. Copy AI Kit files to output directory
+3. Configure Claude Code (MCP server + CLAUDE.md)
+4. Configure Codex (model_instructions_file + MCP)
+
+## Structure
 
 ```
 packages/ai-kit/
-├── build.py              # Скрипт сборки ролей
-├── section.json          # Мета-данные пакета
-├── README.md
+├── install.py           # Installer script
+├── mcp-server/          # MCP server (timestamp tool)
+├── spec/                # Domain model (DOMAIN.md, ARCHITECTURE.md)
+├── docs/                # User documentation (settings.md)
 │
-├── scripts/              # Скрипты автоматизации
-│   ├── timestamp.py      # Генерация timestamp
-│   └── ...
+└── templates/           # Source files (copied by install.py)
+    ├── core_instructions.md   # Main entrypoint
+    ├── modes/           # Work modes (EXECUTE, PLANNING, etc.)
+    ├── stances/         # Thinking approaches (dialectic, pragmatic, etc.)
+    ├── skills/          # Domain expertise (python, typescript, etc.)
+    ├── personas/        # Agent identities (Socrates, Hephaestus, etc.)
+    ├── workflows/       # Collaboration patterns (solo, pair, sddg)
+    └── schemas/         # File format specifications
+```
+
+## Output Structure
+
+After installation (`~/DuetData/ai-kit/`):
+
+```
+ai-kit/
+├── core_instructions.md   # Entrypoint (referenced by CLAUDE.md)
+├── settings.json          # User settings (timezone)
+├── mcp-server/            # MCP server
 │
-└── templates/            # Jinja2 шаблоны
-    ├── INSTRUCTIONS.md.j2  # Базовые инструкции
-    ├── roles/              # Шаблоны ролей
-    │   ├── _keeper.md.j2
-    │   ├── _principal.md.j2
-    │   └── ...
-    │
-    └── _includes/        # Переиспользуемые части
-        ├── header.md
-        ├── red_lines.md
-        ├── chat_doc.md
-        └── dialectics.md
+├── modes/                 # ...copied from templates
+├── stances/
+├── skills/
+├── personas/
+├── workflows/
+└── schemas/
 ```
 
-## Использование
+## Configuration
 
-### Сборка ролей
+See [docs/settings.md](docs/settings.md) for settings.json options.
 
-```bash
-# Сборка в .ai/roles/ (default)
-python packages/ai-kit/build.py
+## Client Integration
 
-# Сборка в другую папку
-python packages/ai-kit/build.py -o /path/to/output
+### Claude Code
 
-# Dry run
-python packages/ai-kit/build.py --dry-run
+`~/.claude/CLAUDE.md` should contain:
+```
+@~/DuetData/ai-kit/core_instructions.md
 ```
 
-### Подключение как submodule
+MCP server `ai-kit` provides the `timestamp` tool.
 
-```bash
-git submodule add <repo-url> packages/ai-kit
+### Codex
+
+`~/.codex/config.toml` should contain:
+```toml
+model_instructions_file = "/Users/<you>/DuetData/ai-kit/core_instructions.md"
 ```
 
-### Переменные окружения
+MCP server `ai-kit` provides the `timestamp` tool.
 
-- `AI_KIT_OUTPUT_DIR` — переопределить output directory
+## Development
 
-## Зависимости
-
-```bash
-pip install jinja2
-```
+Legacy files (jinja2 templates) are preserved in `templates/_legacy/` for reference but are not deployed.

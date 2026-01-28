@@ -248,7 +248,11 @@ def install(
     if output_dir.exists():
         shutil.rmtree(output_dir)
 
-    shutil.copytree(TEMPLATES_DIR, output_dir)
+    shutil.copytree(
+        TEMPLATES_DIR,
+        output_dir,
+        ignore=shutil.ignore_patterns("_legacy"),
+    )
 
     if MCP_SERVER_DIR.exists():
         shutil.copytree(MCP_SERVER_DIR, output_dir / "mcp-server")
