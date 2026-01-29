@@ -6,7 +6,7 @@
 |------|---------|----------|
 | КОНТЕКСТ | Current workspace position in hierarchy | `ContextProvider.ts` |
 | ДЕЛА | Full business tree for navigation | `BusinessTreeProvider.ts` |
-| ПРОЕКТЫ | Projects of selected product | `ProjectsProvider.ts` |
+| ПРОЕКТЫ | Projects of selected entity | `ProjectsProvider.ts` |
 | Onboarding | Initial setup when data_folder not set | `OnboardingProvider.ts` |
 
 ## Visibility Contract
@@ -31,11 +31,13 @@ Things that are easy to accidentally break:
 | ДЕЛА | Description: `[git]` marker for products with git_url | User sees which products have repos |
 | ДЕЛА | Current node marker `●` | User sees what's open in this window |
 | ДЕЛА | Toggle button (fold icon) | Single button to expand/collapse all |
+| ДЕЛА | Click = select, arrow = toggle | User can select without collapsing |
+| ДЕЛА | Excludes projects | Projects only in ПРОЕКТЫ section |
 | КОНТЕКСТ | Welcome view when no folder open | User knows how to open folder |
 | КОНТЕКСТ | Settings via submenu (not QuickPick) | Faster access, no intermediate dialog |
 | КОНТЕКСТ | Nodes always expanded | Breadcrumb should show full path |
 | КОНТЕКСТ | Error nodes clickable → show help | User needs guidance on how to fix |
-| ПРОЕКТЫ | Context source: active editor path (current) | Shows projects for current file's product |
+| ПРОЕКТЫ | Context source: ДЕЛА selection | Shows projects for selected entity |
 | ПРОЕКТЫ | Icons: ThemeIcon (not emoji) | Distinguishes from ДЕЛА style |
 
 ## Error Codes (КОНТЕКСТ)
@@ -51,4 +53,3 @@ Things that are easy to accidentally break:
 
 - ThemeIcon instead of emoji in label
 - Worktree support in КОНТЕКСТ
-- ПРОЕКТЫ context from ДЕЛА selection (not just active editor)

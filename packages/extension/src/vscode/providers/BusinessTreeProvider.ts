@@ -128,6 +128,12 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
         // Tooltip with path
         item.tooltip = node.id;
 
+        // Noop command to prevent toggle on label click (toggle only via arrow)
+        item.command = {
+            command: 'duet.selectNode',
+            title: 'Select'
+        };
+
         return item;
     }
 

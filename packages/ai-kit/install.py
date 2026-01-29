@@ -66,38 +66,6 @@ def print_codex_install_tip():
     print("        - npm i -g @openai/codex")
     print("      If you already have the ChatGPT VS Code extension, it may include a bundled `codex` binary; add it to PATH.")
 
-def update_vscode_settings(output_dir: Path, venv_python: Path):
-    """Print instructions for updating VS Code settings."""
-    mcp_script_path = output_dir / "mcp-server" / "server.py"
-    instructions_file = output_dir / "core_instructions_short.md"
-    
-    # Read instructions content to embed as text, as absolute file paths are often restricted
-    instructions_json_val = "\"\""
-    try:
-        if instructions_file.exists():
-             text = instructions_file.read_text(encoding="utf-8")
-             instructions_json_val = json.dumps(text) # dumps adds quotes around the string
-    except Exception:
-        pass
-
-    print("      To enable AI Kit in GitHub Copilot, update your VS Code settings.")
-    print("      Open User Settings (JSON): Cmd+Shift+P -> 'Preferences: Open User Settings (JSON)'")
-    print("      Add/Merge the following configuration:")
-    
-    print("\n      // --- Copy from here ---")
-    print("      \"github.copilot.mcpServers\": {")
-    print("          \"duet-ai-kit\": {")
-    print(f"              \"command\": \"{venv_python}\",")
-    print(f"              \"args\": [\"{mcp_script_path}\"]")
-    print("          }")
-    print("      },")
-    print("      \"github.copilot.chat.codeGeneration.instructions\": [")
-    print("          {")
-    print(f"              \"text\": {instructions_json_val}")
-    print("          }")
-    print("      ]")
-    print("      // --- Copy to here ---")
-
 
 def _is_toml_table_header(line: str) -> bool:
     stripped = line.lstrip()
@@ -374,10 +342,7 @@ def install(
 
     # Step 6: Configure VS Code
     print("\n[6/6] Configuring VS Code...")
-    if not vscode:
-        print("      skipped")
-    else:
-        update_vscode_settings(output_dir, venv_python)
+    print("      VS Code configuration Skipped (manual configuration required)")
 
     print("\nDone. Restart VS Code / Codex / Claude Code to apply changes.") 
 

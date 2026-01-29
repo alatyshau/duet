@@ -1,5 +1,4 @@
 import { DatabaseManager, Entity } from '../db';
-import * as path from 'path';
 
 export interface ProjectItem {
     id: string; // drivePath
@@ -16,30 +15,24 @@ export class ProjectsList {
             return [];
         }
 
-        // 1. Find the closest entity for context
-        // 2. If it's a Product, list its children of type 'project'
-        // 3. If it's a Project, allow navigating back to sibling projects (parent product -> children)
-        // Spec says: "Список проектов выбранного продукта".
-        // Let's deduce Product from context.
+        // Any entity (business, stream, product) can have projects as children.
+        // If context is a project, show sibling projects (parent's children).
 
         const entity = this.db.findClosestEntity(contextPath);
         if (!entity) { return []; }
 
-        let product: Entity | null = null;
-        if (entity.type === 'product') {
-            product = entity;
-        } else if (entity.type === 'project' && entity.parentId) {
-            product = this.db.getEntity(entity.parentId);
+        let parent: Entity | null = null;
+        if (entity.type === 'project' && entity.parentId) {
+            // For project context, get parent to show siblings
+            parent = this.db.getEntity(entity.parentId);
         } else {
-            // Business or Stream -> No projects list?
-            // Spec implies "Секция ПРОЕКТЫ — только проекты текущего продукта".
-            // If I click Business -> empty.
-            return [];
+            // For business/stream/product, show their own projects
+            parent = entity;
         }
 
-        if (!product || !product.id) { return []; }
+        if (!parent || !parent.id) { return []; }
 
-        const children = this.db.getEntities(product.id);
+        const children = this.db.getEntities(parent.id);
         const projects = children.filter(c => c.type === 'project');
 
         return projects.map(p => ({

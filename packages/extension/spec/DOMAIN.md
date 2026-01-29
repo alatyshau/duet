@@ -3,10 +3,9 @@
 ## Entity Hierarchy
 
 ```
-business (root)
-└── stream (0..N nesting)
-    └── product (leaf)
-        └── project (inside projects/)
+business (root)          ← can have projects/
+└── stream (0..N nesting) ← can have projects/
+    └── product (leaf)    ← can have projects/
 ```
 
 ## Business Rules
@@ -16,7 +15,7 @@ business (root)
 | Names globally unique | Single namespace for lookups, no ambiguity |
 | Product is always leaf | No streams inside products |
 | Streams can nest | Flexible organization depth |
-| Projects only in products | Projects belong to code, not to streams |
+| Any entity can have projects | Flexible organization at any level |
 
 ## Name Conflict Resolution
 

@@ -23,7 +23,7 @@
 | Self-healing | Auto-creates `business.json` at roots, renames misplaced manifests |
 | Recursive descent | Scans nested streams until product found |
 | Product is terminal | On `product.json` found → stop, no manifests below product |
-| Projects detection | Only from `{product}/projects/*` subfolders |
+| Projects detection | Any entity with `projects/` subfolder |
 
 Implementation: `scanner.ts`. Name conflict resolution → see DOMAIN.md
 

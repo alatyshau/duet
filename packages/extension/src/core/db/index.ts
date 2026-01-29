@@ -169,16 +169,23 @@ export class DatabaseManager {
         });
     }
 
-    hasChildren(parentId: number): boolean {
+    hasChildren(parentId: number, excludeTypes?: string[]): boolean {
         if (!this.db) {
              throw new Error('Database not initialized');
         }
 
-        const result = this.db.exec(
-            'SELECT 1 FROM entities WHERE parent_id = ? LIMIT 1',
-            [parentId]
-        );
+        let query = 'SELECT 1 FROM entities WHERE parent_id = ?';
+        const params: (number | string)[] = [parentId];
 
+        if (excludeTypes && excludeTypes.length > 0) {
+            const placeholders = excludeTypes.map(() => '?').join(', ');
+            query += ` AND type NOT IN (${placeholders})`;
+            params.push(...excludeTypes);
+        }
+
+        query += ' LIMIT 1';
+
+        const result = this.db.exec(query, params);
         return result.length > 0 && result[0].values.length > 0;
     }
 

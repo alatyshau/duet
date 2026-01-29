@@ -3,6 +3,7 @@ import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
+import { TreeNode } from '../core/tree/businessTree';
 import { selectDataFolder } from './commands/onboarding';
 import { refresh } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
@@ -49,6 +50,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 showCollapseAll: false // Hide native collapse, we use toggle
             });
 
+            // Sync selection in ДЕЛА → ПРОЕКТЫ
+            businessTreeView.onDidChangeSelection(e => {
+                if (e.selection.length > 0) {
+                    const item = e.selection[0];
+                    // Filter out VisualRoot and PlaceholderItem (they don't have entityId)
+                    if ('entityId' in item) {
+                        projectsProvider.setContext((item as TreeNode).id);
+                    }
+                }
+            });
+
             // Track expand state for toggle
             let isExpanded = false;
 
@@ -59,7 +71,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Add disposables
                 { dispose: () => businessProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
-                { dispose: () => projectsProvider.dispose() },
                 vscode.commands.registerCommand('duet.refresh', async () => {
                    await refresh(context);
                    await businessProvider.refresh();
@@ -94,7 +105,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths)), // Legacy, redirects to open
                 vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths)),
                 vscode.commands.registerCommand('duet.changeDataFolder', changeDataFolderCommand),
-                vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand)
+                vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
+                // Noop command — used in TreeItem.command to prevent toggle on label click
+                vscode.commands.registerCommand('duet.selectNode', () => {})
             );
         } catch (e) {
             console.error('Failed to init DB:', e);

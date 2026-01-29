@@ -145,13 +145,58 @@ describe('BusinessTree', () => {
 
     it('should cache nodes and return identical references', () => {
         const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-        
+
         const roots1 = tree.getRoots();
         const roots2 = tree.getRoots();
-        
+
         expect(roots1[0]).toBe(roots2[0]); // Reference equality check
-        
+
         const all = tree.getAllNodes();
         expect(all.find(n => n.entityId === bizId)).toBe(roots1[0]);
+    });
+
+    it('should exclude projects from children (projects only in ПРОЕКТЫ section)', () => {
+        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
+
+        // Add a stream child
+        db.insertEntity({
+            type: 'stream',
+            name: 'Stream1',
+            icon: 'S',
+            drivePath: '/b1/s1',
+            parentId: bizId
+        });
+
+        // Add a project child (should be filtered out)
+        db.insertEntity({
+            type: 'project',
+            name: 'Project1',
+            icon: '📋',
+            drivePath: '/b1/projects/p1',
+            parentId: bizId
+        });
+
+        const children = tree.getChildren(bizId);
+
+        expect(children).toHaveLength(1);
+        expect(children[0].label).toBe('Stream1');
+        expect(children.find(c => c.type === 'project')).toBeUndefined();
+    });
+
+    it('should report hasChildren=false when only projects exist', () => {
+        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
+
+        // Add only a project child
+        db.insertEntity({
+            type: 'project',
+            name: 'Project1',
+            icon: '📋',
+            drivePath: '/b1/projects/p1',
+            parentId: bizId
+        });
+
+        // hasChildren should be false (projects excluded)
+        const roots = tree.getRoots();
+        expect(roots[0].hasChildren).toBe(false);
     });
 });

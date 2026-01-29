@@ -25,7 +25,8 @@ export class BusinessTree {
     }
 
     getChildren(parentId: number): TreeNode[] {
-        const children = this.db.getEntities(parentId);
+        const children = this.db.getEntities(parentId)
+            .filter(c => c.type !== 'project'); // Projects only in ПРОЕКТЫ section
         return children.map(c => this.mapEntity(c));
     }
 
@@ -53,7 +54,7 @@ export class BusinessTree {
             label: entity.name,
             icon: entity.icon,
             type: entity.type,
-            hasChildren: this.db.hasChildren(entity.id!),
+            hasChildren: this.db.hasChildren(entity.id!, ['project']),
             entityId: entity.id!,
             gitUrl: entity.gitUrl
         };

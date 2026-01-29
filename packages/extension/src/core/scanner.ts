@@ -234,6 +234,9 @@ export class Scanner {
             drivePath: folderPath
         });
 
+        // Scan for projects at business level
+        await this.scanProjects(folderPath, businessId);
+
         // Scan children (Stream or Product) - sorted for determinism
         const entries = await this.readdirSorted(folderPath);
         for (const entry of entries) {
@@ -276,6 +279,9 @@ export class Scanner {
                 drivePath: folderPath,
                 parentId: parentId
             });
+
+            // Scan for projects at stream level
+            await this.scanProjects(folderPath, streamId);
 
             // Scan children inside stream (can be nested streams or products) - sorted
             const entries = await this.readdirSorted(folderPath);
@@ -323,23 +329,31 @@ export class Scanner {
             gitUrl: manifest.gitUrl
         });
 
-        // Scan for projects (folders inside /projects/) - sorted for determinism
-        const projectsPath = path.join(folderPath, 'projects');
-        if (await this.exists(projectsPath)) {
-            const entries = await this.readdirSorted(projectsPath);
-            for (const entry of entries) {
-                if (entry.isDirectory() && !entry.name.startsWith('.')) {
-                    const projectBaseName = entry.name;
-                    const projectUniqueName = this.resolveUniqueName(projectBaseName, 'project');
+        await this.scanProjects(folderPath, productId);
+    }
 
-                    this.db.insertEntity({
-                        type: 'project',
-                        name: projectUniqueName,
-                        icon: '📋',
-                        drivePath: path.join(projectsPath, entry.name),
-                        parentId: productId
-                    });
-                }
+    /**
+     * Scan for projects (folders inside /projects/) - any entity can have projects.
+     */
+    private async scanProjects(folderPath: string, parentId: number): Promise<void> {
+        const projectsPath = path.join(folderPath, 'projects');
+        if (!await this.exists(projectsPath)) {
+            return;
+        }
+
+        const entries = await this.readdirSorted(projectsPath);
+        for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith('.')) {
+                const projectBaseName = entry.name;
+                const projectUniqueName = this.resolveUniqueName(projectBaseName, 'project');
+
+                this.db.insertEntity({
+                    type: 'project',
+                    name: projectUniqueName,
+                    icon: '📋',
+                    drivePath: path.join(projectsPath, entry.name),
+                    parentId: parentId
+                });
             }
         }
     }
