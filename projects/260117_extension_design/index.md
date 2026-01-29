@@ -2,6 +2,8 @@
 
 **Статус:** в работе
 
+**Миссия:** Спроектировать и реализовать VS Code расширение "Duet" — навигатор по иерархии бизнесов/дел/продуктов с интеграцией Google Drive и git.
+
 ---
 
 ## Участники
@@ -19,20 +21,20 @@
 
 | Файл | Название | Статус |
 |------|----------|--------|
-| [topic_vscode_extension.md](topic_vscode_extension.md) | VS Code Extension "Duet" | черновик |
-| [topic_dependency_check.md](topic_dependency_check.md) | Проверка зависимостей AI Kit | backlog |
+| [topic_vscode_extension.md](topic_vscode_extension.md) | VS Code Extension "Duet" | в работе (Step 8) |
+| [topic_dependency_check.md](topic_dependency_check.md) | Установка AI Kit из расширения | в работе |
 | [topic_nice_to_have.md](topic_nice_to_have.md) | Nice to Have | backlog |
 
 ---
 
 ## Roadmap
 
-1. Финализировать спецификацию расширения
-2. Спланировать этапы реализации
-3. Передать Гефесту на имплементацию
+1. ✅ Спецификация расширения (Steps 1-7)
+2. 🔄 Реализация UI и логики (Steps 8-12)
+3. ⏳ Polish & Release (Step 13)
 
 ---
 
 ## Открытые вопросы
 
-Нет открытых вопросов — спецификация готова к планированию.
+Нет открытых вопросов.

@@ -13,6 +13,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from tools.timestamp import get_timestamp
+from tools.instructions import get_instruction_location
 
 # Base path is the parent of mcp-server/ (i.e., ai-kit/)
 BASE_PATH = Path(__file__).parent.parent
@@ -32,6 +33,15 @@ async def list_tools() -> list[Tool]:
                 "properties": {},
                 "required": []
             }
+        ),
+        Tool(
+            name="get_instruction_location",
+            description="Get absolute path to ai-kit directory containing instructions, modes, stances, skills, personas, etc.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
         )
     ]
 
@@ -42,6 +52,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "timestamp":
         ts = get_timestamp(BASE_PATH)
         return [TextContent(type="text", text=ts)]
+
+    if name == "get_instruction_location":
+        path = get_instruction_location(BASE_PATH)
+        return [TextContent(type="text", text=path)]
 
     raise ValueError(f"Unknown tool: {name}")
 

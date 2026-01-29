@@ -37,22 +37,10 @@ AI_KIT_CODEX_TOML_KEY = "model_instructions_file"
 
 
 def get_python_version():
-    """Return (major, minor) tuple or None if python3 not found."""
-    try:
-        result = subprocess.run(
-            ["python3", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode != 0:
-            return None
-        # "Python 3.14.2" → (3, 14)
-        version_str = result.stdout.strip().split()[1]
-        parts = version_str.split(".")
-        return (int(parts[0]), int(parts[1])), version_str
-    except Exception:
-        return None, None
+    """Return (major, minor) tuple of the running interpreter."""
+    version_tuple = (sys.version_info.major, sys.version_info.minor)
+    version_str = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    return version_tuple, version_str
 
 
 def get_codex_dir() -> Path:
@@ -130,7 +118,7 @@ def configure_codex_instructions(output_dir: Path, codex_dir: Path):
     codex_dir.mkdir(parents=True, exist_ok=True)
     config_file = codex_dir / "config.toml"
 
-    instructions_file = str((output_dir / "core_instructions.md").resolve())
+    instructions_file = str((output_dir / "core_instructions_short.md").resolve())
 
     existing = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
     updated = upsert_root_toml_string_key(existing, AI_KIT_CODEX_TOML_KEY, instructions_file)
@@ -219,7 +207,7 @@ def install(
 
     if not venv_dir.exists():
         subprocess.run(
-            ["python3", "-m", "venv", str(venv_dir)],
+            [sys.executable, "-m", "venv", str(venv_dir)],
             check=True
         )
         print(f"      {venv_dir} created")
@@ -310,7 +298,7 @@ def install(
 
         # CLAUDE.md — create if missing, instruct if exists without import
         claude_md = CLAUDE_DIR / "CLAUDE.md"
-        import_line = f"@{output_dir}/core_instructions.md"
+        import_line = f"@{output_dir}/core_instructions_short.md"
 
         if claude_md.exists():
             content = claude_md.read_text()
