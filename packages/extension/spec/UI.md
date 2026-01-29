@@ -24,8 +24,15 @@ Things that are easy to accidentally break:
 |------|----------|----------------|
 | ДЕЛА | Nodes expanded by default | User sees full hierarchy without clicking |
 | ДЕЛА | Header `[МОИ ДЕЛА]` not collapsible | Visual anchor, not a real node |
+| ДЕЛА | Header has hover icon → open all-businesses workspace | Quick access to multi-root |
 | ДЕЛА | Placeholder when empty | User knows how to add first business |
 | ДЕЛА | Icons: emoji in label | Consistent with Drive manifests |
+| ДЕЛА | Description: type label (бизнес/дело/продукт) | User sees entity type |
+| ДЕЛА | Description: `[git]` marker for products with git_url | User sees which products have repos |
+| ДЕЛА | Current node marker `●` | User sees what's open in this window |
+| ДЕЛА | Toggle button (fold icon) | Single button to expand/collapse all |
+| КОНТЕКСТ | Welcome view when no folder open | User knows how to open folder |
+| КОНТЕКСТ | Settings via submenu (not QuickPick) | Faster access, no intermediate dialog |
 | КОНТЕКСТ | Nodes always expanded | Breadcrumb should show full path |
 | КОНТЕКСТ | Error nodes clickable → show help | User needs guidance on how to fix |
 | ПРОЕКТЫ | Context source: active editor path (current) | Shows projects for current file's product |
@@ -42,7 +49,6 @@ Things that are easy to accidentally break:
 
 ## Future
 
-- `duet.collapseAll` button in ДЕЛА
 - ThemeIcon instead of emoji in label
 - Worktree support in КОНТЕКСТ
 - ПРОЕКТЫ context from ДЕЛА selection (not just active editor)

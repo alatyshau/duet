@@ -16,6 +16,7 @@
 
 import * as path from 'path';
 import { DatabaseManager, Entity } from '../db';
+import { isPathInside } from '../pathUtils';
 
 // Node types for the context tree
 export type ContextNodeType = 'business' | 'stream' | 'product' | 'git' | 'external' | 'error';
@@ -424,14 +425,19 @@ export class ContextBreadcrumb {
 
     /**
      * Check if a path is inside the DuetData/repos/ folder.
+     * Uses isPathInside for robust cross-platform comparison.
      */
     private isInsideRepos(folderPath: string): boolean {
+        // isPathInside returns false for equal paths, but we want true for repos/ itself
+        const normalized = path.normalize(folderPath);
         const normalizedRepos = path.normalize(this.reposPath);
-        const normalizedFolder = path.normalize(folderPath);
 
-        // Path should start with repos path and be a direct child or deeper
-        return normalizedFolder.startsWith(normalizedRepos + path.sep) ||
-               normalizedFolder === normalizedRepos;
+        // Check if equal (considering Windows case-insensitivity)
+        const isEqual = process.platform === 'win32'
+            ? normalized.toLowerCase() === normalizedRepos.toLowerCase()
+            : normalized === normalizedRepos;
+
+        return isEqual || isPathInside(folderPath, this.reposPath);
     }
 
     /**

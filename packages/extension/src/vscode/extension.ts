@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
-import { ContextProvider, contextSettingsCommand, showContextHelpCommand } from './providers/ContextProvider';
+import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { selectDataFolder } from './commands/onboarding';
 import { refresh } from './commands/refresh';
@@ -40,20 +40,24 @@ export async function activate(context: vscode.ExtensionContext) {
         
         try {
             await db.init({ wasmPath });
-            const businessProvider = new BusinessTreeProvider(db, wasmPath);
+            const businessProvider = new BusinessTreeProvider(db, wasmPath, paths.reposPath);
             const contextProvider = new ContextProvider(db, paths);
             const projectsProvider = new ProjectsProvider(db);
             
             const businessTreeView = vscode.window.createTreeView('duet.businesses', {
                 treeDataProvider: businessProvider,
-                showCollapseAll: true
+                showCollapseAll: false // Hide native collapse, we use toggle
             });
+
+            // Track expand state for toggle
+            let isExpanded = false;
 
             context.subscriptions.push(
                 businessTreeView,
                 vscode.window.registerTreeDataProvider('duet.context', contextProvider),
                 vscode.window.registerTreeDataProvider('duet.projects', projectsProvider),
                 // Add disposables
+                { dispose: () => businessProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
                 { dispose: () => projectsProvider.dispose() },
                 vscode.commands.registerCommand('duet.refresh', async () => {
@@ -63,23 +67,33 @@ export async function activate(context: vscode.ExtensionContext) {
                    projectsProvider.refresh();
                 }),
                 vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(context)),
-                vscode.commands.registerCommand('duet.expandAll', async () => {
-                    const nodes = businessProvider.getAllNodes();
-                    for (const node of nodes) {
-                        try {
-                            await businessTreeView.reveal(node, { expand: true, focus: false, select: false });
-                        } catch (e) {
-                            console.error('Expand error:', e);
+                vscode.commands.registerCommand('duet.toggleExpand', async () => {
+                    if (isExpanded) {
+                        await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
+                        isExpanded = false;
+                    } else {
+                        const nodes = businessProvider.getAllNodes();
+                        for (const node of nodes) {
+                            try {
+                                await businessTreeView.reveal(node, { expand: true, focus: false, select: false });
+                            } catch (e) {
+                                console.error('Expand error:', e);
+                            }
                         }
+                        isExpanded = true;
                     }
                 }),
-                vscode.commands.registerCommand('duet.collapseAll', async () => {
-                    await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
+                vscode.commands.registerCommand('duet.openAllBusinesses', async () => {
+                    // Open multi-root workspace with all businesses
+                    const workspacePath = paths.allBusinessesWorkspacePath;
+                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
                 }),
                 vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
                 vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
                 vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context)),
-                vscode.commands.registerCommand('duet.contextSettings', () => contextSettingsCommand(paths)),
+                vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths)), // Legacy, redirects to open
+                vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths)),
+                vscode.commands.registerCommand('duet.changeDataFolder', changeDataFolderCommand),
                 vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand)
             );
         } catch (e) {

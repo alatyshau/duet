@@ -65,7 +65,38 @@ def print_codex_install_tip():
     print("        - brew install codex")
     print("        - npm i -g @openai/codex")
     print("      If you already have the ChatGPT VS Code extension, it may include a bundled `codex` binary; add it to PATH.")
-    print("      Then verify: codex --version")
+
+def update_vscode_settings(output_dir: Path, venv_python: Path):
+    """Print instructions for updating VS Code settings."""
+    mcp_script_path = output_dir / "mcp-server" / "server.py"
+    instructions_file = output_dir / "core_instructions_short.md"
+    
+    # Read instructions content to embed as text, as absolute file paths are often restricted
+    instructions_json_val = "\"\""
+    try:
+        if instructions_file.exists():
+             text = instructions_file.read_text(encoding="utf-8")
+             instructions_json_val = json.dumps(text) # dumps adds quotes around the string
+    except Exception:
+        pass
+
+    print("      To enable AI Kit in GitHub Copilot, update your VS Code settings.")
+    print("      Open User Settings (JSON): Cmd+Shift+P -> 'Preferences: Open User Settings (JSON)'")
+    print("      Add/Merge the following configuration:")
+    
+    print("\n      // --- Copy from here ---")
+    print("      \"github.copilot.mcpServers\": {")
+    print("          \"duet-ai-kit\": {")
+    print(f"              \"command\": \"{venv_python}\",")
+    print(f"              \"args\": [\"{mcp_script_path}\"]")
+    print("          }")
+    print("      },")
+    print("      \"github.copilot.chat.codeGeneration.instructions\": [")
+    print("          {")
+    print(f"              \"text\": {instructions_json_val}")
+    print("          }")
+    print("      ]")
+    print("      // --- Copy to here ---")
 
 
 def _is_toml_table_header(line: str) -> bool:
@@ -169,6 +200,7 @@ def install(
     codex_dir: Optional[Path] = None,
     codex_instructions: bool = True,
     codex_mcp: bool = True,
+    vscode: bool = True,
 ):
     """Install AI Kit."""
 
@@ -176,7 +208,7 @@ def install(
     venv_python = venv_dir / "bin" / "python3"
 
     # Step 1: Check Python
-    print("[1/5] Checking Python...")
+    print("[1/6] Checking Python...")
 
     version_tuple, version_str = get_python_version()
 
@@ -203,7 +235,7 @@ def install(
     print(f"      python3 = {version_str} ✓")
 
     # Step 2: Setup venv
-    print("\n[2/5] Setting up venv...")
+    print("\n[2/6] Setting up venv...")
 
     if not venv_dir.exists():
         subprocess.run(
@@ -228,7 +260,7 @@ def install(
     print("      mcp ✓")
 
     # Step 3: Copy files
-    print("\n[3/5] Copying files...")
+    print("\n[3/6] Copying files...")
 
     settings_file = output_dir / "settings.json"
     saved_settings = settings_file.read_text() if settings_file.exists() else None
@@ -253,7 +285,7 @@ def install(
     print(f"      {output_dir} ✓")
 
     # Step 4: Configure Claude Code
-    print("\n[4/5] Configuring Claude Code...")
+    print("\n[4/6] Configuring Claude Code...")
 
     # Check if claude CLI is available and working
     result = subprocess.run(
@@ -314,7 +346,7 @@ def install(
             print(f"      {claude_md} created ✓")
 
     # Step 5: Configure Codex
-    print("\n[5/5] Configuring Codex...")
+    print("\n[5/6] Configuring Codex...")
     if not codex:
         print("      skipped")
     else:
@@ -340,7 +372,15 @@ def install(
             else:
                 print("      Codex MCP skipped")
 
-    print("\nDone. Restart Codex/Claude Code to apply changes.")
+    # Step 6: Configure VS Code
+    print("\n[6/6] Configuring VS Code...")
+    if not vscode:
+        print("      skipped")
+    else:
+        update_vscode_settings(output_dir, venv_python)
+
+    print("\nDone. Restart VS Code / Codex / Claude Code to apply changes.") 
+
 
 
 def main():
@@ -356,6 +396,8 @@ def main():
                         help="Skip setting ~/.codex/config.toml model_instructions_file")
     parser.add_argument("--no-codex-mcp", action="store_true",
                         help="Skip configuring MCP server in Codex")
+    parser.add_argument("--no-vscode", action="store_true",
+                        help="Skip VS Code configuration instructions")
     args = parser.parse_args()
 
     install(
@@ -364,6 +406,7 @@ def main():
         codex_dir=args.codex_dir,
         codex_instructions=(not args.no_codex_instructions),
         codex_mcp=(not args.no_codex_mcp),
+        vscode=(not args.no_vscode),
     )
 
 

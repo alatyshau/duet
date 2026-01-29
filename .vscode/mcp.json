@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+        "duet-ai-kit": {
+            "command": "/Users/starship/DuetData/.venv/bin/python3",
+            "args": [
+                "/Users/starship/DuetData/ai-kit/mcp-server/server.py"
+            ],
+            "env": {
+                "PYTHONUNBUFFERED": "1"
+            }
+        }
+    }
+}

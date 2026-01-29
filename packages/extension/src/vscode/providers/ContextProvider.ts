@@ -210,59 +210,38 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
 }
 
 /**
- * Command handler for context settings button [⚙️].
- * Shows QuickPick with options:
- * - Open DuetData folder
- * - Change DuetData location
+ * Command handler for opening DuetData folder in system file manager.
  */
-export async function contextSettingsCommand(paths: Paths): Promise<void> {
-    const items: vscode.QuickPickItem[] = [
-        {
-            label: '$(folder) Открыть папку DuetData',
-            description: path.dirname(paths.reposPath)
-        },
-        {
-            label: '$(gear) Изменить расположение DuetData',
-            description: 'Выбрать другую папку'
-        }
-    ];
+export async function openDataFolderCommand(paths: Paths): Promise<void> {
+    const dataFolder = path.dirname(paths.reposPath);
+    await vscode.env.openExternal(vscode.Uri.file(dataFolder));
+}
 
-    const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Настройки контекста'
+/**
+ * Command handler for changing DuetData location.
+ */
+export async function changeDataFolderCommand(): Promise<void> {
+    const result = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Выбрать папку DuetData',
+        title: 'Выберите папку для данных Duet'
     });
 
-    if (!selected) {
-        return;
-    }
+    if (result && result.length > 0) {
+        const newPath = result[0].fsPath;
+        const config = vscode.workspace.getConfiguration('duet');
+        await config.update('data_folder', newPath, vscode.ConfigurationTarget.Global);
 
-    if (selected.label.includes('Открыть папку')) {
-        // Open DuetData folder in system file manager
-        const dataFolder = path.dirname(paths.reposPath);
-        await vscode.env.openExternal(vscode.Uri.file(dataFolder));
-    } else if (selected.label.includes('Изменить расположение')) {
-        // Show folder picker and update setting
-        const result = await vscode.window.showOpenDialog({
-            canSelectFiles: false,
-            canSelectFolders: true,
-            canSelectMany: false,
-            openLabel: 'Выбрать папку DuetData',
-            title: 'Выберите папку для данных Duet'
-        });
+        // Notify user about reload
+        const action = await vscode.window.showInformationMessage(
+            'Расположение DuetData изменено. Перезагрузить окно?',
+            'Перезагрузить'
+        );
 
-        if (result && result.length > 0) {
-            const newPath = result[0].fsPath;
-            const config = vscode.workspace.getConfiguration('duet');
-            await config.update('data_folder', newPath, vscode.ConfigurationTarget.Global);
-
-            // Notify user about reload
-            const action = await vscode.window.showInformationMessage(
-                'Расположение DuetData изменено. Перезагрузить окно?',
-                'Перезагрузить'
-            );
-
-            if (action === 'Перезагрузить') {
-                await vscode.commands.executeCommand('workbench.action.reloadWindow');
-            }
+        if (action === 'Перезагрузить') {
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
         }
     }
 }

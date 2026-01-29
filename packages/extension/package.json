@@ -23,7 +23,8 @@
             {
                 "command": "duet.refresh",
                 "title": "Duet: Refresh Index",
-                "icon": "$(refresh)"
+                "icon": "$(refresh)",
+                "shortTitle": "Обновить"
             },
             {
                 "command": "duet.dumpIndex",
@@ -31,76 +32,116 @@
             },
             {
                 "command": "duet.addBusiness",
-                "title": "Add Business",
-                "icon": "$(plus)"
+                "title": "Добавить бизнес",
+                "icon": "$(plus)",
+                "shortTitle": "Добавить"
             },
             {
                 "command": "duet.openInCurrentWindow",
-                "title": "Open",
-                "icon": "$(go-to-file)"
+                "title": "Открыть в текущем окне",
+                "icon": "$(go-to-file)",
+                "shortTitle": "Открыть"
             },
             {
                 "command": "duet.openInNewWindow",
-                "title": "Open in New Window",
-                "icon": "$(link-external)"
+                "title": "Открыть в новом окне",
+                "icon": "$(link-external)",
+                "shortTitle": "В новом окне"
             },
             {
-                "command": "duet.expandAll",
-                "title": "Expand All",
-                "icon": "$(expand-all)",
-                "category": "Duet"
-            },
-            {
-                "command": "duet.collapseAll",
-                "title": "Collapse All",
-                "icon": "$(collapse-all)",
-                "category": "Duet"
+                "command": "duet.toggleExpand",
+                "title": "Развернуть/Свернуть всё",
+                "icon": "$(fold)",
+                "category": "Duet",
+                "shortTitle": "Развернуть/Свернуть"
             },
             {
                 "command": "duet.contextSettings",
-                "title": "Context Settings",
+                "title": "Настройки контекста",
                 "icon": "$(gear)",
+                "category": "Duet",
+                "shortTitle": "Настройки"
+            },
+            {
+                "command": "duet.openDataFolder",
+                "title": "Открыть папку DuetData",
+                "icon": "$(folder-opened)",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.changeDataFolder",
+                "title": "Изменить расположение DuetData",
+                "icon": "$(folder)",
                 "category": "Duet"
             },
             {
                 "command": "duet.showContextHelp",
-                "title": "Show Context Help",
+                "title": "Показать справку",
                 "category": "Duet"
+            },
+            {
+                "command": "duet.openAllBusinesses",
+                "title": "Открыть все дела",
+                "icon": "$(link-external)",
+                "category": "Duet",
+                "shortTitle": "Все дела"
+            }
+        ],
+        "submenus": [
+            {
+                "id": "duet.contextSettingsMenu",
+                "label": "Настройки",
+                "icon": "$(gear)"
             }
         ],
         "menus": {
+            "duet.contextSettingsMenu": [
+                {
+                    "command": "duet.openDataFolder",
+                    "group": "1_folder"
+                },
+                {
+                    "command": "duet.changeDataFolder",
+                    "group": "1_folder"
+                }
+            ],
             "view/title": [
                 {
-                    "command": "duet.contextSettings",
+                    "submenu": "duet.contextSettingsMenu",
                     "when": "view == duet.context",
                     "group": "navigation"
                 },
                 {
                     "command": "duet.refresh",
                     "when": "view == duet.businesses",
-                    "group": "navigation"
+                    "group": "navigation@1"
                 },
                 {
                     "command": "duet.addBusiness",
                     "when": "view == duet.businesses",
-                    "group": "navigation"
+                    "group": "navigation@2"
                 },
                 {
-                    "command": "duet.expandAll",
+                    "command": "duet.toggleExpand",
                     "when": "view == duet.businesses",
-                    "group": "navigation"
+                    "group": "navigation@3"
                 }
             ],
             "view/item/context": [
                 {
+                    "command": "duet.openAllBusinesses",
+                    "when": "view == duet.businesses && viewItem == header",
+                    "group": "inline"
+                },
+                {
                     "command": "duet.openInCurrentWindow",
                     "when": "view == duet.businesses && viewItem != header && viewItem != placeholder",
-                    "group": "inline"
+                    "group": "inline@1"
                 },
                 {
                     "command": "duet.openInNewWindow",
                     "when": "view == duet.businesses && viewItem != header && viewItem != placeholder",
-                    "group": "inline"
+                    "group": "inline@2"
                 }
             ]
         },
@@ -145,7 +186,13 @@
                     "when": "config.duet.data_folder"
                 }
             ]
-        }
+        },
+        "viewsWelcome": [
+            {
+                "view": "duet.context",
+                "contents": "Нет открытой папки.\n[Открыть папку](command:vscode.openFolder)"
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run package",

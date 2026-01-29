@@ -924,20 +924,23 @@ Sidebar с деревом бизнесов.
 ---
 
 ### Шаг 8: UX Improvements
-**Статус:** TODO
+**Статус:** IN_REVIEW
 **Выход:** [UI](#5-ui)
 
 UX-улучшения по результатам визуального тестирования Step 6.
 
 **Ход работы:**
-- [ ] Кнопка "Open folder" в пустом КОНТЕКСТ (welcome view)
-- [ ] Toggle Collapse/Expand в секции ДЕЛА (вместо двух кнопок)
-- [ ] Tooltips для всех иконок в title bar
-- [ ] Выделение текущего открытого узла (bold/green) в секции ДЕЛА
-- [ ] Подписи типов через `TreeItem.description` (бизнес/дело/продукт) или ThemeIcon
-- [ ] Hover-иконки для [МОИ ДЕЛА] → открыть multi-root workspace
-- [ ] Git-иконка справа, folder emoji слева для git-папок
-- [ ] Submenu вместо QuickPick для кнопки ⚙️ (опционально)
+- [x] Кнопка "Open folder" в пустом КОНТЕКСТ (welcome view)
+- [x] Toggle Collapse/Expand в секции ДЕЛА (вместо двух кнопок)
+- [x] Tooltips для всех иконок в title bar
+- [x] Выделение текущего открытого узла (маркер `●`) в секции ДЕЛА
+- [x] Подписи типов через `TreeItem.description` (бизнес/дело/продукт) или ThemeIcon
+- [x] Hover-иконки для [МОИ ДЕЛА] → открыть multi-root workspace
+- [x] Git-иконка справа, folder emoji слева для git-папок
+  - Git-иконка справа невозможно в VS Code API. Реализовано: `[git]` в description для продуктов с git_url
+- [x] Submenu вместо QuickPick для кнопки ⚙️
+
+**Review:** [review_step8.md](review_step8.md)
 
 ---
 
