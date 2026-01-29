@@ -3,6 +3,7 @@ import { Scanner } from '../../core/scanner';
 import { DatabaseManager } from '../../core/db';
 import { ConfigManager } from '../../core/config';
 import { Paths } from '../../core/paths';
+import { WorkspaceManager } from '../../core/workspace';
 
 // Singleton OutputChannel for scan errors
 let outputChannel: vscode.OutputChannel | undefined;
@@ -54,6 +55,16 @@ export async function refresh(context: vscode.ExtensionContext): Promise<void> {
     }, async () => {
         try {
             await scanner.scan();
+
+            // Generate all-businesses.code-workspace after scan
+            const duetConfig = await configManager.read();
+            if (duetConfig.businessFolders.length > 0) {
+                const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
+                await workspaceManager.writeAllBusinessesWorkspace(
+                    duetConfig.businessFolders,
+                    paths.allBusinessesWorkspacePath
+                );
+            }
         } catch (error) {
             errors.push(`Scan failed: ${error}`);
             channel.appendLine(`[${new Date().toLocaleTimeString()}] Scan failed: ${error}`);

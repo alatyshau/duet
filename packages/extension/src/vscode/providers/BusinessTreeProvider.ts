@@ -33,6 +33,8 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
     private currentProductNames: Set<string> = new Set();
     /** Normalized paths of all open workspace folders (for Drive folders) */
     private currentOpenPaths: Set<string> = new Set();
+    /** True if all businesses are open (all-businesses workspace) */
+    private allBusinessesOpen: boolean = false;
     private disposables: vscode.Disposable[] = [];
 
     constructor(private readonly db: DatabaseManager, private readonly wasmPath: string, private readonly reposPath?: string) {
@@ -57,10 +59,13 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
      * Tracks both:
      * - Product names from git repos (repos/*.git)
      * - Direct Drive folder paths (for business/stream/product on Drive)
+     * Also detects if all businesses are open (all-businesses workspace).
      */
     private updateCurrentContext(): void {
         this.currentProductNames.clear();
         this.currentOpenPaths.clear();
+        this.allBusinessesOpen = false;
+
         const folders = vscode.workspace.workspaceFolders;
         if (!folders) {
             return;
@@ -82,6 +87,13 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
                 this.currentProductNames.add(productName);
             }
         }
+
+        // Check if all businesses are open (marker goes to [МОИ ДЕЛА] instead)
+        const businesses = this.tree.getRoots();
+        if (businesses.length > 0) {
+            const allOpen = businesses.every(b => this.currentOpenPaths.has(normalizePath(b.id)));
+            this.allBusinessesOpen = allOpen && businesses.length === this.currentOpenPaths.size;
+        }
     }
 
     async refresh(): Promise<void> {
@@ -93,7 +105,9 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
 
     getTreeItem(element: TreeElement): vscode.TreeItem {
         if (element instanceof VisualRoot) {
-            const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+            // Add marker if all businesses are open
+            const label = this.allBusinessesOpen ? `${element.label} ●` : element.label;
+            const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
             item.contextValue = 'header';
             item.tooltip = 'Открыть все бизнесы в multi-root workspace';
             return item;
@@ -111,9 +125,11 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
             : vscode.TreeItemCollapsibleState.None;
 
         // Check if this node is currently open (git product by name, or Drive folder by path)
+        // Skip marker for businesses if all businesses are open (marker is on [МОИ ДЕЛА])
         const isCurrent =
-            (node.type === 'product' && this.currentProductNames.has(node.label)) ||
-            this.currentOpenPaths.has(normalizePath(node.id));
+            !this.allBusinessesOpen &&
+            ((node.type === 'product' && this.currentProductNames.has(node.label)) ||
+            this.currentOpenPaths.has(normalizePath(node.id)));
 
         // Use emoji in label, add marker for current
         const label = isCurrent ? `${node.icon} ${node.label} ●` : `${node.icon} ${node.label}`;

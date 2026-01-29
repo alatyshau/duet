@@ -9,7 +9,7 @@ import { TreeNode } from '../core/tree/businessTree';
 import { selectDataFolder } from './commands/onboarding';
 import { refresh } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
-import { openInCurrentWindow, openInNewWindow } from './commands/openFolder';
+import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { dumpIndex } from './commands/refresh';
 import { DatabaseManager } from '../core/db';
 import { Paths } from '../core/paths';
@@ -154,9 +154,14 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                 }),
                 vscode.commands.registerCommand('duet.openAllBusinesses', async () => {
-                    // Open multi-root workspace with all businesses
+                    // Open multi-root workspace with all businesses in new window
                     const workspacePath = paths.allBusinessesWorkspacePath;
                     await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
+                }),
+                vscode.commands.registerCommand('duet.openAllBusinessesHere', async () => {
+                    // Open multi-root workspace with all businesses in current window
+                    const workspacePath = paths.allBusinessesWorkspacePath;
+                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: false });
                 }),
                 vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
                 vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
@@ -190,4 +195,6 @@ function registerStubs(context: vscode.ExtensionContext) {
 }
 
 
-export function deactivate() { }
+export function deactivate() {
+    disposeGitOutputChannel();
+}

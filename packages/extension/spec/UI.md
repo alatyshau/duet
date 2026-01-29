@@ -26,7 +26,7 @@ Things that are easy to accidentally break:
 | ДЕЛА | Header `[МОИ ДЕЛА]` not collapsible | Visual anchor, not a real node |
 | ДЕЛА | Header has hover icon → open all-businesses workspace | Quick access to multi-root |
 | ДЕЛА | Placeholder when empty | User knows how to add first business |
-| ДЕЛА | Icons: emoji in label | Consistent with Drive manifests |
+| ДЕЛА | Icons: emoji from manifest in label (e.g. `🔬 МетаЛаб`) | Custom icons from manifests, no ThemeIcon |
 | ДЕЛА | Description: type label (бизнес/дело/продукт) | User sees entity type |
 | ДЕЛА | Description: `[git]` marker for products with git_url | User sees which products have repos |
 | ДЕЛА | Current node marker `●` | User sees what's open in this window |
@@ -51,5 +51,4 @@ Things that are easy to accidentally break:
 
 ## Future
 
-- ThemeIcon instead of emoji in label
 - Worktree support in КОНТЕКСТ

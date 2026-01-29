@@ -38,3 +38,14 @@
 ## Открытые вопросы
 
 Нет открытых вопросов.
+
+---
+
+## АРХИВ
+
+### 260130_topic_mcp_integration.md
+> Поддержка MCP в расширении Duet
+
+**Статус**: Выполнено @turn(260130).
+
+**Итог**: Реализован нативный MCP сервер на TypeScript. Инструменты `timestamp` и `get_instruction_location` портированы с Python. Сервер регистрируется через VS Code API (`mcpServerDefinitionProviders`).

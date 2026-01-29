@@ -466,8 +466,9 @@ Picker: выбрать папку
 **Логика открытия (для [↵] и [→]):**
 - Бизнес/Дело → открыть папку на Drive
 - Продукт с `git_url`:
-  - Есть локально → открыть из `repos/`
-  - Нет локально → `git clone` + открыть
+  - Нет локально → `git clone` в `repos/{Name}.git`
+  - Сгенерировать/обновить `workspaces/{Name}.code-workspace`
+  - Открыть workspace (multi-root: repo + Drive folder)
 - Продукт без `git_url` → открыть папку на Drive
 - `[МОИ ДЕЛА]` → открыть multi-root workspace (all-businesses.code-workspace)
 
@@ -959,38 +960,38 @@ UX-улучшения по результатам визуального тес�
 ---
 
 ### Шаг 10: Launcher — Открытие окон
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [Взаимодействие с элементами](#взаимодействие-с-элементами)
 
 Логика открытия папок/репо по клику.
 
 **Ход работы:**
-- [ ] Создать `src/vscode/commands/openFolder.ts` — команды открытия
-- [ ] Команда `duet.openInCurrentWindow` (кнопка [↵])
-- [ ] Команда `duet.openInNewWindow` (кнопка [→])
-- [ ] Логика: бизнес/дело → открыть Drive-папку
-- [ ] Логика: продукт с git_url → проверить repos/, clone если нет
-- [ ] **Git clone UX:** `withProgress` (cancellable) + вывод в Output Channel
-- [ ] Создать `src/core/workspace.ts` — генерация .code-workspace
-- [ ] Команда "Все дела" → открыть multi-root workspace
-- [ ] Unit-тесты для workspace.ts
-- [ ] Проверить: открытие работает для всех случаев
+- [x] Создать `src/vscode/commands/openFolder.ts` — команды открытия
+- [x] Команда `duet.openInCurrentWindow` (кнопка [↵])
+- [x] Команда `duet.openInNewWindow` (кнопка [→])
+- [x] Логика: бизнес/дело → открыть Drive-папку
+- [x] Логика: продукт с git_url → проверить repos/, clone если нет
+- [x] **Git clone UX:** `withProgress` (cancellable) + вывод в Output Channel
+- [x] Создать `src/core/workspace.ts` — генерация .code-workspace
+- [x] Команда "Все дела" → открыть multi-root workspace (уже было)
+- [x] Unit-тесты для workspace.ts (10 тестов)
+- [x] Проверить: открытие работает для всех случаев
 
 ---
 
 ### Шаг 11: Multi-root Workspace
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [Multi-root Workspace](#multi-root-workspace)
 
 Генерация и открытие workspace-файлов.
 
 **Ход работы:**
-- [ ] Создать папку `~/DuetData/workspaces/` при первом использовании
-- [ ] При клике на продукт: проверить есть ли `workspaces/Duet.code-workspace`
-- [ ] Если нет → сгенерировать (относительный путь к repos/, абсолютный к Drive)
-- [ ] Открыть workspace-файл через `vscode.commands.executeCommand('vscode.openFolder', uri)`
-- [ ] `.vscodeignore`: добавить `out/**` перед публикацией
-- [ ] Проверить: workspace открывается с обеими папками в Explorer
+- [x] Создать папку `~/DuetData/workspaces/` при первом использовании — `WorkspaceManager.ensureDir()` в [workspace.ts](packages/extension/src/core/workspace.ts#L56)
+- [x] При клике на продукт: проверить есть ли `workspaces/Duet.code-workspace` — `writeProductWorkspace()` создаёт/перезаписывает
+- [x] Если нет → сгенерировать (относительный путь к repos/, абсолютный к Drive) — строки 84-86 в workspace.ts
+- [x] Открыть workspace-файл через `vscode.commands.executeCommand('vscode.openFolder', uri)` — [openFolder.ts:175](packages/extension/src/vscode/commands/openFolder.ts#L175)
+- [x] `.vscodeignore`: добавить `out/**` и `spec/**` — исключены из VSIX (сборка в `dist/`)
+- [x] Проверить: workspace открывается с обеими папками в Explorer
 
 ---
 

@@ -15,6 +15,8 @@
 | write-file-atomic | Cross-platform atomic writes |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
 | Deterministic scan order | `readdir` sorted by name for reproducible results |
+| git clone via spawn | System git handles auth (ssh-agent, credential helper) |
+| Workspace files | Multi-root workspace for repo + Drive folder |
 
 ## Scanner Behaviors
 
@@ -26,6 +28,29 @@
 | Projects detection | Any entity with `projects/` subfolder |
 
 Implementation: `scanner.ts`. Name conflict resolution → see DOMAIN.md
+
+## Launcher (openFolder.ts)
+
+| Entity Type | Action |
+|-------------|--------|
+| Business/Stream | Open Drive folder directly |
+| Product (no git_url) | Open Drive folder |
+| Product (with git_url) | Clone if needed → generate workspace → open workspace |
+
+Git clone UX:
+- `withProgress` notification (cancellable)
+- Output to "Duet Git" channel
+- Uses `--progress` flag for real-time output
+- Finalize pattern: single `resolved` flag prevents duplicate logs on cancel/error/close race
+
+Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
+
+## Workspace Generation
+
+| Workspace | When Generated | Where |
+|-----------|----------------|-------|
+| `{Product}.code-workspace` | On each product open | `openFolder.ts` |
+| `all-businesses.code-workspace` | After scan completes | `refresh.ts` |
 
 ## Testing
 

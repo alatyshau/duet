@@ -43,7 +43,9 @@ vi.mock('fs/promises', () => ({
     access: vi.fn().mockResolvedValue(undefined),
     writeFile: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn(),
-    mkdir: vi.fn()
+    mkdir: vi.fn(),
+    rename: vi.fn().mockResolvedValue(undefined),
+    stat: vi.fn().mockResolvedValue({ isDirectory: () => true })
 }));
 
 vi.mock('../../core/config', () => {
@@ -76,7 +78,7 @@ describe('VS Code Commands', () => {
     });
 
     describe('openFolder', () => {
-        it('openInCurrentWindow should call vscode.openFolder with false', async () => {
+        it('openInCurrentWindow should call vscode.openFolder with forceNewWindow: false', async () => {
             const node: TreeNode = {
                 id: '/path/to/folder',
                 label: 'Folder',
@@ -92,11 +94,11 @@ describe('VS Code Commands', () => {
             expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
                 'vscode.openFolder',
                 expect.objectContaining({ fsPath: '/path/to/folder' }),
-                false
+                { forceNewWindow: false }
             );
         });
 
-        it('openInNewWindow should call vscode.openFolder with true', async () => {
+        it('openInNewWindow should call vscode.openFolder with forceNewWindow: true', async () => {
             const node: TreeNode = {
                 id: '/path/to/folder',
                 label: 'Folder',
@@ -111,7 +113,7 @@ describe('VS Code Commands', () => {
             expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
                 'vscode.openFolder',
                 expect.objectContaining({ fsPath: '/path/to/folder' }),
-                true
+                { forceNewWindow: true }
             );
         });
     });

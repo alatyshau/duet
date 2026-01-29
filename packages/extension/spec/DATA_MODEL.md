@@ -5,11 +5,13 @@
 ```
 ~/DuetData/                      # configurable via duet.data_folder
 ├── config.json                  # business folder paths
+├── all-businesses.code-workspace  # multi-root workspace for all businesses
 ├── data/
 │   └── index.db                 # SQLite cache (sql.js)
 ├── repos/
 │   └── {Product}.git/           # cloned repositories
-└── workspaces/                  # planned
+└── workspaces/
+    └── {Product}.code-workspace # multi-root: repo + Drive folder
 ```
 
 ## config.json Contract
@@ -56,6 +58,46 @@ Lookup: strip suffix → find entity by name.
 - Saved to disk after each scan
 - Atomic writes via write-file-atomic
 
+## Workspace Files
+
+### Product Workspace
+
+Generated/updated on each open of product with `git_url`. Combines repo and Drive folder.
+
+```json
+{
+  "folders": [
+    { "path": "../repos/Duet.git" },
+    { "path": "/absolute/path/to/Drive/Product" }
+  ]
+}
+```
+
+| Aspect | Value |
+|--------|-------|
+| Location | `workspaces/{Product}.code-workspace` |
+| Repo path | Relative from workspaces/ |
+| Drive path | Absolute (not portable) |
+
+### All-Businesses Workspace
+
+Lists all business folders for quick access.
+
+```json
+{
+  "folders": [
+    { "path": "/path/to/Business1" },
+    { "path": "/path/to/Business2" }
+  ]
+}
+```
+
+| Aspect | Value |
+|--------|-------|
+| Location | `all-businesses.code-workspace` |
+| Paths | Absolute (not portable) |
+| Generated | On refresh (after scan completes) |
+
 ## Implementation
 
 | Concept | File |
@@ -63,3 +105,4 @@ Lookup: strip suffix → find entity by name.
 | DuetData paths | `paths.ts` |
 | config.json read/write | `config.ts` |
 | DB schema, queries | `db/index.ts` |
+| Workspace generation | `workspace.ts` |

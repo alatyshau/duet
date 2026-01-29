@@ -8,7 +8,7 @@
 | **Stance** | HOW to think? | Switches per phase | dialectic, pragmatic, briefing |
 | **Skill** | WHAT expertise? | Loaded on demand | python, instructions-architect |
 | **Workflow** | WITH WHOM? | Entire session | solo, pair, sddg |
-| **Persona** | WHO am I? | Entire session | Socrates, Hephaestus |
+| **Persona** | WHO am I? | Entire session | Socrates, Hephaestus, Ariadna |
 
 ## Concept Relationships
 

@@ -87,8 +87,15 @@
             },
             {
                 "command": "duet.openAllBusinesses",
-                "title": "Открыть все дела",
+                "title": "Открыть все дела в новом окне",
                 "icon": "$(link-external)",
+                "category": "Duet",
+                "shortTitle": "В новом окне"
+            },
+            {
+                "command": "duet.openAllBusinessesHere",
+                "title": "Открыть все дела",
+                "icon": "$(go-to-file)",
                 "category": "Duet",
                 "shortTitle": "Все дела"
             }
@@ -135,9 +142,14 @@
             ],
             "view/item/context": [
                 {
+                    "command": "duet.openAllBusinessesHere",
+                    "when": "view == duet.businesses && viewItem == header",
+                    "group": "inline@1"
+                },
+                {
                     "command": "duet.openAllBusinesses",
                     "when": "view == duet.businesses && viewItem == header",
-                    "group": "inline"
+                    "group": "inline@2"
                 },
                 {
                     "command": "duet.openInCurrentWindow",

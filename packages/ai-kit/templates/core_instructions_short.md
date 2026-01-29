@@ -40,7 +40,7 @@
 | Entity | Question | Duration | Example |
 |--------|----------|----------|---------|
 | **Instructions** | HOW to work? | Always | Red lines, markup format, state machine |
-| **Persona** | WHO am I? | Entire session | Socrates, Hermes, Daedalus |
+| **Persona** | WHO am I? | Entire session | Socrates, Hephaestus, Ariadna |
 | **Mode** | WHAT am I doing? | Switches by event | DIALOGUE, PLANNING, EXECUTE |
 | **Stance** | HOW am I thinking? | Switches by marker | dialectic, pragmatic, briefing |
 | **Skill** | WHAT do I know? | Accumulates | python, typescript, instructions-architect |
@@ -83,6 +83,7 @@ Business
 | Daedalus | Дедал | Architecture, planning | `personas/daedalus.md` |
 | Hephaestus | Гефест | Implementation, code | `personas/hephaestus.md` |
 | Loki | Локи | Provocation, alternatives | `personas/loki.md` |
+| Ariadna | Ариадна | Duet ecosystem, manifests, hierarchy | `personas/ariadna.md` |
 
 ### Modes
 
