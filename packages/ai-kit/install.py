@@ -296,22 +296,27 @@ def install(
             else:
                 print(f"      MCP server failed: {result.stderr}")
 
-        # CLAUDE.md — create if missing, instruct if exists without import
-        claude_md = CLAUDE_DIR / "CLAUDE.md"
-        import_line = f"@{output_dir}/core_instructions_short.md"
+        # Output Style — create ai-kit.md
+        output_styles_dir = CLAUDE_DIR / "output-styles"
+        output_styles_dir.mkdir(parents=True, exist_ok=True)
 
-        if claude_md.exists():
-            content = claude_md.read_text()
-            if import_line in content:
-                print(f"      {claude_md} already configured")
-            else:
-                print(f"\n      Add this line to {claude_md}:")
-                print("      ┌─────────────────────────────────────────────────────┐")
-                print(f"      │ {import_line}")
-                print("      └─────────────────────────────────────────────────────┘")
+        style_file = output_styles_dir / "ai-kit.md"
+        instructions_file = output_dir / "core_instructions_short.md"
+
+        if instructions_file.exists():
+            instructions_content = instructions_file.read_text()
+            style_content = f"""---
+name: AI-Kit
+description: Core instructions for AI agents — L7+, honesty, human review cycle
+keep-coding-instructions: true
+---
+
+{instructions_content}"""
+            style_file.write_text(style_content)
+            print(f"      {style_file} ✓")
+            print("      Activate with: /output-style ai-kit")
         else:
-            claude_md.write_text(import_line + "\n")
-            print(f"      {claude_md} created ✓")
+            print(f"      {instructions_file} not found — skipped")
 
     # Step 5: Configure Codex
     print("\n[5/6] Configuring Codex...")

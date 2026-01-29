@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
@@ -11,6 +13,25 @@ import { openInCurrentWindow, openInNewWindow } from './commands/openFolder';
 import { dumpIndex } from './commands/refresh';
 import { DatabaseManager } from '../core/db';
 import { Paths } from '../core/paths';
+
+/**
+ * Copy MCP server to DuetData for use by Claude Code, Codex, etc.
+ */
+function deployMcpServer(extensionUri: vscode.Uri, dataFolder: string): void {
+    const srcPath = vscode.Uri.joinPath(extensionUri, 'dist', 'mcp-server.js').fsPath;
+    const destDir = path.join(dataFolder, 'mcp');
+    const destPath = path.join(destDir, 'mcp-server.js');
+
+    try {
+        if (!fs.existsSync(destDir)) {
+            fs.mkdirSync(destDir, { recursive: true });
+        }
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`Deployed MCP server to ${destPath}`);
+    } catch (e) {
+        console.error('Failed to deploy MCP server:', e);
+    }
+}
 
 class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
@@ -28,7 +49,45 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const config = vscode.workspace.getConfiguration('duet');
     const dataFolder = config.get<string>('data_folder');
-    
+
+    // Register MCP server provider (VS Code 1.102+)
+    // Provider reads config dynamically, so it works even if dataFolder changes
+    if (vscode.lm?.registerMcpServerDefinitionProvider) {
+        const serverPath = vscode.Uri.joinPath(
+            context.extensionUri, 'dist', 'mcp-server.js'
+        ).fsPath;
+
+        context.subscriptions.push(
+            vscode.lm.registerMcpServerDefinitionProvider('duet-ai-kit', {
+                provideMcpServerDefinitions: async () => {
+                    const currentDataFolder = vscode.workspace
+                        .getConfiguration('duet')
+                        .get<string>('data_folder');
+
+                    if (!currentDataFolder) {
+                        return []; // No server if data folder not configured
+                    }
+
+                    return [
+                        new vscode.McpStdioServerDefinition(
+                            'Duet AI Kit',
+                            process.execPath,
+                            [serverPath, '--data-dir', currentDataFolder],
+                            {},
+                            '1.0.0'
+                        )
+                    ];
+                }
+            })
+        );
+        console.log('Duet MCP server provider registered');
+    }
+
+    // Deploy MCP server to DuetData for Claude Code, Codex, etc.
+    if (dataFolder) {
+        deployMcpServer(context.extensionUri, dataFolder);
+    }
+
     // Commands
     context.subscriptions.push(
         vscode.commands.registerCommand('duet.selectDataFolder', selectDataFolder)
