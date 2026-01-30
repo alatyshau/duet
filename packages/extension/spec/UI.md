@@ -29,7 +29,8 @@ Things that are easy to accidentally break:
 | ДЕЛА | Icons: emoji from manifest in label (e.g. `🔬 МетаЛаб`) | Custom icons from manifests, no ThemeIcon |
 | ДЕЛА | Description: type label (бизнес/дело/продукт) | User sees entity type |
 | ДЕЛА | Description: `[git]` marker for products with git_url | User sees which products have repos |
-| ДЕЛА | Current node marker `●` | User sees what's open in this window |
+| ДЕЛА | Current node marker `●` + red color | User sees what's open in this window |
+| ДЕЛА | Business nodes: blue color | Visual hierarchy — businesses stand out |
 | ДЕЛА | Toggle button (fold icon) | Single button to expand/collapse all |
 | ДЕЛА | Click = select, arrow = toggle | User can select without collapsing |
 | ДЕЛА | Excludes projects | Projects only in ПРОЕКТЫ section |

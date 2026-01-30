@@ -135,6 +135,11 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
         const label = isCurrent ? `${node.icon} ${node.label} ●` : `${node.icon} ${node.label}`;
         const item = new vscode.TreeItem(label, collapsibleState);
         item.id = node.id;
+        // resourceUri enables FileDecorationProvider styling (color)
+        // Format: duet-tree:/<type>/<entityId>?active for current nodes
+        item.resourceUri = vscode.Uri.parse(`duet-tree:/${node.type}/${node.entityId}${isCurrent ? '?active' : ''}`);
+        // Prevent default file icon from appearing
+        item.iconPath = new vscode.ThemeIcon('blank');
         item.contextValue = node.gitUrl ? `${node.type}-git` : node.type;
 
         // Add type description (with git marker for products with git_url)

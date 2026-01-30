@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
+import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { TreeNode } from '../core/tree/businessTree';
@@ -103,6 +104,9 @@ export async function activate(context: vscode.ExtensionContext) {
             const businessProvider = new BusinessTreeProvider(db, wasmPath, paths.reposPath);
             const contextProvider = new ContextProvider(db, paths);
             const projectsProvider = new ProjectsProvider(db);
+            context.subscriptions.push(
+                vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
+            );
             
             const businessTreeView = vscode.window.createTreeView('duet.businesses', {
                 treeDataProvider: businessProvider,
