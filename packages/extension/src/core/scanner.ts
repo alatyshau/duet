@@ -37,7 +37,8 @@ export class Scanner {
         private readonly db: DatabaseManager,
         private readonly config: ConfigManager,
         private readonly onError?: (message: string) => void,
-        fileSystem?: FileSystem
+        fileSystem?: FileSystem,
+        private readonly reposPath?: string
     ) {
         this.fs = fileSystem ?? nodeFs;
     }
@@ -315,6 +316,7 @@ export class Scanner {
     /**
      * Save a product entity and scan for projects inside it.
      * Products are terminal nodes - we don't scan deeper for manifests.
+     * Scans projects from both drive path and git repo (if reposPath configured).
      */
     private async saveProduct(folderPath: string, parentId: number, manifest: Manifest): Promise<void> {
         const baseName = manifest.name || path.basename(folderPath);
@@ -329,7 +331,14 @@ export class Scanner {
             gitUrl: manifest.gitUrl
         });
 
+        // Scan projects from drive path
         await this.scanProjects(folderPath, productId);
+
+        // Also scan projects from git repo if reposPath is configured
+        if (this.reposPath) {
+            const repoPath = path.join(this.reposPath, `${uniqueName}.git`);
+            await this.scanProjects(repoPath, productId);
+        }
     }
 
     /**

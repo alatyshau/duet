@@ -359,6 +359,82 @@ describe('Scanner & Database', () => {
         });
     });
 
+    describe('Git repo projects scanning', () => {
+        it('should scan projects from git repo when reposPath is configured', async () => {
+            // Setup: Product in drive folder, projects in git repo
+            const bizPath = path.join(tempDir, 'Business1');
+            const productPath = path.join(bizPath, 'MyProduct');
+            const reposPath = path.join(tempDir, 'repos');
+            const gitRepoPath = path.join(reposPath, 'MyProduct.git');
+            const gitProjectPath = path.join(gitRepoPath, 'projects', 'GitProject');
+
+            await fs.mkdir(productPath, { recursive: true });
+            await fs.mkdir(gitProjectPath, { recursive: true });
+            await fs.writeFile(path.join(bizPath, 'business.json'), JSON.stringify({ name: 'Biz1' }));
+            await fs.writeFile(path.join(productPath, 'product.json'), JSON.stringify({ name: 'MyProduct' }));
+
+            // Create scanner with reposPath
+            const scannerWithRepos = new Scanner(dbManager, filters, undefined, nodeFs, reposPath);
+
+            await scannerWithRepos.scan();
+
+            const dump = dbManager.dump();
+            const project = dump.find(r => r.type === 'project' && r.name === 'GitProject');
+            expect(project).toBeDefined();
+
+            const product = dump.find(r => r.type === 'product' && r.name === 'MyProduct');
+            expect(project?.parent_id).toBe(product?.id);
+        });
+
+        it('should scan projects from both drive and git repo', async () => {
+            // Setup: Projects in both drive folder and git repo
+            const bizPath = path.join(tempDir, 'Business1');
+            const productPath = path.join(bizPath, 'MyProduct');
+            const driveProjectPath = path.join(productPath, 'projects', 'DriveProject');
+            const reposPath = path.join(tempDir, 'repos');
+            const gitRepoPath = path.join(reposPath, 'MyProduct.git');
+            const gitProjectPath = path.join(gitRepoPath, 'projects', 'GitProject');
+
+            await fs.mkdir(driveProjectPath, { recursive: true });
+            await fs.mkdir(gitProjectPath, { recursive: true });
+            await fs.writeFile(path.join(bizPath, 'business.json'), JSON.stringify({ name: 'Biz1' }));
+            await fs.writeFile(path.join(productPath, 'product.json'), JSON.stringify({ name: 'MyProduct' }));
+
+            // Create scanner with reposPath
+            const scannerWithRepos = new Scanner(dbManager, filters, undefined, nodeFs, reposPath);
+
+            await scannerWithRepos.scan();
+
+            const dump = dbManager.dump();
+            const projects = dump.filter(r => r.type === 'project');
+            expect(projects).toHaveLength(2);
+            expect(projects.some(p => p.name === 'DriveProject')).toBe(true);
+            expect(projects.some(p => p.name === 'GitProject')).toBe(true);
+        });
+
+        it('should not fail if git repo does not exist', async () => {
+            // Setup: Product in drive folder, no git repo
+            const bizPath = path.join(tempDir, 'Business1');
+            const productPath = path.join(bizPath, 'MyProduct');
+            const reposPath = path.join(tempDir, 'repos');
+            // Note: git repo folder NOT created
+
+            await fs.mkdir(productPath, { recursive: true });
+            await fs.writeFile(path.join(bizPath, 'business.json'), JSON.stringify({ name: 'Biz1' }));
+            await fs.writeFile(path.join(productPath, 'product.json'), JSON.stringify({ name: 'MyProduct' }));
+
+            // Create scanner with reposPath (pointing to non-existent repos folder)
+            const scannerWithRepos = new Scanner(dbManager, filters, undefined, nodeFs, reposPath);
+
+            // Should not throw
+            await scannerWithRepos.scan();
+
+            const dump = dbManager.dump();
+            const product = dump.find(r => r.type === 'product' && r.name === 'MyProduct');
+            expect(product).toBeDefined();
+        });
+    });
+
     describe('Database findByName and nameExists', () => {
         it('should find entity by name', async () => {
             const bizPath = path.join(tempDir, 'Business1');

@@ -46,7 +46,7 @@ export async function refresh(context: vscode.ExtensionContext): Promise<void> {
     const scanner = new Scanner(db, configManager, (msg) => {
         errors.push(msg);
         channel.appendLine(`[${new Date().toLocaleTimeString()}] ${msg}`);
-    });
+    }, undefined, paths.reposPath);
 
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
