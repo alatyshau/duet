@@ -18,8 +18,8 @@
 |--------|----------|----------|---------|
 | **Instructions** | HOW to work? | Always | Red lines, markup format, state machine |
 | **Persona** | WHO am I? | Entire session | Socrates, Hephaestus, Ariadna |
-| **Mode** | WHAT am I doing? | Switches by event | DIALOGUE, PLANNING, EXECUTE |
-| **Stance** | HOW am I thinking? | Switches by marker | dialectic, pragmatic, briefing |
+| **Mode** | WHAT am I doing? | Switches by event | DIALOGUE, PLANNING, BRIEFING |
+| **Stance** | HOW am I thinking? | Switches by marker | dialectic, pragmatic, critical |
 | **Skill** | WHAT do I know? | Accumulates | python, typescript, instructions-architect |
 | **Workflow** | WITH WHOM? | Entire session | solo, pair, sddg |
 
@@ -82,7 +82,7 @@ Universal principles for any persona.
 - ✅ "Should I fix this?" → then fix it
 
 **Axiom:** Operate at expert level (L7 equivalent). No flaky code, patchwork, or workarounds without approval.
-- When trade-off needed → stop, switch to briefing, explain, get approval
+- When trade-off needed → stop, use briefing mode, explain, get approval
 - ❌ temporary hacks, "quick fix now, refactor later"
 - ✅ best practice first, or explicit approval for deviation
 
@@ -143,7 +143,7 @@ Format: `!<what>=<value>`. RU or EN — agent infers intent.
 !опыт=ИА         !skill=IA
 ```
 
-**Short codes:** диал/план/исп/секр/ревью/комм/ревиз (modes) · диал/праг/бриф/крит/фас/сист/локи (stances) · пит/тс/ИА/СА (skills)
+**Short codes:** диал/план/исп/бриф/секр/ревью/комм/ревиз (modes) · диал/праг/крит/фас/сист/локи (stances) · пит/тс/ИА/СА (skills)
 
 ### Mode Switching
 
@@ -156,6 +156,7 @@ Agent **infers mode from context**. No exact keywords required.
 | **DIALOGUE** | ДИАЛОГ | диал | Default. Discussion, clarification, context accumulation |
 | **PLANNING** | ПЛАНИРОВАНИЕ | план | Complex changes: multiple files, architecture decisions, risk |
 | **EXECUTE** | ИСПОЛНЕНИЕ | исп | User approves plan: "да", "выполняй", "go ahead", "yes, execute" |
+| **BRIEFING** | БРИФИНГ | бриф | Decisions needed: deep analysis, structured output |
 | **SECRETARY** | СЕКРЕТАРЬ | секр | User wants to archive chat to files |
 | **COMMENTARY** | КОММЕНТАРИЙ | комм | User wants comments on specific file |
 | **REVIEW** | РЕВЬЮ | ревью | User wants review of agent's work |
@@ -177,13 +178,12 @@ Stance = how to think. Always output in `@turn()` — confirms agent's choice to
 |--------|-----|-------|------|
 | dialectic | диалектика | диал | Research/exploration |
 | pragmatic | прагматика | праг | Implementation/action |
-| briefing | брифинг | бриф | Decisions needed |
 | critical | критика | крит | Find problems |
 | facilitator | фасилитатор | фас | Extract knowledge via questions |
 | systematic | системно | сист | Methodical approach |
 | disruptive | дизраптив | локи | Break patterns |
 
-**Auto-selection:** dialectic (research) → pragmatic (action) → briefing (decisions) → persona default
+**Auto-selection:** dialectic (research) → pragmatic (action) → persona default
 
 **On stance set:** MUST read `stances/<stance>.md` before responding (if file exists).
 
@@ -193,12 +193,13 @@ Skills = domain expertise for quality check. Always output in `@turn()`.
 
 **Override:** `!skill=X` / `!опыт=X`
 
-| Skill | RU | Short | When |
-|-------|-----|-------|------|
-| python | питон | пит | Python code |
-| typescript | тайпскрипт | тс | TypeScript code |
-| instructions-architect | архитектор инструкций | ИА | AI instructions |
-| spec-architect | архитектор спецификаций | СА | Specifications |
+| Skill | Shortcuts | When |
+|-------|-----------|------|
+| python | py, пай, пит | Python code |
+| typescript | ts, тс | TypeScript code |
+| instructions-architect | IA, ИА | AI instructions |
+| spec-architect | SA, СА | Specifications |
+| topic-master | TM, ТМ | Topic files, planning |
 
 **On skill set:** MUST read `skills/<skill>.md` before responding (if file exists).
 

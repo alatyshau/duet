@@ -50,6 +50,22 @@ Topic file must have IMPLEMENTATION PLAN with at least one step. If not → retu
 
 ---
 
+## Git: Шаг = Коммит
+
+**Правило:** Каждый шаг завершается коммитом при переходе в IN_REVIEW.
+
+```
+WIP → делаем работу → IN_REVIEW + commit
+```
+
+**Commit message:** Указан в поле `**Коммит:**` шага.
+
+**Исключения:**
+- Мелкие правки по feedback в IN_REVIEW можно объединить с основным коммитом шага
+- Редко: один шаг = несколько коммитов (но правильно — один)
+
+---
+
 ## State Machine
 
 Each step in IMPLEMENTATION PLAN goes through 4 statuses:

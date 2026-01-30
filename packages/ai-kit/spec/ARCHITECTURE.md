@@ -71,7 +71,7 @@ Regenerate legacy (if needed): `python3 build_legacy.py`
 | Type | Pattern | Example |
 |------|---------|---------|
 | Mode | `modes/<name>.md` | `modes/execute.md` |
-| Stance | `stances/<name>.md` | `stances/briefing.md` |
+| Stance | `stances/<name>.md` | `stances/dialectic.md` |
 | Skill | `skills/<name>.md` | `skills/python.md` |
 | Persona | `personas/<name>.md` | `personas/socrates.md` |
 | Schema | `schemas/<name>.md` | `schemas/topic_file.md` |

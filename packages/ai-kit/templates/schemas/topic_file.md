@@ -77,12 +77,15 @@ Each topic file contains **6 H2 sections** in strict order:
 
 ### Plan Lifecycle
 
-| Stage | Status | What it means |
-|-------|--------|---------------|
-| **Uncertainty** | `unclear` | Topic just emerged, not yet clear why it matters |
-| **Planning** | `planning` | OUTPUTS appeared, formulating criteria and steps |
-| **Execution** | `in progress` | Steps being worked on (TODO/WIP/IN_REVIEW/DONE) |
-| **Completion** | `done` | All criteria met, topic can be archived |
+| Stage | Status | What it means | Git |
+|-------|--------|---------------|-----|
+| **Uncertainty** | `unclear` | Topic just emerged, not yet clear why it matters | — |
+| **Planning (Шаг 0)** | `planning` | ОТКРЫТЫЕ ВОПРОСЫ → ВЫХОДЫ → ПЛАН | — |
+| **Planning complete** | `planning` | Все вопросы ✅ РЕШЕНО, план готов | Commit Шага 0 |
+| **Execution** | `in progress` | Шаги 1+ being worked on | Commit per step |
+| **Completion** | `done` | All criteria met, topic can be archived | — |
+
+> **Ключевой момент:** Переход от Planning к Execution = коммит Шага 0 (документа). Это фиксация всего обсуждения перед началом реализации.
 
 This section has **three mandatory parts**:
 
@@ -119,6 +122,21 @@ Captures the essence of what we're solving:
 
 ### 3. Шаги (H3+)
 
+#### Шаг 0: Документ (обязательный)
+
+```markdown
+### Шаг 0: Документ
+**Статус:** TODO | IN_REVIEW | DONE
+
+Фиксация результатов планирования.
+
+**Коммит:** `docs(topic): topic_xxx — planning complete`
+```
+
+Шаг 0 завершается когда все ОТКРЫТЫЕ ВОПРОСЫ имеют статус ✅ РЕШЕНО и ПЛАН написан.
+
+#### Шаги 1+: Реализация
+
 ```markdown
 ### Фаза 1: Название
 
@@ -129,7 +147,11 @@ Captures the essence of what we're solving:
 **Ход работы:**
 - [ ] Пункт 1
 - [ ] Пункт 2
+
+**Коммит:** `type(scope): description`
 ```
+
+**Правило:** Каждый шаг = один коммит. Коммит делается при переходе в IN_REVIEW.
 
 ---
 

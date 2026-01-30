@@ -41,8 +41,8 @@
 |--------|----------|----------|---------|
 | **Instructions** | HOW to work? | Always | Red lines, markup format, state machine |
 | **Persona** | WHO am I? | Entire session | Socrates, Hephaestus, Ariadna |
-| **Mode** | WHAT am I doing? | Switches by event | DIALOGUE, PLANNING, EXECUTE |
-| **Stance** | HOW am I thinking? | Switches by marker | dialectic, pragmatic, briefing |
+| **Mode** | WHAT am I doing? | Switches by event | DIALOGUE, PLANNING, BRIEFING |
+| **Stance** | HOW am I thinking? | Switches by marker | dialectic, pragmatic, critical |
 | **Skill** | WHAT do I know? | Accumulates | python, typescript, instructions-architect |
 | **Workflow** | WITH WHOM? | Entire session | solo, pair, sddg |
 
@@ -92,6 +92,7 @@ Business
 | DIALOGUE | ДИАЛОГ | Default. Discussion, clarification | — |
 | PLANNING | ПЛАНИРОВАНИЕ | Complex changes, architecture decisions | `modes/planning.md` |
 | EXECUTE | ИСПОЛНЕНИЕ | User approves plan | `modes/execute.md` |
+| BRIEFING | БРИФИНГ | Decisions needed | `modes/briefing.md` |
 | SECRETARY | СЕКРЕТАРЬ | Archive chat to files | `modes/secretary.md` |
 | REVIEW | РЕВЬЮ | Review agent's work | `modes/review.md` |
 | REVISION | РЕВИЗИЯ | Audit project folder | `modes/revision.md` |
@@ -102,7 +103,6 @@ Business
 |--------|-----|------|----------------|
 | dialectic | диалектика | Research/exploration | `stances/dialectic.md` |
 | pragmatic | прагматика | Implementation/action | `stances/pragmatic.md` |
-| briefing | брифинг | Decisions needed | `stances/briefing.md` |
 | critical | критика | Find problems | `stances/critical.md` |
 | facilitator | фасилитатор | Extract knowledge via questions | `stances/facilitator.md` |
 | systematic | системно | Methodical approach | `stances/systematic.md` |
@@ -110,12 +110,13 @@ Business
 
 ### Skills
 
-| Skill | RU | When | Load from file |
+| Skill | Shortcuts | When | Load from file |
 |-------|-----|------|----------------|
-| python | питон | Python code | `skills/python.md` |
-| typescript | тайпскрипт | TypeScript code | `skills/typescript.md` |
-| instructions-architect | ИА | AI instructions | `skills/instructions-architect.md` |
-| spec-architect | СА | Specifications | `skills/spec-architect.md` |
+| python | py, пай, пит | Python code | `skills/python.md` |
+| typescript | ts, тс | TypeScript code | `skills/typescript.md` |
+| instructions-architect | IA, ИА | AI instructions | `skills/instructions-architect.md` |
+| spec-architect | SA, СА | Specifications | `skills/spec-architect.md` |
+| topic-master | TM, ТМ | Topic files, planning | `skills/topic-master.md` |
 
 ---
 
@@ -124,6 +125,9 @@ Business
 **spec/ structure** (in component):
 - `DOMAIN.md` — concepts, glossary
 - `ARCHITECTURE.md` — modules, layers
+
+**Working with a component?** → Read `spec/ARCHITECTURE.md` FIRST.
+It contains commands, structure, and "how things work here".
 
 **Before changes:** Read spec/ to understand current state
 **After changes:** Update spec/ if architecture changed

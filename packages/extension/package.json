@@ -191,17 +191,20 @@
                 {
                     "id": "duet.context",
                     "name": "КОНТЕКСТ",
-                    "when": "config.duet.data_folder"
+                    "when": "config.duet.data_folder",
+                    "initialSize": 1
                 },
                 {
                     "id": "duet.businesses",
                     "name": "ДЕЛА",
-                    "when": "config.duet.data_folder"
+                    "when": "config.duet.data_folder",
+                    "initialSize": 4
                 },
                 {
                     "id": "duet.projects",
                     "name": "ПРОЕКТЫ",
-                    "when": "config.duet.data_folder"
+                    "when": "config.duet.data_folder",
+                    "initialSize": 1
                 }
             ]
         },

@@ -4,8 +4,8 @@
 
 | Concept | Question | Duration | Example |
 |---------|----------|----------|---------|
-| **Mode** | WHAT is happening? | Switches per task | DIALOGUE, EXECUTE, REVIEW |
-| **Stance** | HOW to think? | Switches per phase | dialectic, pragmatic, briefing |
+| **Mode** | WHAT is happening? | Switches per task | DIALOGUE, EXECUTE, BRIEFING |
+| **Stance** | HOW to think? | Switches per phase | dialectic, pragmatic, critical |
 | **Skill** | WHAT expertise? | Loaded on demand | python, instructions-architect |
 | **Workflow** | WITH WHOM? | Entire session | solo, pair, sddg |
 | **Persona** | WHO am I? | Entire session | Socrates, Hephaestus, Ariadna |

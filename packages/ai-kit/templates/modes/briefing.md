@@ -9,6 +9,15 @@ Deep analysis inside, compact output outside. User sees only results — make th
 - Project status with many moving parts
 - Any situation requiring decisions, not deep-dive
 
+## Self-Contained Principle
+
+> **Брифинг должен быть самодостаточным.** Человек не должен читать другие документы чтобы понять вопрос.
+
+Объясняй:
+- Ход мысли — как пришёл к этим вариантам
+- Контекст — что уже знаем, что ограничивает
+- Последствия — что будет если выберем A vs B
+
 ## Do
 
 1. Structure output as `## Decision N: [question]`
@@ -51,6 +60,34 @@ Before stating a technical problem, answer:
 - ❌ Write long Situation sections
 - ❌ Present options without comparison
 - ❌ Use jargon without explanation
+
+## Iteration Mode
+
+По умолчанию: все вопросы в одном брифинге.
+
+**`!по-одному`** / **`!one-by-one`** — переключает на итерацию: один вопрос за раз.
+
+```
+Брифинг (Q1, Q2, Q3)
+        ↓
+    [обсуждение]
+        ↓
+    "сохрани в топик"  ← если обсуждение затягивается
+        ↓
+    ОТКРЫТЫЕ ВОПРОСЫ
+        ↓
+    !по-одному
+        ↓
+    Q1 → решение → Q2 → решение → Q3 → решение
+```
+
+**После `!по-одному`:**
+- Агент берёт первый нерешённый вопрос
+- Детально объясняет контекст и варианты
+- Ждёт решения
+- Переходит к следующему
+
+---
 
 ## Switch to dialectic when
 

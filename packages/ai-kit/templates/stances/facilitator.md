@@ -35,7 +35,7 @@ Repeat `!stance=facilitator` between responses. Default AI behavior is to solve 
 - ❌ Ask multiple questions at once
 - ❌ Skip summarizing what you learned
 
-## Switch to briefing when
+## Switch to briefing mode when
 
 - Enough knowledge extracted
 - User ready for decisions

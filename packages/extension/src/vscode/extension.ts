@@ -19,16 +19,19 @@ import { Paths } from '../core/paths';
  * Copy MCP server to DuetData for use by Claude Code, Codex, etc.
  */
 function deployMcpServer(extensionUri: vscode.Uri, dataFolder: string): void {
-    const srcPath = vscode.Uri.joinPath(extensionUri, 'dist', 'mcp-server.js').fsPath;
+    const distDir = vscode.Uri.joinPath(extensionUri, 'dist').fsPath;
     const destDir = path.join(dataFolder, 'mcp');
-    const destPath = path.join(destDir, 'mcp-server.js');
+
+    const files = ['mcp-server.js', 'sql-wasm.wasm'];
 
     try {
         if (!fs.existsSync(destDir)) {
             fs.mkdirSync(destDir, { recursive: true });
         }
-        fs.copyFileSync(srcPath, destPath);
-        console.log(`Deployed MCP server to ${destPath}`);
+        for (const file of files) {
+            fs.copyFileSync(path.join(distDir, file), path.join(destDir, file));
+        }
+        console.log(`Deployed MCP server to ${destDir}`);
     } catch (e) {
         console.error('Failed to deploy MCP server:', e);
     }

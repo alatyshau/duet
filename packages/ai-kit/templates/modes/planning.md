@@ -59,6 +59,27 @@ Agent: "Это затронет несколько файлов. Сначала 
 
 ---
 
+## Open Questions First
+
+> **Все ОТКРЫТЫЕ ВОПРОСЫ должны быть ✅ РЕШЕНО перед формированием плана.**
+
+ОТКРЫТЫЕ ВОПРОСЫ = Шаг 0 (фаза планирования). Пока есть нерешённые вопросы — план писать рано.
+
+**Question statuses:**
+- `TODO` — не начинали обсуждать
+- `ОБСУЖДЕНИЕ` — активно обсуждаем
+- `✅ РЕШЕНО` — финальное решение принято
+
+**Workflow:**
+1. Закрыть все вопросы (статус → ✅ РЕШЕНО)
+2. Определить ВЫХОДЫ
+3. Написать ПЛАН ВНЕДРЕНИЯ (критерии + шаги)
+4. Коммит Шага 0: `docs(topic): topic_xxx — planning complete`
+
+> После коммита Шага 0 — переход к EXECUTE для Шагов 1+.
+
+---
+
 ## Definition of Done First
 
 > **Completion criteria are the PRIMARY focus of planning.**
@@ -68,6 +89,16 @@ Before writing steps, answer:
 - How will we know it's done?
 
 Steps are HOW to achieve criteria. Criteria are WHAT we're achieving.
+
+---
+
+## Step Granularity
+
+> **One step = one commit.**
+
+- Steps are commit-sized (not micro-tasks)
+- If step requires multiple commits → split it
+- If step is too small to commit alone → merge with another
 
 ---
 
