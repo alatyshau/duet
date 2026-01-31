@@ -96,6 +96,12 @@ CREATE UNIQUE INDEX idx_name ON entities(name);
 - Keys are `snake_case`. Extension writes, backend reads.
 - `version` is REQUIRED. Extension writes from package.json before starting backend.
 - Backend refuses to start if `version` is missing.
+- `port` is REQUIRED. Extension writes before starting backend.
+- Backend refuses to start if `port` is missing or invalid.
+- `business_folders` is REQUIRED (can be empty array).
+- Backend refuses to start if `business_folders` is missing or invalid.
+- `timestampTZ` is REQUIRED.
+- Backend refuses to start if `timestampTZ` is missing or invalid.
 
 ## File Paths
 

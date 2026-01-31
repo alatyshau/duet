@@ -23,7 +23,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 import config
-from config import get_db_path, get_pid_path, get_port, get_version
+from config import get_business_folders, get_db_path, get_pid_path, get_port, get_timezone, get_version
 from db import DatabaseManager
 from mcp_handler import (
     get_duet_data_path_str,
@@ -259,9 +259,16 @@ def main() -> None:
     # Validate version before starting (fail fast)
     try:
         get_version()
+        get_port()
+        get_timezone()
+        get_business_folders()
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
-        print("Extension must write version to config.json before starting backend.", file=sys.stderr)
+        print(
+            "Extension must write required fields to config.json before starting backend "
+            "(required: version, port, business_folders, timestampTZ).",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Check if already running
@@ -270,7 +277,7 @@ def main() -> None:
         print(f"Backend already running (PID {existing_pid})", file=sys.stderr)
         sys.exit(1)
 
-    # Read port from config
+    # Read port from config (validated above)
     port = get_port()
 
     print(f"Starting Duet backend on 127.0.0.1:{port}")

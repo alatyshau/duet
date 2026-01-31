@@ -111,7 +111,68 @@ class TestStartupValidation:
 
         assert result.returncode == 1
         assert "Version not set" in result.stderr
-        assert "Extension must write version" in result.stderr
+        assert "Extension must write required fields" in result.stderr
+
+    def test_startup_fails_without_port(self, tmp_path: Path) -> None:
+        """main() exits with error if port not in config.json."""
+        # Create config.json without port
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"version": "test"}))
+
+        # Run server.py with --data-path
+        server_py = Path(__file__).parent.parent / "server.py"
+        result = subprocess.run(
+            [sys.executable, str(server_py), "--data-path", str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        assert result.returncode == 1
+        assert "Port not set" in result.stderr
+        assert "Extension must write required fields" in result.stderr
+
+    def test_startup_fails_without_timezone(self, tmp_path: Path) -> None:
+        """main() exits with error if timestampTZ not in config.json."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "version": "test",
+            "port": 19680,
+            "business_folders": [],
+        }))
+
+        server_py = Path(__file__).parent.parent / "server.py"
+        result = subprocess.run(
+            [sys.executable, str(server_py), "--data-path", str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        assert result.returncode == 1
+        assert "timestampTZ not set" in result.stderr
+        assert "Extension must write required fields" in result.stderr
+
+    def test_startup_fails_without_business_folders(self, tmp_path: Path) -> None:
+        """main() exits with error if business_folders not in config.json."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "version": "test",
+            "port": 19680,
+            "timestampTZ": {"id": "Z", "value": "UTC"},
+        }))
+
+        server_py = Path(__file__).parent.parent / "server.py"
+        result = subprocess.run(
+            [sys.executable, str(server_py), "--data-path", str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        assert result.returncode == 1
+        assert "business_folders not set" in result.stderr
+        assert "Extension must write required fields" in result.stderr
 
 
 @pytest.mark.asyncio

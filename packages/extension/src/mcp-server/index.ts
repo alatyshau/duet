@@ -259,11 +259,12 @@ async function main() {
     );
 
     // Register find_entity tool
-    server.tool(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (server.tool as any)(
         "find_entity",
         "Find an entity (business, stream, product, or project) by name. Returns entity details including drive_path and git_url.",
         { name: z.string().describe("The name of the entity to find") },
-        async ({ name }) => {
+        async ({ name }: { name: string }) => {
             const db = await loadDatabase(dataDir);
             if (!db) {
                 return {

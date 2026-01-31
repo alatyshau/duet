@@ -5,17 +5,15 @@ All other configuration read from config.json.
 
 Configuration file: config.json
 - version: backend version (written by Extension from package.json)
-- port: HTTP server port (default 19680)
-- business_folders: list of paths to scan
-- timestampTZ: timezone for timestamp formatting
+- port: HTTP server port (required; written by Extension)
+- business_folders: list of paths to scan (required; can be empty)
+- timestampTZ: timezone for timestamp formatting (required)
 """
 
 import json
 from pathlib import Path
 
 
-DEFAULT_PORT = 19680
-DEFAULT_TIMEZONE = {"id": "Z", "value": "UTC"}
 VERSION_NOT_SET = "VERSION_NOT_SET"
 
 # Initialized by server.py via init()
@@ -70,9 +68,9 @@ def read_config() -> dict:
 
     Returns dict with:
     - version: backend version (written by Extension)
-    - port: HTTP server port
-    - business_folders: list of paths to scan
-    - timestampTZ: timezone config
+    - port: HTTP server port (int) or None if missing/invalid
+    - business_folders: list[str] or None if missing/invalid
+    - timestampTZ: dict or None if missing/invalid
     """
     config_path = get_config_path()
     data = {}
@@ -84,21 +82,29 @@ def read_config() -> dict:
         except (json.JSONDecodeError, IOError):
             pass
 
-    # Get port
-    port = data.get("port", DEFAULT_PORT)
+    # Port is required for backend start. We don't default here to avoid silently
+    # starting on an unexpected port when Extension forgot to write config.
+    port = data.get("port")
     if not isinstance(port, int):
-        port = DEFAULT_PORT
+        port = None
 
-    # Validate business_folders
-    folders = data.get("business_folders", [])
+    # business_folders is required (but can be empty list)
+    folders = data.get("business_folders")
     if not isinstance(folders, list):
-        folders = []
-    folders = [f for f in folders if isinstance(f, str)]
+        folders = None
+    else:
+        folders = [f for f in folders if isinstance(f, str)]
 
-    # Validate timestampTZ (must be dict with 'id' and 'value' keys)
-    timezone = data.get("timestampTZ", DEFAULT_TIMEZONE)
-    if not isinstance(timezone, dict) or "id" not in timezone or "value" not in timezone:
-        timezone = DEFAULT_TIMEZONE
+    # timestampTZ is required (dict with 'id' and 'value' keys)
+    timezone = data.get("timestampTZ")
+    if (
+        not isinstance(timezone, dict)
+        or "id" not in timezone
+        or "value" not in timezone
+        or not isinstance(timezone["id"], str)
+        or not isinstance(timezone["value"], str)
+    ):
+        timezone = None
 
     # Get version (required field)
     version = data.get("version")
@@ -112,9 +118,21 @@ def read_config() -> dict:
 
 
 def get_port() -> int:
-    """Get HTTP server port."""
-    config = read_config()
-    return config.get("port", DEFAULT_PORT)
+    """Get HTTP server port from config.json.
+
+    Port must be written by Extension before starting backend.
+
+    Raises:
+        RuntimeError: If port is not set or invalid in config.json.
+    """
+    cfg = read_config()
+    port = cfg.get("port")
+    if port is None:
+        raise RuntimeError(
+            "Port not set in config.json. "
+            "Extension must write 'port' before starting backend."
+        )
+    return port
 
 
 def get_timezone() -> dict:
@@ -122,14 +140,26 @@ def get_timezone() -> dict:
 
     Returns dict with 'id' and 'value' keys.
     """
-    config = read_config()
-    return config.get("timestampTZ", DEFAULT_TIMEZONE)
+    cfg = read_config()
+    timezone = cfg.get("timestampTZ")
+    if timezone is None:
+        raise RuntimeError(
+            "timestampTZ not set in config.json. "
+            "Extension must write 'timestampTZ' before starting backend."
+        )
+    return timezone
 
 
 def get_business_folders() -> list[str]:
     """Get list of business folders to scan."""
-    config = read_config()
-    return config.get("business_folders", [])
+    cfg = read_config()
+    folders = cfg.get("business_folders")
+    if folders is None:
+        raise RuntimeError(
+            "business_folders not set in config.json. "
+            "Extension must write 'business_folders' before starting backend."
+        )
+    return folders
 
 
 def get_version() -> str:

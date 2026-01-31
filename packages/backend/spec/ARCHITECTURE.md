@@ -261,3 +261,4 @@ python server.py --data-path {dataFolder}
 ```
 
 **Contract:** `--data-path` is REQUIRED. No defaults, no env vars.
+**Contract:** `config.json` must contain `version`, `port`, `business_folders`, `timestampTZ` (backend refuses to start if missing/invalid).

@@ -88,20 +88,20 @@ class TestReadDuetConfig:
         assert result["timestampTZ"] == {"id": "M", "value": "Europe/Moscow"}
 
     def test_invalid_port_returns_default(self, duet_data: Path) -> None:
-        """Invalid port value returns default."""
+        """Invalid port value returns None (port is required for backend start)."""
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({"version": "test", "port": "not_a_number"}))
 
         result = config.read_config()
-        assert result["port"] == 19680
+        assert result["port"] is None
 
     def test_invalid_business_folders_returns_empty(self, duet_data: Path) -> None:
-        """Invalid business_folders value returns empty list."""
+        """Invalid business_folders value returns None (field is required)."""
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({"version": "test", "business_folders": "not_a_list"}))
 
         result = config.read_config()
-        assert result["business_folders"] == []
+        assert result["business_folders"] is None
 
     def test_filters_non_string_business_folders(self, duet_data: Path) -> None:
         """Non-string items in business_folders are filtered out."""
@@ -120,8 +120,8 @@ class TestReadDuetConfig:
         config_path.write_text("{ invalid json }")
 
         result = config.read_config()
-        assert result["port"] == 19680
-        assert result["business_folders"] == []
+        assert result["port"] is None
+        assert result["business_folders"] is None
         assert result["version"] is None  # No version in corrupted config
 
 
@@ -129,7 +129,7 @@ class TestTimezone:
     """Tests for timezone configuration."""
 
     def test_no_legacy_fallback(self, duet_data: Path) -> None:
-        """No fallback to ai-kit/settings.json — returns default if not in config.json."""
+        """No fallback to ai-kit/settings.json — returns None if not in config.json."""
         # No timestampTZ in config.json
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({"version": "test", "port": 19680}))
@@ -141,8 +141,8 @@ class TestTimezone:
         }))
 
         result = config.read_config()
-        # Returns default, NOT legacy value
-        assert result["timestampTZ"] == {"id": "Z", "value": "UTC"}
+        # Returns None, NOT legacy value
+        assert result["timestampTZ"] is None
 
     def test_reads_timezone_from_config(self, duet_data: Path) -> None:
         """Reads timestampTZ from config.json."""
@@ -156,7 +156,7 @@ class TestTimezone:
         assert result["timestampTZ"] == {"id": "M", "value": "Europe/Moscow"}
 
     def test_invalid_timezone_string_returns_default(self, duet_data: Path) -> None:
-        """Invalid timestampTZ (string instead of dict) returns default."""
+        """Invalid timestampTZ (string instead of dict) returns None."""
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({
             "version": "test",
@@ -164,10 +164,10 @@ class TestTimezone:
         }))
 
         result = config.read_config()
-        assert result["timestampTZ"] == {"id": "Z", "value": "UTC"}
+        assert result["timestampTZ"] is None
 
     def test_invalid_timezone_missing_id_returns_default(self, duet_data: Path) -> None:
-        """Invalid timestampTZ (missing 'id' key) returns default."""
+        """Invalid timestampTZ (missing 'id' key) returns None."""
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({
             "version": "test",
@@ -175,10 +175,10 @@ class TestTimezone:
         }))
 
         result = config.read_config()
-        assert result["timestampTZ"] == {"id": "Z", "value": "UTC"}
+        assert result["timestampTZ"] is None
 
     def test_invalid_timezone_missing_value_returns_default(self, duet_data: Path) -> None:
-        """Invalid timestampTZ (missing 'value' key) returns default."""
+        """Invalid timestampTZ (missing 'value' key) returns None."""
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({
             "version": "test",
@@ -186,7 +186,7 @@ class TestTimezone:
         }))
 
         result = config.read_config()
-        assert result["timestampTZ"] == {"id": "Z", "value": "UTC"}
+        assert result["timestampTZ"] is None
 
 
 class TestGetVersion:
@@ -231,15 +231,45 @@ class TestHelperFunctions:
 
         assert config.get_port() == 54321
 
+    def test_get_port_raises_if_not_set(self, duet_data: Path) -> None:
+        """get_port() raises RuntimeError if port not set."""
+        config_path = duet_data / "config.json"
+        config_path.write_text(json.dumps({"version": "test"}))  # No port
+
+        with pytest.raises(RuntimeError, match="Port not set"):
+            config.get_port()
+
+    def test_get_port_raises_if_invalid_type(self, duet_data: Path) -> None:
+        """get_port() raises RuntimeError if port is invalid type."""
+        config_path = duet_data / "config.json"
+        config_path.write_text(json.dumps({"version": "test", "port": "19680"}))
+
+        with pytest.raises(RuntimeError, match="Port not set"):
+            config.get_port()
+
     def test_get_timezone(self, duet_data: Path) -> None:
         """get_timezone() returns timezone from config."""
         config_path = duet_data / "config.json"
         config_path.write_text(json.dumps({
             "version": "test",
+            "port": 19680,
+            "business_folders": [],
             "timestampTZ": {"id": "J", "value": "Asia/Tokyo"}
         }))
 
         assert config.get_timezone() == {"id": "J", "value": "Asia/Tokyo"}
+
+    def test_get_timezone_raises_if_not_set(self, duet_data: Path) -> None:
+        """get_timezone() raises RuntimeError if timestampTZ not set."""
+        config_path = duet_data / "config.json"
+        config_path.write_text(json.dumps({
+            "version": "test",
+            "port": 19680,
+            "business_folders": [],
+        }))
+
+        with pytest.raises(RuntimeError, match="timestampTZ not set"):
+            config.get_timezone()
 
     def test_get_business_folders(self, duet_data: Path) -> None:
         """get_business_folders() returns folders from config."""
@@ -250,6 +280,18 @@ class TestHelperFunctions:
         }))
 
         assert config.get_business_folders() == ["/path/one", "/path/two"]
+
+    def test_get_business_folders_raises_if_not_set(self, duet_data: Path) -> None:
+        """get_business_folders() raises RuntimeError if business_folders not set."""
+        config_path = duet_data / "config.json"
+        config_path.write_text(json.dumps({
+            "version": "test",
+            "port": 19680,
+            "timestampTZ": {"id": "Z", "value": "UTC"},
+        }))
+
+        with pytest.raises(RuntimeError, match="business_folders not set"):
+            config.get_business_folders()
 
     def test_get_repos_path_exists(self, duet_data: Path) -> None:
         """get_repos_path() returns path if repos/ exists."""
