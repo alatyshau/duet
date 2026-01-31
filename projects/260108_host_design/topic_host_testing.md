@@ -100,14 +100,17 @@ apps/host/src/
 |-----|-----|------|
 | **Unit** | config: read/write JSON | `__tests__/unit/core/config.test.ts` |
 | **Unit** | app-state: status transitions | `__tests__/unit/core/app-state.test.ts` |
-| **Integration** | config + app-state вместе | `__tests__/integration/core-flow.test.ts` |
+| **Unit** | config + app-state flow | `__tests__/unit/core/core-flow.test.ts` |
 | **E2E** | приложение запускается, окно работает | `e2e/app-launch.spec.ts` |
 | **Ручные** | tray, autolaunch | `platform/README.md` — инструкция |
+| **Integration** | backend lifecycle (topic_host_core) | *будет позже* |
 
 **Разделение по папкам:**
-- `core/` — unit-тесты
+- `core/` — unit-тесты (включая flow тесты нескольких модулей)
 - `main/` — E2E-тесты
 - `platform/` — только ручные тесты (Playwright не видит системный трей)
+
+**Примечание:** Integration тесты (с реальным backend процессом) появятся в topic_host_core.
 
 ---
 
@@ -127,12 +130,11 @@ apps/host/
 │   └── renderer/
 │
 ├── __tests__/                    # Все автотесты
-│   ├── unit/                     # Unit тесты
+│   ├── unit/                     # Unit тесты (включая flow)
 │   │   └── core/
 │   │       ├── config.test.ts
-│   │       └── app-state.test.ts
-│   ├── integration/              # Integration тесты
-│   │   └── core-flow.test.ts     # config + app-state вместе
+│   │       ├── app-state.test.ts
+│   │       └── core-flow.test.ts
 │   └── helpers/                  # Test utilities
 │       ├── index.ts              # re-export
 │       └── fs.ts                 # tmp dir helpers
@@ -140,17 +142,17 @@ apps/host/
 ├── e2e/                          # E2E тесты (Playwright + Electron)
 │   └── app-launch.spec.ts        # приложение запускается
 │
-├── vitest.config.ts              # unit + integration
+├── vitest.config.ts              # unit
 └── playwright.config.ts          # e2e
 ```
 
 ### 2. Виды тестов
 
-| Вид | Что тестирует | Инструмент | В Фазе 1? |
-|-----|---------------|------------|-----------|
-| **Unit** | Один модуль изолированно | Vitest | ✅ Да |
-| **Integration** | Несколько модулей вместе | Vitest | ✅ Да (1 пример) |
-| **E2E** | Приложение целиком | Playwright | ✅ Да (1 пример) |
+| Вид | Что тестирует | Инструмент | Когда |
+|-----|---------------|------------|-------|
+| **Unit** | Модули и их взаимодействие | Vitest | ✅ topic_host_testing |
+| **E2E** | Приложение целиком | Playwright | ✅ topic_host_testing |
+| **Integration** | Backend lifecycle (spawn/kill/health) | Vitest + real process | 🔮 topic_host_core |
 
 ### 3. Test runner
 
@@ -309,7 +311,7 @@ resources/
 
 ### Шаг 1: Cleanup + Модуляризация
 
-**Статус:** DONE ✅
+**Статус:** DONE
 
 Весь рефакторинг структуры кода и ресурсов.
 
@@ -337,37 +339,28 @@ resources/
   - [x] Обновить пути в tray.ts
 - [x] Проверить что приложение компилируется (typecheck + build)
 
-**Коммит:** `refactor(host): cleanup + modularize (core/, platform/, resources/)`
+### Шаг 2: Unit тесты
 
-### Шаг 2: Unit + Integration тесты
-
-**Статус:** TODO
+**Статус:** DONE
 
 Настройка vitest и написание тестов для core/.
 
 **Ход работы:**
-- [ ] Инфраструктура vitest
-  - [ ] Добавить vitest в devDependencies
-  - [ ] Создать `vitest.config.ts`
-  - [ ] Добавить scripts: test, test:run
-- [ ] Helpers
-  - [ ] `__tests__/helpers/fs.ts` (createTestContext, cleanup)
-  - [ ] `__tests__/helpers/index.ts` (re-export)
-- [ ] Unit тесты
-  - [ ] `__tests__/unit/core/config.test.ts`
-    - readConfig с несуществующим файлом → {}
-    - readConfig с валидным JSON → parsed object
-    - readConfig с битым JSON → {}
-    - writeConfig создаёт директорию и файл
-  - [ ] `__tests__/unit/core/app-state.test.ts`
-    - no config → status 'no_config'
-    - config + path exists → status 'ready'
-    - config + path not exists → status 'path_lost'
-- [ ] Integration тест
-  - [ ] `__tests__/integration/core-flow.test.ts`
-    - writeConfig → checkAppState → verify status
+- [x] Инфраструктура vitest
+  - [x] Добавить vitest в devDependencies
+  - [x] Создать `vitest.config.ts`
+  - [x] Добавить scripts: test, test:run
+- [x] Helpers
+  - [x] `__tests__/helpers/fs.ts` (createTestContext, cleanup)
+  - [x] `__tests__/helpers/index.ts` (re-export)
+- [x] Unit тесты
+  - [x] `__tests__/unit/core/config.test.ts` (7 тестов)
+  - [x] `__tests__/unit/core/app-state.test.ts` (6 тестов)
+  - [x] `__tests__/unit/core/core-flow.test.ts` (2 теста) — flow нескольких модулей
 
-**Коммит:** `test(host): add unit + integration tests`
+**Результат:** 15 тестов пройдено ✅
+
+**Примечание:** Integration тесты (с реальным backend процессом) появятся в topic_host_core.
 
 ### Шаг 3: E2E тесты + CI
 
@@ -392,8 +385,6 @@ resources/
   - [ ] Кэш node_modules
   - [ ] Ubuntu: xvfb-run для E2E
 
-**Коммит:** `test(host): add e2e tests + CI workflow`
-
 ### Шаг 4: Консервация platform/
 
 **Статус:** TODO
@@ -416,8 +407,6 @@ resources/
 - [ ] Документация
   - [ ] `platform/README.md` с чеклистом проверки
   - [ ] Ссылка на resources/tray/
-
-**Коммит:** `docs(host): add platform/ manual testing checklist`
 
 ---
 
