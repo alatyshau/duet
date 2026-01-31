@@ -146,13 +146,12 @@ MCP server становится не просто "утилитой для AI", 
 ### Q4: Scope первой фазы
 **Статус:** ✅ РЕШЕНО
 
-**Решение:** Унификация MCP серверов = MCP + сканер + БД.
+**Решение:** Новый backend (Python) = MCP (HTTP) + сканер + БД.
 
 **Что делаем:**
 - Удаляем TS MCP server (`packages/extension/src/mcp-server/`)
-- Python MCP server становится единственным
-- Реализуем в Python: сканер иерархии + работа с БД (сейчас не реализовано)
-- Добавляем HTTP транспорт (для Duet-host)
+- Реализуем новый Python backend: сканер иерархии + работа с БД + HTTP API + HTTP MCP
+- **Legacy Python MCP** (`packages/ai-kit/mcp-server/`) **не используется и не меняется** (временно остаётся в репо)
 
 **Итог:** Python ядро владеет всей логикой данных. Extension становится тонким клиентом.
 
@@ -169,7 +168,7 @@ MCP server становится не просто "утилитой для AI", 
 **Статус:** ✅ РЕШЕНО (см. Q4)
 
 **Переносим:**
-- [x] MCP server (унификация двух версий)
+- [x] Новый backend: MCP endpoint `/mcp` (HTTP transport)
 - [x] Сканер иерархии (сейчас `scanner.ts`)
 - [x] Работа с БД (сейчас `db/index.ts`)
 
@@ -184,19 +183,26 @@ Extension остаётся на TS — тонкий клиент, вызывае
 - `~/.org.ve68.duet/config.json` (Duet-host)
 - VS Code settings `duet.data_folder` (extension)
 
-**Решение:** Единый файл `~/DuetData/config.json`
+**Решение:** VS Code settings `duet.data_folder` — единственный источник правды.
+
+**Архитектура:**
+```
+Extension (VS Code settings: duet.data_folder)
+    │
+    │ spawn --data-path {dataFolder}
+    ▼
+Backend (хранит в памяти)
+    │
+    │ MCP tool: duet_data_path
+    ▼
+AI Agent
+```
 
 **Почему этот подход:**
-- **Один источник правды** — все читают из одного места
-- **Внутри DuetData** — конфигурация рядом с данными
-- **Человекочитаемый JSON** — можно редактировать вручную при необходимости
-
-**Миграция:**
-- Duet-host: перенести `duetDataPath` из `~/.org.ve68.duet/config.json` в `~/DuetData/config.json`
-- Extension: читать из `~/DuetData/config.json` вместо VS Code settings
-- VS Code setting `duet.data_folder` — deprecated, удалить
-
-**Формат файла:** см. секцию ВЫХОДЫ → Конфигурация
+- **Explicit configuration** — путь передаётся явно, никаких fallback
+- **Extension управляет lifecycle** — знает путь, запускает backend
+- **Нет config.json для пути** — меньше файлов, меньше синхронизации
+- **Пользователь выбирает путь** — Onboarding при первом запуске
 
 ---
 
@@ -204,22 +210,22 @@ Extension остаётся на TS — тонкий клиент, вызывае
 **Статус:** ✅ РЕШЕНО
 
 **Порт:**
-- Дефолт: `19680`
-- Если занят — 4 попытки случайного порта в `[17680, 21680]`
+- Дефолтный: `19680`. Автоподбор отключён, смена только вручную.
+- Extension записывает `port: 19680` в `config.json` (если ещё нет)
+- Если занят — ошибка с инструкцией (пользователь меняет port в config.json и mcp.json вручную)
 - Слушать только `127.0.0.1` (localhost-only)
 
-**Хранение:** `~/DuetData/config.json`
-```json
-{
-  "port": 19680,
-  "duetDataPath": "/Users/username/DuetData"
-}
-```
+**Важно:** Backend **не пишет** в config.json. Все конфиги управляются клиентом (Extension).
+
+**Multi-window safety (обязательное требование):**
+- На одном компьютере может быть много процессов/окон VS Code, но backend должен быть **один** на один `DuetDataPath`.
+- Extension использует **startup-lock** файл (например `~/DuetData/.backend-start.lock`) и атомарное создание (`O_EXCL`) чтобы **только одно окно** имело право стартовать backend.
+- Остальные окна не spawn'ят backend, а **ждут**, пока `/health` начнёт отвечать.
 
 **Версионирование:**
-- `~/DuetData/backend/VERSION` — файл с версией (для проверки без запуска)
+- `config.json` содержит `version` — Extension записывает из `package.json` перед запуском backend
 - `/health` возвращает `version` (для проверки запущенного)
-- Версия backend = версия Extension из `package.json`
+- Backend отказывается запускаться если `version` не установлена
 
 **Non-blocking старт Extension:**
 
@@ -262,11 +268,23 @@ function checkBackendQuick(): 'likely_running' | 'not_running' {
 
 2. (после stop/kill)
 
-3. Проверить ~/DuetData/backend/VERSION
-   ├─ Нет файла или версия старая → копируем backend из vsix
-   └─ Версия актуальная → ok
+3. Проверить версию (Extension знает свою version из package.json)
+   ├─ Backend файлы отсутствуют или устарели → копируем backend из vsix
+   └─ Backend файлы актуальны → ok
 
-4. Запустить backend: spawn python server.py
+4. Startup-lock: попытаться создать `~/DuetData/.backend-start.lock` (атомарно)
+   │
+   ├─ Lock НЕ получен
+   │   └─ Wait for ready: ping /health с retry (10 попыток × 300ms)
+   │       ├─ Отвечает → готово ✓
+   │       └─ Не отвечает → ошибка (backend не стартовал в другом окне)
+   │
+   └─ Lock получен (это окно — единственный starter)
+       ├─ Записать port: 19680 в config.json (если ещё не записан)
+       ├─ Запустить backend: spawn python server.py --data-path {dataFolder}
+       │   ├─ Успешно → goto step 5
+       │   └─ Ошибка "Address already in use" → показать ошибку с инструкцией
+       └─ (finally) удалить lock-файл
 
 5. Wait for ready: ping /health с retry (10 попыток × 300ms)
    ├─ Отвечает → готово ✓
@@ -300,10 +318,9 @@ function checkBackendQuick(): 'likely_running' | 'not_running' {
 **Структура DuetData:**
 ```
 ~/DuetData/
-├── config.json       (порт, настройки)
+├── config.json  (version, port, business_folders, timestampTZ)
 ├── backend/          (Python код, копируется из vsix)
 │   ├── server.py
-│   ├── VERSION       (версия backend)
 │   └── ...
 ├── ai-kit/           (инструкции)
 ├── data/entities.db  (SQLite БД)
@@ -396,8 +413,11 @@ claude mcp add --transport http ai-kit http://localhost:19680/mcp
 | `timestamp` | Текущее время в формате YYMMDD_HHMMSS<tz> |
 | `duet_data_path` | Путь к DuetData |
 | `workspace_info` | Полная информация о workspace (главный вызов для AI) |
-| `entities` | Список entities с фильтрами |
-| `scan` | Пересканировать иерархию (блокирующий, до ~1 мин) |
+| `streams` | Дерево streams (business/stream/product) без projects |
+| `projects` | Проекты указанного stream |
+| `scan` | Пересканировать иерархию (блокирующий, таймаут клиента ≥20 сек) |
+
+**Формат ответов:** REST оборачивает в объект (расширяемость), MCP возвращает данные напрямую (удобнее для AI). Названия и семантика унифицированы.
 
 **Детали:** см. ВЫХОДЫ → API Specification
 
@@ -434,21 +454,20 @@ claude mcp add --transport http ai-kit http://localhost:19680/mcp
 │  │ ├── scanner.py                                        │  │
 │  │ ├── db.py                                             │  │
 │  │ ├── mcp_handler.py                                    │  │
-│  │ ├── VERSION               (версия backend)            │  │
 │  │ └── requirements.txt                                  │  │
 │  └───────────────────────────────────────────────────────┘  │
-│  ├── config.json            (port, duetDataPath)            │
+│  ├── config.json       (version, port, business_folders, timestampTZ) │
 │  ├── ai-kit/                (инструкции, шаблоны)           │
 │  ├── data/entities.db       (SQLite база)                   │
 │  └── .pid                   (lockfile — PID процесса)       │
 └─────────────────────────────────────────────────────────────┘
                               ↑
-              spawn (если не запущен)
+              spawn --data-path {dataFolder}
                               │
 ┌─────────────────────────────┴───────────────────────────────┐
-│  VS Code Extension                                          │
+│  VS Code Extension (duet.data_folder setting)               │
 │  1. При активации: ping GET /health                         │
-│  2. Если не отвечает: spawn ~/DuetData/backend/server.py    │
+│  2. Если не отвечает: spawn server.py --data-path ...       │
 │  3. Работает через HTTP API                                 │
 │  4. UI в боковой панели                                     │
 └─────────────────────────────────────────────────────────────┘
@@ -464,8 +483,9 @@ claude mcp add --transport http ai-kit http://localhost:19680/mcp
 - **Один процесс** — lockfile (`.pid`) предотвращает двойной запуск
 - **Extension управляет lifecycle** — Duet-host отложен, не нужен для MVP
 - **HTTP для всех** — Extension через REST API, Claude через HTTP MCP
-- **Backend в DuetData** — Extension копирует из vsix, версионирование через `VERSION` файл
-- **Версия backend = версия Extension** — обновляются вместе
+- **Backend в DuetData** — Extension копирует из vsix
+- **Версия в config.json** — Extension записывает version из package.json перед запуском backend
+- **Explicit configuration** — путь к DuetData передаётся через `--data-path`, никаких fallback
 
 ### Структура пакетов (monorepo)
 
@@ -485,24 +505,36 @@ packages/
 
 ### Конфигурация
 
-**Единый файл конфигурации:** `~/DuetData/config.json`
+**Принцип:** Extension — единственный источник правды для пути к DuetData.
 
-```json
-{
-  "port": 19680,
-  "duetDataPath": "/Users/username/DuetData"
-}
+**Путь к DuetData:**
+- Extension хранит в VS Code settings (`duet.data_folder`)
+- Backend получает через CLI: `--data-path`
+- AI агенты получают через MCP tool `duet_data_path`
+
+```
+Extension (VS Code settings)
+    │
+    │ 1. Пишет port в config.json
+    │ 2. spawn python server.py --data-path {dataFolder}
+    ▼
+Backend (читает port из config.json)
+    │
+    │ MCP tool: duet_data_path
+    ▼
+AI Agent
 ```
 
-| Поле | Описание | Кто пишет | Кто читает |
-|------|----------|-----------|------------|
-| `port` | Порт HTTP API | Backend при старте | Extension, Claude Code |
-| `duetDataPath` | Путь к DuetData | install.py | Все |
+**Файлы конфигурации:**
 
-**Алгоритм выбора порта:**
-1. Попробовать `19680` (дефолт)
-2. Если занят — 4 попытки случайного порта в диапазоне `[17680, 21680]`
-3. Если все 5 попыток неудачны — ошибка
+| Файл | Содержимое | Кто пишет | Кто читает |
+|------|------------|-----------|------------|
+| `~/DuetData/config.json` | version, port, business_folders, timestampTZ | Extension | Backend |
+
+**Порт (Extension):**
+1. Записать `port: 19680` в `config.json` (если ещё нет)
+2. Запустить backend с `--data-path {dataFolder}`
+3. Если ошибка "Address already in use" — показать ошибку: "Port 19680 in use. Run `lsof -i :19680` to find process. Change port in `~/DuetData/config.json` and update `~/.claude/mcp.json`"
 
 ### Транспорт MCP
 
@@ -512,7 +544,7 @@ packages/
 | VS Code Copilot | HTTP | `McpHttpServerDefinition` через extension API |
 | Cursor | HTTP | `.cursor/mcp.json` с `"type": "http"` |
 
-**Примечание:** Клиенты читают `port` из `~/DuetData/config.json` перед подключением.
+**Примечание:** Порт по умолчанию 19680. При смене порта в `config.json` нужно также обновить `~/.claude/mcp.json`.
 
 ### План миграции
 
@@ -520,7 +552,7 @@ packages/
 
 ### API Specification
 
-**Базовый URL:** `http://localhost:{port}` (порт из `~/DuetData/config.json`)
+**Базовый URL:** `http://localhost:19680` (дефолтный порт)
 
 **Формат:** JSON, стандартные HTTP коды (200, 400, 500)
 
@@ -535,8 +567,11 @@ packages/
 | timestamp | `GET /timestamp` | `timestamp` | Текущее время YYMMDD_HHMMSS<tz> |
 | duet_data_path | `GET /duet-data-path` | `duet_data_path` | Путь к DuetData |
 | workspace_info | `GET /workspace-info` | `workspace_info` | Полная информация о workspace |
-| entities | `GET /entities` | `entities` | Список entities с фильтрами |
+| streams | `GET /streams` | `streams` | Дерево streams (business/stream/product) |
+| projects | `GET /projects/{stream_id}` | `projects` | Проекты указанного stream |
 | scan | `POST /scan` | `scan` | Пересканировать иерархию |
+
+**Формат ответов:** REST оборачивает в объект (расширяемость), MCP возвращает данные напрямую (удобнее для AI).
 
 #### health
 
@@ -601,34 +636,48 @@ Backend корректно закрывает соединения, освобо
 }
 ```
 
-#### entities
+#### streams
 
-Список entities с фильтрами. Используется Extension для tree views.
+Дерево streams (business/stream/product) без projects. Используется Extension для sidebar tree view.
 
-**Arguments:**
-- `type` (string, optional) — фильтр по типу: business, stream, product, component, project
-- `parent_id` (string, optional) — только дети указанного родителя
-- `root_only` (boolean, optional) — только корневые entities (без parent)
+**Arguments:** нет
 
-**Response:**
+**Response (REST):**
 ```json
 {
-  "entities": [
-    {
-      "id": "1",
-      "type": "business",
-      "name": "МетаЛаб",
-      "path": "/repos/metalab",
-      "parent_id": null,
-      "children_count": 3
-    }
+  "streams": [
+    { "id": "1", "type": "business", "name": "МетаЛаб", "path": "/repos/metalab", "parent_id": null },
+    { "id": "2", "type": "stream", "name": "ТехноЛаб", "path": "/repos/metalab/technolab", "parent_id": "1" },
+    { "id": "3", "type": "product", "name": "Duet", "path": "/repos/Duet.git", "parent_id": "2" }
   ]
 }
 ```
 
+**Response (MCP):** возвращает список напрямую (без обёртки `{ "streams": [...] }`).
+
+Клиент вычисляет `hasChildren` сам из parent_id отношений.
+
+#### projects
+
+Проекты указанного stream. stream_id может быть ID любого business/stream/product.
+
+**Arguments:**
+- `stream_id` (int, required) — ID родительского stream
+
+**Response (REST):**
+```json
+{
+  "projects": [
+    { "id": "10", "type": "project", "name": "260117_extension_design", "path": "/projects/260117_extension_design", "parent_id": "3" }
+  ]
+}
+```
+
+**Response (MCP):** возвращает список напрямую.
+
 #### scan
 
-Пересканировать иерархию. Блокирующий вызов (до ~1 минуты).
+Пересканировать иерархию. Блокирующий вызов (таймаут клиента ≥20 сек).
 
 **Arguments:** нет
 
@@ -641,16 +690,40 @@ Backend корректно закрывает соединения, освобо
 }
 ```
 
+**Дедупликация:** если последний scan завершился < 5 сек назад, возвращает:
+```json
+{ "status": "skipped", "reason": "recent_scan" }
+```
+
 #### Ошибки
 
+**REST API:**
 ```json
 {
-  "error": "Entity not found",
-  "code": "NOT_FOUND"
+  "error": "Invalid stream_id: must be an integer",
+  "code": "BAD_REQUEST"
 }
 ```
 
 HTTP коды: 400 (bad request), 404 (not found), 500 (internal error)
+
+**MCP Tools:**
+
+Используют стандартный механизм MCP — `McpError` с JSON-RPC error codes:
+
+| Ситуация | Error Code | Пример |
+|----------|------------|--------|
+| Невалидные параметры | `-32602` (INVALID_PARAMS) | `stream_id` не число |
+| Внутренняя ошибка | `-32603` (INTERNAL_ERROR) | БД недоступна |
+
+```python
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INVALID_PARAMS
+
+raise McpError(ErrorData(code=INVALID_PARAMS, message="stream_id must be integer"))
+```
+
+**Не ошибки:** Пустой результат (entity not found) — возвращается пустой список `[]`, не exception.
 
 #### TS Client
 
@@ -666,7 +739,8 @@ export class DuetApiClient {
   async timestamp(): Promise<TimestampResponse> { ... }
   async duetDataPath(): Promise<DuetDataPathResponse> { ... }
   async workspaceInfo(workspacePath?: string): Promise<WorkspaceInfoResponse> { ... }
-  async entities(filters?: EntitiesFilters): Promise<EntitiesResponse> { ... }
+  async streams(): Promise<StreamsResponse> { ... }
+  async projects(streamId: number): Promise<ProjectsResponse> { ... }
   async scan(): Promise<ScanResponse> { ... }
 }
 ```
@@ -694,19 +768,134 @@ export class DuetApiClient {
 ---
 
 ### Шаг 1: Python backend
-**Статус:** TODO
+**Статус:** IN_REVIEW
 
 Создать packages/backend/ — HTTP сервер с MCP endpoint.
 
 **Ход работы:**
-- [ ] Структура packages/backend/ (server.py, scanner.py, db.py, mcp_handler.py)
-- [ ] HTTP API: /health, /stop, /timestamp, /duet-data-path, /workspace-info, /entities, /scan
-- [ ] MCP endpoint /mcp (HTTP transport)
-- [ ] Lockfile (.pid) + алгоритм выбора порта
-- [ ] spec/ARCHITECTURE.md, spec/DOMAIN.md
-- [ ] Тесты (pytest)
+- [x] Структура packages/backend/ (server.py, scanner.py, db.py, mcp_handler.py, config.py)
+- [x] HTTP API: /health, /stop, /timestamp, /duet-data-path, /workspace-info, /streams, /projects/{id}, /scan
+- [x] MCP endpoint /mcp (HTTP transport via FastMCP)
+- [x] Lockfile (.pid), порт из config.json
+- [x] spec/ARCHITECTURE.md, spec/DOMAIN.md
+- [x] Тесты (pytest) — 76 passed
+- [x] Review #1 issues resolved (8/10 CLOSED, 2 DEFER)
+
+**Уточнения:**
+- Backend **только читает** конфиги, не пишет
+- Порт читается из `config.json`, Extension записывает
+- Starlette + uvicorn + mcp SDK
 
 **Коммит:** `feat(backend): Python HTTP backend с MCP`
+
+#### Review #1: Daedalus(GPT) @turn(260131_025510M)
+
+**Issues:**
+
+1. ✅ CLOSED **Версия backend не совпадает с версией Extension** — было: в `server.py` захардкожено `VERSION = "0.6.0"`.
+   - **Решение:** version теперь в config.json. Extension записывает из package.json перед запуском. Backend читает через `config.get_version()`. Хардкод убран.
+
+2. ✅ CLOSED **CORS настроен как `allow_origins=["*"]`** — при localhost-only сервис становится читаемым из любого origin в браузере.
+   - **Решение:** CORS убран полностью. Ни Extension (Node.js), ни Claude Code не используют браузер.
+
+3. ✅ CLOSED **`/scan` блокирует event loop** — при длительном скане все запросы к backend будут ждать завершения.
+   - **Решение:** добавлена дедупликация сканов — если < 5 сек назад → `{"status": "skipped", "reason": "recent_scan"}`. Задокументировано в spec.
+
+4. ✅ CLOSED **Валидация query params неполная → 500 вместо 400**.
+   - **Решение:** `/projects/{stream_id:int}` — Starlette route constraint возвращает 404 для non-int. Старый `/entities` удалён.
+
+5. ✅ CLOSED **API контракт "unified handlers" не соблюдён по форме ответов**.
+   - **Решение:** это ожидаемое поведение. REST оборачивает в объект (расширяемость), MCP возвращает данные напрямую (удобнее для AI). Задокументировано в топике и spec.
+
+6. ✅ CLOSED **`entities` endpoint слишком общий**.
+   - **Решение:** заменён на `/streams` и `/projects/{stream_id}`. Клиент вычисляет `hasChildren` из parent_id.
+
+7. ⏸ DEFER **Неэкспонированный tool `get_instruction_location`**.
+   - **Решение:** отложить на `topic_ai_duet_integration.md`. Сейчас legacy MCP работает, не блокер.
+
+8. ✅ CLOSED **Неправильное имя конфига и лишний fallback**.
+   - **Решение:** `config.json` везде в коде, fallback на `ai-kit/settings.json` убран, docstrings исправлены.
+
+9. ⏸ DEFER **Риск гонки при прямом запуске двух backend-процессов**.
+   - **Решение:** Extension отвечает за startup-lock (Шаг 2). Для backend сейчас действий нет.
+
+10. ✅ CLOSED **Невозможность воспроизвести "pytest — 33 passed"**.
+    - **Решение:** создан `requirements-dev.txt`, обновлён `spec/ARCHITECTURE.md` с инструкцией. Добавлена секция "Python Environment" про venv в корне монорепо.
+
+#### Review #2: Daedalus(GPT) @turn(260131_043913M)
+
+**Issues:**
+
+1. ✅ CLOSED **"Fix" для блокировки event loop на `/scan` фактически не решает исходную проблему** — дебаунс (`recent_scan`) снижает частоту запусков, но первый (или редкий) scan всё равно выполняется синхронно внутри `async` handler и на время скана блокирует обработку других запросов.
+   - **Fix:** либо принять и явно задокументировать последствия ("backend не отвечает на /health и /stop во время scan"), либо вынести scan из event loop (thread/task) и описать статус/прогресс.
+   - **Решение:** Задокументировано в `spec/ARCHITECTURE.md`: debounce, blocking behavior, why OK (single-user local app), future (file watchers + WebSockets).
+
+2. ✅ CLOSED **В топике остаётся противоречие про порт для Claude Code и базовый URL** — одновременно указано:
+   - конфиг порта в `config.json` + fallback диапазон (порт может стать ≠19680),
+   - но примечание: "Claude Code подключается по фиксированному порту 19680",
+   - и "API Specification: Базовый URL http://localhost:19680".
+   - **Fix:** привести все упоминания к одному контракту (`{port}` из `config.json`) или явно зафиксировать, что порт *после установки всегда 19680* и fallback запрещён.
+   - **Решение:** Fallback убран из Q9 и "Алгоритм выбора порта". Порт фиксированный 19680. Если занят — ошибка с инструкцией: `lsof -i :19680`, изменить в config.json и mcp.json.
+
+3. ✅ CLOSED **Описание `config.json` в топике неполное/разъезжается по секциям** — в Q9/выходах говорится, что `config.json` содержит `version` и `port`, но в таблице "Файлы конфигурации" перечислены только `business_folders, timestampTZ`.
+   - **Fix:** синхронизировать список полей `config.json` во всех местах документа.
+   - **Решение:** Синхронизировано везде: `version, port, business_folders, timestampTZ`.
+
+4. ✅ CLOSED **"Backend отказывается запускаться если version не установлена" реализовано через исключение в lifespan/health** — `get_version()` вызывается внутри lifespan (print) и в `/health`; при отсутствии/битом `config.json` это приводит к исключению/500 и потенциально неочевидным логам.
+   - **Fix:** валидировать наличие `version` в `main()` до старта сервера и завершаться с контролируемым exit code + понятным stderr (без стек-трейса как "контракт поведения").
+   - **Решение:** Добавлена проверка в `main()` после `config.init()`. Exit code 1 + понятный stderr. Тест `test_startup_fails_without_version` добавлен.
+
+5. ✅ CLOSED **Валидация `timestampTZ` в `config.json` отсутствует** — `get_timestamp()` ожидает `timestampTZ` как dict с ключами `id`/`value`; при неверном типе/структуре возможен `KeyError`/`TypeError`.
+   - **Fix:** валидировать `timestampTZ` при чтении конфига (и иметь детерминированный fallback на DEFAULT_TIMEZONE).
+   - **Решение:** Добавлена валидация в `read_config()`: проверка что dict с ключами `id` и `value`, иначе DEFAULT_TIMEZONE. 3 теста добавлены.
+
+6. ✅ CLOSED **MCP tool `projects(stream_id: str)` не валидирует вход** — при нечисловом `stream_id` будет `ValueError` без controlled error payload.
+   - **Fix:** добавить явную валидацию и возврат структурированной ошибки (в духе REST `{"error","code"}`) либо стандартизированный MCP error.
+   - **Решение:** Добавлен try/except в `mcp_handler.py:projects()` с возвратом `{"error": "...", "code": "BAD_REQUEST"}`. Тест добавлен.
+
+7. ✅ CLOSED **`projects_handler` содержит недостижимую ветку 400 из-за `Route("/projects/{stream_id:int}")`** — сейчас есть `try/except ValueError`, но при non-int запрос не матчит роут и вернёт 404.
+   - **Fix:** либо убрать ручной парсинг и полагаться на `stream_id:int` (и тип `int` в `path_params`), либо убрать `:int` и оставить 400.
+   - **Решение:** Убран `:int` из роута, теперь handler возвращает 400 с понятным сообщением. Тест обновлён.
+
+8. ✅ CLOSED **Воспроизводимость тестов подтверждена только по артефактам, но не по фактическому прогону** — вижу `requirements-dev.txt` и инструкции в `spec/ARCHITECTURE.md`, но в текущем окружении репозитория `pytest` не установлен, поэтому реальный прогон "74 passed" здесь не верифицирован.
+   - **Fix:** зафиксировать в процессе ревью обязательную команду прогона в согласованном окружении (например `.venv/bin/pytest` после установки requirements-dev).
+   - **Решение:** Верифицировано: `.venv/bin/pytest` — 82 passed.
+
+#### Review #3: Daedalus(GPT) @turn(260131_051845M)
+
+**Issues:**
+
+1. ✅ CLOSED **Legacy fallback `timestampTZ` через `~/DuetData/ai-kit/settings.json` заявлен в документах, но не реализован в backend**.
+   - **Решение:** Убраны упоминания fallback из топика и `spec/DOMAIN.md`. Extension сам записывает `timestampTZ` в `config.json` (Шаг 2). Один источник правды.
+
+2. ✅ CLOSED **API spec vs реализация: MCP tool `health`**.
+   - **Решение:** Добавлены `version` и `uptime_seconds` в MCP tool `health`. REST и MCP возвращают одинаковые данные.
+
+3. ✅ CLOSED **Контракт ошибок для MCP tools не описан, но уже используется**.
+   - **Решение:** Переделано на стандартный MCP механизм — `McpError` с JSON-RPC error codes (`INVALID_PARAMS = -32602`). Задокументировано в API spec.
+
+4. ✅ CLOSED **Формулировка "порт фиксированный 19680" конфликтует с разрешённой ручной сменой порта**.
+   - **Решение:** Заменено "фиксированный" на "дефолтный 19680, автоподбор отключён, смена только вручную". Уточнено в Q9 и примечании к транспортам.
+
+#### Review #4: Daedalus(GPT) @turn(260131_053856M)
+
+**Checked:**
+
+| Item | Status |
+|------|--------|
+| `topic_core_architecture.md` (Q9, конфиги, API spec, ошибки MCP) | ⚠ |
+| `packages/backend/config.py` (version/TZ validation) | ✓ |
+| `packages/backend/mcp_handler.py` (McpError, health payload) | ✓ |
+| `packages/backend/server.py` (startup version check, /projects 400) | ✓ |
+| `packages/backend/spec/DOMAIN.md` (config + file paths) | ✓ |
+
+**Issues:**
+
+1. ⚠ OPEN **В топике всё ещё есть “захардкоженные” примеры `localhost:19680`, которые конфликтуют с “порт настраиваемый через config.json”** — сейчас одновременно:
+   - допускается ручная смена `port` в `~/DuetData/config.json`,
+   - но в Q11 (примеры Claude Code) и в `API Specification` написано `http://localhost:19680`,
+   - и в критериях завершённости: “Python backend работает на localhost:19680”.
+   - **Fix:** либо везде заменить на `http://localhost:{port}` (и указать “default 19680”), либо явно написать, что порт **всегда** 19680 (и тогда убрать инструкции про смену порта).
 
 ---
 
@@ -717,9 +906,14 @@ Extension становится тонким клиентом, сам запус�
 
 **Ход работы:**
 - [ ] Bundling packages/backend/ в vsix
-- [ ] Копирование backend → ~/DuetData/backend/ + VERSION
+- [ ] Копирование backend → ~/DuetData/backend/
+- [ ] Extension записывает version в config.json (из package.json) перед запуском backend
+- [x] Backend читает version из config.json (нет version = ошибка) *(Review #1)*
+- [x] Убрать хардкод VERSION из server.py, добавить get_version() в config.py *(Review #1)*
+- [x] Обновить тестовую фикстуру — создавать config.json с version: "test" *(Review #1)*
 - [ ] DuetApiClient (api-client.ts)
 - [ ] Auto-start backend (lifecycle из Q9)
+- [ ] Startup-lock для multi-window VS Code (`~/DuetData/.backend-start.lock`) — только одно окно стартует backend
 - [ ] Удалить: mcp-server/, core/db/, scanner.ts, sql.js
 - [ ] Обновить spec/ARCHITECTURE.md (архитектура изменилась)
 

@@ -1,0 +1,222 @@
+"""Tests for server.py - HTTP API endpoints."""
+
+from pathlib import Path
+
+import pytest
+from httpx import AsyncClient
+
+from tests.fixtures import EntityFactory
+
+
+@pytest.mark.asyncio
+class TestHealthEndpoint:
+    """Tests for /health endpoint."""
+
+    async def test_health_returns_ok(self, client: AsyncClient) -> None:
+        """Health endpoint returns status ok."""
+        response = await client.get("/health")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "version" in data
+        assert data["version"] == "test"  # from DuetDataBuilder.DEFAULT_CONFIG
+        assert "uptime_seconds" in data
+
+
+@pytest.mark.asyncio
+class TestTimestampEndpoint:
+    """Tests for /timestamp endpoint."""
+
+    async def test_timestamp_format(self, client: AsyncClient) -> None:
+        """Timestamp endpoint returns properly formatted timestamp."""
+        response = await client.get("/timestamp")
+        assert response.status_code == 200
+
+        data = response.json()
+        ts = data["timestamp"]
+
+        # Format: YYMMDD_HHMMSS + timezone suffix
+        assert len(ts) >= 14  # minimum: 260131_120000Z
+        assert "_" in ts
+
+
+@pytest.mark.asyncio
+class TestDuetDataPathEndpoint:
+    """Tests for /duet-data-path endpoint."""
+
+    async def test_returns_path(self, client: AsyncClient, duet_data: Path) -> None:
+        """Returns path to DuetData."""
+        response = await client.get("/duet-data-path")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "path" in data
+        assert data["path"] == str(duet_data)
+
+
+@pytest.mark.asyncio
+class TestStreamsEndpoint:
+    """Tests for /streams endpoint."""
+
+    async def test_empty_streams(self, client: AsyncClient) -> None:
+        """Returns empty list when no entities."""
+        response = await client.get("/streams")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["streams"] == []
+
+    async def test_returns_streams(self, client: AsyncClient, db) -> None:
+        """Returns list of streams (business/stream/product)."""
+        db.insert_entity(EntityFactory.business("Business", "/business"))
+        db.insert_entity(EntityFactory.product("Product", "/product"))
+
+        response = await client.get("/streams")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["streams"]) == 2
+
+    async def test_excludes_projects(self, client: AsyncClient, db) -> None:
+        """Excludes projects from streams."""
+        parent_id = EntityFactory.insert_business(db, "Business", "/business")
+        EntityFactory.insert_project(db, "Project", "/business/project", parent_id=parent_id)
+
+        response = await client.get("/streams")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["streams"]) == 1
+        assert data["streams"][0]["type"] == "business"
+
+
+@pytest.mark.asyncio
+class TestProjectsEndpoint:
+    """Tests for /projects/{stream_id} endpoint."""
+
+    async def test_returns_projects(self, client: AsyncClient, db) -> None:
+        """Returns projects for a stream."""
+        parent_id = EntityFactory.insert_business(db, "Business", "/business")
+        EntityFactory.insert_project(db, "Project1", "/business/project1", parent_id=parent_id)
+        EntityFactory.insert_project(db, "Project2", "/business/project2", parent_id=parent_id)
+
+        response = await client.get(f"/projects/{parent_id}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["projects"]) == 2
+
+    async def test_empty_projects(self, client: AsyncClient, db) -> None:
+        """Returns empty list when stream has no projects."""
+        parent_id = EntityFactory.insert_business(db, "Business", "/business")
+
+        response = await client.get(f"/projects/{parent_id}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["projects"] == []
+
+    async def test_invalid_stream_id(self, client: AsyncClient) -> None:
+        """Returns 400 for non-integer stream_id."""
+        response = await client.get("/projects/invalid")
+        assert response.status_code == 400
+
+        data = response.json()
+        assert data["code"] == "BAD_REQUEST"
+        assert "Invalid stream_id" in data["error"]
+
+
+class TestMcpProjectsTool:
+    """Tests for MCP projects tool validation."""
+
+    def test_invalid_stream_id_raises_mcp_error(self, db) -> None:
+        """MCP projects() raises McpError for non-integer stream_id."""
+        import mcp_handler
+        from mcp.shared.exceptions import McpError
+        from mcp.types import INVALID_PARAMS
+
+        with pytest.raises(McpError) as exc_info:
+            mcp_handler.projects("invalid")
+
+        error = exc_info.value.error
+        assert error.code == INVALID_PARAMS
+        assert "Invalid stream_id" in error.message
+
+    def test_valid_stream_id_returns_list(self, db) -> None:
+        """MCP projects() returns list for valid stream_id."""
+        import mcp_handler
+
+        parent_id = EntityFactory.insert_business(db, "Business", "/business")
+        result = mcp_handler.projects(str(parent_id))
+
+        assert isinstance(result, list)
+
+
+@pytest.mark.asyncio
+class TestWorkspaceInfoEndpoint:
+    """Tests for /workspace-info endpoint."""
+
+    async def test_returns_base_info(self, client: AsyncClient, duet_data: Path) -> None:
+        """Returns base workspace info without path."""
+        response = await client.get("/workspace-info")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["duetDataPath"] == str(duet_data)
+        assert data["instructionsPath"] == str(duet_data / "ai-kit")
+        assert data["chain"] == []
+        assert data["components"] == []
+
+    async def test_returns_chain(self, client: AsyncClient, db) -> None:
+        """Returns entity chain for workspace path."""
+        ids = EntityFactory.insert_hierarchy(db, "/repos")
+
+        response = await client.get("/workspace-info?workspace_path=/repos/business/stream/product/src")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["chain"]) == 3
+        assert data["chain"][0]["name"] == "Business"
+        assert data["chain"][1]["name"] == "Stream"
+        assert data["chain"][2]["name"] == "Product"
+
+
+@pytest.mark.asyncio
+class TestScanEndpoint:
+    """Tests for /scan endpoint."""
+
+    async def test_scan_returns_stats(self, client: AsyncClient, monkeypatch) -> None:
+        """Scan endpoint returns statistics."""
+        # Mock config to return empty business_folders
+        monkeypatch.setattr(
+            "scanner.read_config",
+            lambda: {"business_folders": []}
+        )
+
+        response = await client.post("/scan")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["status"] == "completed"
+        assert "entities_count" in data
+        assert "duration_ms" in data
+
+    async def test_scan_debounce(self, client: AsyncClient, monkeypatch) -> None:
+        """Scan returns skipped if called within 5 seconds."""
+        monkeypatch.setattr(
+            "scanner.read_config",
+            lambda: {"business_folders": []}
+        )
+
+        # First scan
+        response1 = await client.post("/scan")
+        assert response1.status_code == 200
+        assert response1.json()["status"] == "completed"
+
+        # Immediate second scan should be skipped
+        response2 = await client.post("/scan")
+        assert response2.status_code == 200
+        data = response2.json()
+        assert data["status"] == "skipped"
+        assert data["reason"] == "recent_scan"

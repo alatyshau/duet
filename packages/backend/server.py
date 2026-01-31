@@ -1,0 +1,287 @@
+"""Duet Backend HTTP Server.
+
+HTTP server with REST API and MCP endpoint.
+Entry point for the Python backend.
+
+Usage:
+    python server.py --data-path /path/to/DuetData
+"""
+
+import argparse
+import asyncio
+import os
+import signal
+import sys
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route
+
+import config
+from config import get_db_path, get_pid_path, get_port, get_version
+from db import DatabaseManager
+from mcp_handler import (
+    get_duet_data_path_str,
+    get_entities_service,
+    get_timestamp,
+    get_workspace_service,
+    init_services,
+    mcp,
+)
+from services.entities import EntitiesService
+from services.workspace import WorkspaceService
+
+
+# Server start time for uptime calculation
+_start_time: float = 0
+
+# Shutdown event
+_shutdown_event: asyncio.Event | None = None
+
+
+# === REST API Handlers ===
+
+
+async def health_handler(request: Request) -> JSONResponse:
+    """GET /health - Health check with version and uptime."""
+    uptime = int(time.time() - _start_time) if _start_time else 0
+    return JSONResponse(
+        {
+            "status": "ok",
+            "version": get_version(),
+            "uptime_seconds": uptime,
+        }
+    )
+
+
+async def stop_handler(request: Request) -> JSONResponse:
+    """POST /stop - Graceful shutdown."""
+    global _shutdown_event
+    if _shutdown_event:
+        _shutdown_event.set()
+    return JSONResponse({"status": "stopping"})
+
+
+async def timestamp_handler(request: Request) -> JSONResponse:
+    """GET /timestamp - Current timestamp."""
+    return JSONResponse({"timestamp": get_timestamp()})
+
+
+async def duet_data_path_handler(request: Request) -> JSONResponse:
+    """GET /duet-data-path - Path to DuetData."""
+    return JSONResponse({"path": get_duet_data_path_str()})
+
+
+async def workspace_info_handler(request: Request) -> JSONResponse:
+    """GET /workspace-info - Full workspace information."""
+    workspace_path = request.query_params.get("workspace_path")
+    result = get_workspace_service().get_workspace_info(workspace_path)
+    return JSONResponse(result)
+
+
+async def streams_handler(request: Request) -> JSONResponse:
+    """GET /streams - Get all streams (business/stream/product) without projects."""
+    result = get_entities_service().get_streams()
+    return JSONResponse({"streams": result})
+
+
+async def projects_handler(request: Request) -> JSONResponse:
+    """GET /projects/{stream_id} - Get projects for a stream."""
+    stream_id_str = request.path_params.get("stream_id", "")
+    try:
+        stream_id = int(stream_id_str)
+    except ValueError:
+        return JSONResponse(
+            {"error": "Invalid stream_id: must be an integer", "code": "BAD_REQUEST"},
+            status_code=400,
+        )
+
+    result = get_entities_service().get_projects(stream_id)
+    return JSONResponse({"projects": result})
+
+
+async def scan_handler(request: Request) -> JSONResponse:
+    """POST /scan - Rescan hierarchy."""
+    start = time.time()
+    result = get_entities_service().run_scan()
+    result["duration_ms"] = int((time.time() - start) * 1000)
+    return JSONResponse(result)
+
+
+# === Lifecycle Management ===
+
+
+def write_pid_file() -> None:
+    """Write current PID to lockfile."""
+    pid_path = get_pid_path()
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(os.getpid()))
+
+
+def remove_pid_file() -> None:
+    """Remove PID lockfile."""
+    pid_path = get_pid_path()
+    try:
+        pid_path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def check_pid_file() -> int | None:
+    """Check if PID file exists and process is running.
+
+    Returns PID if running, None otherwise.
+    """
+    pid_path = get_pid_path()
+    if not pid_path.exists():
+        return None
+
+    try:
+        pid = int(pid_path.read_text().strip())
+        # Check if process is running (signal 0 doesn't kill)
+        os.kill(pid, 0)
+        return pid
+    except (ValueError, ProcessLookupError, PermissionError):
+        # Invalid PID or process not running
+        return None
+
+
+# === Application Setup ===
+
+
+@asynccontextmanager
+async def lifespan(app: Starlette):
+    """Application lifespan handler."""
+    global _start_time, _shutdown_event
+
+    _start_time = time.time()
+    _shutdown_event = asyncio.Event()
+
+    # Initialize database
+    db = DatabaseManager()
+    db.init()
+
+    # Initialize services with DI
+    workspace_service = WorkspaceService(db)
+    entities_service = EntitiesService(db)
+
+    # Initialize services (shared between REST and MCP handlers)
+    init_services(workspace_service, entities_service, _start_time)
+
+    # Write PID file
+    write_pid_file()
+
+    print(f"Duet backend started (version {get_version()})")
+
+    # Setup signal handlers for graceful shutdown
+    loop = asyncio.get_event_loop()
+
+    def handle_signal():
+        if _shutdown_event:
+            _shutdown_event.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, handle_signal)
+
+    try:
+        yield
+    finally:
+        # Cleanup
+        db.close()
+        remove_pid_file()
+        print("Duet backend stopped")
+
+
+def create_app() -> Starlette:
+    """Create Starlette application."""
+    routes = [
+        Route("/health", health_handler, methods=["GET"]),
+        Route("/stop", stop_handler, methods=["POST"]),
+        Route("/timestamp", timestamp_handler, methods=["GET"]),
+        Route("/duet-data-path", duet_data_path_handler, methods=["GET"]),
+        Route("/workspace-info", workspace_info_handler, methods=["GET"]),
+        Route("/streams", streams_handler, methods=["GET"]),
+        Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
+        Route("/scan", scan_handler, methods=["POST"]),
+        # Mount MCP at /mcp
+        Mount("/mcp", app=mcp.streamable_http_app()),
+    ]
+
+    return Starlette(
+        routes=routes,
+        lifespan=lifespan,
+    )
+
+
+async def run_server(port: int, host: str = "127.0.0.1") -> None:
+    """Run the server with shutdown support."""
+    global _shutdown_event
+
+    uconfig = uvicorn.Config(
+        create_app(),
+        host=host,
+        port=port,
+        log_level="info",
+    )
+    server = uvicorn.Server(uconfig)
+
+    # Run server in background task
+    server_task = asyncio.create_task(server.serve())
+
+    # Wait for shutdown signal
+    if _shutdown_event:
+        await _shutdown_event.wait()
+
+    # Trigger graceful shutdown
+    server.should_exit = True
+    await server_task
+
+
+def main() -> None:
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description="Duet Backend Server")
+    parser.add_argument(
+        "--data-path",
+        type=str,
+        required=True,
+        help="Path to DuetData directory (required)",
+    )
+    args = parser.parse_args()
+
+    # Initialize config with data path
+    config.init(args.data_path)
+
+    # Validate version before starting (fail fast)
+    try:
+        get_version()
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("Extension must write version to config.json before starting backend.", file=sys.stderr)
+        sys.exit(1)
+
+    # Check if already running
+    existing_pid = check_pid_file()
+    if existing_pid:
+        print(f"Backend already running (PID {existing_pid})", file=sys.stderr)
+        sys.exit(1)
+
+    # Read port from config
+    port = get_port()
+
+    print(f"Starting Duet backend on 127.0.0.1:{port}")
+    print(f"DuetData path: {args.data_path}")
+
+    # Ensure database directory exists
+    get_db_path().parent.mkdir(parents=True, exist_ok=True)
+
+    # Run server (will fail with error if port is busy)
+    asyncio.run(run_server(port, "127.0.0.1"))
+
+
+if __name__ == "__main__":
+    main()
