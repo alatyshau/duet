@@ -9,11 +9,13 @@ Usage:
 
 import argparse
 import asyncio
+import logging
 import os
 import signal
 import sys
 import time
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
@@ -23,7 +25,15 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 import config
-from config import get_business_folders, get_db_path, get_pid_path, get_port, get_timezone, get_version
+from config import (
+    get_business_folders,
+    get_db_path,
+    get_log_path,
+    get_pid_path,
+    get_port,
+    get_timezone,
+    get_version,
+)
 from db import DatabaseManager
 from mcp_handler import (
     get_duet_data_path_str,
@@ -37,11 +47,56 @@ from services.entities import EntitiesService
 from services.workspace import WorkspaceService
 
 
+# Logger
+logger = logging.getLogger("duet")
+
 # Server start time for uptime calculation
 _start_time: float = 0
 
 # Shutdown event
 _shutdown_event: asyncio.Event | None = None
+
+
+def setup_logging() -> None:
+    """Setup logging to file with rotation.
+
+    Logs to DuetData/backend.log with:
+    - Max size: 5 MB
+    - Backup count: 1 (keeps backend.log.1)
+    - Format: timestamp [level] message
+    """
+    log_path = get_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # File handler with rotation
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=1,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.INFO)
+
+    # Format: 2025-01-31 14:30:52 [INFO] message
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(formatter)
+
+    root_logger.addHandler(file_handler)
+
+    # Also configure uvicorn loggers to use our handler
+    # Set propagate=False to avoid duplicate logs through root logger
+    for name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers = []
+        uv_logger.addHandler(file_handler)
+        uv_logger.propagate = False
 
 
 # === REST API Handlers ===
@@ -157,10 +212,10 @@ def check_pid_file() -> int | None:
 @asynccontextmanager
 async def lifespan(app: Starlette):
     """Application lifespan handler."""
-    global _start_time, _shutdown_event
+    global _start_time
 
     _start_time = time.time()
-    _shutdown_event = asyncio.Event()
+    # Note: _shutdown_event is created in run_server() before app starts
 
     # Initialize database
     db = DatabaseManager()
@@ -176,7 +231,7 @@ async def lifespan(app: Starlette):
     # Write PID file
     write_pid_file()
 
-    print(f"Duet backend started (version {get_version()})")
+    logger.info(f"Duet backend started (version {get_version()})")
 
     # Setup signal handlers for graceful shutdown
     loop = asyncio.get_event_loop()
@@ -194,7 +249,7 @@ async def lifespan(app: Starlette):
         # Cleanup
         db.close()
         remove_pid_file()
-        print("Duet backend stopped")
+        logger.info("Duet backend stopped")
 
 
 def create_app() -> Starlette:
@@ -222,11 +277,14 @@ async def run_server(port: int, host: str = "127.0.0.1") -> None:
     """Run the server with shutdown support."""
     global _shutdown_event
 
+    # Create shutdown event BEFORE starting server (fixes race condition)
+    _shutdown_event = asyncio.Event()
+
     uconfig = uvicorn.Config(
         create_app(),
         host=host,
         port=port,
-        log_level="info",
+        log_config=None,  # Use our logging setup instead of uvicorn's default
     )
     server = uvicorn.Server(uconfig)
 
@@ -234,8 +292,7 @@ async def run_server(port: int, host: str = "127.0.0.1") -> None:
     server_task = asyncio.create_task(server.serve())
 
     # Wait for shutdown signal
-    if _shutdown_event:
-        await _shutdown_event.wait()
+    await _shutdown_event.wait()
 
     # Trigger graceful shutdown
     server.should_exit = True
@@ -256,6 +313,9 @@ def main() -> None:
     # Initialize config with data path
     config.init(args.data_path)
 
+    # Setup logging to file (must be after config.init)
+    setup_logging()
+
     # Validate version before starting (fail fast)
     try:
         get_version()
@@ -263,25 +323,24 @@ def main() -> None:
         get_timezone()
         get_business_folders()
     except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        print(
+        logger.error(f"Config error: {e}")
+        logger.error(
             "Extension must write required fields to config.json before starting backend "
-            "(required: version, port, business_folders, timestampTZ).",
-            file=sys.stderr,
+            "(required: version, port, business_folders, timestampTZ)."
         )
         sys.exit(1)
 
     # Check if already running
     existing_pid = check_pid_file()
     if existing_pid:
-        print(f"Backend already running (PID {existing_pid})", file=sys.stderr)
+        logger.error(f"Backend already running (PID {existing_pid})")
         sys.exit(1)
 
     # Read port from config (validated above)
     port = get_port()
 
-    print(f"Starting Duet backend on 127.0.0.1:{port}")
-    print(f"DuetData path: {args.data_path}")
+    logger.info(f"Starting Duet backend on 127.0.0.1:{port}")
+    logger.info(f"DuetData path: {args.data_path}")
 
     # Ensure database directory exists
     get_db_path().parent.mkdir(parents=True, exist_ok=True)

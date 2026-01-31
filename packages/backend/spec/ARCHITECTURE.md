@@ -31,12 +31,12 @@ server.py (entry point, lifecycle)
 
 | Module | Does | Does NOT |
 |--------|------|----------|
-| `server.py` | HTTP routes, lifecycle, DI init | Business logic |
+| `server.py` | HTTP routes, lifecycle, DI init, logging setup | Business logic |
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
-| `services/*.py` | Business logic | Direct HTTP, MCP |
+| `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan, self-healing, scan_components | HTTP, config writes |
 | `db.py` | SQLite CRUD | Business rules |
-| `config.py` | Read config, path getters, get_version() | Write config |
+| `config.py` | Read config, path getters, get_version(), atomic_write() | Write config.json |
 
 ## Version Contract
 
@@ -82,6 +82,8 @@ Extension (compares, restarts if needed)
 | SQLite schema | `db.py:_init_schema()` |
 | Config reading | `config.py` |
 | PID lifecycle | `server.py:write_pid_file/check_pid_file` |
+| Logging setup | `server.py:setup_logging()` |
+| Atomic file write | `config.py:atomic_write()` |
 
 ## API Contracts
 
@@ -144,6 +146,33 @@ raise McpError(ErrorData(code=INVALID_PARAMS, message="stream_id must be integer
 
 **Not errors:** Empty result (entity not found) returns `[]`, not exception.
 
+## Logging
+
+Backend logs to file, NOT stdout/stderr (prevents BrokenPipe when Extension closes).
+
+```
+DuetData/backend.log  ← RotatingFileHandler
+├── Max size: 5 MB
+├── Backups: 1 (backend.log.1)
+└── Format: YYYY-MM-DD HH:MM:SS [LEVEL] message
+```
+
+**Contract:**
+- Extension spawns backend with `stdio: 'ignore'` — no pipe
+- All output goes to `backend.log`
+- Uvicorn logs also routed to same file
+
+## File Safety
+
+All file writes use atomic pattern: tmp + rename.
+
+| File | Writer | Function |
+|------|--------|----------|
+| `state.json` | `entities.py` | `atomic_write()` |
+| `backend.log` | `server.py` | Python logging (RotatingFileHandler) |
+
+**Contract:** `config.py:atomic_write(path, content)` — write to `.tmp` then `os.rename()`. Never `write_text()` directly.
+
 ## Lifecycle
 
 ### Startup
@@ -151,12 +180,14 @@ raise McpError(ErrorData(code=INVALID_PARAMS, message="stream_id must be integer
 ```
 1. Parse --data-path argument
 2. config.init(data_path)
-3. check_pid_file() → exit if already running
-4. db.init()
-5. Create services (DI)
-6. init_services()
-7. write_pid_file()
-8. Start uvicorn
+3. setup_logging() → RotatingFileHandler to backend.log
+4. Validate config (version, port, timestampTZ, business_folders)
+5. check_pid_file() → exit if already running
+6. db.init()
+7. Create services (DI)
+8. init_services()
+9. write_pid_file()
+10. Start uvicorn
 ```
 
 ### Shutdown

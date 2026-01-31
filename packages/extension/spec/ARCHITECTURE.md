@@ -12,11 +12,12 @@
 | Decision | Rationale |
 |----------|-----------|
 | sql.js (WASM) | Works in VS Code extension sandbox, no native deps |
-| write-file-atomic | Cross-platform atomic writes |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
+| `atomicWriteFile()` in FileSystem | Prevents config.json corruption on crash |
 | Deterministic scan order | `readdir` sorted by name for reproducible results |
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
 | Workspace files | Multi-root workspace for repo + Drive folder |
+| Backend `stdio: 'ignore'` | Backend logs to file, avoids BrokenPipe/SIGPIPE |
 
 ## Scanner Behaviors
 
@@ -78,6 +79,32 @@ This script (`build-vsix.js`):
 1. Bumps patch version (e.g. 0.0.5 → 0.0.6)
 2. Updates viewContainer title to `Duet {version}`
 3. Builds VSIX to `dist/duet-{version}.vsix`
+
+## File Safety
+
+All file writes use atomic pattern: tmp + rename.
+
+| File | Module | Method |
+|------|--------|--------|
+| `config.json` | `ConfigManager` | `fs.atomicWriteFile()` |
+
+**Contract:** `fs.atomicWriteFile(path, data, encoding)` — writes to `.{basename}.{pid}.tmp` then `fs.rename()`. Never `fs.writeFile()` for config.
+
+## Backend Lifecycle
+
+Extension spawns Python backend with `stdio: 'ignore'`:
+
+```typescript
+spawn(venvPython, [serverPath, '--data-path', duetDataPath], {
+    stdio: 'ignore',  // Backend logs to DuetData/backend.log
+    detached: true,
+});
+```
+
+**Contracts:**
+- Backend writes logs to `DuetData/backend.log` (RotatingFileHandler)
+- Extension never reads backend stdout/stderr (prevents BrokenPipe)
+- Backend outputs channel shows startup/shutdown events only
 
 ## Testing
 

@@ -14,6 +14,13 @@ import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from '.
 import { dumpIndex } from './commands/refresh';
 import { DatabaseManager } from '../core/db';
 import { Paths } from '../core/paths';
+import { BackendLifecycle, BackendError } from '../core/backend-lifecycle';
+import { SidebarStateManager } from '../core/sidebar-state';
+
+// Global instances for lifecycle management
+let backendLifecycle: BackendLifecycle | null = null;
+let backendOutputChannel: vscode.OutputChannel | null = null;
+let sidebarState: SidebarStateManager | null = null;
 
 /**
  * Copy MCP server to DuetData for use by Claude Code, Codex, etc.
@@ -45,6 +52,9 @@ class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Duet extension is active');
 
+    // Initialize sidebar state manager
+    sidebarState = new SidebarStateManager();
+
     // Onboarding View
     const onboardingProvider = new OnboardingProvider();
     context.subscriptions.push(
@@ -53,6 +63,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const config = vscode.workspace.getConfiguration('duet');
     const dataFolder = config.get<string>('data_folder');
+
+    // Set initial sidebar state
+    await sidebarState.setHasDataFolder(!!dataFolder);
+
+    // Initialize backend lifecycle (async, non-blocking)
+    if (dataFolder) {
+        initBackendLifecycle(context, dataFolder);
+    }
+
+    // Register backend-related commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand('duet.retryBackend', () => retryBackend(context)),
+        vscode.commands.registerCommand('duet.showPythonHelp', showPythonHelp),
+        vscode.commands.registerCommand('duet.showBackendLogs', showBackendLogs)
+    );
 
     // Register MCP server provider (VS Code 1.102+)
     // Provider reads config dynamically, so it works even if dataFolder changes
@@ -201,7 +226,94 @@ function registerStubs(context: vscode.ExtensionContext) {
     );
 }
 
+// === Backend Lifecycle Functions ===
+
+/**
+ * Initialize backend lifecycle (async, non-blocking).
+ * Called during activation if data folder is configured.
+ */
+function initBackendLifecycle(context: vscode.ExtensionContext, dataFolder: string): void {
+    const paths = new Paths(dataFolder);
+
+    // Create output channel for backend logs
+    backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
+    context.subscriptions.push(backendOutputChannel);
+
+    // Get extension version from package.json
+    const extensionVersion = context.extension.packageJSON.version as string;
+
+    // Create lifecycle manager
+    backendLifecycle = new BackendLifecycle({
+        paths,
+        extensionPath: context.extensionPath,
+        extensionVersion,
+        outputChannel: backendOutputChannel,
+        onStatusChange: (status) => {
+            sidebarState?.setFromBackendStatus(status);
+        },
+    });
+
+    context.subscriptions.push({ dispose: () => backendLifecycle?.dispose() });
+
+    // Start backend (async, don't await)
+    sidebarState?.setInitializing('Запуск backend...');
+    backendLifecycle.ensureRunning().catch((error) => {
+        console.error('Backend startup failed:', error);
+        if (error instanceof BackendError) {
+            sidebarState?.setFromBackendStatus({
+                state: 'error',
+                error: error.message,
+                recoverable: error.recoverable,
+            });
+        } else {
+            sidebarState?.setError(String(error));
+        }
+    });
+}
+
+/**
+ * Retry backend startup.
+ */
+async function retryBackend(context: vscode.ExtensionContext): Promise<void> {
+    const dataFolder = vscode.workspace.getConfiguration('duet').get<string>('data_folder');
+    if (!dataFolder) {
+        vscode.window.showErrorMessage('DuetData folder not configured');
+        return;
+    }
+
+    // Dispose old lifecycle
+    backendLifecycle?.dispose();
+    backendLifecycle = null;
+
+    // Re-initialize
+    initBackendLifecycle(context, dataFolder);
+}
+
+/**
+ * Show Python installation help.
+ */
+function showPythonHelp(): void {
+    const message = `Duet требует Python 3.10+
+
+Скопируйте в AI чат:
+"My python3 points to an old Python version. I need Python 3.10+ for Duet. Help me fix my PATH."
+
+Или установите Python:
+• macOS: brew install python@3.12
+• Windows: https://www.python.org/downloads/
+• Linux: sudo apt install python3.12`;
+
+    vscode.window.showInformationMessage(message, { modal: true });
+}
+
+/**
+ * Show backend logs in output channel.
+ */
+function showBackendLogs(): void {
+    backendOutputChannel?.show();
+}
 
 export function deactivate() {
     disposeGitOutputChannel();
+    backendLifecycle?.dispose();
 }

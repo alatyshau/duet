@@ -11,6 +11,8 @@ Configuration file: config.json
 """
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 
@@ -187,3 +189,42 @@ def get_repos_path() -> Path | None:
     if repos_path.exists():
         return repos_path
     return None
+
+
+def get_state_path() -> Path:
+    """Get path to state.json for multi-window sync."""
+    return get_duet_data_path() / "state.json"
+
+
+def get_log_path() -> Path:
+    """Get path to backend.log."""
+    return get_duet_data_path() / "backend.log"
+
+
+def atomic_write(path: Path, content: str) -> None:
+    """Write content to file atomically using tmp + rename.
+
+    Prevents corruption if process crashes mid-write.
+    Works on same filesystem (rename is atomic on POSIX).
+
+    Args:
+        path: Target file path
+        content: Content to write
+    """
+    # Create temp file in same directory (ensures same filesystem for atomic rename)
+    dir_path = path.parent
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        os.rename(tmp_path, path)
+    except Exception:
+        # Cleanup on error
+        os.close(fd) if fd else None
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise

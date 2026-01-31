@@ -43,6 +43,8 @@ describe('ConfigManager', () => {
             mkdir: vi.fn(),
             readdir: vi.fn(), // Not used by ConfigManager, but required by interface
             rename: vi.fn(),  // Not used by ConfigManager, but required by interface
+            unlink: vi.fn(),  // Not used by ConfigManager, but required by interface
+            atomicWriteFile: vi.fn(), // Used by ConfigManager for atomic writes
         };
         configManager = new ConfigManager(mockConfigPath, mockFs);
     });
@@ -92,14 +94,14 @@ describe('ConfigManager', () => {
         expect(config.businessFolders).toEqual([]);
     });
 
-    it('should create directory and write config file', async () => {
+    it('should create directory and write config file atomically', async () => {
         vi.mocked(mockFs.access).mockRejectedValue(new Error('ENOENT')); // dir does not exist
 
         await configManager.write({ businessFolders: ['/c'] });
 
         expect(mockFs.mkdir).toHaveBeenCalledWith(path.dirname(mockConfigPath), { recursive: true });
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        expect(mockFs.writeFile).toHaveBeenCalledWith(
+        expect(mockFs.atomicWriteFile).toHaveBeenCalledWith(
             mockConfigPath,
             // eslint-disable-next-line @typescript-eslint/naming-convention
             JSON.stringify({ business_folders: ['/c'] }, null, 2),
@@ -107,14 +109,14 @@ describe('ConfigManager', () => {
         );
     });
 
-    it('should write file directly if directory exists', async () => {
+    it('should write file atomically if directory exists', async () => {
         vi.mocked(mockFs.access).mockResolvedValue(undefined); // dir exists
 
         await configManager.write({ businessFolders: ['/d'] });
 
         expect(mockFs.mkdir).not.toHaveBeenCalled();
         // eslint-disable-next-line @typescript-eslint/naming-convention
-        expect(mockFs.writeFile).toHaveBeenCalledWith(
+        expect(mockFs.atomicWriteFile).toHaveBeenCalledWith(
             mockConfigPath,
             // eslint-disable-next-line @typescript-eslint/naming-convention
             JSON.stringify({ business_folders: ['/d'] }, null, 2),

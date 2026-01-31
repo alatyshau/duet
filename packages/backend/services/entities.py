@@ -3,8 +3,10 @@
 Provides entity listing and hierarchy scanning.
 """
 
+import json
 import time
 
+from config import atomic_write, get_state_path
 from db import DatabaseManager, Entity
 from scanner import Scanner
 
@@ -72,6 +74,9 @@ class EntitiesService:
 
         Returns scan statistics. If scan was run < 5 seconds ago,
         returns {"status": "skipped", "reason": "recent_scan"}.
+
+        After successful scan, writes state.json for multi-window sync.
+        Other VS Code windows watch this file to refresh their TreeView.
         """
         now = time.time()
         if now - self._last_scan_time < SCAN_DEBOUNCE_SECONDS:
@@ -80,7 +85,21 @@ class EntitiesService:
         scanner = Scanner(self.db)
         result = scanner.scan()
         self._last_scan_time = time.time()
+
+        # Write state.json for multi-window sync
+        self._write_state()
+
         return result
+
+    def _write_state(self) -> None:
+        """Write state.json with last_scan_at timestamp.
+
+        Used by Extension FileSystemWatcher for multi-window sync.
+        Uses atomic_write to prevent corruption.
+        """
+        state_path = get_state_path()
+        state = {"last_scan_at": int(time.time() * 1000)}  # JS timestamp (ms)
+        atomic_write(state_path, json.dumps(state, indent=2))
 
     @staticmethod
     def _entity_to_dict(entity: Entity) -> dict:

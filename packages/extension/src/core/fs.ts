@@ -1,4 +1,6 @@
 import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import type { Dirent } from 'fs';
 
 /**
@@ -25,6 +27,12 @@ export interface FileSystem {
 
     /** Rename/move file or directory */
     rename(oldPath: string, newPath: string): Promise<void>;
+
+    /** Write file atomically using tmp + rename. Prevents corruption on crash. */
+    atomicWriteFile(filePath: string, data: string, encoding: 'utf8'): Promise<void>;
+
+    /** Remove file (unlink) */
+    unlink(path: string): Promise<void>;
 }
 
 /**
@@ -33,11 +41,31 @@ export interface FileSystem {
  */
 export const nodeFs: FileSystem = {
     access: fs.access,
-    readFile: (path, encoding) => fs.readFile(path, encoding),
-    writeFile: (path, data, encoding) => fs.writeFile(path, data, encoding),
+    readFile: (filePath, encoding) => fs.readFile(filePath, encoding),
+    writeFile: (filePath, data, encoding) => fs.writeFile(filePath, data, encoding),
     mkdir: fs.mkdir,
-    readdir: (path, options) => fs.readdir(path, options),
+    readdir: (dirPath, options) => fs.readdir(dirPath, options),
     rename: fs.rename,
+    unlink: fs.unlink,
+    atomicWriteFile: async (filePath, data, encoding) => {
+        // Write to temp file in same directory (ensures same filesystem for atomic rename)
+        const dir = path.dirname(filePath);
+        const basename = path.basename(filePath);
+        const tmpPath = path.join(dir, `.${basename}.${process.pid}.tmp`);
+
+        try {
+            await fs.writeFile(tmpPath, data, encoding);
+            await fs.rename(tmpPath, filePath);
+        } catch (error) {
+            // Cleanup temp file on error
+            try {
+                await fs.unlink(tmpPath);
+            } catch {
+                // Ignore cleanup errors
+            }
+            throw error;
+        }
+    },
 };
 
 /**
@@ -56,5 +84,7 @@ export function createMockFs(overrides: Partial<FileSystem> = {}): FileSystem {
         mkdir: overrides.mkdir ?? notImplemented('mkdir'),
         readdir: overrides.readdir ?? notImplemented('readdir'),
         rename: overrides.rename ?? notImplemented('rename'),
+        unlink: overrides.unlink ?? notImplemented('unlink'),
+        atomicWriteFile: overrides.atomicWriteFile ?? notImplemented('atomicWriteFile'),
     };
 }

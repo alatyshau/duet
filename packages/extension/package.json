@@ -98,6 +98,21 @@
                 "icon": "$(go-to-file)",
                 "category": "Duet",
                 "shortTitle": "Все дела"
+            },
+            {
+                "command": "duet.retryBackend",
+                "title": "Повторить запуск backend",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.showPythonHelp",
+                "title": "Справка по установке Python",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.showBackendLogs",
+                "title": "Показать логи backend",
+                "category": "Duet"
             }
         ],
         "submenus": [
@@ -212,11 +227,26 @@
             {
                 "view": "duet.context",
                 "contents": "Нет открытой папки.\n[Открыть папку](command:vscode.openFolder)"
+            },
+            {
+                "view": "duet.businesses",
+                "contents": "$(sync~spin) Запуск backend...",
+                "when": "duet.hasDataFolder && duet.initializing"
+            },
+            {
+                "view": "duet.businesses",
+                "contents": "$(error) Python 3.10+ не найден\n\nDuet требует Python 3.10 или новее.\n\n[Повторить](command:duet.retryBackend) · [Справка](command:duet.showPythonHelp)",
+                "when": "duet.hasDataFolder && duet.initFailed.python"
+            },
+            {
+                "view": "duet.businesses",
+                "contents": "$(error) Ошибка запуска backend\n\n[Повторить](command:duet.retryBackend) · [Логи](command:duet.showBackendLogs)",
+                "when": "duet.hasDataFolder && duet.initFailed && !duet.initFailed.python"
             }
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run package",
+        "vscode:prepublish": "npm run package && node bundle-backend.js",
         "compile": "npm run check-types && npm run lint && node esbuild.js",
         "watch": "npm-run-all -p watch:*",
         "watch:esbuild": "node esbuild.js --watch",

@@ -1166,45 +1166,164 @@ export class DuetApiClient {
 ---
 
 ### Шаг 2: Backend инфраструктура + установка
-**Статус:** TODO
+**Статус:** DONE
 
 Добавляем инфраструктуру и **реально устанавливаем backend**, но UI остаётся старый (sql.js, scanner.ts). Backend работает "рядом", готов к переключению.
 
 **Ход работы:**
-- [ ] Backend: после `/scan` писать `state.json` (`{ "last_scan_at": timestamp }`) для multi-window sync
-- [ ] `ConfigManager.write()` → merge-aware (read existing → merge → write), сохраняет `version`, `port`, `timestampTZ`
-- [ ] `bundle-backend.js`:
+- [x] Backend: после `/scan` писать `state.json` (`{ "last_scan_at": timestamp }`) для multi-window sync
+- [x] `ConfigManager.write()` → merge-aware (read existing → merge → write), сохраняет `version`, `port`, `timestampTZ`
+- [x] `bundle-backend.js`:
   - Копирует packages/backend/ → dist/backend/ (исключая tests/, \_\_pycache\_\_)
-  - Добавить в `vscode:prepublish` script
-  - Проверить что .vscodeignore не исключает dist/backend/
-  - После сборки: проверить vsix (это zip) что backend внутри
-- [ ] `api-client.ts` — DuetApiClient (HTTP клиент для backend API)
-- [ ] `backend-lifecycle.ts`:
+  - Добавлен в `vscode:prepublish` script
+  - .vscodeignore не исключает dist/backend/
+- [x] `api-client.ts` — DuetApiClient (HTTP клиент для backend API)
+- [x] `backend-lifecycle.ts`:
   - Алгоритм install + startup (PHASE 1-3)
-  - Lock management (см. "Lock-файлы: алгоритм")
+  - Lock management с heartbeat
   - Python version check (≥ 3.10) с actionable error
   - Config merge/validation при install
-- [ ] `sidebar-state.ts` — обёртки над `setContext()` для состояний (NO_DATA_FOLDER → INITIALIZING → READY)
-- [ ] Welcome View в package.json (viewsWelcome) для состояний
-- [ ] Подключить lifecycle к activation — backend устанавливается и запускается
-- [ ] **НЕ добавляем** `claude mcp add` автоматически — см. [AI Setup Wizard](topic_ai_duet_integration.md#шаг-4-ui-для-настройки-ai-агентов-ai-setup-wizard)
-- [ ] OutputChannel "Duet Backend" для логов
+- [x] `sidebar-state.ts` — обёртки над `setContext()` для состояний (NO_DATA_FOLDER → INITIALIZING → READY)
+- [x] Welcome View в package.json (viewsWelcome) для состояний
+- [x] Подключить lifecycle к activation — backend устанавливается и запускается
+- [x] **НЕ добавляем** `claude mcp add` автоматически — см. [AI Setup Wizard](topic_ai_duet_integration.md#шаг-4-ui-для-настройки-ai-агентов-ai-setup-wizard)
+- [x] OutputChannel "Duet Backend" для логов
+- [x] Команды: `duet.retryBackend`, `duet.showPythonHelp`, `duet.showBackendLogs`
 
 **Ключевое:** После Шага 2 backend работает на localhost:19680, но Extension его **не использует** — старый код (sql.js, TreeView) продолжает работать как раньше.
 
-**Тестирование:**
-- Build проходит
-- При активации Extension backend устанавливается в `~/DuetData/backend/`
-- `GET http://localhost:19680/health` отвечает
-- Старый UI (sql.js) работает как раньше
+#### Ad-hoc тестирование
 
-**Ревью (новые замечания):**
-- ✅ ~~config.json перезаписывается~~ — добавлен пункт merge-aware в ход работы
-- ✅ ~~`claude mcp add ...` из Extension~~ — перенесено в [AI Setup Wizard](topic_ai_duet_integration.md#шаг-4-ui-для-настройки-ai-агентов-ai-setup-wizard)
+**Подготовка:**
+```bash
+# 1. Build extension
+cd ~/DuetData/repos/Duet.git/packages/extension && npm run package
+
+# 2. Запустить backend в отдельном терминале (держать открытым)
+cd ~/DuetData/repos/Duet.git/packages/backend
+~/DuetData/.venv/bin/python3 server.py --data-path ~/DuetData
+```
+
+**Тесты API:**
+| # | Тест | Команда | Статус |
+|---|------|---------|--------|
+| 1 | Build | `npm run package` — без ошибок | |
+| 2 | Backend bundled | `ls dist/backend/` — есть server.py | |
+| 3 | /health | `curl -s localhost:19680/health \| jq` | |
+| 4 | /timestamp | `curl -s localhost:19680/timestamp \| jq` | |
+| 5 | /streams | `curl -s localhost:19680/streams \| jq` | |
+| 6 | /scan | `curl -s -X POST localhost:19680/scan \| jq` | |
+| 7 | /workspace-info | `curl -s "localhost:19680/workspace-info?workspace_path=$(pwd)" \| jq` | |
+
+   СТАТУС: проверили всё отлично. Но /workspace-info требует переделки. Вводим Шаг 3.
+
+#### Review #1
+
+1. DEFER **install-lock heartbeat не обновляется во время install** — Host устранит multi-window архитектурно; редкий edge case для прототипа — `BackendLifecycle.install()` использует `execSync` (python3/venv/pip), что блокирует event loop; heartbeat на `setInterval` не тикает. При `INSTALL_STALE_MS=60s` другое окно может удалить lock как “stale” и запустить параллельный install. Параллельно `INSTALL_TIMEOUT_MS=60s` не покрывает реальный `pip install`.  
+   - **Fix:** убрать блокирующие операции из install (async spawn/execFile), либо сделать lock/heartbeat, который не зависит от event loop; синхронизировать значения stale/timeout с worst-case длительностью install; ожидание чужого install должно уметь self-heal stale lock.
+2. DEFER **startup readiness определяется без проверки версии и может давать false-positive READY** — edge case; workaround: перезапустить VS Code — `waitForHealth()` возвращает success по любому ответу `/health` и не валидирует ожидаемую версию; при живом старом backend’е новый backend может не подняться (порт занят/краш), но UI уйдёт в READY. Дополнительно `startup()` не делает stop/replace при mismatch версии.  
+   - **Fix:** `waitForHealth()` должен валидировать ожидаемую версию; при mismatch требуется stop/replace перед spawn. Для проверки версии нужен источник, не зависящий только от `config.json` (health сейчас возвращает `version` из config).
+3. DEFER **порт читается один раз в конструкторе** — порт не меняется в рамках сессии; теоретическая проблема — `DuetApiClient` создаётся в конструкторе `BackendLifecycle` из значения, прочитанного один раз (или из default). При ручной смене порта/после merge defaults health/stop будут ходить не туда.  
+   - **Fix:** вычислять baseUrl из актуального `config.port` перед запросами (или пересоздавать client после `readFull()/ensureDefaults()`).
+4. DEFER **startup-lock без stale recovery** — Host будет управлять lifecycle; Extension станет тонким клиентом — `.backend-start.lock` создаётся через `O_EXCL`, но при падении окна/kill extension остаётся навсегда и блокирует старт до ручного удаления.  
+   - **Fix:** добавить stale/heartbeat/PID-based recovery для startup lock (или унифицировать с install lock).
+5. DEFER **extension host блокируется во время ensureRunning** — первый запуск, один раз; Host уберёт install из Extension — несмотря на async запуск, внутри используются `execSync` и sync FS (copyDir/rename) → блокируется extension host/UI, и дополнительно ломается heartbeat.  
+   - **Fix:** перевести тяжёлые операции на async child_process + async fs, с логированием/прогрессом через OutputChannel.
+6. CLOSED **логи backend в файл** — решает BrokenPipe/SIGPIPE + сохраняет логи между сессиями
+   - Backend: `setup_logging()` → RotatingFileHandler (`DuetData/backend.log`, 5 MB, 1 backup)
+   - Extension: `spawn(..., { stdio: 'ignore' })` — pipe не нужен
+7. CLOSED **atomic write для всех файлов** — industry standard, минусов нет
+   - Extension: `fs.atomicWriteFile()` в FileSystem интерфейс → config.json
+   - Backend: `config.atomic_write()` → state.json
+8. DEFER **platform assumptions в lifecycle/paths** — `Paths.venvPython` жёстко `/.venv/bin/python3`, команды `python3`, сигналы `SIGTERM/SIGKILL`. На Windows это не работает.
+   - **Решение:** Host возьмёт lifecycle → platform-aware код будет в Host. См. [topic_host_core.md](../260108_host_design/topic_host_core.md#7-backend-installation).
+9.  CLOSED **API client теряет первопричину на не-JSON ошибках** — при `!response.ok` всегда делается `response.json()`, что ломается на text/HTML ответе и скрывает статус/тело.
+   - **Fix:** `parseErrorResponse()` — попытка JSON, fallback на text, включение status/statusText.
 
 ---
 
-### Шаг 3: Переключение UI на HTTP backend
+### Шаг 3: Относительные пути + workspace_info
+**Статус:** TODO
+
+Цель шага после фикса также довести тестирование до конца.
+
+`/workspace-info` должен корректно резолвить entity из `workspace_path` (cwd агента). Для этого переходим на относительные пути в DB.
+
+**Контекст:**
+- AI агент передаёт `workspace_path` = свой Working directory (например `/Users/.../repos/Duet.git`)
+- Backend должен найти соответствующую entity и вернуть chain + components
+- Сейчас `drive_path` хранится как абсолютный Google Drive путь — сравнение невозможно
+
+**Алгоритм resolve_entity(workspace_path):**
+1. Если путь начинается с `{DuetData}/repos/` (полный prefix из config):
+   - Извлечь имя папки repo — первый сегмент после `repos/`
+   - Обрезать суффикс `.git` (и будущие `.wt-*` для worktree)
+   - `find_by_name(folder_name)` → entity (ищем по имени папки repo)
+   - Если не найдено → UNKNOWN (AI предупредит пользователя)
+2. Иначе (Google Drive путь):
+   - Перебрать `business_folders[]` из config, найти который является prefix пути
+   - Обрезать business_folder prefix → получить relative_path
+   - Нормализовать слэши → `/`
+   - `find_closest_entity(relative_path)` → entity
+   - Если ни один business_folder не является prefix → UNKNOWN
+
+**Ход работы:**
+- [ ] **Scanner:** `drive_path` → относительный от business_folder (без изменения DB схемы)
+  - При insert: `entity.drive_path = strip_business_prefix(absolute_path)`
+  - Нормализация слэшей → `/`
+- [ ] **DB:** проверить `find_by_name(folder_name)` — ищет entity по имени папки repo (folder_name = entity.name для products с git_url)
+- [ ] **workspace_info:** реализовать алгоритм resolve_entity
+  - `is_in_repos(path)` — проверка prefix
+  - `extract_repo_name(path)` — имя без суффиксов
+  - `strip_business_prefix(path)` — обрезка до относительного
+- [ ] **Тесты:**
+  - `resolve_entity("/Users/.../repos/Duet.git")` → entity "Duet"
+  - `resolve_entity("/Users/.../repos/Duet.git/packages/extension")` → entity "Duet"
+  - `resolve_entity("/Users/.../GoogleDrive/.../!МетаЛаб/ДЕЛА/Duet")` → entity "Duet"
+  - `resolve_entity("/Users/.../GoogleDrive/.../!МетаЛаб")` → entity "МетаЛаб"
+
+**Known limitations (DEFER):**
+- Worktree суффиксы `.wt-*` — пока не реализованы
+- Multi-product workspace — AI видит только первый folder
+
+#### Ad-hoc тестирование
+
+**Подготовка:**
+```bash
+# 1. Build extension
+cd ~/DuetData/repos/Duet.git/packages/extension && npm run package
+
+# 2. Запустить backend в отдельном терминале (держать открытым)
+cd ~/DuetData/repos/Duet.git/packages/backend
+~/DuetData/.venv/bin/python3 server.py --data-path ~/DuetData
+```
+
+**Тесты API:**
+| # | Тест | Команда | Статус |
+|---|------|---------|--------|
+| 1 | /scan | `curl -s -X POST localhost:19680/scan \| jq` | |
+| 2 | /streams | `curl -s localhost:19680/streams \| jq` | |
+| 3 | /projects/:stream_id | `curl -s localhost:19680/projects/... \| jq` | |
+| 4 | /workspace-info | `curl -s "localhost:19680/workspace-info?workspace_path=$(pwd)" \| jq` | |
+
+**Тесты MCP (в этом чате с Claude):**
+| # | Тест | Действие | Статус |
+|---|------|----------|--------|
+| 5 | MCP add | `claude mcp add --transport http duet http://localhost:19680/mcp` | |
+| 6 | timestamp | Спросить Claude: "какой сейчас timestamp?" | |
+| 7 | workspace_info | Спросить Claude: "workspace_info для текущей папки" | |
+
+**Тесты Extension (F5 в VS Code):**
+| # | Тест | Проверить | Статус |
+|---|------|-----------|--------|
+| 8 | Sidebar NO_DATA_FOLDER | Удалить `duet.data_folder` → Welcome View | |
+| 9 | Sidebar READY | Установить путь → дерево streams | |
+| 10 | Show Backend Logs | Палитра → "Duet: Show Backend Logs" | |
+
+
+---
+
+### Шаг 4: Переключение UI на HTTP backend
 **Статус:** TODO
 
 Backend уже работает (Шаг 2). Теперь переключаем UI и удаляем старый код **в Extension**.
@@ -1231,7 +1350,3 @@ Backend уже работает (Шаг 2). Теперь переключаем 
 - MCP `duet` работает через HTTP (Copilot)
 - Старый код (sql.js, TS MCP **в Extension**) удалён
 - Legacy в DuetData не тронуто
-
-**Ревью (новые замечания):**
-- ✅ ~~Data folder switch vs multi-window~~ — не проблема: Extension один на VS Code, setting глобальный, все окна переключаются вместе
-- ✅ ~~Генерация workspace-файлов~~ — перенести в `addBusiness` (сразу после записи config.json, не привязано к scan)

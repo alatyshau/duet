@@ -16,6 +16,10 @@ export class Paths {
         return path.normalize(inputPath);
     }
 
+    get root(): string {
+        return this.dataFolder;
+    }
+
     get configPath(): string {
         return path.join(this.dataFolder, 'config.json');
     }
@@ -38,5 +42,35 @@ export class Paths {
 
     get dbDir(): string {
         return path.join(this.dataFolder, 'data');
+    }
+
+    // Backend lifecycle paths
+
+    get backendPath(): string {
+        return path.join(this.dataFolder, 'backend');
+    }
+
+    get pidPath(): string {
+        return path.join(this.dataFolder, '.pid');
+    }
+
+    get installLockPath(): string {
+        return path.join(this.dataFolder, '.install.lock');
+    }
+
+    get startupLockPath(): string {
+        return path.join(this.dataFolder, '.backend-start.lock');
+    }
+
+    get venvPath(): string {
+        return path.join(this.dataFolder, '.venv');
+    }
+
+    get venvPython(): string {
+        return path.join(this.venvPath, 'bin', 'python3');
+    }
+
+    get statePath(): string {
+        return path.join(this.dataFolder, 'state.json');
     }
 }
