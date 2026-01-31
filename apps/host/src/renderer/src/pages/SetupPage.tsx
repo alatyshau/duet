@@ -102,27 +102,7 @@ export function SetupPage({
               </div>
             </div>
           </div>
-
-          {/* Будущие пункты (rclone, Google Drive) — пока заглушки */}
-          <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-background opacity-50">
-            <div className="flex-shrink-0 mt-0.5">
-              <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />
-            </div>
-            <div className="flex-1">
-              <div className="font-medium text-muted-foreground">
-                Синхронизация с облаком
-              </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                Скоро: настройка rclone и подключение к Google Drive
-              </p>
-            </div>
-          </div>
         </div>
-
-        {/* Подсказка */}
-        <p className="text-xs text-muted-foreground text-center">
-          Папка DuetData должна быть синхронизирована с Google Drive или другим облачным хранилищем.
-        </p>
       </div>
     </div>
   )

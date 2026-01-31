@@ -5,7 +5,7 @@
  */
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, RefreshCw, Settings, Package } from 'lucide-react'
+import { FolderOpen, Settings, Package } from 'lucide-react'
 
 interface NavItem {
   id: string
@@ -22,7 +22,6 @@ interface SidebarProps {
 }
 
 const navItems: NavItem[] = [
-  { id: 'sync', label: 'Статус синхронизации', icon: <RefreshCw size={20} /> },
   { id: 'settings', label: 'Настройки', icon: <Settings size={20} /> },
   { id: 'setup', label: 'Установка', icon: <Package size={20} /> }
 ]

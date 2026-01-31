@@ -309,32 +309,33 @@ resources/
 
 ### Шаг 1: Cleanup + Модуляризация
 
-**Статус:** TODO
+**Статус:** DONE ✅
 
 Весь рефакторинг структуры кода и ресурсов.
 
 **Ход работы:**
-- [ ] Удалить устаревший код
-  - [ ] Sidebar.tsx: удалить sync из navItems
-  - [ ] SetupPage.tsx: удалить заглушку rclone
-  - [ ] App.tsx: удалить case 'sync'
-  - [ ] Удалить Versions.tsx
-- [ ] Создать `src/core/`
-  - [ ] config.ts (DUET_CONFIG_DIR, readConfig, writeConfig, типы)
-  - [ ] app-state.ts (AppStatus, AppState, checkAppState)
-- [ ] Создать `src/platform/`
-  - [ ] tray.ts (createTray, updateTrayIcon, getTrayIconPath)
-  - [ ] autolaunch.ts (setupAutoLaunch, isAutoLaunchEnabled)
-- [ ] Модуляризировать `src/main/`
-  - [ ] window.ts (createWindow, showWindow)
-  - [ ] ipc-handlers.ts (setupIpcHandlers)
-  - [ ] index.ts (~50 строк, только склейка)
-- [ ] Реорганизовать `resources/`
-  - [ ] tray/mac/ (trayTemplate.png, trayWarningTemplate.png, @2x)
-  - [ ] tray/win/ (tray.ico, tray-warning.ico)
-  - [ ] app/ (icon.svg, icon.png)
-  - [ ] Обновить пути в tray.ts
-- [ ] Проверить что приложение запускается
+- [x] Удалить устаревший код
+  - [x] Sidebar.tsx: удалить sync из navItems
+  - [x] SetupPage.tsx: удалить заглушку rclone
+  - [x] App.tsx: удалить case 'sync'
+  - [x] Удалить Versions.tsx
+- [x] Создать `src/core/`
+  - [x] config.ts (DUET_CONFIG_DIR, readConfig, writeConfig, типы)
+  - [x] app-state.ts (AppStatus, AppState, checkAppState)
+- [x] Создать `src/platform/`
+  - [x] tray.ts (createTray, updateTrayIcon, getTrayIconPath)
+  - [x] autolaunch.ts (setAutoLaunch, isAutoLaunchEnabled)
+  - [x] README.md (чеклист ручного тестирования)
+- [x] Модуляризировать `src/main/`
+  - [x] window.ts (createWindow, showWindow, sendAppState)
+  - [x] ipc-handlers.ts (setupIpcHandlers)
+  - [x] index.ts (~90 строк, только склейка)
+- [x] Реорганизовать `resources/`
+  - [x] tray/mac/ (trayTemplate.png, trayWarningTemplate.png, @2x)
+  - [x] tray/win/ (tray.ico, tray-warning.ico)
+  - [x] app/ (icon.svg, icon.png)
+  - [x] Обновить пути в tray.ts
+- [x] Проверить что приложение компилируется (typecheck + build)
 
 **Коммит:** `refactor(host): cleanup + modularize (core/, platform/, resources/)`
 

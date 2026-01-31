@@ -80,8 +80,6 @@ function App(): React.JSX.Element {
             onOpenFolder={handleOpenFolder}
           />
         )
-      case 'sync':
-        return <div className="text-muted-foreground">Статус синхронизации (скоро)</div>
       case 'settings':
         return <div className="text-muted-foreground">Настройки (скоро)</div>
       default:
