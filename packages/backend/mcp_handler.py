@@ -18,7 +18,8 @@ from services.workspace import WorkspaceService
 
 
 # Create FastMCP server instance
-mcp = FastMCP("ai-kit", json_response=True)
+# streamable_http_path="/" so final URL is /mcp (not /mcp/mcp)
+mcp = FastMCP("duet", json_response=True, streamable_http_path="/")
 
 
 # Services (initialized by server.py via init_services)

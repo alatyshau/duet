@@ -60,6 +60,7 @@ class DuetDataBuilder:
     Creates the standard DuetData structure with:
     - ai-kit/ directory
     - data/ directory
+    - repos/ directory (optional)
     - config.json with test configuration
 
     Usage:
@@ -77,6 +78,11 @@ class DuetDataBuilder:
         builder = DuetDataBuilder(tmp_path)
         builder.with_hierarchy("MyBusiness")
         duet_data_path = builder.build()
+
+        # Create with repos
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_repo("Duet")  # Creates repos/Duet.git/
+        duet_data_path = builder.build()
     """
 
     DEFAULT_CONFIG = {
@@ -92,6 +98,7 @@ class DuetDataBuilder:
         self._config = self.DEFAULT_CONFIG.copy()
         self._hierarchies: list[tuple[str, str]] = []  # (name, folder_name)
         self._business_folders: list[Path] = []
+        self._repos: list[tuple[str, list[str]]] = []  # (name, components)
 
     def with_version(self, version: str) -> "DuetDataBuilder":
         """Set version in config."""
@@ -123,6 +130,18 @@ class DuetDataBuilder:
         self._hierarchies.append((name, folder_name or name))
         return self
 
+    def add_repo(
+        self, name: str, components: list[str] | None = None
+    ) -> "DuetDataBuilder":
+        """Add a repo to repos/ directory.
+
+        Args:
+            name: Repo name (creates repos/{name}.git/)
+            components: List of component names to create in packages/
+        """
+        self._repos.append((name, components or []))
+        return self
+
     def build(self) -> Path:
         """Build the DuetData structure and return path."""
         # Create base directories
@@ -135,6 +154,21 @@ class DuetDataBuilder:
             biz_path.mkdir(parents=True, exist_ok=True)
             ManifestBuilder.business(biz_path, name)
             self._business_folders.append(biz_path)
+
+        # Create repos if any
+        if self._repos:
+            repos_path = self.root / "repos"
+            repos_path.mkdir(parents=True, exist_ok=True)
+            for name, components in self._repos:
+                repo_path = repos_path / f"{name}.git"
+                repo_path.mkdir(parents=True, exist_ok=True)
+                # Create packages/ with components
+                if components:
+                    packages_path = repo_path / "packages"
+                    packages_path.mkdir(parents=True, exist_ok=True)
+                    for comp_name in components:
+                        comp_path = packages_path / comp_name
+                        comp_path.mkdir(parents=True, exist_ok=True)
 
         # Update config with business folder paths
         if self._business_folders:
@@ -152,6 +186,14 @@ class DuetDataBuilder:
         if index < len(self._business_folders):
             return self._business_folders[index]
         raise IndexError(f"No business folder at index {index}")
+
+    def get_repo_path(self, name: str) -> Path:
+        """Get path to a created repo by name."""
+        return self.root / "repos" / f"{name}.git"
+
+    def get_repos_path(self) -> Path:
+        """Get path to repos/ directory."""
+        return self.root / "repos"
 
 
 class HierarchyBuilder:

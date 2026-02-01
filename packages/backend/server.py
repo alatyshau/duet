@@ -243,17 +243,22 @@ async def lifespan(app: Starlette):
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_signal)
 
-    try:
-        yield
-    finally:
-        # Cleanup
-        db.close()
-        remove_pid_file()
-        logger.info("Duet backend stopped")
+    # Initialize MCP session manager (required for streamable HTTP transport)
+    async with mcp.session_manager.run():
+        try:
+            yield
+        finally:
+            # Cleanup
+            db.close()
+            remove_pid_file()
+            logger.info("Duet backend stopped")
 
 
 def create_app() -> Starlette:
     """Create Starlette application."""
+    # Create MCP app first to initialize session_manager (used in lifespan)
+    mcp_app = mcp.streamable_http_app()
+
     routes = [
         Route("/health", health_handler, methods=["GET"]),
         Route("/stop", stop_handler, methods=["POST"]),
@@ -263,8 +268,8 @@ def create_app() -> Starlette:
         Route("/streams", streams_handler, methods=["GET"]),
         Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
-        # Mount MCP at /mcp
-        Mount("/mcp", app=mcp.streamable_http_app()),
+        # Mount MCP at /mcp (streamable HTTP transport)
+        Mount("/mcp", app=mcp_app),
     ]
 
     return Starlette(

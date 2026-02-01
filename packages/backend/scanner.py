@@ -17,6 +17,7 @@ from typing import Callable
 
 from db import DatabaseManager, Entity
 from config import read_config, get_repos_path
+from normalization import normalize_path
 
 
 @dataclass
@@ -49,6 +50,39 @@ class Scanner:
         self.on_error = on_error
         self.repos_path = repos_path or get_repos_path()
         self._scan_in_progress = False
+        # Current business_folder being scanned (for relative path calculation)
+        self._current_business_folder: Path | None = None
+
+    def _to_relative_path(self, absolute_path: Path) -> str:
+        """Convert absolute path to relative path from current business_folder's parent.
+
+        Path format: {business_folder_name}/{relative_path}
+        - For root (business_folder itself): returns just the folder name
+        - For nested: {business_folder_name}/Stream/Product
+        - Normalizes slashes to forward slashes
+        - Normalizes Unicode to NFC (macOS filesystem uses NFD)
+
+        This ensures uniqueness across multiple business_folders.
+        """
+        if self._current_business_folder is None:
+            return normalize_path(str(absolute_path))
+
+        business_name = self._current_business_folder.name
+
+        try:
+            relative = absolute_path.relative_to(self._current_business_folder)
+            relative_str = str(relative).replace("\\", "/")
+            # For root, relative is "." - return just business name
+            if relative_str == ".":
+                result = business_name
+            else:
+                # For nested paths, prepend business name
+                result = f"{business_name}/{relative_str}"
+            # Normalize Unicode: macOS returns NFD, we store NFC
+            return normalize_path(result)
+        except ValueError:
+            # Path not under business_folder - return as-is (shouldn't happen)
+            return normalize_path(str(absolute_path))
 
     def scan(self) -> dict:
         """Run full scan of business folders.
@@ -181,6 +215,9 @@ class Scanner:
         if not path.exists():
             return
 
+        # Set current business_folder for relative path calculation
+        self._current_business_folder = path
+
         # Self-healing: check for manifest issues at root
         manifest = self._read_manifest(path, "business.json")
 
@@ -203,13 +240,16 @@ class Scanner:
         unique_name = self._resolve_unique_name(base_name, "business")
         icon = manifest.icon or "📁"
 
+        # Use relative path (empty string for root = business folder itself)
+        relative_path = self._to_relative_path(path)
+
         business_id = self.db.insert_entity(
             Entity(
                 id=None,
                 type="business",
                 name=unique_name,
                 icon=icon,
-                drive_path=str(path),
+                drive_path=relative_path,
             )
         )
 
@@ -243,13 +283,16 @@ class Scanner:
             base_name = stream_manifest.name or folder_path.name
             unique_name = self._resolve_unique_name(base_name, "stream")
 
+            # Use relative path from business_folder
+            relative_path = self._to_relative_path(folder_path)
+
             stream_id = self.db.insert_entity(
                 Entity(
                     id=None,
                     type="stream",
                     name=unique_name,
                     icon=stream_manifest.icon or "🌊",
-                    drive_path=str(folder_path),
+                    drive_path=relative_path,
                     parent_id=parent_id,
                 )
             )
@@ -288,28 +331,39 @@ class Scanner:
         base_name = manifest.name or folder_path.name
         unique_name = self._resolve_unique_name(base_name, "product")
 
+        # Use relative path from business_folder
+        relative_path = self._to_relative_path(folder_path)
+
         product_id = self.db.insert_entity(
             Entity(
                 id=None,
                 type="product",
                 name=unique_name,
                 icon=manifest.icon or "📦",
-                drive_path=str(folder_path),
+                drive_path=relative_path,
                 parent_id=parent_id,
                 git_url=manifest.git_url,
             )
         )
 
         # Scan projects from drive path
-        self._scan_projects(folder_path, product_id)
+        self._scan_projects(folder_path, product_id, is_repos=False)
 
         # Also scan projects from git repo if repos_path is configured
         if self.repos_path:
             repo_path = self.repos_path / f"{unique_name}.git"
-            self._scan_projects(repo_path, product_id)
+            self._scan_projects(repo_path, product_id, is_repos=True)
 
-    def _scan_projects(self, folder_path: Path, parent_id: int) -> None:
-        """Scan for projects (folders inside /projects/) - any entity can have projects."""
+    def _scan_projects(
+        self, folder_path: Path, parent_id: int, is_repos: bool = False
+    ) -> None:
+        """Scan for projects (folders inside /projects/) - any entity can have projects.
+
+        Args:
+            folder_path: Path to scan for projects/ subdirectory
+            parent_id: Parent entity ID
+            is_repos: If True, this is a repos path (use relative to repos_path)
+        """
         projects_path = folder_path / "projects"
         if not projects_path.exists():
             return
@@ -321,13 +375,28 @@ class Scanner:
                     project_base_name, "project"
                 )
 
+                # Calculate relative path
+                if is_repos and self.repos_path:
+                    # For repos projects: relative to repos_path
+                    try:
+                        relative_path = normalize_path(
+                            Path(entry.path)
+                            .relative_to(self.repos_path)
+                            .as_posix()
+                        )
+                    except ValueError:
+                        relative_path = normalize_path(entry.path)
+                else:
+                    # For drive projects: relative to business_folder
+                    relative_path = self._to_relative_path(Path(entry.path))
+
                 self.db.insert_entity(
                     Entity(
                         id=None,
                         type="project",
                         name=project_unique_name,
                         icon="📋",
-                        drive_path=entry.path,
+                        drive_path=relative_path,
                         parent_id=parent_id,
                     )
                 )

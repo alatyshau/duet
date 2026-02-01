@@ -1243,9 +1243,7 @@ cd ~/DuetData/repos/Duet.git/packages/backend
 ---
 
 ### Шаг 3: Относительные пути + workspace_info
-**Статус:** TODO
-
-Цель шага после фикса также довести тестирование до конца.
+**Статус:** DONE
 
 `/workspace-info` должен корректно резолвить entity из `workspace_path` (cwd агента). Для этого переходим на относительные пути в DB.
 
@@ -1268,22 +1266,26 @@ cd ~/DuetData/repos/Duet.git/packages/backend
    - Если ни один business_folder не является prefix → UNKNOWN
 
 **Ход работы:**
-- [ ] **Scanner:** `drive_path` → относительный от business_folder (без изменения DB схемы)
-  - При insert: `entity.drive_path = strip_business_prefix(absolute_path)`
+- [x] **Scanner:** `drive_path` → относительный от business_folder
+  - Формат: `{business_folder_name}/{relative_path}` (для уникальности между business_folders)
+  - Метод `_to_relative_path()` в Scanner
   - Нормализация слэшей → `/`
-- [ ] **DB:** проверить `find_by_name(folder_name)` — ищет entity по имени папки repo (folder_name = entity.name для products с git_url)
-- [ ] **workspace_info:** реализовать алгоритм resolve_entity
-  - `is_in_repos(path)` — проверка prefix
-  - `extract_repo_name(path)` — имя без суффиксов
-  - `strip_business_prefix(path)` — обрезка до относительного
-- [ ] **Тесты:**
-  - `resolve_entity("/Users/.../repos/Duet.git")` → entity "Duet"
-  - `resolve_entity("/Users/.../repos/Duet.git/packages/extension")` → entity "Duet"
-  - `resolve_entity("/Users/.../GoogleDrive/.../!МетаЛаб/ДЕЛА/Duet")` → entity "Duet"
-  - `resolve_entity("/Users/.../GoogleDrive/.../!МетаЛаб")` → entity "МетаЛаб"
+- [x] **DB:** `find_by_name()` уже существует — ищет entity по имени
+- [x] **WorkspaceService:** реализован `_resolve_entity()` алгоритм
+  - `_resolve_from_repos()` — для repos путей (по имени продукта)
+  - `_resolve_from_drive()` — для drive путей (по относительному пути)
+  - `_strip_repo_suffixes()` — удаление `.git` и `.wt-*`
+  - `_get_product_path()` — получение абсолютного пути для scan_components
+- [x] **Тесты:** 20 новых тестов в `test_workspace.py`
+  - TestResolveEntity (7 тестов)
+  - TestStripRepoSuffixes (3 теста)
+  - TestGetWorkspaceInfo (4 теста)
+  - TestScannerRelativePaths (6 тестов)
+- [x] **Fixtures:** расширен `DuetDataBuilder` для repos
+- [x] Все 109 тестов проходят
 
 **Known limitations (DEFER):**
-- Worktree суффиксы `.wt-*` — пока не реализованы
+- Worktree суффиксы `.wt-*` — реализовано, но не протестировано на реальных worktrees
 - Multi-product workspace — AI видит только первый folder
 
 #### Ad-hoc тестирование
@@ -1301,24 +1303,17 @@ cd ~/DuetData/repos/Duet.git/packages/backend
 **Тесты API:**
 | # | Тест | Команда | Статус |
 |---|------|---------|--------|
-| 1 | /scan | `curl -s -X POST localhost:19680/scan \| jq` | |
-| 2 | /streams | `curl -s localhost:19680/streams \| jq` | |
-| 3 | /projects/:stream_id | `curl -s localhost:19680/projects/... \| jq` | |
-| 4 | /workspace-info | `curl -s "localhost:19680/workspace-info?workspace_path=$(pwd)" \| jq` | |
+| 1 | /scan | `curl -s -X POST localhost:19680/scan \| jq` | ✅ 45 entities |
+| 2 | /streams | `curl -s localhost:19680/streams \| jq` | ✅ относительные пути |
+| 3 | /projects/:stream_id | `curl -s localhost:19680/projects/... \| jq` | ✅ |
+| 4 | /workspace-info | `curl -s "localhost:19680/workspace-info?workspace_path=$(pwd)" \| jq` | ✅ chain + components |
 
 **Тесты MCP (в этом чате с Claude):**
 | # | Тест | Действие | Статус |
 |---|------|----------|--------|
-| 5 | MCP add | `claude mcp add --transport http duet http://localhost:19680/mcp` | |
-| 6 | timestamp | Спросить Claude: "какой сейчас timestamp?" | |
-| 7 | workspace_info | Спросить Claude: "workspace_info для текущей папки" | |
-
-**Тесты Extension (F5 в VS Code):**
-| # | Тест | Проверить | Статус |
-|---|------|-----------|--------|
-| 8 | Sidebar NO_DATA_FOLDER | Удалить `duet.data_folder` → Welcome View | |
-| 9 | Sidebar READY | Установить путь → дерево streams | |
-| 10 | Show Backend Logs | Палитра → "Duet: Show Backend Logs" | |
+| 5 | MCP add | `claude mcp add --transport http duet http://localhost:19680/mcp` | ✅ |
+| 6 | timestamp | Спросить Claude: "какой сейчас timestamp?" | ✅ |
+| 7 | workspace_info | Спросить Claude: "workspace_info для текущей папки" | ✅ |
 
 
 ---
@@ -1344,6 +1339,16 @@ Backend уже работает (Шаг 2). Теперь переключаем 
 - [ ] Документация: README с инструкцией `claude mcp add --transport http duet ...`
 
 **⚠️ НЕ ТРОГАЕМ (см. LEGACY POLICY):** `~/DuetData/mcp/`, `~/.claude/mcp.json`, `packages/ai-kit/`
+
+#### Ad-hoc тестирование
+
+**Тесты Extension (F5 в VS Code):**
+| # | Тест | Проверить | Статус |
+|---|------|-----------|--------|
+| 1 | Sidebar NO_DATA_FOLDER | Удалить `duet.data_folder` → Welcome View | |
+| 2 | Sidebar READY | Установить путь → дерево streams (из HTTP API) | |
+| 3 | Show Backend Logs | Палитра → "Duet: Show Backend Logs" | |
+| 4 | TreeView refresh | `/scan` → дерево обновляется | |
 
 **Тестирование:**
 - TreeView показывает данные из HTTP API

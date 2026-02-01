@@ -168,18 +168,56 @@ class TestWorkspaceInfoEndpoint:
         assert data["chain"] == []
         assert data["components"] == []
 
-    async def test_returns_chain(self, client: AsyncClient, db) -> None:
-        """Returns entity chain for workspace path."""
-        ids = EntityFactory.insert_hierarchy(db, "/repos")
+    async def test_returns_chain(
+        self, client: AsyncClient, db, duet_data_builder, monkeypatch
+    ) -> None:
+        """Returns entity chain for workspace path (via repos)."""
+        # Create DuetData with repos and business hierarchy
+        builder = duet_data_builder
+        builder.add_business("Business")
+        builder.add_repo("Product", components=["extension"])
+        duet_data = builder.build()
 
-        response = await client.get("/workspace-info?workspace_path=/repos/business/stream/product/src")
+        # Create stream and product in business folder
+        biz_path = builder.get_business_path(0)
+        stream_path = biz_path / "Stream"
+        stream_path.mkdir()
+        from tests.fixtures import ManifestBuilder
+        ManifestBuilder.stream(stream_path, "Stream")
+
+        product_path = stream_path / "Product"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "Product")
+
+        # Re-init config and scan
+        import config
+        config.init(duet_data)
+        from scanner import Scanner
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        # Re-init services with scanned data
+        import time
+        from services.workspace import WorkspaceService
+        from services.entities import EntitiesService
+        from mcp_handler import init_services
+        workspace_service = WorkspaceService(db)
+        entities_service = EntitiesService(db)
+        init_services(workspace_service, entities_service, time.time())
+
+        # Test: request workspace_info for repos path
+        repo_path = str(builder.get_repo_path("Product") / "packages" / "extension")
+        response = await client.get(f"/workspace-info?workspace_path={repo_path}")
         assert response.status_code == 200
 
         data = response.json()
         assert len(data["chain"]) == 3
         assert data["chain"][0]["name"] == "Business"
+        assert data["chain"][0]["type"] == "business"
         assert data["chain"][1]["name"] == "Stream"
+        assert data["chain"][1]["type"] == "stream"
         assert data["chain"][2]["name"] == "Product"
+        assert data["chain"][2]["type"] == "product"
 
 
 @pytest.mark.asyncio

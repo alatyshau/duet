@@ -13,6 +13,7 @@ Configuration file: config.json
 import json
 import os
 import tempfile
+import unicodedata
 from pathlib import Path
 
 
@@ -153,7 +154,10 @@ def get_timezone() -> dict:
 
 
 def get_business_folders() -> list[str]:
-    """Get list of business folders to scan."""
+    """Get list of business folders to scan.
+
+    Normalizes paths to NFC to match scanner output.
+    """
     cfg = read_config()
     folders = cfg.get("business_folders")
     if folders is None:
@@ -161,7 +165,8 @@ def get_business_folders() -> list[str]:
             "business_folders not set in config.json. "
             "Extension must write 'business_folders' before starting backend."
         )
-    return folders
+    # Normalize Unicode: config may contain NFD paths from macOS
+    return [unicodedata.normalize("NFC", f) for f in folders]
 
 
 def get_version() -> str:
