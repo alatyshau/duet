@@ -199,4 +199,66 @@ describe('BusinessTree', () => {
         const roots = tree.getRoots();
         expect(roots[0].hasChildren).toBe(false);
     });
+
+    it('should return all descendants in BFS order for accordion expand', () => {
+        // Create a hierarchy: Biz1 -> Stream1 -> Product1 -> (leaf)
+        //                          -> Stream2 -> (leaf)
+        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
+
+        const stream1Id = db.insertEntity({
+            type: 'stream',
+            name: 'Stream1',
+            icon: 'S',
+            drivePath: '/b1/s1',
+            parentId: bizId
+        });
+
+        const stream2Id = db.insertEntity({
+            type: 'stream',
+            name: 'Stream2',
+            icon: 'S',
+            drivePath: '/b1/s2',
+            parentId: bizId
+        });
+
+        db.insertEntity({
+            type: 'product',
+            name: 'Product1',
+            icon: 'P',
+            drivePath: '/b1/s1/p1',
+            parentId: stream1Id
+        });
+
+        tree.clearCache();
+
+        const descendants = tree.getDescendants(bizId);
+
+        // Should have 3 descendants: Stream1, Stream2, Product1
+        expect(descendants).toHaveLength(3);
+
+        // BFS order: streams first (level 1), then products (level 2)
+        const labels = descendants.map(d => d.label);
+        expect(labels).toContain('Stream1');
+        expect(labels).toContain('Stream2');
+        expect(labels).toContain('Product1');
+
+        // Verify types
+        expect(descendants.filter(d => d.type === 'stream')).toHaveLength(2);
+        expect(descendants.filter(d => d.type === 'product')).toHaveLength(1);
+    });
+
+    it('should return empty array for leaf nodes in getDescendants', () => {
+        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
+        const streamId = db.insertEntity({
+            type: 'stream',
+            name: 'Stream1',
+            icon: 'S',
+            drivePath: '/b1/s1',
+            parentId: bizId
+        });
+
+        // Stream1 is a leaf (no children)
+        const descendants = tree.getDescendants(streamId);
+        expect(descendants).toHaveLength(0);
+    });
 });

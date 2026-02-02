@@ -44,6 +44,28 @@ export class BusinessTree {
         return parent ? this.mapEntity(parent) : null;
     }
 
+    /**
+     * Get all descendants of a node (for expanding to leaves).
+     * Returns nodes in BFS order (parent before children).
+     */
+    getDescendants(entityId: number): TreeNode[] {
+        const result: TreeNode[] = [];
+        const queue = [entityId];
+
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            const children = this.getChildren(currentId);
+            for (const child of children) {
+                result.push(child);
+                if (child.hasChildren) {
+                    queue.push(child.entityId);
+                }
+            }
+        }
+
+        return result;
+    }
+
     private mapEntity(entity: Entity): TreeNode {
         if (this.nodeCache.has(entity.id!)) {
             return this.nodeCache.get(entity.id!)!;

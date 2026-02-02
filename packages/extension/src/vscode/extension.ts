@@ -4,6 +4,7 @@ import * as path from 'path';
 import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
+import { AccordionController } from './providers/AccordionController';
 import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { TreeNode } from '../core/tree/businessTree';
@@ -140,6 +141,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 treeDataProvider: businessProvider,
                 showCollapseAll: false // Hide native collapse, we use toggle
             });
+
+            // Accordion behavior: only one business expanded at a time, expand to leaves
+            const accordion = new AccordionController(businessProvider, businessTreeView);
+            context.subscriptions.push(...accordion.registerListeners());
+            accordion.autoExpandActive();
 
             // Sync selection in ДЕЛА → ПРОЕКТЫ
             businessTreeView.onDidChangeSelection(e => {

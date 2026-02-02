@@ -30,6 +30,13 @@ export class TreeDecorationProvider implements vscode.FileDecorationProvider {
             };
         }
 
+        // Separator nodes — disabled/gray
+        if (type === 'separator') {
+            return {
+                color: new vscode.ThemeColor('disabledForeground')
+            };
+        }
+
         return undefined;
     }
 }
