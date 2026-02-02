@@ -1,4 +1,4 @@
-# Host Testing & Cleanup
+# Host Cleanup & Unit Testing
 
 **Статус:** в работе
 
@@ -6,24 +6,32 @@
 
 ## МОТИВАЦИЯ
 
-Host main process — 420 строк в одном файле. Невозможно unit-тестировать. Перед добавлением backend lifecycle нужно:
+**Главная цель:** Чистая, модульная структура Host с unit-тестами.
 
-1. **Очистить** — удалить устаревший код (sync, rclone)
-2. **Модуляризировать** — разбить на testable модули
-3. **Покрыть тестами** — критические пути (config, AppState)
+Перед E2E тестами нужно:
+1. Удалить устаревший код (sync, rclone)
+2. Модуляризировать — разбить на testable модули
+3. Покрыть core/ unit-тестами
+
+**Путь к полному тестированию:**
+1. ~~Очистить~~ — удалить устаревший код ✅
+2. ~~Модуляризировать~~ — разбить на testable модули ✅
+3. ~~Unit-тесты~~ — покрыть core/ ✅
+4. **E2E тесты** — см. [topic_host_e2e.md](topic_host_e2e.md)
 
 ---
 
 ## ССЫЛКИ
 
-- [apps/host/src/main/index.ts](../../apps/host/src/main/index.ts) — текущий monolith (420 lines)
+- [apps/host/src/main/index.ts](../../apps/host/src/main/index.ts) — entry point (~90 lines после рефакторинга)
 - [topic_host_core.md](topic_host_core.md) — зависит от этого топика
+- [topic_host_e2e.md](topic_host_e2e.md) — E2E тесты (выделено в отдельный топик)
 
 ---
 
 ## НАРРАТИВ
 
-### Текущая структура
+### Исходная структура
 
 ```
 apps/host/src/
@@ -47,7 +55,7 @@ apps/host/src/
         └── utils.ts      # cn() — ok
 ```
 
-### Что удаляем
+### Что удалено
 
 | Файл | Строки | Что |
 |------|--------|-----|
@@ -94,29 +102,27 @@ apps/host/src/
 | 2 | `health-check.ts` | HTTP ping к backend |
 | 3 | `mcp-installer.ts` | редактирование конфигов AI-клиентов |
 
-### Что тестируем
+### Виды тестов
 
 | Вид | Что | Файл |
 |-----|-----|------|
 | **Unit** | config: read/write JSON | `__tests__/unit/core/config.test.ts` |
 | **Unit** | app-state: status transitions | `__tests__/unit/core/app-state.test.ts` |
 | **Unit** | config + app-state flow | `__tests__/unit/core/core-flow.test.ts` |
-| **E2E** | приложение запускается, окно работает | `e2e/app-launch.spec.ts` |
+| **E2E** | приложение запускается, окно работает | см. [topic_host_e2e.md](topic_host_e2e.md) |
 | **Ручные** | tray, autolaunch | `platform/README.md` — инструкция |
 | **Integration** | backend lifecycle (topic_host_core) | *будет позже* |
 
 **Разделение по папкам:**
 - `core/` — unit-тесты (включая flow тесты нескольких модулей)
-- `main/` — E2E-тесты
+- `main/` — E2E-тесты (см. [topic_host_e2e.md](topic_host_e2e.md))
 - `platform/` — только ручные тесты (Playwright не видит системный трей)
 
 **Примечание:** Integration тесты (с реальным backend процессом) появятся в topic_host_core.
 
----
+### Принятые решения
 
-## ПРИНЯТЫЕ РЕШЕНИЯ
-
-### 1. Структура тестов (separation)
+#### 1. Структура тестов (separation)
 
 Тесты отдельно от кода (Java-стиль), масштабируется на 300+ тестов:
 
@@ -139,73 +145,38 @@ apps/host/
 │       ├── index.ts              # re-export
 │       └── fs.ts                 # tmp dir helpers
 │
-├── e2e/                          # E2E тесты (Playwright + Electron)
-│   └── app-launch.spec.ts        # приложение запускается
+├── e2e/                          # E2E тесты (см. topic_host_e2e.md)
+│   └── app-launch.spec.ts
 │
 ├── vitest.config.ts              # unit
-└── playwright.config.ts          # e2e
+└── wdio.conf.ts                  # e2e
 ```
 
-### 2. Виды тестов
-
-| Вид | Что тестирует | Инструмент | Когда |
-|-----|---------------|------------|-------|
-| **Unit** | Модули и их взаимодействие | Vitest | ✅ topic_host_testing |
-| **E2E** | Приложение целиком | Playwright | ✅ topic_host_testing |
-| **Integration** | Backend lifecycle (spawn/kill/health) | Vitest + real process | 🔮 topic_host_core |
-
-### 3. Test runner
+#### 2. Test runner
 
 - **Unit + Integration:** Vitest
-- **E2E:** Playwright с `electron` launcher
+- **E2E:** WebdriverIO с `wdio-electron-service` (см. [topic_host_e2e.md](topic_host_e2e.md))
 - Тестируем `src/core/` как обычный Node.js код
 
-### 4. Пути и tmp директории
+#### 3. Пути и tmp директории
 
 - `process.env.DUET_CONFIG_DIR` — переопределяет путь к config dir в тестах
 - Каждый тест создаёт свой tmp dir в `os.tmpdir()`
 - Cleanup в `afterEach` через helper функцию
 - **Vitest НЕ чистит автоматически** — cleanup явный
 
-### 5. Test helpers
+#### 4. Test helpers
 
 `__tests__/helpers/fs.ts` содержит:
 - `createTestContext()` — создаёт tmp dir, configDir, duetDataDir
 - `cleanup()` — удаляет tmp dir
 - `writeTestConfig()` — пишет config.json в tmp
 
-### 6. fs операции
+#### 5. fs операции
 
 Real fs + tmp dir. Моки не нужны — операции простые, real fs надёжнее.
 
-### 7. CI для кроссплатформенности
-
-**Цель:** Тесты на CI дают кроссплатформенность. Разработка на Mac, проверка на Windows/Linux автоматически.
-
-**GitHub Actions matrix:**
-- `macos-latest`
-- `windows-latest`
-- `ubuntu-latest` (с xvfb для headless)
-
-**Что запускается на CI:**
-- Unit тесты — все платформы
-- Integration тесты — все платформы
-- E2E тесты — все платформы (проверяет запуск + окно)
-
-### 8. Стратегия тестирования
-
-| Папка | Модуль | Автотесты | Вручную |
-|-------|--------|-----------|---------|
-| `core/` | `config.ts` | ✅ Unit | — |
-| `core/` | `app-state.ts` | ✅ Unit | — |
-| `main/` | `index.ts` | ✅ E2E | — |
-| `main/` | `ipc-handlers.ts` | ✅ E2E | — |
-| `main/` | `window.ts` | ✅ E2E | — |
-| `platform/` | `tray.ts` | ❌ | 🖐️ Mac + Windows |
-| `platform/` | `autolaunch.ts` | ❌ | 🖐️ Mac + Windows |
-| — | Дистрибутив (.dmg, .exe) | ❌ | 🖐️ Перед релизом |
-
-### 9. Папка platform/ — консервация
+#### 6. Папка platform/ — консервация
 
 **Весь непокрываемый код в отдельной папке:**
 
@@ -222,26 +193,7 @@ platform/
 - `README.md` содержит чеклист что проверять
 - После проверки — не трогать без необходимости
 
-### 10. Порядок шагов (4 шага)
-
-1. **Cleanup + Модуляризация** — вся структура кода и ресурсов
-2. **Unit + Integration** — vitest, тесты для core/
-3. **E2E + CI** — playwright, GitHub Actions
-4. **Консервация platform/** — ручная проверка, документация
-
-**Принцип:** Сначала порядок в коде → потом тесты для этого кода.
-
-### 11. UI тесты React
-
-Отложены до Фазы 2 (topic_host_core.md). Вернуться когда появится backend status в UI.
-
-### 12. CI workflow детали
-
-- **Кэш:** Да, `actions/cache` для node_modules — обязательно
-- **Артефакты:** Нет, coverage report не нужен
-- **Триггеры:** `push` + `pull_request` на `paths: apps/host/**`
-
-### 13. Структура resources/
+#### 7. Структура resources/
 
 Иконки разделены по назначению и платформе:
 
@@ -263,6 +215,16 @@ resources/
 ```
 
 **Принцип:** Подпапки по платформе, не ломаем соглашение macOS про `*Template.png`.
+
+#### 8. UI тесты React
+
+Отложены до Фазы 2 (topic_host_core.md). Вернуться когда появится backend status в UI.
+
+---
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+
+*Нет открытых вопросов — unit-тесты завершены.*
 
 ---
 
@@ -288,26 +250,24 @@ resources/
 
 ### Постановка задачи
 
-**Scope:** Cleanup + модуляризация + тесты для Host.
+**Scope:** Cleanup + модуляризация + unit-тесты для Host.
 
-**Фундаментальный вопрос:** Как сделать main process testable без переписывания всего?
-
-**Контекст:**
-- Выносим только pure functions (config, app-state)
-- Electron-specific код оставляем как есть
-- Тесты на vitest (уже настроен в monorepo)
+**Контекст:** Подготовка к E2E тестам (см. [topic_host_e2e.md](topic_host_e2e.md)).
 
 ### Критерии завершённости
 
-- [ ] Удалён устаревший код (sync, rclone, Versions)
-- [ ] Структура src/: core/, main/, platform/
-- [ ] Структура resources/: tray/mac/, tray/win/, app/
-- [ ] Unit тесты: config.ts, app-state.ts
-- [ ] Integration тест: config + app-state вместе
-- [ ] E2E тест: приложение запускается + окно работает
-- [ ] CI: GitHub Actions с матрицей macOS/Windows/Ubuntu
+**Выполнено:**
+- [x] Удалён устаревший код (sync, rclone, Versions)
+- [x] Структура src/: core/, main/, platform/
+- [x] Структура resources/: tray/mac/, tray/win/, app/
+- [x] Unit тесты: config.ts, app-state.ts (15 тестов)
+- [x] Build работает: npm run build, start, build:unpack
+- [x] CI: GitHub Actions запускает unit тесты
+- [x] Приложение работает как раньше
+
+**В процессе:**
 - [ ] platform/ проверен вручную на Mac + Windows
-- [ ] Приложение работает как раньше
+- [ ] CI билд exe работает (build-host.yml)
 
 ### Шаг 1: Cleanup + Модуляризация
 
@@ -362,54 +322,14 @@ resources/
 
 **Примечание:** Integration тесты (с реальным backend процессом) появятся в topic_host_core.
 
-### Шаг 3: E2E тесты + CI
+### Шаг 3: Консервация platform/
 
 **Статус:** TODO
 
-Настройка Playwright и GitHub Actions.
+Ручная проверка tray + autolaunch на Mac и Windows. Убедиться что билд работает.
 
 **Ход работы:**
-- [ ] Инфраструктура Playwright
-  - [ ] Добавить playwright, @playwright/test в devDependencies
-  - [ ] Создать `playwright.config.ts` с electron launcher
-  - [ ] Добавить script: test:e2e
-- [ ] E2E тест
-  - [ ] `e2e/app-launch.spec.ts`
-    - Запустить приложение
-    - Показать окно (через evaluate, не tray click)
-    - Проверить что renderer загрузился
-    - Закрыть приложение
-- [ ] CI (GitHub Actions)
-  - [ ] `.github/workflows/host-test.yml`
-  - [ ] Matrix: macos-latest, windows-latest, ubuntu-latest
-  - [ ] Кэш node_modules
-  - [ ] Ubuntu: xvfb-run для E2E
-
-### Шаг 4: Консервация platform/
-
-**Статус:** TODO
-
-Ручная проверка и документация platform/.
-
-**Ход работы:**
-- [ ] Mac
-  - [ ] Иконка в Menu Bar
-  - [ ] Смена иконки (normal/warning)
-  - [ ] Меню работает
-  - [ ] Tooltip правильный
-  - [ ] Автозапуск включается/выключается
-- [ ] Windows
-  - [ ] Иконка в System Tray
-  - [ ] Смена иконки (normal/warning)
-  - [ ] Меню работает
-  - [ ] Tooltip правильный
-  - [ ] Автозапуск включается/выключается
-- [ ] Документация
-  - [ ] `platform/README.md` с чеклистом проверки
-  - [ ] Ссылка на resources/tray/
-
----
-
-## ОТКРЫТЫЕ ВОПРОСЫ
-
-*Нет открытых вопросов.*
+- [ ] Проверить что `npm run build:win` работает на CI
+- [ ] Mac: tray icon, menu, tooltip, autolaunch
+- [ ] Windows: tray icon, menu, tooltip, autolaunch
+- [ ] Обновить `platform/README.md` с чеклистом

@@ -34,8 +34,20 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  // Main process — пустой объект = настройки по умолчанию (достаточно для большинства случаев)
-  main: {},
+  // Main process — собираем как CommonJS для совместимости с Electron
+  main: {
+    build: {
+      rollupOptions: {
+        output: {
+          // CommonJS формат. Electron + ESM ("type": "module") имеет проблемы совместимости.
+          // Исходный код пишем на ESM (import/export), Vite конвертирует в CJS при сборке.
+          // Расширение .cjs явно указывает Node.js что это CommonJS (важно с "type": "module").
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
+        }
+      }
+    }
+  },
 
   // Preload — особые требования к формату модулей
   preload: {
@@ -44,7 +56,9 @@ export default defineConfig({
         output: {
           // CommonJS (require/module.exports) вместо ESM (import/export).
           // Windows Electron требует CJS для preload. Без этого — белый экран.
-          format: 'cjs'
+          // Расширение .cjs для совместимости с "type": "module".
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
         }
       }
     }

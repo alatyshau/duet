@@ -308,3 +308,31 @@ Host должен стать **единственным хозяином backend
 - [ ] Определить UI структуру (вопрос 6)
 
 ### Шаги 1+ — после принятия решений по Шагу 0
+
+---
+
+### E2E тестовая инфраструктура (backend)
+**Статус:** TODO
+
+Инфраструктура для интеграционных тестов backend — тесты запускают реальный сервер.
+
+**Контекст:** Host будет управлять lifecycle backend, поэтому E2E инфраструктура логически связана с Host.
+
+**Scope:**
+- [ ] pytest fixture `backend_server` (scope=session):
+  - Создать временную DuetData с фейковыми business_folders
+  - Выбрать свободный порт (не 19680)
+  - Запустить сервер через subprocess
+  - Wait for /health
+  - Yield URL + cleanup
+- [ ] Фейковые тестовые данные:
+  - Структура папок для business/stream/product
+  - config.json с правильными путями
+- [ ] Базовые E2E тесты:
+  - `/workspace-info` для repos path
+  - `/workspace-info` для drive path
+  - `/scan` + `/streams`
+- [ ] pytest marker `@pytest.mark.e2e` + отдельный запуск
+- [ ] CI: запускать e2e тесты (отдельно от unit)
+
+**Расположение:** `packages/backend/tests/e2e/`

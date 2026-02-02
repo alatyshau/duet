@@ -1,0 +1,94 @@
+# host-test.yml
+#
+# ЧТО: GitHub Actions workflow для тестирования Duet Host.
+# ЗАЧЕМ: Автоматические unit и E2E тесты на всех платформах.
+# КТО ИСПОЛЬЗУЕТ: GitHub Actions при push/PR в apps/host/.
+#
+# ВИДЫ ТЕСТОВ:
+# - Unit тесты (vitest) — core/ модули
+# - E2E тесты (WebdriverIO) — запуск приложения, окно
+#
+# ПЛАТФОРМЫ:
+# - macOS (macos-latest)
+# - Windows (windows-latest)
+# - Ubuntu (ubuntu-latest) — с xvfb для headless GUI
+
+name: Test Duet Host
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches: [main]
+    paths:
+      - 'apps/host/**'
+      - '.github/workflows/host-test.yml'
+
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/host/**'
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # package-lock.json сгенерирован на macOS и может не содержать
+      # platform-specific optional deps для Linux/Windows
+      - name: Delete package-lock.json
+        run: node -e "try{require('fs').unlinkSync('package-lock.json')}catch{}"
+
+      - name: Install dependencies
+        run: npm install
+
+      # ======================
+      # UNIT TESTS
+      # ======================
+      - name: Run unit tests
+        working-directory: apps/host
+        run: npm run test:run
+
+      # ======================
+      # BUILD (для E2E)
+      # ======================
+      - name: Build app for E2E tests
+        working-directory: apps/host
+        run: npx electron-vite build
+
+      # ======================
+      # E2E TESTS (WebdriverIO) — ЗАКОНСЕРВИРОВАНО
+      # Причина: нестабильность, broken symlink в monorepo
+      # Подробности: projects/260108_host_design/topic_host_e2e.md
+      # Включить: заменить "if: false" на оригинальное условие
+      # ======================
+      - name: Run E2E tests (macOS/Windows)
+        if: false  # ВЫКЛЮЧЕНО | было: matrix.platform != 'linux'
+        working-directory: apps/host
+        run: npm run test:e2e
+
+      # Linux требует virtual display для GUI
+      - name: Run E2E tests (Linux with xvfb)
+        if: false  # ВЫКЛЮЧЕНО | было: matrix.platform == 'linux'
+        working-directory: apps/host
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" npm run test:e2e

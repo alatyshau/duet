@@ -15,5 +15,6 @@
   "author": "ve68.org",
   "license": "MIT",
   "devDependencies": {
+    "@playwright/test": "^1.59.0-alpha-2026-01-31"
   }
 }
