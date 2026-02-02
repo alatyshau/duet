@@ -55,13 +55,6 @@
                 "shortTitle": "В новом окне"
             },
             {
-                "command": "duet.toggleExpand",
-                "title": "Развернуть/Свернуть всё",
-                "icon": "$(fold)",
-                "category": "Duet",
-                "shortTitle": "Развернуть/Свернуть"
-            },
-            {
                 "command": "duet.contextSettings",
                 "title": "Настройки контекста",
                 "icon": "$(gear)",
@@ -86,20 +79,6 @@
                 "category": "Duet"
             },
             {
-                "command": "duet.openAllBusinesses",
-                "title": "Открыть все дела в новом окне",
-                "icon": "$(link-external)",
-                "category": "Duet",
-                "shortTitle": "В новом окне"
-            },
-            {
-                "command": "duet.openAllBusinessesHere",
-                "title": "Открыть все дела",
-                "icon": "$(go-to-file)",
-                "category": "Duet",
-                "shortTitle": "Все дела"
-            },
-            {
                 "command": "duet.retryBackend",
                 "title": "Повторить запуск backend",
                 "category": "Duet"
@@ -113,6 +92,21 @@
                 "command": "duet.showBackendLogs",
                 "title": "Показать логи backend",
                 "category": "Duet"
+            },
+            {
+                "command": "duet.openBusinessWorkspace",
+                "title": "Открыть бизнес",
+                "icon": "$(go-to-file)"
+            },
+            {
+                "command": "duet.openBusinessWorkspaceNewWindow",
+                "title": "Открыть бизнес в новом окне",
+                "icon": "$(link-external)"
+            },
+            {
+                "command": "duet.toggleExpand",
+                "title": "Развернуть/Свернуть всё",
+                "icon": "$(fold)"
             }
         ],
         "submenus": [
@@ -135,45 +129,210 @@
             ],
             "view/title": [
                 {
-                    "submenu": "duet.contextSettingsMenu",
-                    "when": "view == duet.context",
-                    "group": "navigation"
-                },
-                {
                     "command": "duet.refresh",
-                    "when": "view == duet.businesses",
+                    "when": "view == duet.context",
                     "group": "navigation@1"
                 },
                 {
                     "command": "duet.addBusiness",
-                    "when": "view == duet.businesses",
+                    "when": "view == duet.context",
                     "group": "navigation@2"
                 },
                 {
-                    "command": "duet.toggleExpand",
-                    "when": "view == duet.businesses",
+                    "submenu": "duet.contextSettingsMenu",
+                    "when": "view == duet.context",
                     "group": "navigation@3"
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business0",
+                    "group": "navigation@1",
+                    "args": { "index": 0 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business0",
+                    "group": "navigation@2",
+                    "args": { "index": 0 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business0",
+                    "group": "navigation@3",
+                    "args": { "index": 0 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business1",
+                    "group": "navigation@1",
+                    "args": { "index": 1 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business1",
+                    "group": "navigation@2",
+                    "args": { "index": 1 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business1",
+                    "group": "navigation@3",
+                    "args": { "index": 1 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business2",
+                    "group": "navigation@1",
+                    "args": { "index": 2 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business2",
+                    "group": "navigation@2",
+                    "args": { "index": 2 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business2",
+                    "group": "navigation@3",
+                    "args": { "index": 2 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business3",
+                    "group": "navigation@1",
+                    "args": { "index": 3 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business3",
+                    "group": "navigation@2",
+                    "args": { "index": 3 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business3",
+                    "group": "navigation@3",
+                    "args": { "index": 3 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business4",
+                    "group": "navigation@1",
+                    "args": { "index": 4 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business4",
+                    "group": "navigation@2",
+                    "args": { "index": 4 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business4",
+                    "group": "navigation@3",
+                    "args": { "index": 4 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business5",
+                    "group": "navigation@1",
+                    "args": { "index": 5 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business5",
+                    "group": "navigation@2",
+                    "args": { "index": 5 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business5",
+                    "group": "navigation@3",
+                    "args": { "index": 5 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business6",
+                    "group": "navigation@1",
+                    "args": { "index": 6 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business6",
+                    "group": "navigation@2",
+                    "args": { "index": 6 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business6",
+                    "group": "navigation@3",
+                    "args": { "index": 6 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business7",
+                    "group": "navigation@1",
+                    "args": { "index": 7 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business7",
+                    "group": "navigation@2",
+                    "args": { "index": 7 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business7",
+                    "group": "navigation@3",
+                    "args": { "index": 7 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business8",
+                    "group": "navigation@1",
+                    "args": { "index": 8 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business8",
+                    "group": "navigation@2",
+                    "args": { "index": 8 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business8",
+                    "group": "navigation@3",
+                    "args": { "index": 8 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspace",
+                    "when": "view == duet.business9",
+                    "group": "navigation@1",
+                    "args": { "index": 9 }
+                },
+                {
+                    "command": "duet.openBusinessWorkspaceNewWindow",
+                    "when": "view == duet.business9",
+                    "group": "navigation@2",
+                    "args": { "index": 9 }
+                },
+                {
+                    "command": "duet.toggleExpand",
+                    "when": "view == duet.business9",
+                    "group": "navigation@3",
+                    "args": { "index": 9 }
                 }
             ],
             "view/item/context": [
                 {
-                    "command": "duet.openAllBusinessesHere",
-                    "when": "view == duet.businesses && viewItem == header",
-                    "group": "inline@1"
-                },
-                {
-                    "command": "duet.openAllBusinesses",
-                    "when": "view == duet.businesses && viewItem == header",
-                    "group": "inline@2"
-                },
-                {
                     "command": "duet.openInCurrentWindow",
-                    "when": "view == duet.businesses && viewItem != header && viewItem != placeholder",
+                    "when": "view =~ /^duet\\.business\\d$/ && viewItem != placeholder",
                     "group": "inline@1"
                 },
                 {
                     "command": "duet.openInNewWindow",
-                    "when": "view == duet.businesses && viewItem != header && viewItem != placeholder",
+                    "when": "view =~ /^duet\\.business\\d$/ && viewItem != placeholder",
                     "group": "inline@2"
                 }
             ]
@@ -206,20 +365,62 @@
                 {
                     "id": "duet.context",
                     "name": "КОНТЕКСТ",
-                    "when": "config.duet.data_folder",
-                    "initialSize": 1
+                    "when": "config.duet.data_folder"
                 },
                 {
-                    "id": "duet.businesses",
-                    "name": "ДЕЛА",
-                    "when": "config.duet.data_folder",
-                    "initialSize": 4
+                    "id": "duet.business0",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 0"
+                },
+                {
+                    "id": "duet.business1",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 1"
+                },
+                {
+                    "id": "duet.business2",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 2"
+                },
+                {
+                    "id": "duet.business3",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 3"
+                },
+                {
+                    "id": "duet.business4",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 4"
+                },
+                {
+                    "id": "duet.business5",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 5"
+                },
+                {
+                    "id": "duet.business6",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 6"
+                },
+                {
+                    "id": "duet.business7",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 7"
+                },
+                {
+                    "id": "duet.business8",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 8"
+                },
+                {
+                    "id": "duet.business9",
+                    "name": "Бизнес",
+                    "when": "config.duet.data_folder && duet.businessCount > 9"
                 },
                 {
                     "id": "duet.projects",
                     "name": "ПРОЕКТЫ",
-                    "when": "config.duet.data_folder",
-                    "initialSize": 1
+                    "when": "config.duet.data_folder"
                 }
             ]
         },
@@ -229,17 +430,17 @@
                 "contents": "Нет открытой папки.\n[Открыть папку](command:vscode.openFolder)"
             },
             {
-                "view": "duet.businesses",
+                "view": "duet.context",
                 "contents": "$(sync~spin) Запуск backend...",
                 "when": "duet.hasDataFolder && duet.initializing"
             },
             {
-                "view": "duet.businesses",
+                "view": "duet.context",
                 "contents": "$(error) Python 3.10+ не найден\n\nDuet требует Python 3.10 или новее.\n\n[Повторить](command:duet.retryBackend) · [Справка](command:duet.showPythonHelp)",
                 "when": "duet.hasDataFolder && duet.initFailed.python"
             },
             {
-                "view": "duet.businesses",
+                "view": "duet.context",
                 "contents": "$(error) Ошибка запуска backend\n\n[Повторить](command:duet.retryBackend) · [Логи](command:duet.showBackendLogs)",
                 "when": "duet.hasDataFolder && duet.initFailed && !duet.initFailed.python"
             }

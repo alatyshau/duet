@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { OnboardingProvider } from './providers/OnboardingProvider';
-import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
+import { BusinessSectionProvider } from './providers/BusinessSectionProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
@@ -16,6 +16,8 @@ import { DatabaseManager } from '../core/db';
 import { Paths } from '../core/paths';
 import { BackendLifecycle, BackendError } from '../core/backend-lifecycle';
 import { SidebarStateManager } from '../core/sidebar-state';
+
+const MAX_BUSINESS_SECTIONS = 10;
 
 // Global instances for lifecycle management
 let backendLifecycle: BackendLifecycle | null = null;
@@ -126,88 +128,202 @@ export async function activate(context: vscode.ExtensionContext) {
         const paths = new Paths(dataFolder);
         const db = new DatabaseManager(paths);
         const wasmPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'sql-wasm.wasm').fsPath;
-        
+
         try {
             await db.init({ wasmPath });
-            const businessProvider = new BusinessTreeProvider(db, wasmPath, paths.reposPath);
+
+            // Create 10 business section providers
+            const businessProviders: BusinessSectionProvider[] = [];
+            const businessTreeViews: vscode.TreeView<unknown>[] = [];
+
+            // Track expand state per view for toggle and accordion functionality
+            const expandStates = new Map<number, boolean>();
+
+            // Track if we're processing visibility change (prevent recursion)
+            let isProcessingVisibilityChange = false;
+
+            for (let i = 0; i < MAX_BUSINESS_SECTIONS; i++) {
+                const provider = new BusinessSectionProvider(db, paths.reposPath, i);
+                businessProviders.push(provider);
+
+                const treeView = vscode.window.createTreeView(`duet.business${i}`, {
+                    treeDataProvider: provider,
+                    showCollapseAll: false // Using custom toggle instead
+                });
+                businessTreeViews.push(treeView);
+
+                context.subscriptions.push(treeView);
+                context.subscriptions.push({ dispose: () => provider.dispose() });
+
+                // Accordion: when this section becomes visible, collapse others
+                const viewIndex = i;
+                treeView.onDidChangeVisibility(async (e) => {
+                    if (!e.visible || isProcessingVisibilityChange) {
+                        return;
+                    }
+
+                    isProcessingVisibilityChange = true;
+                    try {
+                        // Collapse all other business sections
+                        for (let j = 0; j < businessTreeViews.length; j++) {
+                            if (j !== viewIndex && businessTreeViews[j].visible) {
+                                await vscode.commands.executeCommand(
+                                    `workbench.actions.treeView.duet.business${j}.collapseAll`
+                                );
+                                expandStates.set(j, false);
+                            }
+                        }
+                        expandStates.set(viewIndex, true);
+                    } finally {
+                        isProcessingVisibilityChange = false;
+                    }
+                });
+            }
+
+            // Helper to get business by index and open folder
+            const openBusinessFolder = (index: number, forceNewWindow: boolean) => {
+                const provider = businessProviders[index];
+                if (!provider) {
+                    return;
+                }
+                const business = provider.getBusiness();
+                if (business) {
+                    vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(business.id), { forceNewWindow });
+                }
+            };
+
+            // Register parametric commands for business workspace opening
+            // Note: VS Code may not pass args from menu contribution, fallback to first visible view
+            const getBusinessIndex = (args?: { index: number }): number => {
+                if (args?.index !== undefined) {
+                    return args.index;
+                }
+                return businessTreeViews.findIndex(v => v.visible);
+            };
+
+            context.subscriptions.push(
+                vscode.commands.registerCommand('duet.openBusinessWorkspace', (args?: { index: number }) => {
+                    const index = getBusinessIndex(args);
+                    if (index >= 0) {
+                        openBusinessFolder(index, false);
+                    }
+                }),
+                vscode.commands.registerCommand('duet.openBusinessWorkspaceNewWindow', (args?: { index: number }) => {
+                    const index = getBusinessIndex(args);
+                    if (index >= 0) {
+                        openBusinessFolder(index, true);
+                    }
+                })
+            );
+
             const contextProvider = new ContextProvider(db, paths);
             const projectsProvider = new ProjectsProvider(db);
+
             context.subscriptions.push(
                 vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
             );
-            
-            const businessTreeView = vscode.window.createTreeView('duet.businesses', {
-                treeDataProvider: businessProvider,
-                showCollapseAll: false // Hide native collapse, we use toggle
-            });
 
-            // Sync selection in ДЕЛА → ПРОЕКТЫ
-            businessTreeView.onDidChangeSelection(e => {
-                if (e.selection.length > 0) {
-                    const item = e.selection[0];
-                    // Filter out VisualRoot and PlaceholderItem (they don't have entityId)
-                    if ('entityId' in item) {
-                        projectsProvider.setContext((item as TreeNode).id);
+            /**
+             * Update business section views: count, titles, descriptions.
+             */
+            const updateBusinessViews = () => {
+                const allBusinesses = db.getEntities(null);
+                const count = allBusinesses.length;
+
+                // Set context for when clause
+                vscode.commands.executeCommand('setContext', 'duet.businessCount', count);
+
+                // Update each view's title (emoji in title so it's visible when collapsed)
+                for (let i = 0; i < MAX_BUSINESS_SECTIONS; i++) {
+                    const business = allBusinesses[i];
+                    if (business) {
+                        businessTreeViews[i].title = `${business.icon} ${business.name}`;
                     }
                 }
-            });
+            };
 
-            // Track expand state for toggle
-            let isExpanded = false;
+            // Initial update
+            updateBusinessViews();
+
+            // Sync selection in any business section → ПРОЕКТЫ
+            for (const treeView of businessTreeViews) {
+                treeView.onDidChangeSelection(e => {
+                    if (e.selection.length > 0) {
+                        const item = e.selection[0];
+                        if (item && typeof item === 'object' && 'entityId' in item) {
+                            projectsProvider.setContext((item as TreeNode).id);
+                        }
+                    }
+                });
+            }
+
+            // Centralized workspace folder change listener (instead of per-provider)
+            context.subscriptions.push(
+                vscode.workspace.onDidChangeWorkspaceFolders(() => {
+                    for (const provider of businessProviders) {
+                        provider.notifyRefresh();
+                    }
+                })
+            );
 
             context.subscriptions.push(
-                businessTreeView,
                 vscode.window.registerTreeDataProvider('duet.context', contextProvider),
                 vscode.window.registerTreeDataProvider('duet.projects', projectsProvider),
-                // Add disposables
-                { dispose: () => businessProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
-                vscode.commands.registerCommand('duet.refresh', async () => {
-                   await refresh(context);
-                   await businessProvider.refresh();
-                   contextProvider.refresh();
-                   projectsProvider.refresh();
-                }),
-                vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(context)),
-                vscode.commands.registerCommand('duet.toggleExpand', async () => {
+                vscode.commands.registerCommand('duet.toggleExpand', async (args?: { index: number }) => {
+                    // VS Code may not pass args from menu contribution, fallback to first visible view
+                    let index = args?.index;
+                    if (index === undefined) {
+                        index = businessTreeViews.findIndex(v => v.visible);
+                        if (index === -1) {
+                            return;
+                        }
+                    }
+                    const treeView = businessTreeViews[index];
+                    const provider = businessProviders[index];
+                    if (!treeView || !provider) {
+                        return;
+                    }
+
+                    const isExpanded = expandStates.get(index) ?? false;
                     if (isExpanded) {
-                        await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
-                        isExpanded = false;
+                        await vscode.commands.executeCommand(`workbench.actions.treeView.duet.business${index}.collapseAll`);
+                        expandStates.set(index, false);
                     } else {
-                        const nodes = businessProvider.getAllNodes();
+                        const nodes = provider.getAllNodes();
                         for (const node of nodes) {
                             try {
-                                await businessTreeView.reveal(node, { expand: true, focus: false, select: false });
-                            } catch (e) {
-                                console.error('Expand error:', e);
+                                await treeView.reveal(node, { expand: true, focus: false, select: false });
+                            } catch {
+                                // Node may not be expandable
                             }
                         }
-                        isExpanded = true;
+                        expandStates.set(index, true);
                     }
                 }),
-                vscode.commands.registerCommand('duet.openAllBusinesses', async () => {
-                    // Open multi-root workspace with all businesses in new window
-                    const workspacePath = paths.allBusinessesWorkspacePath;
-                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
+                vscode.commands.registerCommand('duet.refresh', async () => {
+                    await refresh(context);
+                    // Reload DB once, then notify all providers
+                    await db.reload({ wasmPath });
+                    for (const provider of businessProviders) {
+                        provider.notifyRefresh();
+                    }
+                    updateBusinessViews();
+                    contextProvider.refresh();
+                    projectsProvider.refresh();
                 }),
-                vscode.commands.registerCommand('duet.openAllBusinessesHere', async () => {
-                    // Open multi-root workspace with all businesses in current window
-                    const workspacePath = paths.allBusinessesWorkspacePath;
-                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: false });
-                }),
+                vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(context)),
                 vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
                 vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
                 vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context)),
-                vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths)), // Legacy, redirects to open
+                vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths)),
                 vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths)),
                 vscode.commands.registerCommand('duet.changeDataFolder', changeDataFolderCommand),
                 vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
-                // Noop command — used in TreeItem.command to prevent toggle on label click
                 vscode.commands.registerCommand('duet.selectNode', () => {})
             );
         } catch (e) {
             console.error('Failed to init DB:', e);
-            // Fallback to stubs if DB fails
             registerStubs(context);
         }
     } else {
@@ -217,13 +333,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
 function registerStubs(context: vscode.ExtensionContext) {
     const stubProvider = new StubProvider();
+
+    // Register stubs for all 10 business sections
+    for (let i = 0; i < MAX_BUSINESS_SECTIONS; i++) {
+        context.subscriptions.push(
+            vscode.window.registerTreeDataProvider(`duet.business${i}`, stubProvider)
+        );
+    }
+
     context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('duet.businesses', stubProvider),
         vscode.window.registerTreeDataProvider('duet.context', stubProvider),
         vscode.window.registerTreeDataProvider('duet.projects', stubProvider)
-        // refresh command is not registered here to avoid collision if dataFolder is set but DB init fails
-        // If exact stub needed: use a check or try-catch block wrapping registration
     );
+
+    // Set businessCount to 0 so sections are hidden
+    vscode.commands.executeCommand('setContext', 'duet.businessCount', 0);
 }
 
 // === Backend Lifecycle Functions ===

@@ -22,6 +22,7 @@
 | Файл | Название | Статус |
 |------|----------|--------|
 | [topic_dependency_check.md](topic_dependency_check.md) | Установка AI Kit из расширения | в работе |
+| [topic_dynamic_sections.md](topic_dynamic_sections.md) | Динамические секции для бизнесов | исследование |
 
 ---
 
