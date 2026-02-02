@@ -692,63 +692,6 @@ $(organization) МетаЛаб
 
 ---
 
-### 8. Worktree Support
-
-Git worktrees позволяют работать с несколькими ветками одного репозитория одновременно.
-
-#### Структура на диске
-
-```
-~/DuetData/repos/
-├── Duet.git      ← основной клон
-├── Duet.wt-1     ← worktree #1
-├── Duet.wt-2     ← worktree #2
-└── Kreator.git
-```
-
-**Формат имени:** `{ProductName}.wt-{N}` где N — автоинкремент (1, 2, 3...).
-
-#### Связь worktree → product
-
-Аналогично основному репо:
-- `Duet.wt-1` → отрезаем `.wt-1` → `Duet` → ищем product в БД
-
-#### Создание worktree
-
-**Команда:** `duet.addWorktree` (доступна из КОНТЕКСТ на git-репо)
-
-**Алгоритм:**
-1. Определить следующий номер: найти все `{Product}.wt-*` в `repos/`, взять max + 1
-2. `git worktree add ../Duet.wt-N` (создаёт detached HEAD)
-3. Открыть QuickPick: "Какую ветку checkout?" (список веток из основного репо)
-4. `git checkout <branch>` в новом worktree
-
-**Удаление:** Пользователь удаляет папку руками. `git worktree prune` почистит ссылки.
-
-#### Отображение в КОНТЕКСТ
-
-Worktrees — на одном уровне с основным репо, под продуктом:
-
-```
-$(organization) МетаЛаб
-  $(briefcase) ТехноЛаб
-    $(package) Duet
-      $(git-branch) Duet.git
-      $(git-branch) Duet.wt-1
-      $(git-branch) Duet.wt-2
-```
-
-#### Открытие worktree
-
-**Из секции ДЕЛА:**
-- Клик по продукту → открывает основной `.git`
-- Inline button или контекстное меню → QuickPick со списком worktrees
-
-**Из секции КОНТЕКСТ:**
-- QuickPick на git-репо: "Add worktree...", "Open worktree..."
-
----
-
 ## ПЛАН ВНЕДРЕНИЯ
 
 **Статус:** планирование
@@ -995,50 +938,33 @@ UX-улучшения по результатам визуального тес�
 
 ---
 
-### Шаг 11b: Worktree Support
-**Статус:** TODO
-**Выход:** [Worktree Support](#8-worktree-support)
-
-Поддержка git worktrees для работы с несколькими ветками одновременно.
-
-**Ход работы:**
-- [ ] Обновить `contextBreadcrumb.ts`: распознавать `.wt-N` суффикс
-- [ ] Команда `duet.addWorktree`: создание нового worktree
-- [ ] QuickPick для выбора ветки при создании
-- [ ] Отображение worktrees в КОНТЕКСТ под продуктом
-- [ ] QuickPick на git-репо в КОНТЕКСТ: "Add worktree...", "Open worktree..."
-- [ ] Inline button или контекстное меню в ДЕЛА для открытия worktree
-- [ ] Проверить: worktree создаётся, отображается, открывается
-
----
-
 ### Шаг 12: Edge Cases
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** [Edge Cases](#6-edge-cases)
 
 Обработка ошибок и особых случаев.
 
 **Ход работы:**
-- [ ] Orphan repo: Editor Tab с QuickPick (связать/создать/игнорировать)
-- [ ] Папка вне структуры: Editor Tab с инструкцией
-- [ ] Ошибки FS: показать сообщение, работать с кэшем
-- [ ] Добавление бизнес-папки: создать business.json если нет
-- [ ] Проверить: все edge cases обрабатываются корректно
+- [x] Orphan repo: `contextBreadcrumb.ts:161-169` → ⚠️ child node
+- [x] Папка вне структуры: `contextBreadcrumb.ts:194-205` → ℹ️ child node
+- [x] Ошибки FS: `scanner.ts` — 6 try-catch блоков, graceful degradation
+- [x] Добавление бизнес-папки: `scanner.ts:197-225` — self-healing (auto-create/rename)
+- [x] Проверить: все edge cases обрабатываются корректно
 
 ---
 
 ### Шаг 13: Polish & Release
-**Статус:** TODO
+**Статус:** DONE
 **Выход:** —
 
 Финальная доработка.
 
 **Ход работы:**
-- [ ] Onboarding: добавить `reloadWindow` после сохранения папки
-- [ ] Scanner: агрегировать ошибки парсинга манифестов в OutputChannel (не спамить попапами)
-- [ ] README.md для расширения
-- [ ] Комментарии по всему коду. Убедиться что топик-файл можно удалить, и в коде в комментариях останется вся документация!
-- [ ] Иконка расширения
-- [ ] Тестирование на чистой установке
-- [ ] Проверка в Cursor (общая DuetData)
-- [ ] Публикация (или локальная установка .vsix)
+- [x] Onboarding: `reloadWindow` после сохранения папки — `ContextProvider.ts:238-244`
+- [x] Scanner: ошибки в OutputChannel — `refresh.ts:46-48`
+- [x] README.md для расширения — не требуется (локальное использование)
+- [~] Комментарии по коду — SKIP (Scanner переезжает на Python backend)
+- [~] Иконка — SKIP (не паблишим в marketplace)
+- [x] Тестирование на чистой установке — CI + E2E инфраструктура
+- [x] Проверка в Cursor — общая DuetData работает
+- [x] Публикация — локальная установка .vsix

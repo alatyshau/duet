@@ -32,9 +32,26 @@ const updateAppState = (): void => {
 }
 
 // =============================================================================
+// SINGLE INSTANCE LOCK
+// =============================================================================
+
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // Другой экземпляр уже запущен — выходим
+  app.quit()
+} else {
+  // При попытке запустить второй экземпляр — показываем окно первого
+  app.on('second-instance', () => {
+    showWindow(appState)
+  })
+}
+
+// =============================================================================
 // APP LIFECYCLE
 // =============================================================================
 
+if (gotTheLock) {
 app.whenReady().then(() => {
   // Windows: устанавливаем App User Model ID для правильной группировки в taskbar
   app.setAppUserModelId('org.ve68.duet')
@@ -101,3 +118,4 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   setQuitting(true)
 })
+} // end if (gotTheLock)

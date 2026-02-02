@@ -21,17 +21,15 @@
 
 | Файл | Название | Статус |
 |------|----------|--------|
-| [topic_vscode_extension.md](topic_vscode_extension.md) | VS Code Extension "Duet" | в работе (Step 8) |
 | [topic_dependency_check.md](topic_dependency_check.md) | Установка AI Kit из расширения | в работе |
-| [topic_nice_to_have.md](topic_nice_to_have.md) | Nice to Have | backlog |
 
 ---
 
 ## Roadmap
 
 1. ✅ Спецификация расширения (Steps 1-7)
-2. 🔄 Реализация UI и логики (Steps 8-12)
-3. ⏳ Polish & Release (Step 13)
+2. ✅ Реализация UI и логики (Steps 8-12)
+3. ✅ Polish & Release (Step 13)
 
 ---
 
@@ -42,6 +40,15 @@
 ---
 
 ## АРХИВ
+
+### 260202_topic_vscode_extension.md
+> VS Code Extension "Duet"
+
+**Статус**: Завершён @turn(260202).
+
+**Итог**: Реализовано расширение Duet для VS Code — навигатор по иерархии бизнесов/дел/продуктов. Sidebar с тремя секциями (КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ), SQLite для иерархии, Scanner для манифестов, MCP сервер для AI-интеграции.
+
+---
 
 ### 260130_topic_mcp_integration.md
 > Поддержка MCP в расширении Duet

@@ -12,7 +12,7 @@
 
 ## ССЫЛКИ
 
-- [topic_vscode_extension.md](topic_vscode_extension.md) — основная спецификация
+- [260202_topic_vscode_extension.md](../260117_extension_design/260202_topic_vscode_extension.md) — основная спецификация (архив)
 
 ---
 
