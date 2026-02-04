@@ -37,14 +37,14 @@ describe('core/app-state', () => {
     })
 
     it('returns no_config when config exists but duetDataPath is not set', () => {
-      writeTestConfig(ctx.configDir, {})
+      writeTestConfig(ctx.configFile, {})
 
       const state = checkAppState()
       expect(state.status).toBe('no_config')
     })
 
     it('returns ready when config exists and path exists', () => {
-      writeTestConfig(ctx.configDir, { duetDataPath: ctx.duetDataDir })
+      writeTestConfig(ctx.configFile, { duetDataPath: ctx.duetDataDir })
 
       const state = checkAppState()
       expect(state.status).toBe('ready')
@@ -54,7 +54,7 @@ describe('core/app-state', () => {
 
     it('returns path_lost when config exists but path does not exist', () => {
       const nonExistentPath = '/non/existent/path'
-      writeTestConfig(ctx.configDir, { duetDataPath: nonExistentPath })
+      writeTestConfig(ctx.configFile, { duetDataPath: nonExistentPath })
 
       const state = checkAppState()
       expect(state.status).toBe('path_lost')
@@ -63,7 +63,7 @@ describe('core/app-state', () => {
     })
 
     it('returns path_lost when path is deleted after config was written', () => {
-      writeTestConfig(ctx.configDir, { duetDataPath: ctx.duetDataDir })
+      writeTestConfig(ctx.configFile, { duetDataPath: ctx.duetDataDir })
 
       // Проверяем что сначала ready
       let state = checkAppState()
