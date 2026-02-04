@@ -14,6 +14,8 @@ export interface TestContext {
   configFile: string
   /** Путь к DuetData директории */
   duetDataDir: string
+  /** Путь к DuetConfig директории */
+  duetConfigDir: string
   /** Очистка после теста */
   cleanup: () => void
 }
@@ -26,9 +28,11 @@ export const createTestContext = (): TestContext => {
   const tmpDir = mkdtempSync(join(tmpdir(), 'duet-test-'))
   const configFile = join(tmpDir, '.org.ve68.duet')
   const duetDataDir = join(tmpDir, 'DuetData')
+  const duetConfigDir = join(tmpDir, 'DuetConfig')
 
-  // Создаём директорию DuetData
+  // Создаём директории
   mkdirSync(duetDataDir, { recursive: true })
+  mkdirSync(duetConfigDir, { recursive: true })
 
   // Устанавливаем env для core/config.ts
   process.env.DUET_CONFIG_FILE = configFile
@@ -38,7 +42,7 @@ export const createTestContext = (): TestContext => {
     rmSync(tmpDir, { recursive: true, force: true })
   }
 
-  return { tmpDir, configFile, duetDataDir, cleanup }
+  return { tmpDir, configFile, duetDataDir, duetConfigDir, cleanup }
 }
 
 /**

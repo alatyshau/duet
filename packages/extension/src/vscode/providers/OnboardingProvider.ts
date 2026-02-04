@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 export class OnboardingProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-    
+
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
         return element;
     }
@@ -13,19 +13,19 @@ export class OnboardingProvider implements vscode.TreeDataProvider<vscode.TreeIt
 
         const items: vscode.TreeItem[] = [];
 
-        // Information text
-        const infoItem = new vscode.TreeItem('Укажите папку для данных:', vscode.TreeItemCollapsibleState.None);
+        const infoItem = new vscode.TreeItem('Duet не настроен', vscode.TreeItemCollapsibleState.None);
         infoItem.contextValue = 'info';
+        infoItem.description = 'нет ~/.org.ve68.duet';
         items.push(infoItem);
 
-        // Select Folder Button
-        const selectItem = new vscode.TreeItem('📁 Выбрать папку...', vscode.TreeItemCollapsibleState.None);
-        selectItem.command = {
-            command: 'duet.selectDataFolder',
-            title: 'Выбрать папку',
-            tooltip: 'Выбрать существующую папку DuetData'
+        const installItem = new vscode.TreeItem('Установите Duet Host', vscode.TreeItemCollapsibleState.None);
+        installItem.command = {
+            command: 'duet.installHost',
+            title: 'Установить Duet Host',
+            tooltip: 'Запустите Duet Host для первоначальной настройки'
         };
-        items.push(selectItem);
+        installItem.description = 'для настройки';
+        items.push(installItem);
 
         return Promise.resolve(items);
     }

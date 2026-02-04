@@ -19,6 +19,8 @@ export type AppStatus = 'no_config' | 'path_lost' | 'ready'
 export interface AppState {
   status: AppStatus
   duetDataPath: string | null
+  duetConfigPath: string | null
+  machine: string | null
   pathExists: boolean
 }
 
@@ -28,27 +30,34 @@ export interface AppState {
 
 /**
  * Проверяет состояние приложения:
- * - no_config: нет конфига или duetDataPath не указан
- * - path_lost: путь указан, но папка не существует
- * - ready: путь указан и папка существует
+ * - no_config: нет конфига или обязательные поля не заполнены
+ * - path_lost: поля заполнены, но папки не существуют
+ * - ready: всё заполнено и папки доступны
  */
 export const checkAppState = (): AppState => {
   const config = readConfig()
 
-  if (!config.duetDataPath) {
+  // Все 3 поля обязательны
+  if (!config.duetDataPath || !config.duetConfigPath || !config.machine) {
     return {
       status: 'no_config',
-      duetDataPath: null,
+      duetDataPath: config.duetDataPath ?? null,
+      duetConfigPath: config.duetConfigPath ?? null,
+      machine: config.machine ?? null,
       pathExists: false
     }
   }
 
-  const pathExists = existsSync(config.duetDataPath)
+  const dataExists = existsSync(config.duetDataPath)
+  const configExists = existsSync(config.duetConfigPath)
+  const pathExists = dataExists && configExists
 
   if (!pathExists) {
     return {
       status: 'path_lost',
       duetDataPath: config.duetDataPath,
+      duetConfigPath: config.duetConfigPath,
+      machine: config.machine,
       pathExists: false
     }
   }
@@ -56,6 +65,8 @@ export const checkAppState = (): AppState => {
   return {
     status: 'ready',
     duetDataPath: config.duetDataPath,
+    duetConfigPath: config.duetConfigPath,
+    machine: config.machine,
     pathExists: true
   }
 }
@@ -66,5 +77,7 @@ export const checkAppState = (): AppState => {
 export const createInitialState = (): AppState => ({
   status: 'no_config',
   duetDataPath: null,
+  duetConfigPath: null,
+  machine: null,
   pathExists: false
 })

@@ -5,12 +5,14 @@
  */
 import { ElectronAPI } from '@electron-toolkit/preload'
 
-// Типы AppState (должны совпадать с main/index.ts и preload/index.ts)
+// Типы AppState (должны совпадать с core/app-state.ts и preload/index.ts)
 export type AppStatus = 'no_config' | 'path_lost' | 'ready'
 
 export interface AppState {
   status: AppStatus
   duetDataPath: string | null
+  duetConfigPath: string | null
+  machine: string | null
   pathExists: boolean
 }
 
@@ -19,7 +21,7 @@ export interface DuetAPI {
   getAppState: () => Promise<AppState>
   onAppStateChanged: (callback: (state: AppState) => void) => () => void
   selectFolder: () => Promise<string | null>
-  setDuetPath: (path: string) => Promise<AppState>
+  savePointer: (config: { duetDataPath: string; duetConfigPath: string; machine: string }) => Promise<AppState>
   openPath: (path: string) => Promise<void>
 }
 

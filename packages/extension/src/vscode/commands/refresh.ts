@@ -4,6 +4,7 @@ import { DatabaseManager } from '../../core/db';
 import { ConfigManager } from '../../core/config';
 import { Paths } from '../../core/paths';
 import { WorkspaceManager } from '../../core/workspace';
+import { readPointer } from '../../core/pointer';
 
 // Singleton OutputChannel for scan errors
 let outputChannel: vscode.OutputChannel | undefined;
@@ -16,11 +17,11 @@ function getOutputChannel(): vscode.OutputChannel {
 }
 
 export async function refresh(context: vscode.ExtensionContext): Promise<void> {
-    const config = vscode.workspace.getConfiguration('duet');
-    const dataFolder = config.get<string>('data_folder');
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath;
 
     if (!dataFolder) {
-        vscode.window.showWarningMessage('Duet Data Folder is not configured.');
+        vscode.window.showWarningMessage('Duet не настроен. Запустите Duet Host.');
         return;
     }
 
@@ -84,8 +85,8 @@ export async function refresh(context: vscode.ExtensionContext): Promise<void> {
 }
 
 export async function dumpIndex(context: vscode.ExtensionContext): Promise<void> {
-    const config = vscode.workspace.getConfiguration('duet');
-    const dataFolder = config.get<string>('data_folder');
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath;
 
     if (!dataFolder) {
         return;

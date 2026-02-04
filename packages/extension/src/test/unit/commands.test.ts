@@ -7,6 +7,16 @@ import { TreeNode } from '../../core/tree/businessTree';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { ConfigManager } from '../../core/config';
+import { readPointer } from '../../core/pointer';
+
+// Mock pointer
+vi.mock('../../core/pointer', () => ({
+    readPointer: vi.fn().mockReturnValue({
+        machine: 'test',
+        duetDataPath: '/mock/data/folder',
+        duetConfigPath: '/mock/config/folder'
+    })
+}));
 
 // Mock dependencies
 vi.mock('vscode', () => ({
@@ -199,27 +209,20 @@ describe('VS Code Commands', () => {
             expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
         });
 
-        it('should show warning if data folder not configured', async () => {
-            // Override mock for this test
-            (vscode.workspace.getConfiguration as any).mockReturnValue({
-                get: vi.fn().mockReturnValue(undefined)
-            });
+        it('should show warning if pointer not found', async () => {
+            // Override mock for this test — no pointer
+            (readPointer as any).mockReturnValueOnce(null);
 
             const context: any = { extensionUri: { fsPath: '/ext' } };
 
             await refresh(context);
 
-            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Duet Data Folder is not configured.');
+            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Duet не настроен. Запустите Duet Host.');
             expect(scanMock).not.toHaveBeenCalled();
         });
 
         it('should log to OutputChannel and show warning if scan fails', async () => {
             scanMock.mockRejectedValue(new Error('Scan error'));
-
-            // Reset configuration mock
-            (vscode.workspace.getConfiguration as any).mockReturnValue({
-                get: vi.fn().mockReturnValue('/mock/data/folder')
-            });
 
             const context: any = { extensionUri: { fsPath: '/ext' } };
 

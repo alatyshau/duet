@@ -218,35 +218,6 @@ export async function openDataFolderCommand(paths: Paths): Promise<void> {
 }
 
 /**
- * Command handler for changing DuetData location.
- */
-export async function changeDataFolderCommand(): Promise<void> {
-    const result = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        openLabel: 'Выбрать папку DuetData',
-        title: 'Выберите папку для данных Duet'
-    });
-
-    if (result && result.length > 0) {
-        const newPath = result[0].fsPath;
-        const config = vscode.workspace.getConfiguration('duet');
-        await config.update('data_folder', newPath, vscode.ConfigurationTarget.Global);
-
-        // Notify user about reload
-        const action = await vscode.window.showInformationMessage(
-            'Расположение DuetData изменено. Перезагрузить окно?',
-            'Перезагрузить'
-        );
-
-        if (action === 'Перезагрузить') {
-            await vscode.commands.executeCommand('workbench.action.reloadWindow');
-        }
-    }
-}
-
-/**
  * Command handler for context help (clicking on error nodes).
  */
 export async function showContextHelpCommand(node: ContextNode): Promise<void> {

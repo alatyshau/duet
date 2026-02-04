@@ -10,12 +10,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
-// Типы для AppState (должны совпадать с main/index.ts)
+// Типы для AppState (должны совпадать с core/app-state.ts)
 type AppStatus = 'no_config' | 'path_lost' | 'ready'
 
 interface AppState {
   status: AppStatus
   duetDataPath: string | null
+  duetConfigPath: string | null
+  machine: string | null
   pathExists: boolean
 }
 
@@ -39,8 +41,9 @@ const api = {
   // Выбор папки через диалог
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-folder'),
 
-  // Сохранить путь к DuetData
-  setDuetPath: (path: string): Promise<AppState> => ipcRenderer.invoke('config:set-duet-path', path),
+  // Сохранить pointer файл (~/.org.ve68.duet)
+  savePointer: (config: { duetDataPath: string; duetConfigPath: string; machine: string }): Promise<AppState> =>
+    ipcRenderer.invoke('config:save-pointer', config),
 
   // Открыть папку в Finder/Explorer
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:open-path', path)

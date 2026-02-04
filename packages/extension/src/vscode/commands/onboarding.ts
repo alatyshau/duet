@@ -1,27 +1,15 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
 
-export async function selectDataFolder(): Promise<void> {
-    const defaultUri = vscode.Uri.file(os.homedir());
+/**
+ * Open Duet Host download page or show installation instructions.
+ */
+export async function installHost(): Promise<void> {
+    const action = await vscode.window.showInformationMessage(
+        'Для работы Duet нужен Duet Host.\n\nЗапустите Host приложение — оно создаст файл конфигурации ~/.org.ve68.duet',
+        'Перезагрузить окно'
+    );
 
-    const options: vscode.OpenDialogOptions = {
-        defaultUri,
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        openLabel: 'Выбрать папку DuetData',
-        title: 'Выберите или создайте папку для данных Duet'
-    };
-
-    const uris = await vscode.window.showOpenDialog(options);
-    if (uris && uris.length > 0) {
-        const selectedPath = uris[0].fsPath;
-        await updateDataFolderSetting(selectedPath);
-        vscode.window.showInformationMessage(`Папка DuetData: ${selectedPath}`);
+    if (action === 'Перезагрузить окно') {
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
     }
-}
-
-async function updateDataFolderSetting(folderPath: string): Promise<void> {
-    const config = vscode.workspace.getConfiguration('duet');
-    await config.update('data_folder', folderPath, vscode.ConfigurationTarget.Global);
 }

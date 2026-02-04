@@ -23,12 +23,18 @@ describe('core flow: config → app-state', () => {
     let state = checkAppState()
     expect(state.status).toBe('no_config')
 
-    // 2. Пользователь выбирает папку
-    writeConfig({ duetDataPath: ctx.duetDataDir })
+    // 2. Пользователь заполняет все 3 поля
+    writeConfig({
+      duetDataPath: ctx.duetDataDir,
+      duetConfigPath: ctx.duetConfigDir,
+      machine: 'test_machine'
+    })
 
     // 3. Проверяем что конфиг записан
     const config = readConfig()
     expect(config.duetDataPath).toBe(ctx.duetDataDir)
+    expect(config.duetConfigPath).toBe(ctx.duetConfigDir)
+    expect(config.machine).toBe('test_machine')
 
     // 4. Состояние должно быть ready
     state = checkAppState()
@@ -47,18 +53,24 @@ describe('core flow: config → app-state', () => {
   })
 
   it('changing duetDataPath updates state correctly', () => {
+    const fullConfig = {
+      duetDataPath: ctx.duetDataDir,
+      duetConfigPath: ctx.duetConfigDir,
+      machine: 'test_machine'
+    }
+
     // Первая папка
-    writeConfig({ duetDataPath: ctx.duetDataDir })
+    writeConfig(fullConfig)
     let state = checkAppState()
     expect(state.status).toBe('ready')
 
     // Меняем на несуществующую
-    writeConfig({ duetDataPath: '/does/not/exist' })
+    writeConfig({ ...fullConfig, duetDataPath: '/does/not/exist' })
     state = checkAppState()
     expect(state.status).toBe('path_lost')
 
     // Возвращаем обратно
-    writeConfig({ duetDataPath: ctx.duetDataDir })
+    writeConfig(fullConfig)
     state = checkAppState()
     expect(state.status).toBe('ready')
   })

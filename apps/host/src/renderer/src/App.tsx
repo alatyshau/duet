@@ -12,19 +12,31 @@ function App(): React.JSX.Element {
   const [currentPage, setCurrentPage] = useState('setup')
   const [appState, setAppState] = useState<AppState | null>(null)
 
+  // Draft state for pointer fields (before saving)
+  const [draftDuetDataPath, setDraftDuetDataPath] = useState<string | null>(null)
+  const [draftDuetConfigPath, setDraftDuetConfigPath] = useState<string | null>(null)
+  const [draftMachine, setDraftMachine] = useState('')
+
   // При загрузке получаем AppState и подписываемся на изменения
   useEffect(() => {
-    // Проверяем что preload загрузился
     if (!window.api) {
       console.error('window.api не определён — preload не загрузился')
       return
     }
 
-    // Получаем начальное состояние
-    window.api.getAppState().then(setAppState).catch(console.error)
+    window.api.getAppState().then((state) => {
+      setAppState(state)
+      if (state.duetDataPath) setDraftDuetDataPath(state.duetDataPath)
+      if (state.duetConfigPath) setDraftDuetConfigPath(state.duetConfigPath)
+      if (state.machine) setDraftMachine(state.machine)
+    }).catch(console.error)
 
-    // Подписываемся на изменения
-    const unsubscribe = window.api.onAppStateChanged(setAppState)
+    const unsubscribe = window.api.onAppStateChanged((state) => {
+      setAppState(state)
+      if (state.duetDataPath) setDraftDuetDataPath(state.duetDataPath)
+      if (state.duetConfigPath) setDraftDuetConfigPath(state.duetConfigPath)
+      if (state.machine) setDraftMachine(state.machine)
+    })
 
     return () => {
       unsubscribe()
@@ -32,26 +44,46 @@ function App(): React.JSX.Element {
   }, [])
 
   // Выбор папки через системный диалог
-  const handleSelectFolder = async (): Promise<void> => {
+  const handleSelectFolder = async (field: 'duetDataPath' | 'duetConfigPath'): Promise<void> => {
     const result = await window.api.selectFolder()
     if (result) {
-      // setDuetPath возвращает новый AppState
-      const newState = await window.api.setDuetPath(result)
-      setAppState(newState)
+      if (field === 'duetDataPath') {
+        setDraftDuetDataPath(result)
+      } else {
+        setDraftDuetConfigPath(result)
+      }
+
+      // Auto-save if all fields filled
+      const data = field === 'duetDataPath' ? result : draftDuetDataPath
+      const config = field === 'duetConfigPath' ? result : draftDuetConfigPath
+      const machine = draftMachine.trim()
+
+      if (data && config && machine) {
+        const newState = await window.api.savePointer({ duetDataPath: data, duetConfigPath: config, machine })
+        setAppState(newState)
+      }
     }
+  }
+
+  // Сохранить pointer файл
+  const handleSave = async (): Promise<void> => {
+    if (!draftDuetDataPath || !draftDuetConfigPath || !draftMachine.trim()) return
+
+    const newState = await window.api.savePointer({
+      duetDataPath: draftDuetDataPath,
+      duetConfigPath: draftDuetConfigPath,
+      machine: draftMachine.trim()
+    })
+    setAppState(newState)
   }
 
   // Открыть папку в Finder/Explorer
-  const handleOpenFolder = (): void => {
-    if (appState?.duetDataPath) {
-      window.api.openPath(appState.duetDataPath)
-    }
+  const handleOpenPath = (path: string): void => {
+    window.api.openPath(path)
   }
 
-  // Определяем готовность
   const isReady = appState?.status === 'ready'
 
-  // Если preload не загрузился — показываем ошибку
   if (!window.api) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -60,7 +92,6 @@ function App(): React.JSX.Element {
     )
   }
 
-  // Если ещё загружается - показываем пустой экран
   if (!appState) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -69,15 +100,25 @@ function App(): React.JSX.Element {
     )
   }
 
-  // Рендер текущей страницы
+  // Merge draft with appState for display
+  const displayState: AppState = {
+    ...appState,
+    duetDataPath: draftDuetDataPath,
+    duetConfigPath: draftDuetConfigPath,
+    machine: draftMachine || appState.machine
+  }
+
   const renderPage = (): React.ReactNode => {
     switch (currentPage) {
       case 'setup':
         return (
           <SetupPage
-            appState={appState}
+            appState={displayState}
             onSelectFolder={handleSelectFolder}
-            onOpenFolder={handleOpenFolder}
+            onSave={handleSave}
+            onOpenPath={handleOpenPath}
+            machine={draftMachine}
+            onMachineChange={setDraftMachine}
           />
         )
       case 'settings':
@@ -91,7 +132,7 @@ function App(): React.JSX.Element {
     <Layout
       currentPage={currentPage}
       onNavigate={setCurrentPage}
-      onOpenFolder={handleOpenFolder}
+      onOpenFolder={() => appState.duetDataPath && handleOpenPath(appState.duetDataPath)}
       folderConfigured={isReady}
     >
       {renderPage()}

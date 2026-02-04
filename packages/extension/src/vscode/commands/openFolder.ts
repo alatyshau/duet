@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import { TreeNode } from '../../core/tree/businessTree';
 import { WorkspaceManager } from '../../core/workspace';
 import { Paths } from '../../core/paths';
+import { readPointer } from '../../core/pointer';
 
 // Output channel for git operations
 let gitOutputChannel: vscode.OutputChannel | undefined;
@@ -179,9 +180,10 @@ async function openProductWithGit(
  * Command: Open in current window (button [↵])
  */
 export async function openInCurrentWindow(node: TreeNode): Promise<void> {
-    const dataFolder = vscode.workspace.getConfiguration('duet').get<string>('data_folder');
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath;
     if (!dataFolder) {
-        vscode.window.showErrorMessage('DuetData folder not configured');
+        vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
         return;
     }
 
@@ -193,9 +195,10 @@ export async function openInCurrentWindow(node: TreeNode): Promise<void> {
  * Command: Open in new window (button [→])
  */
 export async function openInNewWindow(node: TreeNode): Promise<void> {
-    const dataFolder = vscode.workspace.getConfiguration('duet').get<string>('data_folder');
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath;
     if (!dataFolder) {
-        vscode.window.showErrorMessage('DuetData folder not configured');
+        vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
         return;
     }
 

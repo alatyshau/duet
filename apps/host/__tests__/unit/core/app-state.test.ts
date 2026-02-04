@@ -23,6 +23,8 @@ describe('core/app-state', () => {
       expect(state).toEqual({
         status: 'no_config',
         duetDataPath: null,
+        duetConfigPath: null,
+        machine: null,
         pathExists: false
       })
     })
@@ -33,46 +35,65 @@ describe('core/app-state', () => {
       const state = checkAppState()
       expect(state.status).toBe('no_config')
       expect(state.duetDataPath).toBeNull()
+      expect(state.duetConfigPath).toBeNull()
+      expect(state.machine).toBeNull()
       expect(state.pathExists).toBe(false)
     })
 
-    it('returns no_config when config exists but duetDataPath is not set', () => {
+    it('returns no_config when config exists but fields are empty', () => {
       writeTestConfig(ctx.configFile, {})
 
       const state = checkAppState()
       expect(state.status).toBe('no_config')
     })
 
-    it('returns ready when config exists and path exists', () => {
+    it('returns no_config when only duetDataPath is set (incomplete pointer)', () => {
       writeTestConfig(ctx.configFile, { duetDataPath: ctx.duetDataDir })
+
+      const state = checkAppState()
+      expect(state.status).toBe('no_config')
+    })
+
+    it('returns ready when all 3 fields set and paths exist', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test_machine'
+      })
 
       const state = checkAppState()
       expect(state.status).toBe('ready')
       expect(state.duetDataPath).toBe(ctx.duetDataDir)
+      expect(state.duetConfigPath).toBe(ctx.duetConfigDir)
+      expect(state.machine).toBe('test_machine')
       expect(state.pathExists).toBe(true)
     })
 
-    it('returns path_lost when config exists but path does not exist', () => {
-      const nonExistentPath = '/non/existent/path'
-      writeTestConfig(ctx.configFile, { duetDataPath: nonExistentPath })
+    it('returns path_lost when paths do not exist', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: '/non/existent/data',
+        duetConfigPath: '/non/existent/config',
+        machine: 'test_machine'
+      })
 
       const state = checkAppState()
       expect(state.status).toBe('path_lost')
-      expect(state.duetDataPath).toBe(nonExistentPath)
       expect(state.pathExists).toBe(false)
     })
 
-    it('returns path_lost when path is deleted after config was written', () => {
-      writeTestConfig(ctx.configFile, { duetDataPath: ctx.duetDataDir })
+    it('returns path_lost when DuetData is deleted after config was written', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test_machine'
+      })
 
-      // Проверяем что сначала ready
       let state = checkAppState()
       expect(state.status).toBe('ready')
 
-      // Удаляем директорию
+      // Удаляем DuetData
       rmSync(ctx.duetDataDir, { recursive: true })
 
-      // Теперь должен быть path_lost
       state = checkAppState()
       expect(state.status).toBe('path_lost')
     })

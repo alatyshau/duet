@@ -4,7 +4,7 @@
  * КТО ИСПОЛЬЗУЕТ: main process при инициализации.
  */
 import { ipcMain, dialog, shell } from 'electron'
-import { readConfig, writeConfig } from '../core/config'
+import { writeConfig } from '../core/config'
 import type { AppState } from '../core/app-state'
 
 // =============================================================================
@@ -35,7 +35,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('dialog:select-folder', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
-      title: 'Выберите папку DuetData'
+      title: 'Выберите папку'
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
@@ -43,11 +43,13 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     return result.filePaths[0]
   })
 
-  // Сохранить путь к DuetData в конфиг
-  ipcMain.handle('config:set-duet-path', (_event, path: string) => {
-    const config = readConfig()
-    config.duetDataPath = path
-    writeConfig(config)
+  // Сохранить pointer файл (~/.org.ve68.duet)
+  ipcMain.handle('config:save-pointer', (_event, config: { duetDataPath: string; duetConfigPath: string; machine: string }) => {
+    writeConfig({
+      duetDataPath: config.duetDataPath,
+      duetConfigPath: config.duetConfigPath,
+      machine: config.machine
+    })
     context.updateAppState()
     return context.getAppState()
   })

@@ -23,8 +23,8 @@
         ],
         "commands": [
             {
-                "command": "duet.selectDataFolder",
-                "title": "Duet: Select Data Folder"
+                "command": "duet.installHost",
+                "title": "Duet: Установить Duet Host"
             },
             {
                 "command": "duet.refresh",
@@ -75,12 +75,6 @@
                 "category": "Duet"
             },
             {
-                "command": "duet.changeDataFolder",
-                "title": "Изменить расположение DuetData",
-                "icon": "$(folder)",
-                "category": "Duet"
-            },
-            {
                 "command": "duet.showContextHelp",
                 "title": "Показать справку",
                 "category": "Duet"
@@ -126,10 +120,6 @@
             "duet.contextSettingsMenu": [
                 {
                     "command": "duet.openDataFolder",
-                    "group": "1_folder"
-                },
-                {
-                    "command": "duet.changeDataFolder",
                     "group": "1_folder"
                 }
             ],
@@ -178,15 +168,6 @@
                 }
             ]
         },
-        "configuration": {
-            "title": "Duet",
-            "properties": {
-                "duet.data_folder": {
-                    "type": "string",
-                    "description": "Path to DuetData folder (e.g. ~/DuetData)"
-                }
-            }
-        },
         "viewsContainers": {
             "activitybar": [
                 {
@@ -201,24 +182,24 @@
                 {
                     "id": "duet.onboarding",
                     "name": "DUET",
-                    "when": "!config.duet.data_folder"
+                    "when": "duet.noPointer"
                 },
                 {
                     "id": "duet.context",
                     "name": "КОНТЕКСТ",
-                    "when": "config.duet.data_folder",
+                    "when": "duet.hasPointer",
                     "initialSize": 1
                 },
                 {
                     "id": "duet.businesses",
                     "name": "ДЕЛА",
-                    "when": "config.duet.data_folder",
+                    "when": "duet.hasPointer",
                     "initialSize": 4
                 },
                 {
                     "id": "duet.projects",
                     "name": "ПРОЕКТЫ",
-                    "when": "config.duet.data_folder",
+                    "when": "duet.hasPointer",
                     "initialSize": 1
                 }
             ]

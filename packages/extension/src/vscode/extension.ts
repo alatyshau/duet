@@ -5,10 +5,11 @@ import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { AccordionController } from './providers/AccordionController';
-import { ContextProvider, openDataFolderCommand, changeDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
+import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { TreeNode } from '../core/tree/businessTree';
-import { selectDataFolder } from './commands/onboarding';
+import { installHost } from './commands/onboarding';
+import { readPointer } from '../core/pointer';
 import { refresh } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
@@ -62,8 +63,13 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.registerTreeDataProvider('duet.onboarding', onboardingProvider)
     );
 
-    const config = vscode.workspace.getConfiguration('duet');
-    const dataFolder = config.get<string>('data_folder');
+    // Read pointer file (~/.org.ve68.duet)
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath ?? null;
+
+    // Set context for view visibility (package.json uses duet.hasPointer / duet.noPointer)
+    await vscode.commands.executeCommand('setContext', 'duet.hasPointer', !!pointer);
+    await vscode.commands.executeCommand('setContext', 'duet.noPointer', !pointer);
 
     // Set initial sidebar state
     await sidebarState.setHasDataFolder(!!dataFolder);
@@ -90,12 +96,11 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(
             vscode.lm.registerMcpServerDefinitionProvider('duet-ai-kit', {
                 provideMcpServerDefinitions: async () => {
-                    const currentDataFolder = vscode.workspace
-                        .getConfiguration('duet')
-                        .get<string>('data_folder');
+                    const currentPointer = readPointer();
+                    const currentDataFolder = currentPointer?.duetDataPath;
 
                     if (!currentDataFolder) {
-                        return []; // No server if data folder not configured
+                        return []; // No server if pointer not found
                     }
 
                     return [
@@ -120,7 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('duet.selectDataFolder', selectDataFolder)
+        vscode.commands.registerCommand('duet.installHost', installHost)
     );
 
     if (dataFolder) {
@@ -206,7 +211,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context)),
                 vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths)), // Legacy, redirects to open
                 vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths)),
-                vscode.commands.registerCommand('duet.changeDataFolder', changeDataFolderCommand),
                 vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
                 // Noop command — used in TreeItem.command to prevent toggle on label click
                 vscode.commands.registerCommand('duet.selectNode', () => {})
@@ -281,9 +285,10 @@ function initBackendLifecycle(context: vscode.ExtensionContext, dataFolder: stri
  * Retry backend startup.
  */
 async function retryBackend(context: vscode.ExtensionContext): Promise<void> {
-    const dataFolder = vscode.workspace.getConfiguration('duet').get<string>('data_folder');
+    const retryPointer = readPointer();
+    const dataFolder = retryPointer?.duetDataPath;
     if (!dataFolder) {
-        vscode.window.showErrorMessage('DuetData folder not configured');
+        vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
         return;
     }
 

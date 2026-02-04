@@ -3,12 +3,13 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigManager } from '../../core/config';
 import { Paths } from '../../core/paths';
+import { readPointer } from '../../core/pointer';
 
 export async function addBusiness(context: vscode.ExtensionContext): Promise<void> {
-    const config = vscode.workspace.getConfiguration('duet');
-    const dataFolder = config.get<string>('data_folder');
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath;
     if (!dataFolder) {
-        vscode.window.showErrorMessage("Duet Data Folder not configured.");
+        vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
         return;
     }
 
