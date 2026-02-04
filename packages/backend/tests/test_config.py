@@ -1,4 +1,10 @@
-"""Tests for config.py - Configuration management."""
+"""Tests for config.py - Configuration management (new architecture).
+
+New architecture:
+- ~/.org.ve68.duet (pointer) → duetDataPath, duetConfigPath, machine
+- DuetConfig/settings.json → business_folders (@aliases), timestampTZ
+- DuetConfig/{machine}.json → port, @alias mappings
+"""
 
 import json
 from pathlib import Path
@@ -9,27 +15,29 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
+from tests.fixtures import DuetDataBuilder
 
 
-class TestConfigInit:
-    """Tests for config initialization."""
+class TestPathGetters:
+    """Tests for path getter functions."""
 
-    def test_init_sets_data_path(self, tmp_path: Path) -> None:
-        """init() sets the data path."""
-        config.init(tmp_path)
-        assert config.get_duet_data_path() == tmp_path
+    def test_get_duet_data_path(self, duet_data: Path) -> None:
+        """get_duet_data_path() returns path from pointer."""
+        assert config.get_duet_data_path() == duet_data
 
-    def test_get_duet_data_path_raises_if_not_initialized(self) -> None:
-        """get_duet_data_path() raises if init() was not called."""
-        # Reset global state
-        config._data_path = None
+    def test_get_duet_config_path(
+        self, duet_data: Path, duet_data_builder: DuetDataBuilder, tmp_path: Path
+    ) -> None:
+        """get_duet_config_path() returns path from pointer."""
+        # duet_data fixture uses DuetDataBuilder internally
+        # DuetConfig is at tmp_path/DuetConfig
+        expected = tmp_path / "DuetConfig"
+        assert config.get_duet_config_path() == expected
 
-        with pytest.raises(RuntimeError, match="Config not initialized"):
-            config.get_duet_data_path()
-
-
-class TestConfigPaths:
-    """Tests for path getters."""
+    def test_get_machine(self, duet_data: Path) -> None:
+        """get_machine() returns machine identifier from pointer."""
+        # Default machine in DuetDataBuilder is "test_machine"
+        assert config.get_machine() == "test_machine"
 
     def test_get_db_path(self, duet_data: Path) -> None:
         """get_db_path() returns correct path."""
@@ -43,263 +51,352 @@ class TestConfigPaths:
         """get_ai_kit_path() returns correct path."""
         assert config.get_ai_kit_path() == duet_data / "ai-kit"
 
-    def test_get_config_path(self, duet_data: Path) -> None:
-        """get_config_path() returns correct path."""
-        assert config.get_config_path() == duet_data / "config.json"
-
-
-class TestReadDuetConfig:
-    """Tests for read_config()."""
-
-    def test_reads_version_from_config(self, duet_data: Path) -> None:
-        """Reads version from config.json."""
-        # duet_data fixture already creates config with version: "test"
-        result = config.read_config()
-        assert result["version"] == "test"
-
-    def test_reads_port_from_config(self, duet_data: Path) -> None:
-        """Reads port from config.json."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test", "port": 12345}))
-
-        result = config.read_config()
-        assert result["port"] == 12345
-
-    def test_reads_business_folders_from_config(self, duet_data: Path) -> None:
-        """Reads business_folders from config.json."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "business_folders": ["/path/to/business1", "/path/to/business2"]
-        }))
-
-        result = config.read_config()
-        assert result["business_folders"] == ["/path/to/business1", "/path/to/business2"]
-
-    def test_reads_timezone_from_config(self, duet_data: Path) -> None:
-        """Reads timestampTZ from config.json."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "timestampTZ": {"id": "M", "value": "Europe/Moscow"}
-        }))
-
-        result = config.read_config()
-        assert result["timestampTZ"] == {"id": "M", "value": "Europe/Moscow"}
-
-    def test_invalid_port_returns_default(self, duet_data: Path) -> None:
-        """Invalid port value returns None (port is required for backend start)."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test", "port": "not_a_number"}))
-
-        result = config.read_config()
-        assert result["port"] is None
-
-    def test_invalid_business_folders_returns_empty(self, duet_data: Path) -> None:
-        """Invalid business_folders value returns None (field is required)."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test", "business_folders": "not_a_list"}))
-
-        result = config.read_config()
-        assert result["business_folders"] is None
-
-    def test_filters_non_string_business_folders(self, duet_data: Path) -> None:
-        """Non-string items in business_folders are filtered out."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "business_folders": ["/valid/path", 123, None, "/another/valid"]
-        }))
-
-        result = config.read_config()
-        assert result["business_folders"] == ["/valid/path", "/another/valid"]
-
-    def test_corrupted_json_returns_defaults(self, duet_data: Path) -> None:
-        """Corrupted JSON returns defaults."""
-        config_path = duet_data / "config.json"
-        config_path.write_text("{ invalid json }")
-
-        result = config.read_config()
-        assert result["port"] is None
-        assert result["business_folders"] is None
-        assert result["version"] is None  # No version in corrupted config
-
-
-class TestTimezone:
-    """Tests for timezone configuration."""
-
-    def test_no_legacy_fallback(self, duet_data: Path) -> None:
-        """No fallback to ai-kit/settings.json — returns None if not in config.json."""
-        # No timestampTZ in config.json
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test", "port": 19680}))
-
-        # Even if exists in legacy settings — it's ignored
-        settings_path = duet_data / "ai-kit" / "settings.json"
-        settings_path.write_text(json.dumps({
-            "timestampTZ": {"id": "P", "value": "America/Los_Angeles"}
-        }))
-
-        result = config.read_config()
-        # Returns None, NOT legacy value
-        assert result["timestampTZ"] is None
-
-    def test_reads_timezone_from_config(self, duet_data: Path) -> None:
-        """Reads timestampTZ from config.json."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "timestampTZ": {"id": "M", "value": "Europe/Moscow"}
-        }))
-
-        result = config.read_config()
-        assert result["timestampTZ"] == {"id": "M", "value": "Europe/Moscow"}
-
-    def test_invalid_timezone_string_returns_default(self, duet_data: Path) -> None:
-        """Invalid timestampTZ (string instead of dict) returns None."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "timestampTZ": "Europe/Moscow"  # Should be dict
-        }))
-
-        result = config.read_config()
-        assert result["timestampTZ"] is None
-
-    def test_invalid_timezone_missing_id_returns_default(self, duet_data: Path) -> None:
-        """Invalid timestampTZ (missing 'id' key) returns None."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "timestampTZ": {"value": "Europe/Moscow"}  # Missing 'id'
-        }))
-
-        result = config.read_config()
-        assert result["timestampTZ"] is None
-
-    def test_invalid_timezone_missing_value_returns_default(self, duet_data: Path) -> None:
-        """Invalid timestampTZ (missing 'value' key) returns None."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "timestampTZ": {"id": "M"}  # Missing 'value'
-        }))
-
-        result = config.read_config()
-        assert result["timestampTZ"] is None
-
-
-class TestGetVersion:
-    """Tests for get_version()."""
-
-    def test_get_version_returns_version(self, duet_data: Path) -> None:
-        """get_version() returns version from config."""
-        # duet_data fixture creates config with version: "test"
-        assert config.get_version() == "test"
-
-    def test_get_version_with_custom_version(self, duet_data: Path) -> None:
-        """get_version() returns custom version from config."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "1.2.3"}))
-
-        assert config.get_version() == "1.2.3"
-
-    def test_get_version_raises_if_not_set(self, duet_data: Path) -> None:
-        """get_version() raises RuntimeError if version not set."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"port": 19680}))  # No version
-
-        with pytest.raises(RuntimeError, match="Version not set"):
-            config.get_version()
-
-    def test_get_version_raises_if_empty_string(self, duet_data: Path) -> None:
-        """get_version() raises RuntimeError if version is empty string."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": ""}))
-
-        with pytest.raises(RuntimeError, match="Version not set"):
-            config.get_version()
-
-
-class TestHelperFunctions:
-    """Tests for helper functions."""
-
-    def test_get_port(self, duet_data: Path) -> None:
-        """get_port() returns port from config."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test", "port": 54321}))
-
-        assert config.get_port() == 54321
-
-    def test_get_port_raises_if_not_set(self, duet_data: Path) -> None:
-        """get_port() raises RuntimeError if port not set."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test"}))  # No port
-
-        with pytest.raises(RuntimeError, match="Port not set"):
-            config.get_port()
-
-    def test_get_port_raises_if_invalid_type(self, duet_data: Path) -> None:
-        """get_port() raises RuntimeError if port is invalid type."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({"version": "test", "port": "19680"}))
-
-        with pytest.raises(RuntimeError, match="Port not set"):
-            config.get_port()
-
-    def test_get_timezone(self, duet_data: Path) -> None:
-        """get_timezone() returns timezone from config."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "port": 19680,
-            "business_folders": [],
-            "timestampTZ": {"id": "J", "value": "Asia/Tokyo"}
-        }))
-
-        assert config.get_timezone() == {"id": "J", "value": "Asia/Tokyo"}
-
-    def test_get_timezone_raises_if_not_set(self, duet_data: Path) -> None:
-        """get_timezone() raises RuntimeError if timestampTZ not set."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "port": 19680,
-            "business_folders": [],
-        }))
-
-        with pytest.raises(RuntimeError, match="timestampTZ not set"):
-            config.get_timezone()
-
-    def test_get_business_folders(self, duet_data: Path) -> None:
-        """get_business_folders() returns folders from config."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "business_folders": ["/path/one", "/path/two"]
-        }))
-
-        assert config.get_business_folders() == ["/path/one", "/path/two"]
-
-    def test_get_business_folders_raises_if_not_set(self, duet_data: Path) -> None:
-        """get_business_folders() raises RuntimeError if business_folders not set."""
-        config_path = duet_data / "config.json"
-        config_path.write_text(json.dumps({
-            "version": "test",
-            "port": 19680,
-            "timestampTZ": {"id": "Z", "value": "UTC"},
-        }))
-
-        with pytest.raises(RuntimeError, match="business_folders not set"):
-            config.get_business_folders()
+    def test_get_log_path(self, duet_data: Path) -> None:
+        """get_log_path() returns correct path."""
+        assert config.get_log_path() == duet_data / "backend.log"
 
     def test_get_repos_path_exists(self, duet_data: Path) -> None:
         """get_repos_path() returns path if repos/ exists."""
         repos_path = duet_data / "repos"
         repos_path.mkdir()
-
         assert config.get_repos_path() == repos_path
 
     def test_get_repos_path_not_exists(self, duet_data: Path) -> None:
         """get_repos_path() returns None if repos/ doesn't exist."""
         assert config.get_repos_path() is None
+
+
+class TestReadSettings:
+    """Tests for read_settings()."""
+
+    def test_reads_settings(self, duet_data: Path, tmp_path: Path) -> None:
+        """read_settings() reads settings.json from DuetConfig."""
+        result = config.read_settings()
+        assert "business_folders" in result
+        assert "timestampTZ" in result
+
+    def test_raises_if_settings_not_found(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """read_settings() raises ConfigError if settings.json not found."""
+        # Remove settings.json
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.unlink()
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="Settings file not found"):
+            config.read_settings()
+
+    def test_raises_on_invalid_json(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """read_settings() raises ConfigError on invalid JSON."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text("{ invalid json }")
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="Invalid JSON"):
+            config.read_settings()
+
+
+class TestReadMachineConfig:
+    """Tests for read_machine_config()."""
+
+    def test_reads_machine_config(self, duet_data: Path) -> None:
+        """read_machine_config() reads {machine}.json from DuetConfig."""
+        result = config.read_machine_config()
+        assert "port" in result
+
+    def test_raises_if_machine_config_not_found(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """read_machine_config() raises ConfigError if file not found."""
+        # Remove machine config
+        machine_config_path = tmp_path / "DuetConfig" / "test_machine.json"
+        machine_config_path.unlink()
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="Machine config not found"):
+            config.read_machine_config()
+
+
+class TestGetPort:
+    """Tests for get_port()."""
+
+    def test_returns_port(self, duet_data: Path) -> None:
+        """get_port() returns port from machine config."""
+        # Default port in DuetDataBuilder is 19680
+        assert config.get_port() == 19680
+
+    def test_custom_port(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_port() returns custom port."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.with_port(12345)
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        assert config.get_port() == 12345
+
+    def test_raises_if_port_not_set(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_port() raises ConfigError if port not set."""
+        # Rewrite machine config without port
+        machine_config_path = tmp_path / "DuetConfig" / "test_machine.json"
+        machine_config_path.write_text(json.dumps({}))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="Port not set"):
+            config.get_port()
+
+    def test_raises_if_port_invalid_type(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_port() raises ConfigError if port is not integer."""
+        machine_config_path = tmp_path / "DuetConfig" / "test_machine.json"
+        machine_config_path.write_text(json.dumps({"port": "19680"}))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="must be an integer"):
+            config.get_port()
+
+
+class TestGetTimezone:
+    """Tests for get_timezone()."""
+
+    def test_returns_timezone(self, duet_data: Path) -> None:
+        """get_timezone() returns timezone from settings."""
+        # Default timezone in DuetDataBuilder is {"id": "Z", "value": "UTC"}
+        result = config.get_timezone()
+        assert result["id"] == "Z"
+        assert result["value"] == "UTC"
+
+    def test_custom_timezone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_timezone() returns custom timezone."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.with_timezone("M", "Europe/Moscow")
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        result = config.get_timezone()
+        assert result["id"] == "M"
+        assert result["value"] == "Europe/Moscow"
+
+    def test_raises_if_not_set(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_timezone() raises ConfigError if timestampTZ not set."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text(json.dumps({"business_folders": []}))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="timestampTZ not set"):
+            config.get_timezone()
+
+    def test_raises_if_invalid_type(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_timezone() raises ConfigError if timestampTZ is not dict."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text(json.dumps({
+            "business_folders": [],
+            "timestampTZ": "UTC"  # Should be dict
+        }))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="must be a dict"):
+            config.get_timezone()
+
+    def test_raises_if_missing_keys(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_timezone() raises ConfigError if missing id/value keys."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text(json.dumps({
+            "business_folders": [],
+            "timestampTZ": {"id": "M"}  # Missing 'value'
+        }))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="must have 'id' and 'value'"):
+            config.get_timezone()
+
+
+class TestGetBusinessFolders:
+    """Tests for get_business_folders()."""
+
+    def test_returns_empty_list(self, duet_data: Path) -> None:
+        """get_business_folders() returns empty list by default."""
+        assert config.get_business_folders() == []
+
+    def test_resolves_aliases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_business_folders() resolves @aliases to absolute paths."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_alias("@БАЗА", str(tmp_path / "БАЗА"))
+        builder.add_alias("@МетаЛаб", str(tmp_path / "МетаЛаб"))
+        builder.with_business_folders(["@БАЗА", "@МетаЛаб"])
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        result = config.get_business_folders()
+        assert result == [str(tmp_path / "БАЗА"), str(tmp_path / "МетаЛаб")]
+
+    def test_raises_if_not_set(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_business_folders() raises ConfigError if not set."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text(json.dumps({
+            "timestampTZ": {"id": "Z", "value": "UTC"}
+        }))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="business_folders not set"):
+            config.get_business_folders()
+
+    def test_raises_if_invalid_type(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_business_folders() raises ConfigError if not a list."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text(json.dumps({
+            "timestampTZ": {"id": "Z", "value": "UTC"},
+            "business_folders": "@БАЗА"  # Should be list
+        }))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="must be a list"):
+            config.get_business_folders()
+
+    def test_raises_on_unknown_alias(
+        self, duet_data: Path, tmp_path: Path
+    ) -> None:
+        """get_business_folders() raises ConfigError if alias not found."""
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings_path.write_text(json.dumps({
+            "timestampTZ": {"id": "Z", "value": "UTC"},
+            "business_folders": ["@Unknown"]
+        }))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="Failed to resolve"):
+            config.get_business_folders()
+
+
+class TestGetVersion:
+    """Tests for get_version()."""
+
+    def test_returns_version(self, duet_data: Path) -> None:
+        """get_version() returns version from VERSION file."""
+        # Default version in DuetDataBuilder is "test"
+        assert config.get_version() == "test"
+
+    def test_custom_version(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_version() returns custom version."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.with_version("1.2.3")
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        assert config.get_version() == "1.2.3"
+
+    def test_raises_if_version_file_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_version() raises ConfigError if VERSION file missing."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.with_version(None)  # Don't create VERSION file
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        with pytest.raises(config.ConfigError, match="VERSION file not found"):
+            config.get_version()
+
+
+class TestGetAliases:
+    """Tests for get_aliases()."""
+
+    def test_returns_aliases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_aliases() returns all @aliases from machine config."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_alias("@БАЗА", "/path/to/база")
+        builder.add_alias("@DuetData", "/path/to/data")
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        result = config.get_aliases()
+        assert "@БАЗА" in result
+        assert "@DuetData" in result
+        assert result["@БАЗА"] == "/path/to/база"
+
+
+class TestResolveAlias:
+    """Tests for resolve_alias()."""
+
+    def test_resolves_alias(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resolve_alias() resolves @alias to path."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_alias("@БАЗА", "/path/to/база")
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        assert config.resolve_alias("@БАЗА") == "/path/to/база"
+        assert config.resolve_alias("@БАЗА/sub") == "/path/to/база/sub"
+
+    def test_returns_absolute_unchanged(self, duet_data: Path) -> None:
+        """resolve_alias() returns absolute paths unchanged."""
+        assert config.resolve_alias("/absolute/path") == "/absolute/path"
+
+    def test_raises_on_unknown_alias(self, duet_data: Path) -> None:
+        """resolve_alias() raises ConfigError on unknown alias."""
+        with pytest.raises(config.ConfigError, match="Failed to resolve"):
+            config.resolve_alias("@Unknown")
+
+
+class TestResetCache:
+    """Tests for reset_cache()."""
+
+    def test_resets_pointer_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """reset_cache() clears cached pointer data."""
+        # Build first setup
+        builder1 = DuetDataBuilder(tmp_path / "setup1")
+        builder1.with_port(11111)
+        builder1.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder1.pointer_path))
+        config.reset_cache()
+
+        assert config.get_port() == 11111
+
+        # Build second setup
+        builder2 = DuetDataBuilder(tmp_path / "setup2")
+        builder2.with_port(22222)
+        builder2.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder2.pointer_path))
+
+        # Without reset, still returns old value
+        assert config.get_port() == 11111
+
+        # After reset, returns new value
+        config.reset_cache()
+        assert config.get_port() == 22222

@@ -3,8 +3,13 @@
 HTTP server with REST API and MCP endpoint.
 Entry point for the Python backend.
 
+New architecture:
+- Backend reads pointer file (~/.org.ve68.duet) to find DuetData and DuetConfig
+- No more --data-path argument needed
+- For testing: set env DUET_POINTER_FILE to override pointer path
+
 Usage:
-    python server.py --data-path /path/to/DuetData
+    python server.py
 """
 
 import argparse
@@ -305,33 +310,36 @@ async def run_server(port: int, host: str = "127.0.0.1") -> None:
 
 
 def main() -> None:
-    """Main entry point."""
+    """Main entry point.
+
+    Backend reads pointer file (~/.org.ve68.duet) to find configuration.
+    No arguments needed (except optional --help).
+    """
     parser = argparse.ArgumentParser(description="Duet Backend Server")
-    parser.add_argument(
-        "--data-path",
-        type=str,
-        required=True,
-        help="Path to DuetData directory (required)",
-    )
-    args = parser.parse_args()
+    # No required arguments - backend reads pointer file
+    parser.parse_args()
 
-    # Initialize config with data path
-    config.init(args.data_path)
-
-    # Setup logging to file (must be after config.init)
-    setup_logging()
-
-    # Validate version before starting (fail fast)
+    # Setup logging to file
+    # Note: This may fail if pointer is missing, but we want fast fail anyway
     try:
+        setup_logging()
+    except Exception as e:
+        print(f"Failed to setup logging: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate configuration before starting (fail fast)
+    try:
+        from config import get_duet_data_path, ConfigError
+
+        duet_data = get_duet_data_path()
         get_version()
         get_port()
         get_timezone()
         get_business_folders()
-    except RuntimeError as e:
+    except ConfigError as e:
         logger.error(f"Config error: {e}")
         logger.error(
-            "Extension must write required fields to config.json before starting backend "
-            "(required: version, port, business_folders, timestampTZ)."
+            "Run Duet Host to create pointer file and configuration."
         )
         sys.exit(1)
 
@@ -345,7 +353,7 @@ def main() -> None:
     port = get_port()
 
     logger.info(f"Starting Duet backend on 127.0.0.1:{port}")
-    logger.info(f"DuetData path: {args.data_path}")
+    logger.info(f"DuetData path: {duet_data}")
 
     # Ensure database directory exists
     get_db_path().parent.mkdir(parents=True, exist_ok=True)

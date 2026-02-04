@@ -2,6 +2,11 @@
 
 Provides builders for creating DuetData directory structures
 and manifest files in temporary directories.
+
+New architecture:
+- Pointer file (~/.org.ve68.duet) → points to DuetData and DuetConfig
+- DuetData/ → local cache (entities.db, repos/, logs)
+- DuetConfig/ → cloud-synced config (settings.json, {machine}.json)
 """
 
 from __future__ import annotations
@@ -55,69 +60,103 @@ class ManifestBuilder:
 
 
 class DuetDataBuilder:
-    """Builder for creating DuetData directory structure for tests.
+    """Builder for creating DuetData + DuetConfig + pointer structure for tests.
 
-    Creates the standard DuetData structure with:
-    - ai-kit/ directory
-    - data/ directory
-    - repos/ directory (optional)
-    - config.json with test configuration
+    New architecture creates:
+    - DuetData/ (tmp_path/DuetData)
+        - ai-kit/
+        - data/
+        - repos/ (optional)
+        - backend/VERSION (optional)
+    - DuetConfig/ (tmp_path/DuetConfig)
+        - settings.json
+        - {machine}.json
+    - pointer file (tmp_path/.org.ve68.duet)
 
     Usage:
         # Basic usage
         builder = DuetDataBuilder(tmp_path)
         duet_data_path = builder.build()
 
-        # With custom config
+        # With custom settings
         builder = DuetDataBuilder(tmp_path)
         builder.with_version("1.0.0")
-        builder.with_business_folders(["/path/to/business"])
+        builder.with_port(19680)
+        builder.add_alias("@БАЗА", "/path/to/база")
         duet_data_path = builder.build()
 
         # Create with hierarchy
         builder = DuetDataBuilder(tmp_path)
-        builder.with_hierarchy("MyBusiness")
-        duet_data_path = builder.build()
-
-        # Create with repos
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_repo("Duet")  # Creates repos/Duet.git/
+        builder.add_business("MyBusiness")
         duet_data_path = builder.build()
     """
 
-    DEFAULT_CONFIG = {
-        "version": "test",
-        "port": 19680,
+    DEFAULT_MACHINE = "test_machine"
+
+    DEFAULT_SETTINGS = {
         "business_folders": [],
         "timestampTZ": {"id": "Z", "value": "UTC"},
+    }
+
+    DEFAULT_MACHINE_CONFIG = {
+        "port": 19680,
     }
 
     def __init__(self, root: Path):
         """Initialize builder with root path (usually tmp_path from pytest)."""
         self.root = root
-        self._config = self.DEFAULT_CONFIG.copy()
+        self._machine = self.DEFAULT_MACHINE
+        self._settings = self.DEFAULT_SETTINGS.copy()
+        self._machine_config = self.DEFAULT_MACHINE_CONFIG.copy()
+        self._version: str | None = "test"
         self._hierarchies: list[tuple[str, str]] = []  # (name, folder_name)
         self._business_folders: list[Path] = []
         self._repos: list[tuple[str, list[str]]] = []  # (name, components)
+        self._aliases: dict[str, str] = {}
 
-    def with_version(self, version: str) -> "DuetDataBuilder":
-        """Set version in config."""
-        self._config["version"] = version
+    @property
+    def duet_data_path(self) -> Path:
+        """Get path to DuetData directory."""
+        return self.root / "DuetData"
+
+    @property
+    def duet_config_path(self) -> Path:
+        """Get path to DuetConfig directory."""
+        return self.root / "DuetConfig"
+
+    @property
+    def pointer_path(self) -> Path:
+        """Get path to pointer file."""
+        return self.root / ".org.ve68.duet"
+
+    def with_machine(self, machine: str) -> "DuetDataBuilder":
+        """Set machine identifier."""
+        self._machine = machine
+        return self
+
+    def with_version(self, version: str | None) -> "DuetDataBuilder":
+        """Set version (written to DuetData/backend/VERSION)."""
+        self._version = version
         return self
 
     def with_port(self, port: int) -> "DuetDataBuilder":
-        """Set port in config."""
-        self._config["port"] = port
+        """Set port in machine config."""
+        self._machine_config["port"] = port
         return self
 
     def with_timezone(self, tz_id: str, tz_value: str) -> "DuetDataBuilder":
-        """Set timezone in config."""
-        self._config["timestampTZ"] = {"id": tz_id, "value": tz_value}
+        """Set timezone in settings."""
+        self._settings["timestampTZ"] = {"id": tz_id, "value": tz_value}
         return self
 
     def with_business_folders(self, folders: list[str]) -> "DuetDataBuilder":
-        """Set business folders in config."""
-        self._config["business_folders"] = folders
+        """Set business folders in settings (as @aliases or absolute paths)."""
+        self._settings["business_folders"] = folders
+        return self
+
+    def add_alias(self, alias: str, path: str) -> "DuetDataBuilder":
+        """Add @alias mapping to machine config."""
+        self._aliases[alias] = path
         return self
 
     def add_business(self, name: str, folder_name: str | None = None) -> "DuetDataBuilder":
@@ -142,11 +181,22 @@ class DuetDataBuilder:
         self._repos.append((name, components or []))
         return self
 
-    def build(self) -> Path:
-        """Build the DuetData structure and return path."""
-        # Create base directories
-        (self.root / "ai-kit").mkdir(parents=True, exist_ok=True)
-        (self.root / "data").mkdir(parents=True, exist_ok=True)
+    def build(self, monkeypatch=None) -> Path:
+        """Build the DuetData + DuetConfig + pointer structure and return DuetData path.
+
+        Args:
+            monkeypatch: Optional pytest monkeypatch fixture. If provided,
+                        sets DUET_POINTER_FILE env and resets config cache.
+        """
+        # Create DuetData directories
+        (self.duet_data_path / "ai-kit").mkdir(parents=True, exist_ok=True)
+        (self.duet_data_path / "data").mkdir(parents=True, exist_ok=True)
+
+        # Create version file if specified
+        if self._version is not None:
+            version_path = self.duet_data_path / "backend" / "VERSION"
+            version_path.parent.mkdir(parents=True, exist_ok=True)
+            version_path.write_text(self._version)
 
         # Create business folders if any
         for name, folder_name in self._hierarchies:
@@ -155,9 +205,13 @@ class DuetDataBuilder:
             ManifestBuilder.business(biz_path, name)
             self._business_folders.append(biz_path)
 
+            # Auto-create alias for business folder
+            alias = f"@{folder_name}"
+            self._aliases[alias] = str(biz_path)
+
         # Create repos if any
         if self._repos:
-            repos_path = self.root / "repos"
+            repos_path = self.duet_data_path / "repos"
             repos_path.mkdir(parents=True, exist_ok=True)
             for name, components in self._repos:
                 repo_path = repos_path / f"{name}.git"
@@ -170,16 +224,42 @@ class DuetDataBuilder:
                         comp_path = packages_path / comp_name
                         comp_path.mkdir(parents=True, exist_ok=True)
 
-        # Update config with business folder paths
+        # Update settings with business folder aliases
         if self._business_folders:
-            self._config["business_folders"] = [str(p) for p in self._business_folders]
+            self._settings["business_folders"] = [
+                f"@{p.name}" for p in self._business_folders
+            ]
 
-        # Write config
-        config_path = self.root / "config.json"
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(self._config, f, ensure_ascii=False, indent=2)
+        # Create DuetConfig directory
+        self.duet_config_path.mkdir(parents=True, exist_ok=True)
 
-        return self.root
+        # Write settings.json
+        settings_path = self.duet_config_path / "settings.json"
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump(self._settings, f, ensure_ascii=False, indent=2)
+
+        # Merge aliases into machine config and write {machine}.json
+        machine_config = {**self._machine_config, **self._aliases}
+        machine_config_path = self.duet_config_path / f"{self._machine}.json"
+        with open(machine_config_path, "w", encoding="utf-8") as f:
+            json.dump(machine_config, f, ensure_ascii=False, indent=2)
+
+        # Write pointer file
+        pointer_data = {
+            "machine": self._machine,
+            "duetDataPath": str(self.duet_data_path),
+            "duetConfigPath": str(self.duet_config_path),
+        }
+        with open(self.pointer_path, "w", encoding="utf-8") as f:
+            json.dump(pointer_data, f, ensure_ascii=False, indent=2)
+
+        # If monkeypatch provided, configure config module
+        if monkeypatch is not None:
+            import config
+            monkeypatch.setenv("DUET_POINTER_FILE", str(self.pointer_path))
+            config.reset_cache()
+
+        return self.duet_data_path
 
     def get_business_path(self, index: int = 0) -> Path:
         """Get path to a created business folder by index."""
@@ -189,11 +269,11 @@ class DuetDataBuilder:
 
     def get_repo_path(self, name: str) -> Path:
         """Get path to a created repo by name."""
-        return self.root / "repos" / f"{name}.git"
+        return self.duet_data_path / "repos" / f"{name}.git"
 
     def get_repos_path(self) -> Path:
         """Get path to repos/ directory."""
-        return self.root / "repos"
+        return self.duet_data_path / "repos"
 
 
 class HierarchyBuilder:

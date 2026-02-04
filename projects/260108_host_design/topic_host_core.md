@@ -264,7 +264,35 @@ Host должен стать **единственным хозяином backend
 
 ## ВЫХОДЫ
 
-*Заполняется после принятия решений по открытым вопросам*
+### Версионирование (из topic_config_architecture)
+
+| Компонент | Где версия | Bump скрипт | Стратегия |
+|-----------|------------|-------------|-----------|
+| Extension | `packages/extension/package.json` | `build-vsix.js` (patch++) | При сборке VSIX |
+| Host | `apps/host/package.json` | `build-release.js` (patch++) | При сборке release |
+| Backend | `DuetData/backend/VERSION` | Нет (= Host version) | Host пишет при установке |
+
+**Backend version = Host version** — backend bundled в Host, релизятся вместе.
+
+**Flow проверки обновления:**
+```
+Host запускается (v0.2.0)
+    ↓
+Читает DuetData/backend/VERSION → "0.1.0"
+    ↓
+0.1.0 < 0.2.0 → переустанавливает backend
+    ↓
+Пишет DuetData/backend/VERSION → "0.2.0"
+```
+
+**Использование:**
+```bash
+cd apps/host
+npm run release          # Bump + build для macOS (default)
+npm run release -- --win # Bump + build для Windows
+```
+
+*Остальные решения заполняются после шага 0*
 
 ---
 
@@ -293,6 +321,7 @@ Host должен стать **единственным хозяином backend
 - [ ] Host корректно останавливает backend при выходе
 - [ ] Host показывает статус backend в UI
 - [ ] Host обнаруживает падение backend и перезапускает
+- [ ] Host пишет `DuetData/backend/VERSION` при установке backend
 - [ ] UI: убраны устаревшие элементы (sync, rclone)
 
 ### Шаг 0: Дизайн решений

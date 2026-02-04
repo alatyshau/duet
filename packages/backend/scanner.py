@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from db import DatabaseManager, Entity
-from config import read_config, get_repos_path
+from config import get_business_folders, get_repos_path
 from normalization import normalize_path
 
 
@@ -97,8 +97,8 @@ class Scanner:
             self.db.init()
             self.db.clear()
 
-            duet_config = read_config()
-            for folder in duet_config.get("business_folders", []):
+            business_folders = get_business_folders()
+            for folder in business_folders:
                 self._scan_business(folder)
 
             entities = self.db.get_all_entities()

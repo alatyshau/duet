@@ -1,6 +1,6 @@
 {
   "name": "duet-host",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Duet Host — Electron Menu Bar приложение",
   "type": "module",
   "main": "./out/main/index.cjs",
@@ -19,6 +19,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
+    "release": "node build-release.cjs",
     "postinstall": "electron-rebuild -v",
     "test": "vitest",
     "test:run": "vitest run",

@@ -19,8 +19,8 @@ class TestScanner:
     def test_scan_empty(self, db: DatabaseManager, monkeypatch) -> None:
         """Scanning with no business folders returns empty."""
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": []}
+            "scanner.get_business_folders",
+            lambda: []
         )
 
         scanner = Scanner(db)
@@ -36,8 +36,8 @@ class TestScanner:
         ManifestBuilder.business(biz_path, "My Business", "🏢")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -67,8 +67,8 @@ class TestScanner:
         ManifestBuilder.product(product_path, "Product", "📦")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -105,8 +105,8 @@ class TestScanner:
         (projects_path / "ProjectB").mkdir()
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -131,8 +131,8 @@ class TestScanner:
         ManifestBuilder.business(biz2_path, "SameName", "🏢")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz1_path), str(biz2_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz1_path), str(biz2_path)]
         )
 
         scanner = Scanner(db)
@@ -158,8 +158,8 @@ class TestScanner:
         ManifestBuilder.business(biz2_path, "Shared", "🏢")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path), str(biz2_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path), str(biz2_path)]
         )
 
         scanner = Scanner(db)
@@ -178,8 +178,8 @@ class TestScanner:
         biz_path.mkdir()
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -198,8 +198,8 @@ class TestScanner:
         ManifestBuilder.stream(biz_path, "My Business", "🌊")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -220,8 +220,8 @@ class TestScanner:
         ManifestBuilder.business(stream_path, "Stream", "🌊")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -242,8 +242,8 @@ class TestScanner:
             ManifestBuilder.stream(p, name, "🌊")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)
@@ -269,8 +269,8 @@ class TestScanner:
         ManifestBuilder.stream(normal_path, "Normal", "🌊")
 
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": [str(biz_path)]}
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
         )
 
         scanner = Scanner(db)

@@ -21,6 +21,7 @@
 
 | Файл | Название | Статус |
 |------|----------|--------|
+| [topic_config_architecture.md](topic_config_architecture.md) | Архитектура конфигурации Duet | черновик |
 | [topic_dependency_check.md](topic_dependency_check.md) | Установка AI Kit из расширения | в работе |
 
 ---

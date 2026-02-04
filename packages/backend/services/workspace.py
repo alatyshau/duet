@@ -6,7 +6,15 @@ Provides workspace context for AI agents and extension.
 import re
 from pathlib import Path
 
-from config import get_ai_kit_path, get_business_folders, get_duet_data_path, get_repos_path
+from config import (
+    get_ai_kit_path,
+    get_aliases,
+    get_business_folders,
+    get_duet_config_path,
+    get_duet_data_path,
+    get_machine,
+    get_repos_path,
+)
 from db import DatabaseManager, Entity
 from normalization import normalize_path
 from scanner import scan_components
@@ -165,10 +173,16 @@ class WorkspaceService:
                            returns general info without chain.
 
         Returns:
-            Dict with duetDataPath, instructionsPath, chain, components, status, reason.
-
-            status: "found" | "unknown"
-            reason (only when status="unknown"):
+            Dict with:
+            - duetDataPath: path to DuetData directory
+            - duetConfigPath: path to DuetConfig directory
+            - machine: machine identifier
+            - aliases: dict of @alias -> absolute path
+            - instructionsPath: path to ai-kit directory
+            - chain: list of entities from root to current
+            - components: list of components (if product found)
+            - status: "found" | "unknown"
+            - reason (only when status="unknown"):
                 - "no_workspace_path": workspace_path not provided
                 - "path_not_in_hierarchy": path not in repos/ or business_folders
                 - "entity_not_in_db": path is valid but entity not found (needs scan?)
@@ -177,6 +191,9 @@ class WorkspaceService:
 
         result: dict = {
             "duetDataPath": str(duet_data.resolve()),
+            "duetConfigPath": str(get_duet_config_path().resolve()),
+            "machine": get_machine(),
+            "aliases": get_aliases(),
             "instructionsPath": str(get_ai_kit_path().resolve()),
             "chain": [],
             "components": [],

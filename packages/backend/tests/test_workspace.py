@@ -19,23 +19,20 @@ class TestResolveEntity:
     """Tests for WorkspaceService._resolve_entity method."""
 
     def test_resolve_from_repos_simple(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Resolves entity from repos path by product name."""
         # Setup: Create DuetData with repos and business with product
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("Duet", components=["extension", "backend"])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         # Create product in business that matches repo name
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Duet"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Duet", git_url="https://github.com/...")
-
-        # Re-init config and scan
-        config.init(duet_data)
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
@@ -50,21 +47,19 @@ class TestResolveEntity:
         assert entity.type == "product"
 
     def test_resolve_from_repos_with_subpath(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Resolves entity from repos subpath (e.g., /repos/Duet.git/packages/ext)."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("Duet", components=["extension"])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         # Create product
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Duet"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Duet")
-
-        config.init(duet_data)
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
@@ -79,20 +74,18 @@ class TestResolveEntity:
         assert entity.type == "product"
 
     def test_resolve_from_repos_strips_git_suffix(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Strips .git suffix when resolving from repos."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("MyProduct", components=[])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "MyProduct"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "MyProduct")
-
-        config.init(duet_data)
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
@@ -106,12 +99,12 @@ class TestResolveEntity:
         assert entity.name == "MyProduct"
 
     def test_resolve_from_drive_simple(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Resolves entity from Google Drive path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
 
@@ -123,8 +116,6 @@ class TestResolveEntity:
         product_path = stream_path / "Product"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Product")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -138,19 +129,17 @@ class TestResolveEntity:
         assert entity.type == "product"
 
     def test_resolve_from_drive_finds_closest(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Finds closest (deepest) entity when resolving from drive."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         stream_path = biz_path / "Stream"
         stream_path.mkdir()
         ManifestBuilder.stream(stream_path, "Stream")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -167,14 +156,12 @@ class TestResolveEntity:
         assert entity.type == "stream"
 
     def test_resolve_unknown_path_returns_none(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Returns None for paths not in business_folders or repos."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -186,14 +173,12 @@ class TestResolveEntity:
         assert entity is None
 
     def test_resolve_business_root(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Resolves entity when path is exactly the business folder."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("MyBusiness")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -229,13 +214,11 @@ class TestGetWorkspaceInfo:
     """Tests for WorkspaceService.get_workspace_info method."""
 
     def test_returns_base_info_without_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Returns duetDataPath and instructionsPath without workspace_path."""
         builder = DuetDataBuilder(tmp_path)
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
 
         service = WorkspaceService(db)
         result = service.get_workspace_info()
@@ -248,13 +231,13 @@ class TestGetWorkspaceInfo:
         assert result["reason"] == "no_workspace_path"
 
     def test_returns_chain_for_repos_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Returns chain when workspace_path is in repos."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("Duet", components=["extension", "backend"])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         stream_path = biz_path / "Stream"
@@ -264,8 +247,6 @@ class TestGetWorkspaceInfo:
         product_path = stream_path / "Duet"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Duet")
-
-        config.init(duet_data)
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
@@ -286,20 +267,18 @@ class TestGetWorkspaceInfo:
         assert "reason" not in result
 
     def test_returns_components_for_product(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Returns components when workspace is a product with packages/."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("Duet", components=["extension", "backend"])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Duet"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Duet")
-
-        config.init(duet_data)
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
@@ -314,14 +293,12 @@ class TestGetWorkspaceInfo:
         assert names == {"extension", "backend"}
 
     def test_returns_empty_chain_for_unknown_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Returns empty chain for unknown workspace path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -335,14 +312,12 @@ class TestGetWorkspaceInfo:
         assert result["reason"] == "path_not_in_hierarchy"
 
     def test_status_entity_not_in_db(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Returns entity_not_in_db when path is in hierarchy but entity not found."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         # Don't scan — DB is empty
 
         service = WorkspaceService(db)
@@ -355,14 +330,12 @@ class TestGetWorkspaceInfo:
         assert result["reason"] == "entity_not_in_db"
 
     def test_status_found_has_no_reason(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Status 'found' does not include reason field."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -383,14 +356,12 @@ class TestScannerRelativePaths:
     """
 
     def test_business_has_folder_name_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Business entity has drive_path = folder name (for uniqueness)."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("MyBusiness")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -400,19 +371,17 @@ class TestScannerRelativePaths:
         assert business.drive_path == "MyBusiness"
 
     def test_stream_has_relative_path_with_prefix(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Stream entity has path: {business_folder_name}/{stream_name}."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         stream_path = biz_path / "MyStream"
         stream_path.mkdir()
         ManifestBuilder.stream(stream_path, "MyStream")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -422,12 +391,12 @@ class TestScannerRelativePaths:
         assert stream.drive_path == "Business/MyStream"
 
     def test_deep_path_is_relative_with_prefix(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Deep nested entity has path: {business_folder_name}/Stream1/Stream2/Product."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
 
@@ -443,8 +412,6 @@ class TestScannerRelativePaths:
         product_path = stream2_path / "Product"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Product")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -453,12 +420,12 @@ class TestScannerRelativePaths:
         assert product.drive_path == "Business/Stream1/Stream2/Product"
 
     def test_project_from_drive_has_relative_path_with_prefix(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Project from drive has path: {business_folder_name}/Product/projects/MyProject."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Product"
@@ -468,8 +435,6 @@ class TestScannerRelativePaths:
         projects_path = product_path / "projects"
         projects_path.mkdir()
         (projects_path / "MyProject").mkdir()
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -478,13 +443,13 @@ class TestScannerRelativePaths:
         assert project.drive_path == "Business/Product/projects/MyProject"
 
     def test_project_from_repos_has_relative_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Project from repos has path relative to repos_path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("Duet", components=[])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         # Create product in business
         biz_path = builder.get_business_path(0)
@@ -497,8 +462,6 @@ class TestScannerRelativePaths:
         projects_path = repo_path / "projects"
         projects_path.mkdir()
         (projects_path / "260117_design").mkdir()
-
-        config.init(duet_data)
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
@@ -508,7 +471,7 @@ class TestScannerRelativePaths:
         assert project.drive_path == "Duet.git/projects/260117_design"
 
     def test_multiple_business_folders_unique_paths(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Multiple business_folders have unique drive_paths."""
         # Create two business folders manually
@@ -523,9 +486,7 @@ class TestScannerRelativePaths:
         # Create config with both business folders
         builder = DuetDataBuilder(tmp_path)
         builder.with_business_folders([str(biz1_path), str(biz2_path)])
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
         scanner.scan()
 

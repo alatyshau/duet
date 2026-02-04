@@ -1,14 +1,20 @@
 """Shared fixtures for backend tests.
 
 This module provides centralized fixtures for all tests:
-- duet_data: DuetData directory with config
+- duet_data: DuetData + DuetConfig + pointer structure
 - db: DatabaseManager instance
 - client: Async HTTP test client
+
+New architecture:
+- Creates DuetData, DuetConfig, and pointer file
+- Sets DUET_POINTER_FILE env variable for tests
+- Resets config cache between tests
 
 All fixtures use tmp_path for isolation between tests.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -34,29 +40,46 @@ __all__ = ["EntityFactory", "DuetDataBuilder"]
 
 
 @pytest.fixture
-def duet_data(tmp_path: Path) -> Path:
-    """Create DuetData directory structure with config.
+def duet_data_builder(tmp_path: Path) -> DuetDataBuilder:
+    """Return DuetDataBuilder for custom DuetData setup.
+
+    Usage in tests:
+        def test_something(duet_data_builder):
+            builder = duet_data_builder
+            builder.with_version("2.0.0")
+            builder.add_business("MyBusiness")
+            path = builder.build()
+    """
+    return DuetDataBuilder(tmp_path)
+
+
+@pytest.fixture
+def duet_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create DuetData + DuetConfig + pointer structure.
 
     Creates:
-    - ai-kit/ directory
-    - data/ directory
-    - config.json with test configuration
+    - DuetData/ with ai-kit/, data/, backend/VERSION
+    - DuetConfig/ with settings.json, test_machine.json
+    - .org.ve68.duet pointer file
+
+    Sets DUET_POINTER_FILE env variable for config module.
+    Resets config cache before and after test.
 
     Returns path to DuetData root.
     """
     builder = DuetDataBuilder(tmp_path)
-    return builder.build()
+    duet_data_path = builder.build()
 
+    # Set pointer file path for config module
+    monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
 
-@pytest.fixture(autouse=True)
-def init_config(duet_data: Path) -> Path:
-    """Initialize config with DuetData path.
+    # Reset config cache to pick up new pointer
+    config.reset_cache()
 
-    This fixture runs automatically for all tests.
-    Depends on duet_data fixture.
-    """
-    config.init(duet_data)
-    return duet_data
+    yield duet_data_path
+
+    # Reset config cache after test
+    config.reset_cache()
 
 
 @pytest.fixture
@@ -107,17 +130,3 @@ def entity_factory() -> type[EntityFactory]:
             db.insert_entity(entity)
     """
     return EntityFactory
-
-
-@pytest.fixture
-def duet_data_builder(tmp_path: Path) -> DuetDataBuilder:
-    """Return DuetDataBuilder for custom DuetData setup.
-
-    Usage in tests:
-        def test_something(duet_data_builder):
-            builder = duet_data_builder
-            builder.with_version("2.0.0")
-            builder.add_business("MyBusiness")
-            path = builder.build()
-    """
-    return DuetDataBuilder(tmp_path)

@@ -115,6 +115,9 @@ def workspace_info(workspace_path: str = "") -> dict:
 
     Returns information about:
     - duetDataPath: Path to DuetData directory
+    - duetConfigPath: Path to DuetConfig directory
+    - machine: Machine identifier from pointer
+    - aliases: Dict mapping @alias to absolute path
     - instructionsPath: Path to ai-kit instructions
     - chain: Hierarchy chain from business to current entity
     - components: List of components in the product (if applicable)

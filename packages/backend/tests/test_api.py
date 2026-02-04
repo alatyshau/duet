@@ -176,7 +176,7 @@ class TestWorkspaceInfoEndpoint:
         builder = duet_data_builder
         builder.add_business("Business")
         builder.add_repo("Product", components=["extension"])
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         # Create stream and product in business folder
         biz_path = builder.get_business_path(0)
@@ -189,9 +189,7 @@ class TestWorkspaceInfoEndpoint:
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Product")
 
-        # Re-init config and scan
-        import config
-        config.init(duet_data)
+        # Scan with new config
         from scanner import Scanner
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
@@ -228,8 +226,8 @@ class TestScanEndpoint:
         """Scan endpoint returns statistics."""
         # Mock config to return empty business_folders
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": []}
+            "scanner.get_business_folders",
+            lambda: []
         )
 
         response = await client.post("/scan")
@@ -243,8 +241,8 @@ class TestScanEndpoint:
     async def test_scan_debounce(self, client: AsyncClient, monkeypatch) -> None:
         """Scan returns skipped if called within 5 seconds."""
         monkeypatch.setattr(
-            "scanner.read_config",
-            lambda: {"business_folders": []}
+            "scanner.get_business_folders",
+            lambda: []
         )
 
         # First scan

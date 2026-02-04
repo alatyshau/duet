@@ -3,15 +3,15 @@
  * ЗАЧЕМ: Изоляция тестов через tmp директории.
  * КТО ИСПОЛЬЗУЕТ: Unit и integration тесты.
  */
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
 export interface TestContext {
   /** Корневая tmp директория теста */
   tmpDir: string
-  /** Путь к config директории (эмулирует ~/.org.ve68.duet) */
-  configDir: string
+  /** Путь к config файлу (эмулирует ~/.org.ve68.duet) */
+  configFile: string
   /** Путь к DuetData директории */
   duetDataDir: string
   /** Очистка после теста */
@@ -20,31 +20,30 @@ export interface TestContext {
 
 /**
  * Создаёт изолированный контекст для теста.
- * Устанавливает DUET_CONFIG_DIR для переопределения пути к конфигу.
+ * Устанавливает DUET_CONFIG_FILE для переопределения пути к конфигу.
  */
 export const createTestContext = (): TestContext => {
   const tmpDir = mkdtempSync(join(tmpdir(), 'duet-test-'))
-  const configDir = join(tmpDir, 'config')
+  const configFile = join(tmpDir, '.org.ve68.duet')
   const duetDataDir = join(tmpDir, 'DuetData')
 
-  // Создаём директории
-  mkdirSync(configDir, { recursive: true })
+  // Создаём директорию DuetData
   mkdirSync(duetDataDir, { recursive: true })
 
   // Устанавливаем env для core/config.ts
-  process.env.DUET_CONFIG_DIR = configDir
+  process.env.DUET_CONFIG_FILE = configFile
 
   const cleanup = (): void => {
-    delete process.env.DUET_CONFIG_DIR
+    delete process.env.DUET_CONFIG_FILE
     rmSync(tmpDir, { recursive: true, force: true })
   }
 
-  return { tmpDir, configDir, duetDataDir, cleanup }
+  return { tmpDir, configFile, duetDataDir, cleanup }
 }
 
 /**
- * Записывает config.json в configDir.
+ * Записывает config в configFile.
  */
-export const writeTestConfig = (configDir: string, config: Record<string, unknown>): void => {
-  writeFileSync(join(configDir, 'config.json'), JSON.stringify(config, null, 2))
+export const writeTestConfig = (configFile: string, config: Record<string, unknown>): void => {
+  writeFileSync(configFile, JSON.stringify(config, null, 2) + '\n')
 }

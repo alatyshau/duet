@@ -1,22 +1,24 @@
 /*
- * ЧТО: Чтение/запись конфига ~/.org.ve68.duet/config.json
+ * ЧТО: Чтение/запись конфига ~/.org.ve68.duet
  * ЗАЧЕМ: Единственная точка для хранения пользовательских настроек.
  * КТО ИСПОЛЬЗУЕТ: main process, unit-тесты.
  *
  * ТЕСТИРУЕМОСТЬ:
- * - DUET_CONFIG_DIR переопределяет путь к директории конфига
+ * - DUET_CONFIG_FILE переопределяет путь к файлу конфига
  * - Чистые функции, не зависят от Electron
  */
 import { homedir } from 'os'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 
 // =============================================================================
 // ТИПЫ
 // =============================================================================
 
 export interface Config {
+  machine?: string
   duetDataPath?: string
+  duetConfigPath?: string
 }
 
 // =============================================================================
@@ -24,32 +26,15 @@ export interface Config {
 // =============================================================================
 
 /**
- * Директория конфига. Переопределяется через DUET_CONFIG_DIR в тестах.
- */
-export const getConfigDir = (): string => {
-  return process.env.DUET_CONFIG_DIR || join(homedir(), '.org.ve68.duet')
-}
-
-/**
- * Путь к файлу конфига.
+ * Путь к файлу конфига. Переопределяется через DUET_CONFIG_FILE в тестах.
  */
 export const getConfigFile = (): string => {
-  return join(getConfigDir(), 'config.json')
+  return process.env.DUET_CONFIG_FILE || join(homedir(), '.org.ve68.duet')
 }
 
 // =============================================================================
 // ОПЕРАЦИИ
 // =============================================================================
-
-/**
- * Создаёт директорию конфига если не существует.
- */
-export const ensureConfigDir = (): void => {
-  const configDir = getConfigDir()
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true })
-  }
-}
 
 /**
  * Читает конфиг. Возвращает {} если файла нет или JSON невалидный.
@@ -67,9 +52,8 @@ export const readConfig = (): Config => {
 }
 
 /**
- * Записывает конфиг. Создаёт директорию при необходимости.
+ * Записывает конфиг.
  */
 export const writeConfig = (config: Config): void => {
-  ensureConfigDir()
-  writeFileSync(getConfigFile(), JSON.stringify(config, null, 2))
+  writeFileSync(getConfigFile(), JSON.stringify(config, null, 2) + '\n')
 }

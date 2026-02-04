@@ -66,7 +66,7 @@ class TestScannerNormalization:
     """Tests that Scanner normalizes paths to NFC."""
 
     def test_scanner_normalizes_cyrillic_folder_names(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Scanner normalizes Cyrillic folder names from NFD to NFC."""
         # Create business folder with NFD name (simulating macOS)
@@ -74,7 +74,7 @@ class TestScannerNormalization:
         # but we test the Scanner's _to_relative_path method directly
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
 
@@ -82,8 +82,6 @@ class TestScannerNormalization:
         stream_path = biz_path / "Андрей"
         stream_path.mkdir()
         ManifestBuilder.stream(stream_path, "Андрей")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -93,14 +91,12 @@ class TestScannerNormalization:
         assert unicodedata.is_normalized("NFC", entity.drive_path)
 
     def test_scanner_to_relative_path_normalizes(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Scanner._to_relative_path normalizes to NFC."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
-        duet_data = builder.build()
-
-        config.init(duet_data)
+        duet_data = builder.build(monkeypatch)
         scanner = Scanner(db)
 
         # Set up scanner's business folder context
@@ -120,12 +116,12 @@ class TestWorkspaceServiceNormalization:
     """Tests that WorkspaceService handles NFD input paths."""
 
     def test_resolve_entity_with_nfd_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """WorkspaceService resolves entity when given NFD path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("СЕМЬЯ")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
 
@@ -137,8 +133,6 @@ class TestWorkspaceServiceNormalization:
         product_path = stream_path / "Андрей"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Андрей")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -153,12 +147,12 @@ class TestWorkspaceServiceNormalization:
         assert entity.type == "product"
 
     def test_resolve_entity_with_nfc_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """WorkspaceService resolves entity when given NFC path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("СЕМЬЯ")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
 
@@ -169,8 +163,6 @@ class TestWorkspaceServiceNormalization:
         product_path = stream_path / "Андрей"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Андрей")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -184,12 +176,12 @@ class TestWorkspaceServiceNormalization:
         assert entity.type == "product"
 
     def test_get_workspace_info_with_nfd_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """get_workspace_info works with NFD workspace_path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("СЕМЬЯ")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
 
@@ -200,8 +192,6 @@ class TestWorkspaceServiceNormalization:
         product_path = stream_path / "Андрей"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Андрей")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -222,27 +212,18 @@ class TestWorkspaceServiceNormalization:
 class TestConfigNormalization:
     """Tests that config normalizes business_folders."""
 
-    def test_get_business_folders_normalizes_nfd(self, tmp_path: Path) -> None:
+    def test_get_business_folders_normalizes_nfd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """get_business_folders normalizes NFD paths to NFC."""
-        # Create config with NFD paths
-        nfd_folder = unicodedata.normalize("NFD", "/Users/test/!СЕМЬЯ")
-        config_data = {
-            "version": "1.0.0",
-            "port": 19680,
-            "business_folders": [nfd_folder],
-            "timestampTZ": {"id": "M", "value": "Europe/Minsk"},
-        }
+        # Create DuetData structure with NFD alias path
+        nfd_path = unicodedata.normalize("NFD", "/Users/test/!СЕМЬЯ")
 
-        # Write config
         builder = DuetDataBuilder(tmp_path)
-        duet_data = builder.build()
-        config_path = duet_data / "config.json"
+        builder.add_alias("@СЕМЬЯ", nfd_path)
+        builder.with_business_folders(["@СЕМЬЯ"])
+        builder.build(monkeypatch)
 
-        import json
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f)
-
-        config.init(duet_data)
         folders = config.get_business_folders()
 
         # Should be NFC normalized
@@ -254,19 +235,17 @@ class TestDbFindClosestEntity:
     """Tests for DB.find_closest_entity with normalization."""
 
     def test_find_closest_entity_nfc_query_nfc_db(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """find_closest_entity works when both query and DB are NFC."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("СЕМЬЯ")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Андрей"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Андрей")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
@@ -277,19 +256,17 @@ class TestDbFindClosestEntity:
         assert entity.name == "Андрей"
 
     def test_find_closest_entity_deep_path(
-        self, tmp_path: Path, db: DatabaseManager
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """find_closest_entity finds deepest ancestor for paths inside product."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("СЕМЬЯ")
-        duet_data = builder.build()
+        duet_data = builder.build(monkeypatch)
 
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Андрей"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Андрей")
-
-        config.init(duet_data)
         scanner = Scanner(db)
         scanner.scan()
 
