@@ -255,7 +255,7 @@ spec/ lives in the component being developed:
 └── UI.md           — states, flows
 ```
 
-Examples: `packages/ai-kit/spec/`, `apps/extension/spec/`
+Examples: `packages/ai-kit/spec/`, `packages/extension/spec/`
 
 All specs in English. If spec/ doesn't exist — ask human when to create.
 

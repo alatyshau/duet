@@ -26,7 +26,7 @@
 
 ### Skills (domain expertise used)
 
-- monorepo-structure — понимание структуры apps/packages
+- monorepo-structure — понимание структуры packages/
 - typescript — проверка .ts/.tsx файлов на наличие шапок
 - documentation-standards — формат ЧТО/ЗАЧЕМ/КТО ИСПОЛЬЗУЕТ
 - file-organization — именование файлов, companion .json.md файлы
@@ -40,9 +40,9 @@
 ### Other Context (what else was loaded or referenced)
 
 - README.md — заявленная структура монорепо
-- package.json (root + apps/host) — конфигурация workspaces
+- package.json (root + packages/host) — конфигурация workspaces
 - .gitignore — правила игнорирования
-- Все .ts/.tsx файлы в apps/host/src — проверка шапок
+- Все .ts/.tsx файлы в packages/host/src — проверка шапок
 - Все .yaml файлы — проверка шапок
 - theory/*.md — проверка формата документации
 

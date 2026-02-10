@@ -106,7 +106,7 @@ WebDriverError: The operation was aborted due to timeout
 #### Файлы E2E инфраструктуры
 
 ```
-apps/host/
+packages/host/
 ├── wdio.conf.ts              # Конфиг WebdriverIO (настроен, нестабильно)
 ├── e2e/
 │   └── app-launch.e2e.ts     # 6 тестов (4 проходят когда работает)
@@ -130,7 +130,7 @@ apps/host/
 
 **Реальная проблема — локальная:**
 1. Мы использовали `appBinaryPath` (packaged app) для локальной разработки — это сложнее
-2. Monorepo: broken symlink на electron в `apps/host/node_modules/.bin/`
+2. Monorepo: broken symlink на electron в `packages/host/node_modules/.bin/`
 3. Electron установлен в корне, а wdio ищет в подпапке
 
 **Вывод:**
@@ -192,7 +192,7 @@ apps/host/
 
 - **Кэш:** Да, `actions/cache` для node_modules — обязательно
 - **Артефакты:** Нет, coverage report не нужен
-- **Триггеры:** `push` + `pull_request` на `paths: apps/host/**`
+- **Триггеры:** `push` + `pull_request` на `paths: packages/host/**`
 
 ---
 
@@ -222,7 +222,7 @@ apps/host/
 
 ### 1. Шаг 1: Как запустить appEntryPoint в monorepo?
 
-**Проблема:** broken symlink в `apps/host/node_modules/.bin/electron`
+**Проблема:** broken symlink в `packages/host/node_modules/.bin/electron`
 
 **Варианты:**
 | # | Вариант | Effort | Риск |
@@ -259,7 +259,7 @@ apps/host/
 
 | Проблема | Monorepo-специфична? | Почему |
 |----------|---------------------|--------|
-| Broken symlink | ✅ ДА | electron в корне, wdio ищет в apps/host/node_modules |
+| Broken symlink | ✅ ДА | electron в корне, wdio ищет в packages/host/node_modules |
 | Нестабильность packaged app | ❓ НЕ ЯСНО | Может быть общая проблема ChromeDriver |
 | ESM/CJS конфликт | ❌ НЕТ | Electron всегда CJS, это общее |
 | ELECTRON_RUN_AS_NODE | ❌ НЕТ | Это окружение Claude Code, не monorepo |
@@ -342,11 +342,11 @@ apps/host/
 #### Суть проблемы
 
 ```
-apps/host/node_modules/.bin/electron → broken symlink
+packages/host/node_modules/.bin/electron → broken symlink
 node_modules/.bin/electron → работает (electron в корне)
 ```
 
-**Ошибка:** `no chrome binary at .../apps/host/node_modules/.bin/electron`
+**Ошибка:** `no chrome binary at .../packages/host/node_modules/.bin/electron`
 
 #### Ход работы
 
@@ -363,7 +363,7 @@ node_modules/.bin/electron → работает (electron в корне)
 | # | Вариант | Что сделать |
 |---|---------|-------------|
 | 1 | Явный binary path | Добавить `goog:chromeOptions.binary` в конфиг |
-| 2 | Запуск из корня | `cd ../.. && npm run -w apps/host test:e2e` |
+| 2 | Запуск из корня | `cd ../.. && npm run -w packages/host test:e2e` |
 | 3 | Fix symlink | Создать правильную ссылку |
 
 **Следующий шаг:** Попробовать вариант 1.

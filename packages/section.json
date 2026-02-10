@@ -1,0 +1,17 @@
+{
+    "_DOC": {
+        "ЧТО": "Мета-данные секции packages",
+        "ЗАЧЕМ": "Описание пакетов монорепозитория для карты",
+        "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
+        "СПЕКА": ".ai/schemas/section.json.md"
+    },
+    "title": "Пакеты",
+    "description": "Пакеты монорепозитория — приложения, библиотеки и инструменты.",
+    "emoji": "📦",
+    "folders": {
+        "ai-kit": "Legacy AI-инструментарий (инструкции, шаблоны, MCP-сервер)",
+        "backend": "Backend (Python, MCP-сервер Duet)",
+        "extension": "VS Code Extension",
+        "host": "Duet Host (Electron)"
+    }
+}

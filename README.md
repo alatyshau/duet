@@ -57,9 +57,8 @@ Google Drive (твои данные)          Duet (семантика)
 
 ```
 Duet/
-├── apps/
-│   └── host/                ← Electron tray app (Menu Bar)
 ├── packages/
+│   ├── host/                ← Electron tray app (Menu Bar)
 │   ├── extension/           ← VS Code расширение
 │   ├── backend/             ← Python HTTP API + MCP
 │   └── ai-kit/              ← AI инструкции (modes, stances, skills, personas)
@@ -115,7 +114,7 @@ Duet запускает MCP Server, который позволяет Claude и 
 ```bash
 # Host (Electron tray app)
 npm run dev:host                              # dev-режим
-cd apps/host && npm run release               # bump + build → dist/Duet-{ver}.dmg
+cd packages/host && npm run release               # bump + build → dist/Duet-{ver}.dmg
 
 # Extension (VS Code)
 cd packages/extension && npm run vsix         # bump + build → dist/duet-{ver}.vsix
@@ -124,7 +123,7 @@ cd packages/extension && npm run vsix         # bump + build → dist/duet-{ver}
 cd packages/backend && ../../.venv/bin/pytest  # тесты
 
 # Тесты всех компонентов
-cd apps/host && npm run test:run              # Host: 15 тестов
+cd packages/host && npm run test:run              # Host: 15 тестов
 cd packages/extension && npm test             # Extension: 112 тестов
 cd packages/backend && ../../.venv/bin/pytest  # Backend: 157 тестов
 ```

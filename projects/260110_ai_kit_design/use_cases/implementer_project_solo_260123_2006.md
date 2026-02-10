@@ -3,7 +3,7 @@
 **Timestamp:** 260123_2006
 **Client:** Claude Code (VS Code)
 **Persona:** not used (direct coding session)
-**Project folder:** apps/host (Electron app, not a chat-folder project)
+**Project folder:** packages/host (Electron app, not a chat-folder project)
 **Topic files:** none (code-focused session, no topic files)
 
 ## Classification
@@ -11,7 +11,7 @@
 | Parameter | Value |
 |-----------|-------|
 | **Role** | implementer |
-| **Scope** | project (apps/host — single package in monorepo) |
+| **Scope** | project (packages/host — single package in monorepo) |
 | **Workflow** | solo |
 | **Task type** | feature implementation + build configuration |
 | **Result** | success — DMG and EXE installers created, tray functionality working |

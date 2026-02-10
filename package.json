@@ -4,7 +4,6 @@
   "version": "0.0.0",
   "description": "Duet — Getting Products Done",
   "workspaces": [
-    "apps/*",
     "packages/*"
   ],
   "scripts": {

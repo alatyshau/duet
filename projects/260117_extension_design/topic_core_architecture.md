@@ -19,7 +19,7 @@
 - [MCP Server (TS)](../../packages/extension/src/mcp-server/index.ts) — текущая TS версия
 - [MCP Server (Python)](../../packages/ai-kit/mcp-server/server.py) — Python версия
 - [DatabaseManager](../../packages/extension/src/core/db/index.ts) — работа с SQLite в extension (WASM)
-- [Duet-host](../../apps/host/) — Electron menu bar приложение (better-sqlite3, нативный)
+- [Duet-host](../../packages/host/) — Electron menu bar приложение (better-sqlite3, нативный)
 
 ---
 

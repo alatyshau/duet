@@ -133,10 +133,10 @@ python packages/ai-roles/scripts/backlog_updater.py
     "backlog": {
         "sections": {
             ".": ["packages/ai-roles/scripts/", ".github/"],
-            "apps/host": ["src/components/", "build/"]
+            "packages/host": ["src/components/", "build/"]
         },
         "files": [
-            "apps/host/src/main/index.ts",
+            "packages/host/src/main/index.ts",
             "packages/ai-roles/scripts/build.py"
         ]
     }
@@ -146,7 +146,7 @@ python packages/ai-roles/scripts/backlog_updater.py
 **Структура backlog:**
 
 - **`sections`** — секции с недокументированными папками
-  - **Ключ** (`.`, `apps/host`) = **Секция** — крупный архитектурный узел репозитория
+  - **Ключ** (`.`, `packages/host`) = **Секция** — крупный архитектурный узел репозитория
   - **Значения** = папки внутри секции, которые нужно описать в `folders`
   - Одна секция = один `section.json`
 
@@ -199,7 +199,7 @@ python packages/ai-roles/scripts/backlog_updater.py
 
 Каждый ключ в `backlog.sections` — это **секция**. Например:
 ```json
-"apps/host": ["src/components/", "build/"]
+"packages/host": ["src/components/", "build/"]
 ```
 
 **Алгоритм для каждой секции:**
@@ -270,7 +270,7 @@ python packages/ai-roles/scripts/backlog_updater.py
 |------|-------|---------|----------|------------|
 | file.ts | ✅ | ✅ | ✅ | шапка + комментарии |
 | config.json | ✅ | ⚠️ | ✅ | компаньон |
-| apps/host/section.json | ✅ | ✅ | ✅ | описал 3 папки |
+| packages/host/section.json | ✅ | ✅ | ✅ | описал 3 папки |
 
 Готов к ревью?
 ```
@@ -291,19 +291,19 @@ python packages/ai-roles/scripts/backlog_updater.py
 | Что обработал | Что передать |
 |---------------|--------------|
 | Файл из `backlog.files` | Путь к файлу: `packages/ai-roles/packages/ai-roles/scripts/build.py` |
-| Секцию | Путь с `/` на конце: `apps/host/` |
+| Секцию | Путь с `/` на конце: `packages/host/` |
 
 ```bash
 # Батч файлов:
 python packages/ai-roles/scripts/backlog_updater.py --done packages/ai-roles/scripts/build.py config.json
 
 # Батч секций:
-python packages/ai-roles/scripts/backlog_updater.py --done apps/host/ packages/core/
+python packages/ai-roles/scripts/backlog_updater.py --done packages/host/ packages/core/
 ```
 
 > **Важно:**
 > - Trailing `/` для секций обязателен
-> - Пути с пробелами/кириллицей — в кавычках: `"my folder/" "apps/хост/"`
+> - Пути с пробелами/кириллицей — в кавычках: `"my folder/" "packages/host/"`
 
 ### Шаг 7. Следующий батч
 

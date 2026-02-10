@@ -23,7 +23,7 @@
 
 ## ССЫЛКИ
 
-- [apps/host/src/main/index.ts](../../apps/host/src/main/index.ts) — entry point (~90 lines после рефакторинга)
+- [packages/host/src/main/index.ts](../../packages/host/src/main/index.ts) — entry point (~90 lines после рефакторинга)
 - [topic_host_core.md](topic_host_core.md) — зависит от этого топика
 - [topic_host_e2e.md](topic_host_e2e.md) — E2E тесты (выделено в отдельный топик)
 
@@ -34,7 +34,7 @@
 ### Исходная структура
 
 ```
-apps/host/src/
+packages/host/src/
 ├── main/
 │   └── index.ts          # 420 lines — ВСЁ здесь
 ├── preload/
@@ -68,7 +68,7 @@ apps/host/src/
 ### Целевая структура
 
 ```
-apps/host/src/
+packages/host/src/
 ├── core/                  # ← Pure functions, unit-тесты
 │   ├── config.ts          # read/write config.json
 │   └── app-state.ts       # логика определения статуса
@@ -127,7 +127,7 @@ apps/host/src/
 Тесты отдельно от кода (Java-стиль), масштабируется на 300+ тестов:
 
 ```
-apps/host/
+packages/host/
 ├── src/                          # Исходники
 │   ├── core/                     # ← unit-тесты
 │   ├── main/                     # ← E2E-тесты

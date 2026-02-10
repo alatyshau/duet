@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.10",
+    "version": "0.0.11",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.108.0"
@@ -172,7 +172,7 @@
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.10",
+                    "title": "Duet 0.0.11",
                     "icon": "resources/duet-icon.svg"
                 }
             ]

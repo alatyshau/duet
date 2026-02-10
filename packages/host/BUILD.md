@@ -152,7 +152,7 @@ iconutil -c icns /tmp/Duet.iconset -o build/icon.icns
 # Из корня монорепо
 npm run build:host              # Только сборка (без упаковки)
 
-# Из apps/host
+# Из packages/host
 npm run build:mac               # → dist/Duet-{version}.dmg
 npm run build:win               # → dist/Duet-{version}-setup.exe
 npm run build:linux             # → dist/Duet-{version}.AppImage

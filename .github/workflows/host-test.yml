@@ -2,7 +2,7 @@
 #
 # ЧТО: GitHub Actions workflow для тестирования Duet Host.
 # ЗАЧЕМ: Автоматические unit и E2E тесты на всех платформах.
-# КТО ИСПОЛЬЗУЕТ: GitHub Actions при push/PR в apps/host/.
+# КТО ИСПОЛЬЗУЕТ: GitHub Actions при push/PR в packages/host/.
 #
 # ВИДЫ ТЕСТОВ:
 # - Unit тесты (vitest) — core/ модули
@@ -21,13 +21,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/host/**'
+      - 'packages/host/**'
       - '.github/workflows/host-test.yml'
 
   pull_request:
     branches: [main]
     paths:
-      - 'apps/host/**'
+      - 'packages/host/**'
 
 jobs:
   test:
@@ -66,14 +66,14 @@ jobs:
       # UNIT TESTS
       # ======================
       - name: Run unit tests
-        working-directory: apps/host
+        working-directory: packages/host
         run: npm run test:run
 
       # ======================
       # BUILD (для E2E)
       # ======================
       - name: Build app for E2E tests
-        working-directory: apps/host
+        working-directory: packages/host
         run: npx electron-vite build
 
       # ======================
@@ -84,11 +84,11 @@ jobs:
       # ======================
       - name: Run E2E tests (macOS/Windows)
         if: false  # ВЫКЛЮЧЕНО | было: matrix.platform != 'linux'
-        working-directory: apps/host
+        working-directory: packages/host
         run: npm run test:e2e
 
       # Linux требует virtual display для GUI
       - name: Run E2E tests (Linux with xvfb)
         if: false  # ВЫКЛЮЧЕНО | было: matrix.platform == 'linux'
-        working-directory: apps/host
+        working-directory: packages/host
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" npm run test:e2e

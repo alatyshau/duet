@@ -23,11 +23,11 @@
     "backlog": {
         "sections": {
             ".": ["packages/ai-kit/scripts/"],
-            "apps/host": ["apps/host/src/components/"]
+            "packages/host": ["packages/host/src/components/"]
         },
         "files": [
             "packages/ai-kit/scripts/new_script.py",
-            "apps/host/src/main/index.ts"
+            "packages/host/src/main/index.ts"
         ]
     }
 }
@@ -89,5 +89,5 @@ ISO 8601 timestamp (UTC) последнего обновления.
 ## Trailing / конвенция
 
 - Папки **всегда** с `/` в конце: `packages/ai-kit/scripts/`, `.github/`
-- Файлы **никогда** с `/`: `apps/host/src/main/index.ts`
+- Файлы **никогда** с `/`: `packages/host/src/main/index.ts`
 

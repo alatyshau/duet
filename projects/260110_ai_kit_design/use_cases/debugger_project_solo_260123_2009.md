@@ -3,7 +3,7 @@
 **Timestamp:** 260123_2009
 **Client:** Claude Code (VS Code)
 **Persona:** не использовалась (работа вне чат-папки)
-**Project folder:** apps/host (Duet Host Electron app)
+**Project folder:** packages/host (Duet Host Electron app)
 **Topic files:** нет (работа напрямую с кодом)
 
 ## Classification

@@ -27,10 +27,10 @@
 
 | Component | Package | Language | Role |
 |-----------|---------|----------|------|
-| **Host** | `apps/host` | TypeScript/Electron | Tray app. Writes pointer file. Future: backend lifecycle |
+| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Future: backend lifecycle |
 | **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Spawns backend. Reads pointer |
 | **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
-| **AI Kit** | `packages/ai-kit` | Markdown + Python | AI instructions (modes, stances, skills, personas). Legacy MCP |
+| **AI Kit** | `packages/ai-kit` | Markdown + Python | Legacy AI instructions (modes, stances, skills, personas). Legacy MCP |
 
 ## AI Kit
 
@@ -278,11 +278,11 @@ Extension → spawn(venvPython, [serverPath]) → Backend
 
 | Component | Command | Artifact | Version bump |
 |-----------|---------|----------|--------------|
-| **Host** | `cd apps/host && npm run release` | `dist/Duet-{ver}.dmg` (or `.exe`, `.AppImage`) | Auto patch bump |
+| **Host** | `cd packages/host && npm run release` | `dist/Duet-{ver}.dmg` (or `.exe`, `.AppImage`) | Auto patch bump |
 | **Extension** | `cd packages/extension && npm run vsix` | `dist/duet-{ver}.vsix` | Auto patch bump |
 | **Backend** | — | No standalone artifact. Bundled into Extension VSIX | Inherits Extension version |
 
-### Host Release (`apps/host/build-release.cjs`)
+### Host Release (`packages/host/build-release.cjs`)
 
 ```
 npm run release [-- --mac|--win|--linux]   # default: --mac
@@ -311,15 +311,15 @@ npm run vsix
 
 | Workflow | Trigger | What |
 |----------|---------|------|
-| `build-host.yml` | Push to main (if `apps/host/` changed) + manual | Build Host for macOS/Windows/Linux in parallel. Upload artifacts (90 days) |
-| `host-test.yml` | Push to main (if `apps/host/` changed) + manual | Run vitest. E2E disabled (monorepo symlink issues) |
+| `build-host.yml` | Push to main (if `packages/host/` changed) + manual | Build Host for macOS/Windows/Linux in parallel. Upload artifacts (90 days) |
+| `host-test.yml` | Push to main (if `packages/host/` changed) + manual | Run vitest. E2E disabled (monorepo symlink issues) |
 
 **No auto-publish.** Artifacts downloaded manually from Actions → GitHub Release.
 
 ### Version Tracking
 
 ```
-Host: apps/host/package.json → "version"
+Host: packages/host/package.json → "version"
 Extension: packages/extension/package.json → "version"
 Backend: DuetData/backend/VERSION (written by Extension at install time)
 ```

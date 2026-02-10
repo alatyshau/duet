@@ -130,7 +130,7 @@ Config: `electron-builder.yml`
 - Windows: NSIS installer
 - Resources: `resources/` (tray icons) unpacked from asar
 
-CI: `build-host.yml` builds all 3 platforms on push to main (if `apps/host/` changed).
+CI: `build-host.yml` builds all 3 platforms on push to main (if `packages/host/` changed).
 
 ## Testing
 

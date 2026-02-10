@@ -103,7 +103,7 @@ def remove_from_backlog(done_items: List[str]) -> None:
 
     for item in done_set:
         if item.endswith("/"):
-            # Нормализуем: "apps/host/" → "apps/host", "./" → "."
+            # Нормализуем: "packages/host/" → "packages/host", "./" → "."
             key = item.rstrip("/") or "."
             if key in sections:
                 removed_sections.append(item)

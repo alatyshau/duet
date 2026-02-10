@@ -190,7 +190,7 @@ SQLite содержит актуальный индекс всех Дел, до�
 ## Шаг 7: VS Code расширение
 
 ### Задачи
-- [ ] Создать `apps/vscode` workspace
+- [ ] Создать `packages/extension` workspace
 - [ ] Sidebar: Tree View с деревом Дел (как Project Manager)
 - [ ] Команды:
   - Открыть дело (переключить workspace)

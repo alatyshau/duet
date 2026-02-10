@@ -10,7 +10,7 @@
 
 Внутри каждой Section Folder:
 ```
-apps/host/section.json
+packages/host/section.json
 packages/core/section.json
 ```
 

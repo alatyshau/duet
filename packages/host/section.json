@@ -1,6 +1,6 @@
 {
     "_DOC": {
-        "ЧТО": "Мета-данные секции apps/host",
+        "ЧТО": "Мета-данные секции packages/host",
         "ЗАЧЕМ": "Описание Host-приложения и его внутренней архитектуры",
         "ИСПОЛЬЗОВАНИЕ": "packages/ai-kit/scripts/ai_doc_updater.py",
         "СПЕКА": ".ai/schemas/section.json.md"

@@ -11,7 +11,7 @@
 | Parameter | Value |
 |-----------|-------|
 | **Role** | implementer (выполнял конкретные задачи по инструкциям) |
-| **Scope** | project (apps/host + корневые конфиги) |
+| **Scope** | project (packages/host + корневые конфиги) |
 | **Workflow** | solo |
 | **Task type** | cleanup, documentation, configuration |
 | **Result** | успех — проект переведён на npm, документирован, почищен |
@@ -51,7 +51,7 @@
 
 **What context was MISSING that would have helped?**
 
-- История создания проекта — не знал что apps/host сгенерирован electron-vite, узнал по ходу
+- История создания проекта — не знал что packages/host сгенерирован electron-vite, узнал по ходу
 - Намерения пользователя по .claude/ — пришлось спрашивать про settings.local.json
 - Связь с Google Drive — понял только когда появился .duetignore
 

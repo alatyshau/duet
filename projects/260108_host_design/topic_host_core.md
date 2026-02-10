@@ -38,7 +38,7 @@ Host должен стать **единственным хозяином backend
 - [packages/backend/spec/ARCHITECTURE.md](../../packages/backend/spec/ARCHITECTURE.md) — текущая архитектура backend
 
 **Host:**
-- [apps/host/src/main/index.ts](../../apps/host/src/main/index.ts) — текущий Host main process
+- [packages/host/src/main/index.ts](../../packages/host/src/main/index.ts) — текущий Host main process
 - [input/host-roadmap.md](input/host-roadmap.md) — старый roadmap (deprecated)
 
 ---
@@ -269,7 +269,7 @@ Host должен стать **единственным хозяином backend
 | Компонент | Где версия | Bump скрипт | Стратегия |
 |-----------|------------|-------------|-----------|
 | Extension | `packages/extension/package.json` | `build-vsix.js` (patch++) | При сборке VSIX |
-| Host | `apps/host/package.json` | `build-release.js` (patch++) | При сборке release |
+| Host | `packages/host/package.json` | `build-release.js` (patch++) | При сборке release |
 | Backend | `DuetData/backend/VERSION` | Нет (= Host version) | Host пишет при установке |
 
 **Backend version = Host version** — backend bundled в Host, релизятся вместе.
@@ -287,7 +287,7 @@ Host запускается (v0.2.0)
 
 **Использование:**
 ```bash
-cd apps/host
+cd packages/host
 npm run release          # Bump + build для macOS (default)
 npm run release -- --win # Bump + build для Windows
 ```

@@ -5,8 +5,8 @@
 # КТО ИСПОЛЬЗУЕТ: GitHub Actions при push/PR или ручном запуске.
 #
 # ТРИГГЕРЫ:
-# - push в main (если изменился apps/host/)
-# - pull request в main (если изменился apps/host/)
+# - push в main (если изменился packages/host/)
+# - pull request в main (если изменился packages/host/)
 # - ручной запуск (workflow_dispatch)
 #
 # АРТЕФАКТЫ:
@@ -25,13 +25,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/host/**'
+      - 'packages/host/**'
       - '.github/workflows/build-host.yml'
 
   pull_request:
     branches: [main]
     paths:
-      - 'apps/host/**'
+      - 'packages/host/**'
 
 jobs:
   build:
@@ -67,7 +67,7 @@ jobs:
         run: npm install
 
       - name: Build Electron app
-        working-directory: apps/host
+        working-directory: packages/host
         run: npm run build:${{ matrix.platform }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false  # Отключаем code signing для CI
@@ -77,10 +77,10 @@ jobs:
         with:
           name: duet-host-${{ matrix.platform }}
           path: |
-            apps/host/dist/*.dmg
-            apps/host/dist/*.zip
-            apps/host/dist/*.exe
-            apps/host/dist/*.AppImage
-            apps/host/dist/*.deb
-            apps/host/dist/*.snap
+            packages/host/dist/*.dmg
+            packages/host/dist/*.zip
+            packages/host/dist/*.exe
+            packages/host/dist/*.AppImage
+            packages/host/dist/*.deb
+            packages/host/dist/*.snap
           if-no-files-found: ignore

@@ -48,9 +48,9 @@
 
 ```json
 "section_folders": [
-    "apps/host",
-    "apps/vscode",
-    "packages/core",
+    "packages/host",
+    "packages/extension",
+    "packages/backend",
     "docs"
 ]
 ```

@@ -139,7 +139,7 @@
 
 ### Анализ по результатам code review
 
-**Host** (`apps/host/`) — ✅ Частично обновлён:
+**Host** (`packages/host/`) — ✅ Частично обновлён:
 ```
 - ✅ Читает pointer ~/.org.ve68.duet → duetDataPath, duetConfigPath, machine
 - ⏳ НЕ запускает backend (это делает Extension) — ПЛАН: topic_host_core.md
@@ -346,7 +346,7 @@ Host НЕ взаимодействует с Extension/Backend!
   | Компонент | Где версия | Bump скрипт | Стратегия |
   |-----------|------------|-------------|-----------|
   | Extension | `packages/extension/package.json` | `build-vsix.js` (patch++) | При сборке VSIX |
-  | Host | `apps/host/package.json` | `build-release.js` (создать) | При сборке release |
+  | Host | `packages/host/package.json` | `build-release.js` (создать) | При сборке release |
   | Backend | `DuetData/backend/VERSION` | Нет (= Host version) | Host пишет при установке |
 
   - **Backend version = Host version** — backend bundled в Host, релизятся вместе
@@ -360,7 +360,7 @@ Host НЕ взаимодействует с Extension/Backend!
         ↓
     Пишет DuetData/backend/VERSION → "0.2.0"
     ```
-  - ✅ **Создан:** `apps/host/build-release.js` — bump версию + build release
+  - ✅ **Создан:** `packages/host/build-release.js` — bump версию + build release
 
 - [x] **Q12:** Два сканера — это временно или постоянно?
   - ✅ **РЕШЕНО:** Временно. Будет только сканер на Python в Backend.
@@ -559,7 +559,7 @@ def workspace_info(workspace_path: str = "") -> dict:
 #### Monorepo структура (scope этого топика)
 
 ```
-apps/host/                      # Electron menu bar app
+packages/host/                      # Electron menu bar app
 ├── src/renderer/pages/
 │   └── SetupPage.tsx           # UI для создания pointer (3 поля)
 ├── src/main/ipc.ts             # IPC handler
@@ -714,8 +714,8 @@ if (!fs.existsSync(pointerPath)) {
 **Файлы:**
 | Компонент | Файл | Что делает |
 |-----------|------|------------|
-| Host | [SetupPage.tsx](../../apps/host/src/renderer/pages/SetupPage.tsx) | UI: три поля + кнопка создать |
-| Host | [config.ts](../../apps/host/src/core/config.ts) | `createPointer()` |
+| Host | [SetupPage.tsx](../../packages/host/src/renderer/pages/SetupPage.tsx) | UI: три поля + кнопка создать |
+| Host | [config.ts](../../packages/host/src/core/config.ts) | `createPointer()` |
 | Backend | `pointer.py` (новый) | См. пример выше |
 | Backend | `aliases.py` (новый) | См. пример выше |
 | Backend | [config.py](../../packages/backend/config.py) | settings.json + {machine}.json |
@@ -735,18 +735,18 @@ if (!fs.existsSync(pointerPath)) {
 | `~/.org.ve68.duet` | ✅ Создан | Pointer (JSON файл, НЕ папка!) |
 | `DuetConfig/settings.json` | ✅ Создан | Общие настройки (без version, без port) |
 | `DuetConfig/mac_work.json` | ✅ Создан | Маппинг алиасов + port |
-| `apps/host/build-release.js` | ✅ Создан | Bump версию + build release |
+| `packages/host/build-release.js` | ✅ Создан | Bump версию + build release |
 
 ### Обновлённый код
 
 | Файл | Статус | Что сделано |
 |------|--------|-------------|
-| `apps/host/src/core/config.ts` | ✅ Обновлён | Читает pointer как файл |
-| `apps/host/src/renderer/src/pages/SetupPage.tsx` | ✅ Создан | UI: три поля + кнопка |
-| `apps/host/src/main/ipc-handlers.ts` | ✅ Обновлён | config:save-pointer |
-| `apps/host/__tests__/helpers/fs.ts` | ✅ Обновлён | Тестовые хелперы |
-| `apps/host/__tests__/unit/core/config.test.ts` | ✅ Обновлён | Тесты для нового формата |
-| `apps/host/package.json` | ✅ Обновлён | npm run release |
+| `packages/host/src/core/config.ts` | ✅ Обновлён | Читает pointer как файл |
+| `packages/host/src/renderer/src/pages/SetupPage.tsx` | ✅ Создан | UI: три поля + кнопка |
+| `packages/host/src/main/ipc-handlers.ts` | ✅ Обновлён | config:save-pointer |
+| `packages/host/__tests__/helpers/fs.ts` | ✅ Обновлён | Тестовые хелперы |
+| `packages/host/__tests__/unit/core/config.test.ts` | ✅ Обновлён | Тесты для нового формата |
+| `packages/host/package.json` | ✅ Обновлён | npm run release |
 | `packages/backend/pointer.py` | ✅ Создан | Читает ~/.org.ve68.duet |
 | `packages/backend/aliases.py` | ✅ Создан | Резолвит @aliases |
 | `packages/backend/config.py` | ✅ Обновлён | Pointer-based, settings.json + {machine}.json |

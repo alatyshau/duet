@@ -29,9 +29,8 @@
 
 Корневой пакет `private: true`, поэтому не публикуется в npm.
 Реальные версии — в каждом модуле отдельно:
-- `apps/host/package.json` → версия Electron-приложения
-- `apps/vscode/package.json` → версия VS Code расширения (будет)
-- и т.д.
+- `packages/host/package.json` → версия Electron-приложения
+- `packages/extension/package.json` → версия VS Code расширения
 
 ### private
 ```json
@@ -42,12 +41,11 @@
 
 ### workspaces
 ```json
-"workspaces": ["apps/*", "packages/*"]
+"workspaces": ["packages/*"]
 ```
 
 Определяет структуру монорепо. Говорит npm где искать под-пакеты:
-- `apps/*` — приложения (Electron, VS Code extension, ...)
-- `packages/*` — библиотеки (shared код между приложениями)
+- `packages/*` — все компоненты (host, extension, backend, ai-kit)
 
 Каждый под-пакет имеет свой `package.json` со своим `name` (например `duet-host`).
 
@@ -70,7 +68,7 @@ npm run dev:host    # вместо: npm run dev --workspace=duet-host
 ```
 
 Разбор `npm run dev --workspace=duet-host`:
-- `--workspace=duet-host` — выбрать пакет с именем `duet-host` (из `apps/host/package.json`)
+- `--workspace=duet-host` — выбрать пакет с именем `duet-host` (из `packages/host/package.json`)
 - `dev` — выполнить скрипт `dev` из того пакета
 
 Подробнее о scripts: https://docs.npmjs.com/cli/v10/using-npm/scripts
@@ -83,15 +81,13 @@ npm run dev:host    # вместо: npm run dev --workspace=duet-host
 Duet/
 ├── package.json              ← ТЫ ЗДЕСЬ
 ├── node_modules/             ← общие зависимости (hoisted)
-├── apps/
-│   ├── host/                 ← duet-host (Electron приложение)
-│   │   ├── package.json
-│   │   └── node_modules/     ← симлинки на корневой node_modules
-│   ├── vscode/               ← duet-vscode (VS Code расширение, позже)
-│   └── ai-instructions/      ← legacy модуль
 └── packages/
-    ├── core/                 ← duet-core (общая логика, позже)
-    └── mcp-server/           ← duet-mcp-server (MCP сервер, позже)
+    ├── host/                 ← duet-host (Electron приложение)
+    │   ├── package.json
+    │   └── node_modules/     ← симлинки на корневой node_modules
+    ├── extension/            ← VS Code расширение
+    ├── backend/              ← Python HTTP API + MCP
+    └── ai-kit/               ← AI инструкции
 ```
 
 ---

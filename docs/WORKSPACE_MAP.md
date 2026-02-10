@@ -107,7 +107,7 @@ apps/
 
 ---
 
-### `apps/host/` — Duet Host (Electron)
+### `packages/host/` — Duet Host (Electron)
 
 Основное десктопное приложение. Обертка над веб-интерфейсом.
 
@@ -123,7 +123,7 @@ host/
 ├── package.json               # Манифест npm-пакета для Duet Host (Electron приложение).
 ├── postcss.config.js          # Конфигурация PostCSS — препроцессора CSS.
 ├── README.md
-├── section.json               # Мета-данные секции apps/host
+├── section.json               # Мета-данные секции packages/host
 ├── tailwind.config.js         # Конфигурация Tailwind CSS v4 — utility-first CSS-фреймворка.
 ├── tsconfig.json              # Корневой конфиг TypeScript — project references.
 ├── tsconfig.node.json         # TypeScript конфиг для Node.js частей Electron (main + preload).
@@ -132,7 +132,7 @@ host/
 ├── .vscode/                   # Настройки VS Code для проекта
 │   ├── extensions.json        # Рекомендуемые расширения VS Code для проекта.
 │   ├── launch.json            # Конфигурации отладки VS Code для Electron.
-│   └── settings.json          # Настройки VS Code для проекта apps/host (Electron-приложение).
+│   └── settings.json          # Настройки VS Code для проекта packages/host (Electron-приложение).
 │
 ├── build/                        # Иконки и ресурсы для сборщика (electron-builder)
 │   ├── entitlements.mac.plist    # Файл разрешений (entitlements) для подписи macOS-приложения.
@@ -198,7 +198,7 @@ host/
 
 ---
 
-### `apps/ai-instructions/` — База знаний AI
+### `packages/ai-kit/legacy-ai-instructions/` — База знаний AI
 
 "Legacy модуль". Содержит методологию и боевой устав для AI-агентов.
 
