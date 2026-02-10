@@ -1,5 +1,7 @@
 # Backend Architecture
 
+> Shared model (pointer, DuetData, DuetConfig, version flow, spawn): see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md)
+
 ## Overview
 
 Python HTTP backend serving REST API and MCP endpoint for Duet.
@@ -25,7 +27,7 @@ server.py (entry point, lifecycle)
 | Python (not TS) | Native sqlite3, DuckDB, LanceDB support |
 | HTTP (not stdio) | One process owns DB, no race conditions |
 | Services layer | DI for testability, separation of concerns |
-| Read-only config | Extension is source of truth, backend never writes |
+| Pointer-based config | Reads pointer → settings.json + {machine}.json |
 
 ## Module Responsibilities
 
@@ -36,28 +38,9 @@ server.py (entry point, lifecycle)
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan, self-healing, scan_components | HTTP, config writes |
 | `db.py` | SQLite CRUD | Business rules |
-| `config.py` | Read config, path getters, get_version(), atomic_write() | Write config.json |
-
-## Version Contract
-
-Version is stored in `config.json`, NOT in a separate file.
-
-```
-Extension (package.json)
-    │
-    │ writes "version" to config.json
-    ▼
-Backend (config.get_version())
-    │
-    │ returns via /health
-    ▼
-Extension (compares, restarts if needed)
-```
-
-**Contracts:**
-- `config.get_version()` raises `RuntimeError` if version not set
-- Extension MUST write version before starting backend
-- `/health` response includes version for lifecycle check
+| `pointer.py` | Read pointer file | Write pointer |
+| `aliases.py` | Resolve `@alias` → absolute path | Config management |
+| `config.py` | Read pointer + settings + machine config, path getters, `atomic_write()` | Write config files |
 
 ## Boundaries (CRITICAL)
 
@@ -81,6 +64,8 @@ Extension (compares, restarts if needed)
 | Component scan | `scanner.py:scan_components()` |
 | SQLite schema | `db.py:_init_schema()` |
 | Config reading | `config.py` |
+| Pointer reading | `pointer.py` |
+| Alias resolution | `aliases.py` |
 | PID lifecycle | `server.py:write_pid_file/check_pid_file` |
 | Logging setup | `server.py:setup_logging()` |
 | Atomic file write | `config.py:atomic_write()` |
@@ -102,13 +87,11 @@ Extension (compares, restarts if needed)
 
 #### `/scan` Behavior
 
-**Debounce:** If last scan completed < 5 seconds ago, returns `{ status: "skipped", reason: "recent_scan" }` immediately.
+**Debounce:** If last scan completed < 5 seconds ago, returns `{ status: "skipped", reason: "recent_scan" }`.
 
-**Blocking:** Scan runs synchronously. During scan, backend does NOT respond to `/health` or `/stop`. Typical scan duration: 1-5 seconds depending on hierarchy size.
+**Blocking:** Scan runs synchronously. During scan, backend does NOT respond to other requests. Typical duration: 1-5 seconds.
 
-**Why this is OK:** Single-user local app. The user knows what buttons they pressed. Even with 10 VS Code windows from 3 different forks (Cursor, Antigravity, etc.) — it's still one person, one machine, predictable behavior.
-
-**Future:** File watchers + WebSockets for reactive updates. Manual `/scan` will become rare.
+**Why this is OK:** Single-user local app. One person, one machine, predictable behavior.
 
 ### MCP Tools
 
@@ -122,33 +105,14 @@ Extension (compares, restarts if needed)
 | `scan` | Returns dict directly |
 | `health` | Returns `{ status, version, uptime_seconds }` |
 
-**Format note:** REST wraps in `{ key: value }` (extensibility), MCP returns data directly (AI convenience). Names and semantics are unified.
+**Format note:** REST wraps in `{ key: value }` (extensibility), MCP returns data directly (AI convenience).
 
 **Contracts:**
 - `/stop` is REST-only (AI must not stop backend)
-- Errors use standard MCP mechanism: `McpError` with JSON-RPC codes
-
-### MCP Error Handling
-
-Uses standard MCP `McpError` with JSON-RPC error codes:
-
-```python
-from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData, INVALID_PARAMS
-
-raise McpError(ErrorData(code=INVALID_PARAMS, message="stream_id must be integer"))
-```
-
-| Code | Constant | When |
-|------|----------|------|
-| `-32602` | `INVALID_PARAMS` | Invalid input parameters |
-| `-32603` | `INTERNAL_ERROR` | Server/DB errors |
-
-**Not errors:** Empty result (entity not found) returns `[]`, not exception.
+- Errors: `McpError` with JSON-RPC codes (`INVALID_PARAMS` -32602, `INTERNAL_ERROR` -32603)
+- Empty result returns `[]`, not exception
 
 ## Logging
-
-Backend logs to file, NOT stdout/stderr (prevents BrokenPipe when Extension closes).
 
 ```
 DuetData/backend.log  ← RotatingFileHandler
@@ -157,37 +121,26 @@ DuetData/backend.log  ← RotatingFileHandler
 └── Format: YYYY-MM-DD HH:MM:SS [LEVEL] message
 ```
 
-**Contract:**
-- Extension spawns backend with `stdio: 'ignore'` — no pipe
-- All output goes to `backend.log`
-- Uvicorn logs also routed to same file
-
 ## File Safety
 
 All file writes use atomic pattern: tmp + rename.
 
-| File | Writer | Function |
-|------|--------|----------|
-| `state.json` | `entities.py` | `atomic_write()` |
-| `backend.log` | `server.py` | Python logging (RotatingFileHandler) |
-
-**Contract:** `config.py:atomic_write(path, content)` — write to `.tmp` then `os.rename()`. Never `write_text()` directly.
+**Contract:** `config.py:atomic_write(path, content)` — write to `.tmp` then `os.rename()`.
 
 ## Lifecycle
 
 ### Startup
 
 ```
-1. Parse --data-path argument
-2. config.init(data_path)
-3. setup_logging() → RotatingFileHandler to backend.log
-4. Validate config (version, port, timestampTZ, business_folders)
-5. check_pid_file() → exit if already running
-6. db.init()
-7. Create services (DI)
-8. init_services()
-9. write_pid_file()
-10. Start uvicorn
+1. Read pointer file
+2. setup_logging() → RotatingFileHandler
+3. Validate config (VERSION, port, settings)
+4. check_pid_file() → exit if already running
+5. db.init()
+6. Create services (DI)
+7. init_services()
+8. write_pid_file()
+9. Start uvicorn
 ```
 
 ### Shutdown
@@ -207,89 +160,59 @@ All file writes use atomic pattern: tmp + rename.
 ```python
 # server.py lifespan
 db = DatabaseManager()
-workspace_service = WorkspaceService(db)  # DI
-entities_service = EntitiesService(db)    # DI
+workspace_service = WorkspaceService(db)
+entities_service = EntitiesService(db)
 init_services(workspace_service, entities_service, _start_time)
 
 # Usage (anywhere)
 get_workspace_service().get_workspace_info(...)
-get_entities_service().get_entities(...)
 ```
 
 **Contract:** Services initialized once in lifespan. Never create new instances elsewhere.
 
 ## Python Environment
 
-**One venv for monorepo:** Virtual environment is at repo root (`.venv/`), shared by all Python packages.
+**One venv for monorepo:** at repo root (`.venv/`), shared by all Python packages.
 
 ```bash
-# From repo root
-.venv/bin/python    # Python interpreter
-.venv/bin/pip       # Package manager
-.venv/bin/pytest    # Test runner
+.venv/bin/python    # interpreter
+.venv/bin/pytest    # test runner
 ```
 
-**Contract:** All agents should use `.venv/bin/python` from repo root, never system Python.
+**Contract:** Always use `.venv/bin/python`, never system Python.
 
 ## Testing
 
 ```bash
-# Install dev dependencies (from repo root)
-.venv/bin/pip install -r packages/backend/requirements-dev.txt
-
-# Run tests (from packages/backend/)
-cd packages/backend
-../../.venv/bin/pytest
+cd packages/backend && ../../.venv/bin/pytest
 ```
 
 ### Test Infrastructure
 
 ```
 tests/
-├── conftest.py          # Centralized fixtures (duet_data, db, client)
+├── conftest.py          # Centralized fixtures
 ├── fixtures/
-│   ├── __init__.py      # Exports all factories
 │   ├── entities.py      # EntityFactory
 │   └── filesystem.py    # DuetDataBuilder, ManifestBuilder, HierarchyBuilder
 └── test_*.py
 ```
 
-### Fixtures
-
 | Fixture | Purpose |
 |---------|---------|
-| `duet_data` | Creates DuetData structure with config.json |
+| `duet_data` | Creates DuetData structure |
 | `db` | DatabaseManager with test.db |
 | `client` | Async HTTP test client (ASGI) |
 | `EntityFactory` | Create Entity objects with defaults |
 | `DuetDataBuilder` | Build custom DuetData structure |
-| `ManifestBuilder` | Create manifest files |
-
-### Test Coverage
-
-| Test file | Coverage |
-|-----------|----------|
-| `test_config.py` | config.py ~95% |
-| `test_db.py` | db.py ~90% |
-| `test_scanner.py` | scanner.py ~85% |
-| `test_lifecycle.py` | PID, /stop ~80% |
-| `test_api.py` | REST endpoints ~90% |
 
 **Contracts:**
-- All tests use `tmp_path` fixture. Never write to real DuetData.
-- `DuetDataBuilder` creates config.json with `version: "test"` by default.
+- All tests use `tmp_path`. Never write to real DuetData.
 - Use `EntityFactory` instead of raw Entity() construction.
 
 ## Running
 
 ```bash
-# Development
-python server.py --data-path ~/DuetData
-
-# Production (spawned by Extension)
-# Extension writes port to config.json, then:
-python server.py --data-path {dataFolder}
+python server.py                                          # reads ~/.org.ve68.duet
+DUET_POINTER_FILE=/tmp/test-pointer python server.py      # test override
 ```
-
-**Contract:** `--data-path` is REQUIRED. No defaults, no env vars.
-**Contract:** `config.json` must contain `version`, `port`, `business_folders`, `timestampTZ` (backend refuses to start if missing/invalid).

@@ -10,7 +10,7 @@ import * as path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import * as vscode from 'vscode';
 import { Paths } from './paths';
-import { ConfigManager, CONFIG_DEFAULTS } from './config';
+import { readPort } from './pointer';
 import { DuetApiClient } from './api-client';
 
 // Constants from topic_core_architecture.md
@@ -43,7 +43,6 @@ export class BackendLifecycle {
     private readonly extensionVersion: string;
     private readonly output: vscode.OutputChannel;
     private readonly onStatusChange?: (status: BackendStatus) => void;
-    private readonly configManager: ConfigManager;
     private readonly apiClient: DuetApiClient;
 
     private backendProcess: ChildProcess | null = null;
@@ -55,10 +54,8 @@ export class BackendLifecycle {
         this.extensionVersion = options.extensionVersion;
         this.output = options.outputChannel;
         this.onStatusChange = options.onStatusChange;
-        this.configManager = new ConfigManager(this.paths.configPath);
 
-        const config = this.readConfigSync();
-        const port = config.port ?? CONFIG_DEFAULTS.port;
+        const port = readPort();
         this.apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
     }
 
@@ -69,21 +66,19 @@ export class BackendLifecycle {
     async ensureRunning(): Promise<void> {
         this.log('Ensuring backend is running...');
 
-        // PHASE 1: Check if already running with correct version
-        const config = await this.configManager.readFull();
-
-        if (config.version === this.extensionVersion && this.configManager.hasRequiredFields(config)) {
-            // Config looks good, check if backend is running
-            const health = await this.checkHealth();
-            if (health && health.version === this.extensionVersion) {
-                this.log(`Backend already running (v${health.version})`);
-                this.setStatus({ state: 'ready', version: health.version });
-                return;
-            }
+        // PHASE 1: Check if already running
+        const health = await this.checkHealth();
+        if (health) {
+            this.log(`Backend already running (v${health.version})`);
+            this.setStatus({ state: 'ready', version: health.version });
+            return;
         }
 
-        // PHASE 2: Install if needed
-        await this.install();
+        // PHASE 2: Install if needed (check VERSION file)
+        const installedVersion = this.readVersionFile();
+        if (installedVersion !== this.extensionVersion) {
+            await this.install();
+        }
 
         // PHASE 3: Startup
         await this.startup();
@@ -147,9 +142,9 @@ export class BackendLifecycle {
             this.setStatus({ state: 'installing', message: 'Ожидание установки в другом окне...' });
             await this.waitForInstallLock();
 
-            // Re-check config after wait
-            const config = await this.configManager.readFull();
-            if (config.version === this.extensionVersion && this.configManager.hasRequiredFields(config)) {
+            // Re-check VERSION after wait
+            const installedVersion = this.readVersionFile();
+            if (installedVersion === this.extensionVersion) {
                 return; // Other window installed successfully
             }
             throw new BackendError('Установка не удалась в другом окне VS Code', true);
@@ -167,9 +162,8 @@ export class BackendLifecycle {
             this.setStatus({ state: 'installing', message: 'Настройка Python окружения...' });
             await this.setupVenv();
 
-            // Update config with version and defaults
-            this.setStatus({ state: 'installing', message: 'Обновление конфигурации...' });
-            await this.configManager.ensureDefaults(this.extensionVersion);
+            // Write VERSION file (backend reads it at startup)
+            this.writeVersionFile(this.extensionVersion);
 
             this.log('Installation complete');
         } finally {
@@ -446,13 +440,14 @@ export class BackendLifecycle {
     private async spawnBackend(): Promise<void> {
         const serverPath = path.join(this.paths.backendPath, 'server.py');
 
-        this.log(`Spawning: ${this.paths.venvPython} ${serverPath} --data-path ${this.paths.root}`);
+        this.log(`Spawning: ${this.paths.venvPython} ${serverPath}`);
 
-        // Backend writes logs to DuetData/backend.log (RotatingFileHandler).
+        // Backend reads pointer file (~/.org.ve68.duet) to find config.
+        // No --data-path needed — backend resolves paths itself.
         // We use stdio: 'ignore' to avoid BrokenPipe/SIGPIPE when Extension closes.
         this.backendProcess = spawn(
             this.paths.venvPython,
-            [serverPath, '--data-path', this.paths.root],
+            [serverPath],
             {
                 cwd: this.paths.backendPath,
                 stdio: 'ignore',
@@ -510,13 +505,21 @@ export class BackendLifecycle {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    private readConfigSync(): { port?: number } {
+    private readVersionFile(): string | null {
         try {
-            const content = fs.readFileSync(this.paths.configPath, 'utf8');
-            return JSON.parse(content);
+            return fs.readFileSync(
+                path.join(this.paths.backendPath, 'VERSION'), 'utf8'
+            ).trim();
         } catch {
-            return {};
+            return null;
         }
+    }
+
+    private writeVersionFile(version: string): void {
+        const versionPath = path.join(this.paths.backendPath, 'VERSION');
+        fs.mkdirSync(this.paths.backendPath, { recursive: true });
+        fs.writeFileSync(versionPath, version);
+        this.log(`Wrote VERSION: ${version}`);
     }
 }
 

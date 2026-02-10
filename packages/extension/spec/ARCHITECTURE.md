@@ -1,5 +1,7 @@
 # Architecture
 
+> Shared model (pointer, DuetData, DuetConfig, entities): see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md)
+
 ## Layer Separation
 
 | Layer | Rule | Why |
@@ -11,6 +13,7 @@
 
 | Decision | Rationale |
 |----------|-----------|
+| Pointer-based config (`pointer.ts`) | Reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
 | sql.js (WASM) | Works in VS Code extension sandbox, no native deps |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
 | `atomicWriteFile()` in FileSystem | Prevents config.json corruption on crash |
@@ -18,6 +21,7 @@
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
 | Workspace files | Multi-root workspace for repo + Drive folder |
 | Backend `stdio: 'ignore'` | Backend logs to file, avoids BrokenPipe/SIGPIPE |
+| VERSION file (not config.json) | Backend version in `DuetData/backend/VERSION` |
 
 ## Scanner Behaviors
 
@@ -28,7 +32,9 @@
 | Product is terminal | On `product.json` found → stop, no manifests below product |
 | Projects detection | Any entity with `projects/` subfolder |
 
-Implementation: `scanner.ts`. Name conflict resolution → see DOMAIN.md
+Implementation: `scanner.ts` (legacy — reads `config.json`). Name conflict resolution → see ECOSYSTEM.md
+
+**Legacy note:** Scanner still reads `DuetData/config.json` via `ConfigManager`. Will migrate to Backend API when Extension stops doing its own scan.
 
 ## Launcher (openFolder.ts)
 
@@ -68,17 +74,23 @@ Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
 
 Note: Active color takes priority over business color.
 
-## Building VSIX
+## Build & Release
+
+> Full pipeline: see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md) → Build & Release
 
 ```bash
-cd packages/extension
-npm run vsix
+npm run vsix   # bump + build + package → dist/duet-{version}.vsix
 ```
 
-This script (`build-vsix.js`):
-1. Bumps patch version (e.g. 0.0.5 → 0.0.6)
-2. Updates viewContainer title to `Duet {version}`
-3. Builds VSIX to `dist/duet-{version}.vsix`
+`build-vsix.js`: bump patch → update UI title → esbuild --production → bundle-backend → vsce package
+
+| Script | What |
+|--------|------|
+| `esbuild.js` | Bundle extension + MCP server. Copies `sql-wasm.wasm` to dist/ |
+| `bundle-backend.js` | Copy `packages/backend/` → `dist/backend/` (excludes tests, `__pycache__`) |
+| `build-vsix.js` | Orchestrates: version bump + package + vsce |
+
+**Backend is embedded in VSIX** — Extension deploys it to `DuetData/backend/` on activation.
 
 ## File Safety
 
@@ -92,19 +104,33 @@ All file writes use atomic pattern: tmp + rename.
 
 ## Backend Lifecycle
 
-Extension spawns Python backend with `stdio: 'ignore'`:
+Extension spawns backend. Spawn details: see ECOSYSTEM.md → Backend Spawn.
 
-```typescript
-spawn(venvPython, [serverPath, '--data-path', duetDataPath], {
-    stdio: 'ignore',  // Backend logs to DuetData/backend.log
-    detached: true,
-});
-```
+Extension-specific logic in `backend-lifecycle.ts`:
 
-**Contracts:**
-- Backend writes logs to `DuetData/backend.log` (RotatingFileHandler)
-- Extension never reads backend stdout/stderr (prevents BrokenPipe)
-- Backend outputs channel shows startup/shutdown events only
+| Step | What |
+|------|------|
+| 1. Check `/health` | If backend alive + version matches → ready |
+| 2. Check VERSION file | If matches extension version → skip install |
+| 3. `install()` | Copy backend files, create venv, write VERSION |
+| 4. `startup()` | Spawn backend process |
+
+**Extension-specific contracts:**
+- Port read via `pointer.ts:readPort()` (default 19680)
+- Backend output channel shows startup/shutdown events only
+- `ensureRunning()` called on activation
+
+## Navigation
+
+| Concept | File |
+|---------|------|
+| Pointer reading (sync) | `core/pointer.ts` |
+| DuetData paths | `core/paths.ts` |
+| Legacy config.json read/write | `core/config.ts` (ConfigManager) |
+| Backend lifecycle | `core/backend-lifecycle.ts` |
+| DB schema, queries | `db/index.ts` |
+| Workspace generation | `core/workspace.ts` |
+| MCP server | `mcp-server/index.ts` |
 
 ## Testing
 

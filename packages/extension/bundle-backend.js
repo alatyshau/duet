@@ -17,6 +17,7 @@ const EXCLUDE_PATTERNS = [
     /^\.pytest_cache$/,
     /\.pyc$/,
     /^\.git$/,
+    /^\.venv$/,
 ];
 
 function shouldExclude(name) {

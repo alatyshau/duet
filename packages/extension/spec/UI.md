@@ -7,14 +7,16 @@
 | КОНТЕКСТ | Current workspace position in hierarchy | `ContextProvider.ts` |
 | ДЕЛА | Full business tree for navigation | `BusinessTreeProvider.ts` |
 | ПРОЕКТЫ | Projects of selected entity | `ProjectsProvider.ts` |
-| Onboarding | Initial setup when data_folder not set | `OnboardingProvider.ts` |
+| Onboarding | Shown when pointer file not found | `OnboardingProvider.ts` |
 
 ## Visibility Contract
 
 | View | Condition (`when` in package.json) |
 |------|-----------------------------------|
-| Onboarding | `!config.duet.data_folder` |
-| КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ | `config.duet.data_folder` |
+| Onboarding | `duet.noPointer` |
+| КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ | `duet.hasPointer` |
+
+**How it works:** Extension reads `~/.org.ve68.duet` at activation via `readPointer()`. Sets context `duet.hasPointer` / `duet.noPointer`. Views toggle visibility based on these contexts.
 
 ## Behavioral Contracts
 

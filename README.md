@@ -36,106 +36,60 @@ Google Drive (твои данные)          Duet (семантика)
 ```
 
 ## Архитектура
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    DUET HOST (Electron)                         │
-│  • Висит в Menu Bar                                            │
-│  • File Watcher — следит за изменениями                        │
-│  • Индексация в SQLite + LanceDB                               │
-│  • MCP Server для LLM                                          │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-   VS Code              Claude Desktop         Другие MCP
-   Extension                                   клиенты
+┌─────────────────┐     writes      ┌──────────────────┐
+│  Host (Electron) │ ──────────────→ │ ~/.org.ve68.duet │
+│  Tray app, UI    │                 │   (pointer file) │
+└─────────────────┘                 └────────┬─────────┘
+                                      reads  │  reads
+                              ┌──────────────┴──────────────┐
+                              ▼                              ▼
+                   ┌──────────────────┐          ┌──────────────────┐
+                   │ Extension (VSCode)│          │ Backend (Python)  │
+                   │ UI, tree, scanner │          │ HTTP API + MCP    │
+                   └──────────────────┘          └──────────────────┘
+                              │          spawns           ▲
+                              └──────────────────────────┘
 ```
 
 ## Структура монорепо
+
 ```
 Duet/
 ├── apps/
-│   ├── host/                 ← Electron приложение (Menu Bar)
-│   ├── extension/            ← VS Code расширение
-│   └── ai-instructions/      ← Legacy: AI инструкции
-├── packages/ (этой папки пока нет, это только пример как планируется)
-│   ├── core/                 ← Общая логика (парсеры, типы)
-│   └── mcp-server/           ← MCP сервер
-└── docs/                     ← Документация (этой папки пока нет, это только пример как планируется)
+│   └── host/                ← Electron tray app (Menu Bar)
+├── packages/
+│   ├── extension/           ← VS Code расширение
+│   ├── backend/             ← Python HTTP API + MCP
+│   └── ai-kit/              ← AI инструкции (modes, stances, skills, personas)
+├── spec/
+│   └── ECOSYSTEM.md         ← Общая спека экосистемы (читай ПЕРВЫМ)
+└── projects/                ← GTD-проекты
 ```
 
-Подробнее о каждом пакете — см. README.md внутри.
+Подробнее о каждом компоненте — см. `spec/` внутри пакета.
 
 ## Быстрый старт
 
 ### Требования
 
 - Node.js 20+
-- Google Drive Desktop (для синхронизации)
+- Python 3.10+
+- Google Drive Desktop (для синхронизации DuetConfig)
 
 ### Установка
-```bash
-# Клонировать / открыть репозиторий
-cd ~/Google\ Drive/.../Duet
 
-# Установить зависимости
+```bash
+git clone https://github.com/alatyshau/duet.git
+cd duet
 npm install
-
-# Запустить Electron в dev-режиме
-npm run dev:host
 ```
-
-### Синхронизация с Google Drive (rclone)
-
-Duet использует rclone вместо Google Drive Desktop для синхронизации — это позволяет исключить node_modules и другие временные файлы.
-
-#### Первоначальная настройка
-```bash
-# Установить rclone
-brew install rclone
-
-# Настроить Google Drive
-rclone config --config ~/DuetData/.duet/rclone.conf
-# n → gdrive → drive → scope: 1 (Full access) → авторизация в браузере
-```
-
-#### Ручная синхронизация
-```bash
-cd ~/DuetData
-
-# Скачать из облака (первый раз или обновить локальное)
-rclone sync 'gdrive:!МетаЛаб/ДЕЛА/ТехноЛаб/ДЕЛА/Duet' Duet \
-    --config .duet/rclone.conf \
-    -v
-
-# Загрузить в облако (после локальных изменений)
-rclone sync Duet 'gdrive:!МетаЛаб/ДЕЛА/ТехноЛаб/ДЕЛА/Duet' \
-    --exclude-from Duet/.duetignore \
-    --config .duet/rclone.conf \
-    -v
-
-# Dry-run (проверить что будет сделано, без изменений)
-# Добавь --dry-run к любой команде выше
-```
-
-#### Exclude patterns
-
-При загрузке в облако исключаются:
-- `.git/**` — git история (есть на GitHub)
-- `node_modules/**` — npm зависимости (восстанавливаются через npm install)
-- `dist/**` — билд артефакты
-- `.turbo/**` — кэш Turborepo
-
-#### Планируемая автоматизация
-
-В будущем Duet Host будет автоматически:
-- Upload: при изменении файлов (file watcher + debounce)
-- Download: каждые 1-3 минуты
 
 ### Первый запуск
 
-1. Duet спросит корневые папки ваших дел
-2. Просканирует структуру
+1. Установить и запустить **Duet Host** — он создаст pointer file (`~/.org.ve68.duet`) с путями к DuetData и DuetConfig
+2. Открыть VS Code → установить **Duet Extension** (VSIX) → Extension подхватит pointer и запустит Backend
 
 ## Ключевые концепции
 
@@ -157,17 +111,32 @@ Duet запускает MCP Server, который позволяет Claude и 
 Подробнее позже будет тут: [docs/mcp-integration.md](docs/mcp-integration.md)
 
 ## Разработка
+
 ```bash
-npm run dev:host      # Electron в dev-режиме
-npm run build:host    # Сборка Electron
-npm test              # Тесты (когда будут)
+# Host (Electron tray app)
+npm run dev:host                              # dev-режим
+cd apps/host && npm run release               # bump + build → dist/Duet-{ver}.dmg
+
+# Extension (VS Code)
+cd packages/extension && npm run vsix         # bump + build → dist/duet-{ver}.vsix
+
+# Backend (Python)
+cd packages/backend && ../../.venv/bin/pytest  # тесты
+
+# Тесты всех компонентов
+cd apps/host && npm run test:run              # Host: 15 тестов
+cd packages/extension && npm test             # Extension: 112 тестов
+cd packages/backend && ../../.venv/bin/pytest  # Backend: 157 тестов
 ```
 
-## Документация (ПОЗЖЕ)
+### CI/CD
 
-- [CLAUDE.md](CLAUDE.md) — правила для ИИ-ассистентов
-- [docs/architecture.md](docs/architecture.md) — подробная архитектура
-- [docs/gpd-ontology.md](docs/gpd-ontology.md) — GPD методология
+GitHub Actions автоматически билдит Host (macOS/Windows/Linux) при push в main.
+
+## Документация
+
+- [spec/ECOSYSTEM.md](spec/ECOSYSTEM.md) — общая спека экосистемы (читай ПЕРВЫМ)
+- Спеки компонентов — `spec/` внутри каждого пакета
 
 ## Философия
 

@@ -1,6 +1,6 @@
 # Архитектура конфигурации Duet
 
-**Статус:** в работе (Шаг 0 DONE, Шаг 1 TODO)
+**Статус:** в работе (Шаг 0 DONE, Шаг 1 DONE)
 
 ---
 
@@ -148,21 +148,23 @@
 ```
 > **См. [topic_host_core.md](../260108_host_design/topic_host_core.md)** — план по переносу backend lifecycle в Host
 
-**Extension** (`packages/extension/`) — ⏳ Старый формат:
+**Extension** (`packages/extension/`) — ✅ Обновлён:
 ```
-- ❌ НЕ читает pointer ~/.org.ve68.duet
-- ❌ Путь к DuetData берёт из VSCode settings `duet.data_folder` или default ~/DuetData
-- ⚠️ Пишет DuetData/config.json (version, port, business_folders, timestampTZ)
-- ⚠️ Запускает backend с `--data-path DuetData`
-- ⚠️ Scanner читает business_folders из config.json (абсолютные пути)
+- ✅ Читает pointer ~/.org.ve68.duet (pointer.ts)
+- ✅ Если pointer нет → welcome view "Установите Duet Host" (OnboardingProvider)
+- ✅ Читает port из DuetConfig/{machine}.json (pointer.ts → readPort())
+- ✅ Запускает backend БЕЗ --data-path (backend читает pointer сам)
+- ✅ Пишет DuetData/backend/VERSION (вместо config.json version)
+- ⚠️ Scanner (scanner.ts) ещё читает config.json (прототип, будет удалён)
 ```
 
-**Backend** (`packages/backend/`) — ⏳ Старый формат:
+**Backend** (`packages/backend/`) — ✅ Обновлён:
 ```
-- ❌ НЕ читает pointer ~/.org.ve68.duet
-- ⚠️ Получает --data-path от Extension при запуске
-- ⚠️ Читает DuetData/config.json
-- ⚠️ Scanner читает business_folders из config.json (абсолютные пути)
+- ✅ Читает pointer ~/.org.ve68.duet (pointer.py)
+- ✅ Запускается без --data-path (читает pointer сам)
+- ✅ Читает settings.json + {machine}.json из DuetConfig
+- ✅ Резолвит @aliases через aliases.py
+- ✅ Версия из DuetData/backend/VERSION
 ```
 
 ### Пересечения и дублирование
@@ -597,9 +599,9 @@ packages/extension/             # VSCode extension
 - [ ] `workspace_info` возвращает duetConfigPath, machine, aliases
 
 **Extension (проверка pointer):**
-- [ ] При активации проверяет `~/.org.ve68.duet`
-- [ ] Если нет → welcome view "Установите Duet Host"
-- [ ] Убрана логика настройки папки (VSCode settings `duet.data_folder`)
+- [x] При активации проверяет `~/.org.ve68.duet`
+- [x] Если нет → welcome view "Установите Duet Host"
+- [x] Убрана логика настройки папки (VSCode settings `duet.data_folder`)
 
 > **Вне scope:** UI для редактирования алиасов, установка backend (остаётся выключенной)
 
@@ -615,7 +617,7 @@ packages/extension/             # VSCode extension
 ---
 
 ### Шаг 1: Рефакторинг конфигурации
-**Статус:** IN_PROGRESS
+**Статус:** ✅ DONE
 
 Все компоненты переходят на новую архитектуру конфигурации через pointer файл.
 
@@ -624,8 +626,8 @@ packages/extension/             # VSCode extension
 - [x] 1.2 Backend: обновить `config.py` для нового формата
 - [x] 1.3 Backend: `scanner.py` резолвит @aliases
 - [x] 1.4 Backend: `workspace_info` + aliases
-- [ ] 1.5 Extension: pointer + welcome view
-- [ ] 1.6 Host: SetupPage UI
+- [x] 1.5 Extension: pointer + welcome view + backend-lifecycle без config.json
+- [x] 1.6 Host: SetupPage UI
 
 **Host** — создаёт pointer:
 ```
@@ -740,19 +742,27 @@ if (!fs.existsSync(pointerPath)) {
 | Файл | Статус | Что сделано |
 |------|--------|-------------|
 | `apps/host/src/core/config.ts` | ✅ Обновлён | Читает pointer как файл |
+| `apps/host/src/renderer/src/pages/SetupPage.tsx` | ✅ Создан | UI: три поля + кнопка |
+| `apps/host/src/main/ipc-handlers.ts` | ✅ Обновлён | config:save-pointer |
 | `apps/host/__tests__/helpers/fs.ts` | ✅ Обновлён | Тестовые хелперы |
 | `apps/host/__tests__/unit/core/config.test.ts` | ✅ Обновлён | Тесты для нового формата |
 | `apps/host/package.json` | ✅ Обновлён | npm run release |
+| `packages/backend/pointer.py` | ✅ Создан | Читает ~/.org.ve68.duet |
+| `packages/backend/aliases.py` | ✅ Создан | Резолвит @aliases |
+| `packages/backend/config.py` | ✅ Обновлён | Pointer-based, settings.json + {machine}.json |
+| `packages/backend/server.py` | ✅ Обновлён | Без --data-path, читает pointer |
+| `packages/extension/src/core/pointer.ts` | ✅ Создан | Читает pointer + readPort() |
+| `packages/extension/src/vscode/providers/OnboardingProvider.ts` | ✅ Создан | Welcome view |
+| `packages/extension/src/vscode/extension.ts` | ✅ Обновлён | Читает pointer, context |
+| `packages/extension/src/core/backend-lifecycle.ts` | ✅ Обновлён | Pointer-based, VERSION файл, без --data-path |
 
-### Что ещё использует старый формат
+### Что ещё использует старый формат (config.json)
 
-| Компонент | Файл | План |
-|-----------|------|------|
-| Backend | `packages/backend/config.py` | **Шаг 1** |
-| Extension | `packages/extension/src/core/config.ts` | **Шаг 1** |
+| Компонент | Файл | Зачем | План |
+|-----------|------|-------|------|
+| Extension | `scanner.ts` | Читает business_folders | Удалить после перехода на Backend API |
+| Extension | `config.ts` (ConfigManager) | Используется scanner.ts, addBusiness.ts | Удалить вместе со scanner.ts |
 
-**Что меняется в Extension:**
-- Убрать VSCode setting `duet.data_folder`
-- Читать pointer `~/.org.ve68.duet`
-- Если pointer нет → welcome view "Установите Duet Host"
-- Логика установки backend остаётся выключенной (как сейчас)
+**Уже не используют config.json:**
+- ✅ Backend (pointer → settings.json + {machine}.json)
+- ✅ Extension backend-lifecycle (pointer → readPort(), VERSION файл)

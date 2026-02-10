@@ -45,3 +45,31 @@ export function readPointer(): Pointer | null {
         return null;
     }
 }
+
+/**
+ * Read {machine}.json from DuetConfig.
+ * Returns null if pointer or machine config is missing/unreadable.
+ */
+export function readMachineConfig(): Record<string, unknown> | null {
+    const pointer = readPointer();
+    if (!pointer) {
+        return null;
+    }
+    const configPath = path.join(pointer.duetConfigPath, `${pointer.machine}.json`);
+    try {
+        const content = fs.readFileSync(configPath, 'utf-8');
+        return JSON.parse(content);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Read port from machine config.
+ * Returns 19680 (default) if config is missing or port is not set.
+ */
+export function readPort(): number {
+    const config = readMachineConfig();
+    const port = config?.port;
+    return typeof port === 'number' ? port : 19680;
+}
