@@ -9,7 +9,8 @@
     "description": "Пакеты монорепозитория — приложения, библиотеки и инструменты.",
     "emoji": "📦",
     "folders": {
-        "ai-kit": "Legacy AI-инструментарий (инструкции, шаблоны, MCP-сервер)",
+        "ai-instructions": "AI-инструкции (контент: modes, stances, skills, personas, workflows, schemas)",
+        "ai-kit": "Legacy AI-инструментарий (install.py, MCP-сервер, legacy templates)",
         "backend": "Backend (Python, MCP-сервер Duet)",
         "extension": "VS Code Extension",
         "host": "Duet Host (Electron)"

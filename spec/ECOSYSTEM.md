@@ -27,37 +27,49 @@
 
 | Component | Package | Language | Role |
 |-----------|---------|----------|------|
-| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Future: backend lifecycle |
+| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Future: backend lifecycle + AI instructions deploy |
 | **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Spawns backend. Reads pointer |
 | **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
-| **AI Kit** | `packages/ai-kit` | Markdown + Python | Legacy AI instructions (modes, stances, skills, personas). Legacy MCP |
+| **AI Instructions** | `packages/ai-instructions` | Markdown | Pure content: modes, stances, skills, personas, workflows, schemas |
+| **AI Kit** | `packages/ai-kit` | Markdown + Python | Legacy: install.py, MCP server, legacy templates. Being replaced by AI Instructions + Host |
 
-## AI Kit
+## AI Instructions
 
-AI instructions for agents. The instructions themselves are the permanent value; the package wrapper is transitional.
+Pure content package — source of truth for all AI agent instructions.
+
+```
+packages/ai-instructions/
+├── spec/
+│   ├── ARCHITECTURE.md     # package structure, naming, deploy chain
+│   └── DOMAIN.md           # concepts (mode, stance, skill, persona), relationships
+└── src/                    # deliverable — deployed to DuetData/ai-kit/
+    ├── core_instructions.md
+    ├── core_instructions_short.md
+    ├── modes/              # DIALOGUE, EXECUTE, PLANNING, etc.
+    ├── stances/            # dialectic, pragmatic, critical, etc.
+    ├── skills/             # python, typescript, spec-architect, etc.
+    ├── personas/           # Socrates, Hephaestus, Ariadna, etc.
+    ├── workflows/          # solo, pair, sddg
+    └── schemas/            # topic_file, index format specs
+```
+
+**Edit rule:** Always edit `packages/ai-instructions/src/`, never `DuetData/ai-kit/` directly. Changes are lost on next deploy.
+
+**Deploy chain:** Host will deploy `src/` to `DuetData/ai-kit/` (planned). Currently `ai-kit/install.py` is the manual installer.
+
+## AI Kit (Legacy)
+
+Transitional package. Being replaced by AI Instructions (content) + Host (deploy logic).
 
 ```
 packages/ai-kit/
-├── templates/              # source of truth for instructions
-│   ├── core_instructions.md
-│   ├── modes/              # DIALOGUE, EXECUTE, PLANNING, etc.
-│   ├── stances/            # dialectic, pragmatic, critical, etc.
-│   ├── skills/             # python, typescript, spec-architect, etc.
-│   ├── personas/           # Socrates, Hephaestus, Ariadna, etc.
-│   ├── workflows/          # solo, pair, sddg
-│   └── schemas/            # topic_file, index format specs
-├── install.py              # PROTOTYPE — actual install logic is in Extension, moving to Host
+├── templates/              # LEGACY — source of truth moved to packages/ai-instructions/
+├── install.py              # LEGACY manual installer — moving to Host
 ├── mcp-server/             # LEGACY Python MCP (2 tools) — replaced by Extension MCP
 └── spec/                   # AI Kit's own specs
 ```
 
-**Deploy chain:** `install.py` was the prototype. Real install logic was ported to Extension (`backend-lifecycle.ts`), and will move to Host.
-
-**Edit rule:** Always edit `templates/`, never `DuetData/ai-kit/` directly. Changes are lost on next deploy.
-
-**MCP server:** Legacy Python MCP (timestamp + get_instruction_location). Replaced by Extension's Node.js MCP (5 tools). Don't touch.
-
-**Future:** Instructions stay permanent. Package will either rename to `ai-instructions` or merge into Host (instructions deployed from Host app).
+**MCP server:** Legacy Python MCP (timestamp + get_instruction_location). Replaced by Extension's Node.js MCP (5 tools). Don't touch until backend health management is in Host UI.
 
 ## Pointer File
 
@@ -103,7 +115,7 @@ DuetData/
 ├── .pid                            # backend PID lockfile
 ├── backend.log                     # backend log (RotatingFileHandler)
 ├── mcp/
-│   └── mcp-server.js              # deployed MCP server for Claude Code
+│   └── mcp-server.js              # Extension Node.js MCP (deployed for VS Code Copilot)
 ├── all-businesses.code-workspace   # multi-root for all businesses
 ├── config.json                     # LEGACY — Extension scanner only
 └── ai-kit/                         # AI instructions directory
@@ -268,7 +280,7 @@ Extension → spawn(venvPython, [serverPath]) → Backend
 | `DuetConfig/{machine}.json` | — | reads (port) | reads (port, @aliases) | — |
 | `DuetData/backend/VERSION` | — | writes | reads | — |
 | `DuetData/config.json` | — | reads (legacy scanner) | — | — |
-| `DuetData/ai-kit/` | — | deploys (install.py) | — | reads (instructions) |
+| `DuetData/ai-kit/` | deploys (planned) | deploys (install.py, legacy) | — | reads (instructions) |
 | `DuetData/backend.log` | — | — | writes | — |
 | `DuetData/.pid` | — | — | writes | — |
 
