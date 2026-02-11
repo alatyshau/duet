@@ -9,17 +9,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-
-// Типы для AppState (должны совпадать с core/app-state.ts)
-type AppStatus = 'no_config' | 'path_lost' | 'ready'
-
-interface AppState {
-  status: AppStatus
-  duetDataPath: string | null
-  duetConfigPath: string | null
-  machine: string | null
-  pathExists: boolean
-}
+import type { AppState, DeployStatus, AgentInfo } from '../shared/types'
 
 // Custom APIs for renderer
 const api = {
@@ -32,7 +22,6 @@ const api = {
       callback(state)
     }
     ipcRenderer.on('app-state-changed', handler)
-    // Возвращаем функцию отписки
     return () => {
       ipcRenderer.removeListener('app-state-changed', handler)
     }
@@ -46,7 +35,44 @@ const api = {
     ipcRenderer.invoke('config:save-pointer', config),
 
   // Открыть папку в Finder/Explorer
-  openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:open-path', path)
+  openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:open-path', path),
+
+  // === Config ===
+
+  setDeployChannel: (channel: 'dev' | 'prod'): Promise<AppState> =>
+    ipcRenderer.invoke('config:set-deploy-channel', channel),
+
+  // === Deploy ===
+
+  getDeployStatus: (): Promise<DeployStatus> => ipcRenderer.invoke('deploy:get-status'),
+
+  startDeploy: (): Promise<void> => ipcRenderer.invoke('deploy:start'),
+
+  onDeployLog: (callback: (message: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, message: string): void => {
+      callback(message)
+    }
+    ipcRenderer.on('deploy:log', handler)
+    return () => {
+      ipcRenderer.removeListener('deploy:log', handler)
+    }
+  },
+
+  onDeployStatusChanged: (callback: (status: DeployStatus) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: DeployStatus): void => {
+      callback(status)
+    }
+    ipcRenderer.on('deploy:status-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('deploy:status-changed', handler)
+    }
+  },
+
+  // === AI Agents ===
+
+  getAgents: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:detect'),
+
+  configureAgents: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:configure')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

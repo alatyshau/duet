@@ -27,7 +27,7 @@
 
 | Component | Package | Language | Role |
 |-----------|---------|----------|------|
-| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Future: backend lifecycle + AI instructions deploy |
+| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend + AI instructions. Configures AI clients |
 | **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Spawns backend. Reads pointer |
 | **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
 | **AI Instructions** | `packages/ai-instructions` | Markdown | Pure content: modes, stances, skills, personas, workflows, schemas |
@@ -42,7 +42,7 @@ packages/ai-instructions/
 ├── spec/
 │   ├── ARCHITECTURE.md     # package structure, naming, deploy chain
 │   └── DOMAIN.md           # concepts (mode, stance, skill, persona), relationships
-└── src/                    # deliverable — deployed to DuetData/ai-kit/
+└── src/                    # deliverable — deployed to DuetData/ai-instructions/
     ├── core_instructions.md
     ├── core_instructions_short.md
     ├── modes/              # DIALOGUE, EXECUTE, PLANNING, etc.
@@ -53,9 +53,9 @@ packages/ai-instructions/
     └── schemas/            # topic_file, index format specs
 ```
 
-**Edit rule:** Always edit `packages/ai-instructions/src/`, never `DuetData/ai-kit/` directly. Changes are lost on next deploy.
+**Edit rule:** Always edit `packages/ai-instructions/src/`, never `DuetData/ai-instructions/` directly. Changes are lost on next deploy.
 
-**Deploy chain:** Host will deploy `src/` to `DuetData/ai-kit/` (planned). Currently `ai-kit/install.py` is the manual installer.
+**Deploy chain:** Host deploys `src/` to `DuetData/ai-instructions/`.
 
 ## AI Kit (Legacy)
 
@@ -109,7 +109,7 @@ DuetData/
 │   └── {Product}.code-workspace    # multi-root: repo + Drive folder
 ├── backend/
 │   ├── VERSION                     # installed backend version
-│   ├── server.py                   # backend code (copied from vsix)
+│   ├── server.py                   # backend code (deployed by Host)
 │   └── requirements.txt
 ├── .venv/                          # Python virtual environment
 ├── .pid                            # backend PID lockfile
@@ -118,7 +118,8 @@ DuetData/
 │   └── mcp-server.js              # Extension Node.js MCP (deployed for VS Code Copilot)
 ├── all-businesses.code-workspace   # multi-root for all businesses
 ├── config.json                     # LEGACY — Extension scanner only
-└── ai-kit/                         # AI instructions directory
+├── ai-instructions/                # AI instructions (modes, stances, skills, personas, etc.)
+└── ai-kit/                         # Legacy: settings.json, MCP server
 ```
 
 ## DuetConfig Directory
@@ -143,7 +144,7 @@ DuetConfig/
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
 | `business_folders` | Backend | List of business roots (may use @aliases) |
-| `timestampTZ` | Backend, Extension MCP | Timezone for timestamps |
+| `timestampTZ` | Backend, Extension MCP (via legacy `DuetData/ai-kit/settings.json`) | Timezone for timestamps |
 
 ### {machine}.json
 
@@ -251,13 +252,14 @@ CREATE UNIQUE INDEX idx_name ON entities(name);
 ### Version Flow
 
 ```
-Extension (package.json version)
-    │ writes DuetData/backend/VERSION after install
+Host (app.getVersion())
+    │ deploy.ts → writes DuetData/backend/VERSION
     ▼
 Backend (reads VERSION → returns via /health)
     │
     ▼
-Extension (checks /health → compares version → reinstall if mismatch)
+Host (isDeployNeeded: app version > deployed → redeploy)
+Extension (reads VERSION → verifies installed; no deploy, suggests "run Host" if missing)
 ```
 
 ### Backend Spawn
@@ -276,11 +278,12 @@ Extension → spawn(venvPython, [serverPath]) → Backend
 | File | Host | Extension | Backend | AI Agents |
 |------|------|-----------|---------|-----------|
 | `~/.org.ve68.duet` | **writes** | reads | reads | — |
-| `DuetConfig/settings.json` | — | — | reads | — |
-| `DuetConfig/{machine}.json` | — | reads (port) | reads (port, @aliases) | — |
-| `DuetData/backend/VERSION` | — | writes | reads | — |
+| `DuetConfig/settings.json` | creates defaults | — | reads | — |
+| `DuetConfig/{machine}.json` | reads+writes (port, defaults) | reads (port) | reads (port, @aliases) | — |
+| `DuetData/backend/VERSION` | writes | reads | reads | — |
 | `DuetData/config.json` | — | reads (legacy scanner) | — | — |
-| `DuetData/ai-kit/` | deploys (planned) | deploys (install.py, legacy) | — | reads (instructions) |
+| `DuetData/ai-instructions/` | deploys | — | — | reads (instructions) |
+| `DuetData/ai-kit/` | — | — | — | reads (settings.json) |
 | `DuetData/backend.log` | — | — | writes | — |
 | `DuetData/.pid` | — | — | writes | — |
 
@@ -292,7 +295,7 @@ Extension → spawn(venvPython, [serverPath]) → Backend
 |-----------|---------|----------|--------------|
 | **Host** | `cd packages/host && npm run release` | `dist/Duet-{ver}.dmg` (or `.exe`, `.AppImage`) | Auto patch bump |
 | **Extension** | `cd packages/extension && npm run vsix` | `dist/duet-{ver}.vsix` | Auto patch bump |
-| **Backend** | — | No standalone artifact. Bundled into Extension VSIX | Inherits Extension version |
+| **Backend** | — | No standalone artifact. Bundled into Host (extraResources) + Extension VSIX | Inherits Host version (at deploy) |
 
 ### Host Release (`packages/host/build-release.cjs`)
 
@@ -306,6 +309,10 @@ npm run release [-- --mac|--win|--linux]   # default: --mac
 
 Tools: electron-vite (bundle), electron-builder (installer).
 
+**extraResources** (bundled alongside app, deployed to DuetData at runtime via `deploy.ts`):
+- `packages/ai-instructions/src/` → `ai-instructions/`
+- `packages/backend/` → `backend/` (excludes tests, `__pycache__`)
+
 ### Extension Release (`packages/extension/build-vsix.js`)
 
 ```
@@ -317,7 +324,7 @@ npm run vsix
   5. vsce package → dist/duet-{version}.vsix
 ```
 
-**Backend bundling:** `bundle-backend.js` copies Python source into VSIX. Extension deploys it to `DuetData/backend/` on activation.
+**Backend bundling:** `bundle-backend.js` copies Python source into VSIX (legacy). Extension no longer deploys backend — Host handles deployment via `deploy.ts`.
 
 ### CI/CD (GitHub Actions)
 
@@ -333,10 +340,10 @@ npm run vsix
 ```
 Host: packages/host/package.json → "version"
 Extension: packages/extension/package.json → "version"
-Backend: DuetData/backend/VERSION (written by Extension at install time)
+Backend: DuetData/backend/VERSION (written by Host at deploy time)
 ```
 
-Extension writes its own version to `DuetData/backend/VERSION` → Backend returns it via `/health` → Extension checks for mismatch → reinstall if needed. See "Version Flow" above.
+Host writes its version to `DuetData/backend/VERSION` after successful deploy → Backend returns it via `/health` → Host checks for version mismatch → redeploy if upgrade. Extension reads VERSION to verify backend is installed. See "Version Flow" above.
 
 ## Repository Naming
 

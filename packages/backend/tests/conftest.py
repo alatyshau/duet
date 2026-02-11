@@ -58,7 +58,7 @@ def duet_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create DuetData + DuetConfig + pointer structure.
 
     Creates:
-    - DuetData/ with ai-kit/, data/, backend/VERSION
+    - DuetData/ with ai-instructions/, data/, backend/VERSION
     - DuetConfig/ with settings.json, test_machine.json
     - .org.ve68.duet pointer file
 

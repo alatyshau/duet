@@ -103,10 +103,10 @@ function getTimestamp(dataDir: string): string {
 }
 
 /**
- * Get absolute path to ai-kit directory
+ * Get absolute path to ai-instructions directory
  */
 function getInstructionLocation(dataDir: string): string {
-    return path.resolve(dataDir, "ai-kit");
+    return path.resolve(dataDir, "ai-instructions");
 }
 
 /**
@@ -211,7 +211,7 @@ async function main() {
     // Register get_instruction_location tool
     server.tool(
         "get_instruction_location",
-        "Get absolute path to ai-kit directory containing instructions, modes, stances, skills, personas, etc.",
+        "Get absolute path to ai-instructions directory containing instructions, modes, stances, skills, personas, etc.",
         {},
         async () => {
             const location = getInstructionLocation(dataDir);
@@ -224,7 +224,7 @@ async function main() {
     // Register get_duet_data_location tool
     server.tool(
         "get_duet_data_location",
-        "Get absolute path to DuetData folder containing ai-kit/, repos/, workspaces/, data/index.db, etc.",
+        "Get absolute path to DuetData folder containing ai-instructions/, repos/, workspaces/, data/index.db, etc.",
         {},
         async () => {
             return {

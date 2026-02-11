@@ -1,0 +1,761 @@
+/*
+ * Unit тесты для src/core/deploy.ts
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'fs'
+import { join } from 'path'
+import { createTestContext, type TestContext } from '../../helpers'
+
+// Mock child_process for findPython/setupVenv
+vi.mock('child_process', () => ({
+  execFile: vi.fn()
+}))
+
+import {
+  readDeployedVersion,
+  isDeployNeeded,
+  resolveDeployStatus,
+  isDeployWarning,
+  compareSemver,
+  stopBackend,
+  deployInstructions,
+  deployBackend,
+  writeVersion,
+  findPython,
+  setupVenv,
+  venvPythonPath,
+  pythonInstallHint,
+  runDeploy,
+  type DeployPaths,
+  type StopOptions
+} from '../../../src/core/deploy'
+
+/** Instant sleep for tests — no real delay. */
+const noSleep: StopOptions = { sleep: async () => {} }
+
+import type { AppState, DeployStatus } from '../../../src/shared/types'
+
+import { execFile } from 'child_process'
+
+const mockedExecFile = vi.mocked(execFile)
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+function createDeployContext(ctx: TestContext) {
+  const resourcesPath = join(ctx.tmpDir, 'resources')
+  const duetDataPath = ctx.duetDataDir
+
+  // Create bundled resources structure
+  const aiSrc = join(resourcesPath, 'ai-instructions')
+  mkdirSync(aiSrc, { recursive: true })
+  writeFileSync(join(aiSrc, 'core_instructions.md'), '# AI Kit Instructions')
+  writeFileSync(join(aiSrc, 'extra.md'), '# Extra')
+
+  const backendSrc = join(resourcesPath, 'backend')
+  mkdirSync(backendSrc, { recursive: true })
+  writeFileSync(join(backendSrc, 'main.py'), 'print("hello")')
+  writeFileSync(join(backendSrc, 'requirements.txt'), 'fastapi\nuvicorn')
+
+  const paths: DeployPaths = {
+    resourcesPath,
+    duetDataPath,
+    appVersion: '1.2.3'
+  }
+
+  return { paths, resourcesPath }
+}
+
+function mockPythonFound(version = 'Python 3.12.0') {
+  mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+    ;(callback as Function)(null, version, '')
+    return undefined as any
+  })
+}
+
+function mockPythonNotFound() {
+  mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+    ;(callback as Function)(new Error('not found'), '', 'command not found')
+    return undefined as any
+  })
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+describe('core/deploy', () => {
+  let ctx: TestContext
+
+  beforeEach(() => {
+    ctx = createTestContext()
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    ctx.cleanup()
+  })
+
+  // ===========================================================================
+  // compareSemver
+  // ===========================================================================
+
+  describe('compareSemver', () => {
+    it('returns 0 for equal versions', () => {
+      expect(compareSemver('1.2.3', '1.2.3')).toBe(0)
+    })
+
+    it('compares major version', () => {
+      expect(compareSemver('2.0.0', '1.0.0')).toBe(1)
+      expect(compareSemver('1.0.0', '2.0.0')).toBe(-1)
+    })
+
+    it('compares minor version', () => {
+      expect(compareSemver('1.3.0', '1.2.0')).toBe(1)
+      expect(compareSemver('1.2.0', '1.3.0')).toBe(-1)
+    })
+
+    it('compares patch version', () => {
+      expect(compareSemver('1.2.4', '1.2.3')).toBe(1)
+      expect(compareSemver('1.2.3', '1.2.4')).toBe(-1)
+    })
+
+    it('handles missing parts as 0', () => {
+      expect(compareSemver('1', '1.0.0')).toBe(0)
+      expect(compareSemver('1.2', '1.2.0')).toBe(0)
+    })
+
+    it('handles invalid input as 0.0.0', () => {
+      expect(compareSemver('invalid', '0.0.0')).toBe(0)
+      expect(compareSemver('invalid', '0.0.1')).toBe(-1)
+    })
+  })
+
+  // ===========================================================================
+  // readDeployedVersion
+  // ===========================================================================
+
+  describe('readDeployedVersion', () => {
+    it('returns null when VERSION file does not exist', () => {
+      expect(readDeployedVersion(ctx.duetDataDir)).toBeNull()
+    })
+
+    it('returns version string when VERSION exists', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0')
+
+      expect(readDeployedVersion(ctx.duetDataDir)).toBe('1.0.0')
+    })
+
+    it('trims whitespace from VERSION', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '  1.0.0\n ')
+
+      expect(readDeployedVersion(ctx.duetDataDir)).toBe('1.0.0')
+    })
+  })
+
+  // ===========================================================================
+  // isDeployNeeded
+  // ===========================================================================
+
+  describe('isDeployNeeded', () => {
+    it('returns true when no VERSION file', () => {
+      const { paths } = createDeployContext(ctx)
+      expect(isDeployNeeded(paths)).toBe(true)
+    })
+
+    it('returns true when version mismatch', () => {
+      const { paths } = createDeployContext(ctx)
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '0.9.0')
+
+      expect(isDeployNeeded(paths)).toBe(true)
+    })
+
+    it('returns false when version matches', () => {
+      const { paths } = createDeployContext(ctx)
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.2.3')
+
+      expect(isDeployNeeded(paths)).toBe(false)
+    })
+
+    it('returns false on downgrade (deployed newer than app)', () => {
+      const { paths } = createDeployContext(ctx)
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '2.0.0')
+
+      expect(isDeployNeeded(paths)).toBe(false)
+    })
+  })
+
+  // ===========================================================================
+  // resolveDeployStatus
+  // ===========================================================================
+
+  describe('resolveDeployStatus', () => {
+    const readyState: AppState = {
+      status: 'ready',
+      duetDataPath: '', // will be set per test
+      duetConfigPath: '/config',
+      machine: 'test',
+      pathExists: true
+    }
+
+    it('returns idle when app not ready', () => {
+      const state: AppState = { ...readyState, status: 'no_config', duetDataPath: null }
+      const result = resolveDeployStatus(state, '1.0.0', { state: 'idle' })
+      expect(result).toEqual({ state: 'idle' })
+    })
+
+    it('returns idle when duetDataPath is null', () => {
+      const state: AppState = { ...readyState, duetDataPath: null }
+      const result = resolveDeployStatus(state, '1.0.0', { state: 'idle' })
+      expect(result).toEqual({ state: 'idle' })
+    })
+
+    it('returns up_to_date when version matches', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0')
+
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      const result = resolveDeployStatus(state, '1.0.0', { state: 'idle' })
+      expect(result).toEqual({ state: 'up_to_date', version: '1.0.0' })
+    })
+
+    it('returns up_to_date on downgrade (deployed newer than app)', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '2.0.0')
+
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      const result = resolveDeployStatus(state, '1.0.0', { state: 'idle' })
+      expect(result).toEqual({ state: 'up_to_date', version: '2.0.0' })
+    })
+
+    it('returns idle when mismatch and not deploying', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '0.9.0')
+
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      const result = resolveDeployStatus(state, '1.0.0', { state: 'idle' })
+      expect(result).toEqual({ state: 'idle' })
+    })
+
+    it('returns idle when no VERSION file and not deploying', () => {
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      const result = resolveDeployStatus(state, '1.0.0', { state: 'idle' })
+      expect(result).toEqual({ state: 'idle' })
+    })
+
+    it('returns active status when deploying and version mismatch', () => {
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      const active: DeployStatus = { state: 'deploying', message: 'Working...' }
+      const result = resolveDeployStatus(state, '1.0.0', active)
+      expect(result).toEqual({ state: 'deploying', message: 'Working...' })
+    })
+
+    it('returns active error status when version mismatch', () => {
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      const active: DeployStatus = { state: 'error', error: 'Python not found' }
+      const result = resolveDeployStatus(state, '1.0.0', active)
+      expect(result).toEqual({ state: 'error', error: 'Python not found' })
+    })
+  })
+
+  // ===========================================================================
+  // isDeployWarning
+  // ===========================================================================
+
+  describe('isDeployWarning', () => {
+    const readyState: AppState = {
+      status: 'ready',
+      duetDataPath: '', // will be set per test
+      duetConfigPath: '/config',
+      machine: 'test',
+      pathExists: true
+    }
+
+    it('returns false when app not ready', () => {
+      const state: AppState = { ...readyState, status: 'no_config', duetDataPath: null }
+      expect(isDeployWarning(state, '1.0.0')).toBe(false)
+    })
+
+    it('returns false when version matches', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0')
+
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      expect(isDeployWarning(state, '1.0.0')).toBe(false)
+    })
+
+    it('returns true when version mismatch', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '0.9.0')
+
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      expect(isDeployWarning(state, '1.0.0')).toBe(true)
+    })
+
+    it('returns false on downgrade (deployed newer than app)', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '2.0.0')
+
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      expect(isDeployWarning(state, '1.0.0')).toBe(false)
+    })
+
+    it('returns true when no VERSION file (never deployed)', () => {
+      const state: AppState = { ...readyState, duetDataPath: ctx.duetDataDir }
+      expect(isDeployWarning(state, '1.0.0')).toBe(true)
+    })
+
+    it('returns false when duetDataPath is null', () => {
+      const state: AppState = { ...readyState, duetDataPath: null }
+      expect(isDeployWarning(state, '1.0.0')).toBe(false)
+    })
+  })
+
+  // ===========================================================================
+  // stopBackend
+  // ===========================================================================
+
+  describe('stopBackend', () => {
+    const TEST_PORT = 19680
+
+    it('does nothing when backend not running (fetch fails)', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+      vi.stubGlobal('fetch', mockFetch)
+
+      const log = vi.fn()
+      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+
+      expect(mockFetch).toHaveBeenCalledOnce()
+      // No log about stopping (backend wasn't running)
+      expect(log).not.toHaveBeenCalledWith('Остановка backend...')
+
+      vi.unstubAllGlobals()
+    })
+
+    it('calls POST /stop and waits when backend responds', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const log = vi.fn()
+      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        `http://127.0.0.1:${TEST_PORT}/stop`,
+        expect.objectContaining({ method: 'POST' })
+      )
+      expect(log).toHaveBeenCalledWith('Остановка backend...')
+
+      vi.unstubAllGlobals()
+    })
+
+    it('skips kill when no PID file', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+      vi.stubGlobal('fetch', mockFetch)
+
+      const log = vi.fn()
+      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+
+      // Should not log about killing
+      expect(log).not.toHaveBeenCalledWith(expect.stringContaining('Завершение процесса'))
+
+      vi.unstubAllGlobals()
+    })
+
+    it('skips kill when PID file has dead process', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+      vi.stubGlobal('fetch', mockFetch)
+
+      // Write PID of non-existent process
+      writeFileSync(join(ctx.duetDataDir, '.pid'), '999999999')
+
+      const log = vi.fn()
+      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+
+      // Should not log about killing (process already dead)
+      expect(log).not.toHaveBeenCalledWith(expect.stringContaining('Завершение процесса'))
+
+      vi.unstubAllGlobals()
+    })
+
+    it('uses correct port in API URL', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+      vi.stubGlobal('fetch', mockFetch)
+
+      const log = vi.fn()
+      await stopBackend(ctx.duetDataDir, 12345, log, noSleep)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:12345/stop',
+        expect.anything()
+      )
+
+      vi.unstubAllGlobals()
+    })
+  })
+
+  // ===========================================================================
+  // deployInstructions
+  // ===========================================================================
+
+  describe('deployInstructions', () => {
+    it('copies ai-instructions to DuetData', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      deployInstructions(paths, log)
+
+      const dest = join(ctx.duetDataDir, 'ai-instructions')
+      expect(existsSync(join(dest, 'core_instructions.md'))).toBe(true)
+      expect(existsSync(join(dest, 'extra.md'))).toBe(true)
+      expect(readFileSync(join(dest, 'core_instructions.md'), 'utf-8')).toBe('# AI Kit Instructions')
+    })
+
+    it('overwrites existing files on re-deploy', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      // First deploy
+      deployInstructions(paths, log)
+
+      // Modify source
+      writeFileSync(
+        join(paths.resourcesPath, 'ai-instructions', 'core_instructions.md'),
+        '# Updated'
+      )
+
+      // Re-deploy
+      deployInstructions(paths, log)
+
+      const content = readFileSync(
+        join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'),
+        'utf-8'
+      )
+      expect(content).toBe('# Updated')
+    })
+
+    it('throws when source not found', () => {
+      const paths: DeployPaths = {
+        resourcesPath: join(ctx.tmpDir, 'nonexistent'),
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '1.0.0'
+      }
+      const log = vi.fn()
+
+      expect(() => deployInstructions(paths, log)).toThrow('AI instructions source not found')
+    })
+
+    it('uses instructionsSourcePath override when provided', () => {
+      const devInstructions = join(ctx.tmpDir, 'dev-instructions')
+      mkdirSync(devInstructions, { recursive: true })
+      writeFileSync(join(devInstructions, 'dev_file.md'), '# Dev Instructions')
+
+      const paths: DeployPaths = {
+        resourcesPath: join(ctx.tmpDir, 'nonexistent'), // would fail without override
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '1.0.0',
+        instructionsSourcePath: devInstructions
+      }
+      const log = vi.fn()
+
+      deployInstructions(paths, log)
+
+      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'))).toBe(true)
+      expect(readFileSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'), 'utf-8')).toBe('# Dev Instructions')
+    })
+
+    it('logs progress', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      deployInstructions(paths, log)
+
+      expect(log).toHaveBeenCalledWith('Копирование AI инструкций...')
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('AI инструкции:'))
+    })
+  })
+
+  // ===========================================================================
+  // deployBackend
+  // ===========================================================================
+
+  describe('deployBackend', () => {
+    it('copies backend to DuetData', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      deployBackend(paths, log)
+
+      const dest = join(ctx.duetDataDir, 'backend')
+      expect(existsSync(join(dest, 'main.py'))).toBe(true)
+      expect(existsSync(join(dest, 'requirements.txt'))).toBe(true)
+    })
+
+    it('performs atomic swap (no .new or .old left)', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      deployBackend(paths, log)
+
+      expect(existsSync(join(ctx.duetDataDir, 'backend.new'))).toBe(false)
+      expect(existsSync(join(ctx.duetDataDir, 'backend.old'))).toBe(false)
+      expect(existsSync(join(ctx.duetDataDir, 'backend'))).toBe(true)
+    })
+
+    it('replaces existing backend directory', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      // Create existing backend with old file
+      const existingBackend = join(ctx.duetDataDir, 'backend')
+      mkdirSync(existingBackend, { recursive: true })
+      writeFileSync(join(existingBackend, 'old_file.py'), 'old')
+
+      deployBackend(paths, log)
+
+      // Old file should be gone, new files present
+      expect(existsSync(join(existingBackend, 'old_file.py'))).toBe(false)
+      expect(existsSync(join(existingBackend, 'main.py'))).toBe(true)
+    })
+
+    it('cleans up stale .new/.old from previous failed deploy', () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+
+      // Create stale directories
+      mkdirSync(join(ctx.duetDataDir, 'backend.new'), { recursive: true })
+      mkdirSync(join(ctx.duetDataDir, 'backend.old'), { recursive: true })
+
+      deployBackend(paths, log)
+
+      expect(existsSync(join(ctx.duetDataDir, 'backend.new'))).toBe(false)
+      expect(existsSync(join(ctx.duetDataDir, 'backend.old'))).toBe(false)
+    })
+
+    it('throws when source not found', () => {
+      const paths: DeployPaths = {
+        resourcesPath: join(ctx.tmpDir, 'nonexistent'),
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '1.0.0'
+      }
+      const log = vi.fn()
+
+      expect(() => deployBackend(paths, log)).toThrow('Backend source not found')
+    })
+
+    it('uses backendSourcePath override when provided', () => {
+      const devBackend = join(ctx.tmpDir, 'dev-backend')
+      mkdirSync(devBackend, { recursive: true })
+      writeFileSync(join(devBackend, 'app.py'), 'print("dev")')
+
+      const paths: DeployPaths = {
+        resourcesPath: join(ctx.tmpDir, 'nonexistent'), // would fail without override
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '1.0.0',
+        backendSourcePath: devBackend
+      }
+      const log = vi.fn()
+
+      deployBackend(paths, log)
+
+      expect(existsSync(join(ctx.duetDataDir, 'backend', 'app.py'))).toBe(true)
+      expect(readFileSync(join(ctx.duetDataDir, 'backend', 'app.py'), 'utf-8')).toBe('print("dev")')
+    })
+  })
+
+  // ===========================================================================
+  // writeVersion
+  // ===========================================================================
+
+  describe('writeVersion', () => {
+    it('writes VERSION file to backend directory', () => {
+      const { paths } = createDeployContext(ctx)
+
+      writeVersion(paths)
+
+      const versionPath = join(ctx.duetDataDir, 'backend', 'VERSION')
+      expect(existsSync(versionPath)).toBe(true)
+      expect(readFileSync(versionPath, 'utf-8')).toBe('1.2.3')
+    })
+
+    it('creates backend directory if it does not exist', () => {
+      const paths: DeployPaths = {
+        resourcesPath: ctx.tmpDir,
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '2.0.0'
+      }
+
+      writeVersion(paths)
+
+      expect(existsSync(join(ctx.duetDataDir, 'backend', 'VERSION'))).toBe(true)
+    })
+  })
+
+  // ===========================================================================
+  // findPython
+  // ===========================================================================
+
+  describe('findPython', () => {
+    it('returns python3 on Unix when Python 3.12 found', async () => {
+      mockPythonFound('Python 3.12.0')
+      const result = await findPython('darwin')
+      expect(result).toBe('python3')
+    })
+
+    it('returns python on Windows when Python 3.12 found', async () => {
+      mockPythonFound('Python 3.12.0')
+      const result = await findPython('win32')
+      expect(result).toBe('python')
+    })
+
+    it('returns python3 on Unix when Python 3.10 found (minimum)', async () => {
+      mockPythonFound('Python 3.10.0')
+      const result = await findPython('darwin')
+      expect(result).toBe('python3')
+    })
+
+    it('returns null when Python too old', async () => {
+      mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        ;(callback as Function)(null, 'Python 3.9.1', '')
+        return undefined as any
+      })
+      const result = await findPython('darwin')
+      expect(result).toBeNull()
+    })
+
+    it('returns null when Python not installed', async () => {
+      mockPythonNotFound()
+      const result = await findPython('darwin')
+      expect(result).toBeNull()
+    })
+  })
+
+  // ===========================================================================
+  // venvPythonPath
+  // ===========================================================================
+
+  describe('venvPythonPath', () => {
+    it('returns bin/python3 on macOS', () => {
+      expect(venvPythonPath('/tmp/venv', 'darwin')).toBe(join('/tmp/venv', 'bin', 'python3'))
+    })
+
+    it('returns bin/python3 on Linux', () => {
+      expect(venvPythonPath('/tmp/venv', 'linux')).toBe(join('/tmp/venv', 'bin', 'python3'))
+    })
+
+    it('returns Scripts/python.exe on Windows', () => {
+      expect(venvPythonPath('/tmp/venv', 'win32')).toBe(join('/tmp/venv', 'Scripts', 'python.exe'))
+    })
+  })
+
+  // ===========================================================================
+  // pythonInstallHint
+  // ===========================================================================
+
+  describe('pythonInstallHint', () => {
+    it('returns brew hint on macOS', () => {
+      expect(pythonInstallHint('darwin')).toBe('brew install python@3.12')
+    })
+
+    it('returns python.org hint on Windows', () => {
+      expect(pythonInstallHint('win32')).toBe('Скачайте с python.org')
+    })
+
+    it('returns package manager hint on Linux', () => {
+      expect(pythonInstallHint('linux')).toContain('apt/dnf')
+    })
+  })
+
+  // ===========================================================================
+  // runDeploy
+  // ===========================================================================
+
+  describe('runDeploy', () => {
+    const TEST_PORT = 19680
+
+    beforeEach(() => {
+      // Mock fetch for stopBackend (no backend running in tests)
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('deploys everything when Python available', async () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+      mockPythonFound()
+
+      await runDeploy(paths, TEST_PORT, log, noSleep)
+
+      // AI instructions deployed
+      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(true)
+
+      // Backend deployed
+      expect(existsSync(join(ctx.duetDataDir, 'backend', 'main.py'))).toBe(true)
+
+      // VERSION written (full success)
+      expect(readFileSync(join(ctx.duetDataDir, 'backend', 'VERSION'), 'utf-8')).toBe('1.2.3')
+    })
+
+    it('throws when Python not found (files copied, no VERSION)', async () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+      mockPythonNotFound()
+
+      await expect(runDeploy(paths, TEST_PORT, log, noSleep)).rejects.toThrow('Python 3.10+ не найден')
+
+      // Files were copied
+      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(true)
+      expect(existsSync(join(ctx.duetDataDir, 'backend', 'main.py'))).toBe(true)
+
+      // VERSION NOT written (deploy not fully successful)
+      expect(existsSync(join(ctx.duetDataDir, 'backend', 'VERSION'))).toBe(false)
+    })
+
+    it('logs deploy progress', async () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+      mockPythonFound()
+
+      await runDeploy(paths, TEST_PORT, log, noSleep)
+
+      expect(log).toHaveBeenCalledWith('Деплой v1.2.3...')
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('завершён'))
+    })
+
+    it('calls stopBackend before deploying files', async () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+      mockPythonFound()
+
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', mockFetch)
+
+      await runDeploy(paths, TEST_PORT, log, noSleep)
+
+      // stopBackend was called (fetch was invoked)
+      expect(mockFetch).toHaveBeenCalledWith(
+        `http://127.0.0.1:${TEST_PORT}/stop`,
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+  })
+})

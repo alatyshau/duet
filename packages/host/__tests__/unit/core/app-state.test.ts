@@ -25,7 +25,8 @@ describe('core/app-state', () => {
         duetDataPath: null,
         duetConfigPath: null,
         machine: null,
-        pathExists: false
+        pathExists: false,
+        deployChannel: 'prod'
       })
     })
   })

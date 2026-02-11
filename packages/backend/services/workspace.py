@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from config import (
-    get_ai_kit_path,
+    get_instructions_path,
     get_aliases,
     get_business_folders,
     get_duet_config_path,
@@ -178,7 +178,7 @@ class WorkspaceService:
             - duetConfigPath: path to DuetConfig directory
             - machine: machine identifier
             - aliases: dict of @alias -> absolute path
-            - instructionsPath: path to ai-kit directory
+            - instructionsPath: path to ai-instructions directory
             - chain: list of entities from root to current
             - components: list of components (if product found)
             - status: "found" | "unknown"
@@ -194,7 +194,7 @@ class WorkspaceService:
             "duetConfigPath": str(get_duet_config_path().resolve()),
             "machine": get_machine(),
             "aliases": get_aliases(),
-            "instructionsPath": str(get_ai_kit_path().resolve()),
+            "instructionsPath": str(get_instructions_path().resolve()),
             "chain": [],
             "components": [],
             "status": "unknown",

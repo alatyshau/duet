@@ -2,19 +2,16 @@
  * ЧТО: TypeScript типы для глобальных объектов window в renderer.
  * ЗАЧЕМ: Даёт автокомплит и типизацию для window.electron и window.api.
  * КТО ИСПОЛЬЗУЕТ: TypeScript при компиляции renderer-кода.
+ *
+ * Типы реэкспортируются из shared/types.ts (single source of truth).
  */
 import { ElectronAPI } from '@electron-toolkit/preload'
 
-// Типы AppState (должны совпадать с core/app-state.ts и preload/index.ts)
-export type AppStatus = 'no_config' | 'path_lost' | 'ready'
+// Re-export shared types for renderer imports
+export type { AppStatus, AppState, DeployChannel, DeployStatus, AgentStatus, AgentInfo } from '../shared/types'
 
-export interface AppState {
-  status: AppStatus
-  duetDataPath: string | null
-  duetConfigPath: string | null
-  machine: string | null
-  pathExists: boolean
-}
+// Import for use in DuetAPI interface
+import type { AppState, DeployStatus, AgentInfo } from '../shared/types'
 
 // Типы для Duet API
 export interface DuetAPI {
@@ -23,6 +20,19 @@ export interface DuetAPI {
   selectFolder: () => Promise<string | null>
   savePointer: (config: { duetDataPath: string; duetConfigPath: string; machine: string }) => Promise<AppState>
   openPath: (path: string) => Promise<void>
+
+  // Config
+  setDeployChannel: (channel: 'dev' | 'prod') => Promise<AppState>
+
+  // Deploy
+  getDeployStatus: () => Promise<DeployStatus>
+  startDeploy: () => Promise<void>
+  onDeployLog: (callback: (message: string) => void) => () => void
+  onDeployStatusChanged: (callback: (status: DeployStatus) => void) => () => void
+
+  // AI Agents
+  getAgents: () => Promise<AgentInfo[]>
+  configureAgents: () => Promise<AgentInfo[]>
 }
 
 declare global {

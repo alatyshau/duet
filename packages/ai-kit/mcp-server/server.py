@@ -15,8 +15,10 @@ from mcp.types import Tool, TextContent
 from tools.timestamp import get_timestamp
 from tools.instructions import get_instruction_location
 
-# Base path is the parent of mcp-server/ (i.e., ai-kit/)
-BASE_PATH = Path(__file__).parent.parent
+# Settings stay in ai-kit/ (parent of mcp-server/)
+SETTINGS_PATH = Path(__file__).parent.parent
+# Instructions moved to ai-instructions/ (sibling of ai-kit/)
+INSTRUCTIONS_PATH = Path(__file__).parent.parent.parent / "ai-instructions"
 
 server = Server("ai-kit")
 
@@ -36,7 +38,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_instruction_location",
-            description="Get absolute path to ai-kit directory containing instructions, modes, stances, skills, personas, etc.",
+            description="Get absolute path to ai-instructions directory containing instructions, modes, stances, skills, personas, etc.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -50,11 +52,11 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Handle tool calls."""
     if name == "timestamp":
-        ts = get_timestamp(BASE_PATH)
+        ts = get_timestamp(SETTINGS_PATH)
         return [TextContent(type="text", text=ts)]
 
     if name == "get_instruction_location":
-        path = get_instruction_location(BASE_PATH)
+        path = get_instruction_location(INSTRUCTIONS_PATH)
         return [TextContent(type="text", text=path)]
 
     raise ValueError(f"Unknown tool: {name}")

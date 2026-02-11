@@ -5,7 +5,7 @@
  */
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, Settings, Package } from 'lucide-react'
+import { FolderOpen, Package, Bot } from 'lucide-react'
 
 interface NavItem {
   id: string
@@ -22,8 +22,8 @@ interface SidebarProps {
 }
 
 const navItems: NavItem[] = [
-  { id: 'settings', label: 'Настройки', icon: <Settings size={20} /> },
-  { id: 'setup', label: 'Установка', icon: <Package size={20} /> }
+  { id: 'install', label: 'Установка', icon: <Package size={20} /> },
+  { id: 'agents', label: 'AI Агенты', icon: <Bot size={20} /> }
 ]
 
 export function Sidebar({
@@ -36,7 +36,7 @@ export function Sidebar({
     <aside className="w-64 bg-sidebar border-r border-border flex flex-col">
       {/* Логотип */}
       <div className="p-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-foreground">🎵 Duet</h1>
+        <h1 className="text-xl font-semibold text-foreground">Duet</h1>
       </div>
 
       {/* Кнопка открыть папку */}
@@ -55,8 +55,7 @@ export function Sidebar({
       {/* Навигация */}
       <nav className="flex-1 p-2">
         {navItems.map((item) => {
-          // На шаге 1 только Setup активна
-          const isDisabled = !folderConfigured && item.id !== 'setup'
+          const isDisabled = !folderConfigured && item.id !== 'install'
           const isActive = currentPage === item.id
 
           return (

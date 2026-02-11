@@ -52,7 +52,6 @@ export class SidebarStateManager {
      */
     async setFromBackendStatus(status: BackendStatus): Promise<void> {
         switch (status.state) {
-            case 'installing':
             case 'starting':
                 await this.setInitializing(status.message);
                 break;

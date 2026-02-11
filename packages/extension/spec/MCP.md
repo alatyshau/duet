@@ -28,7 +28,7 @@ Standalone Node.js MCP server for AI agents (Claude Code, Codex, Copilot) workin
 | Tool | Input | Output |
 |------|-------|--------|
 | `timestamp` | — | `YYMMDD_HHMMSS<tz>` (e.g., `260126_201530M`) |
-| `get_instruction_location` | — | Absolute path to `ai-kit/` directory |
+| `get_instruction_location` | — | Absolute path to `ai-instructions/` directory |
 | `get_duet_data_location` | — | Absolute path to DuetData folder |
 | `get_hierarchy` | — | Full tree of businesses/streams/products/projects (from index.db) |
 | `find_entity` | `name: string` | Entity details (drive_path, git_url, etc.) |

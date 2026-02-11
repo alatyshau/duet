@@ -134,12 +134,25 @@ export const createTray = (status: AppStatus, callbacks: TrayCallbacks): Tray =>
 
 /**
  * Обновляет иконку и tooltip tray.
+ * deployWarning=true показывает warning иконку даже при status=ready
+ * (VERSION mismatch — нужен деплой через кнопку "Установить").
  */
-export const updateTrayIcon = (status: AppStatus): void => {
+export const updateTrayIcon = (status: AppStatus, deployWarning?: boolean): void => {
   if (!tray) return
 
-  tray.setImage(createTrayImage(status))
-  tray.setToolTip(TRAY_TOOLTIPS[status])
+  const isWarning = status !== 'ready' || deployWarning
+  const iconPath = getTrayIconPath(!!isWarning)
+  const image = nativeImage.createFromPath(iconPath)
+  if (process.platform === 'darwin') {
+    image.setTemplateImage(true)
+  }
+
+  tray.setImage(image)
+
+  const tooltip = deployWarning && status === 'ready'
+    ? 'Duet — требуется обновление'
+    : TRAY_TOOLTIPS[status]
+  tray.setToolTip(tooltip)
 }
 
 /**

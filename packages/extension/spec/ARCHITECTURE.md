@@ -9,6 +9,17 @@
 | `core/` | No vscode imports | Testable with vitest, no VS Code runtime |
 | `vscode/` | Wraps core/ with VS Code APIs | Thin glue layer |
 
+## Engineering Principles
+
+| Principle | Rule |
+|-----------|------|
+| **Thin shell** | `vscode/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner → extract to `core/`. |
+| **No framework imports in core/** | `core/` has zero VS Code imports. Testable with plain Node.js + vitest. |
+| **Unit tests for core/ only** | Don't mock VS Code APIs. Test pure `core/` functions directly. Shell is validated by TypeScript + integration tests. |
+| **Pure functions over state** | Prefer pure functions with explicit args over closures capturing module state. Makes testing trivial. |
+| **FileSystem DI** | `core/` uses `FileSystem` interface for all file I/O. Tests inject mock FS — no disk access. |
+| **Spec-driven** | Code + spec changes go in same commit. Read `spec/` before changes, update after. |
+
 ## Key Decisions
 
 | Decision | Rationale |

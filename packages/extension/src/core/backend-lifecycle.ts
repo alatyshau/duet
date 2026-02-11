@@ -1,57 +1,45 @@
 /**
  * Backend lifecycle management.
  *
- * Handles install, startup, and shutdown of Python backend.
+ * Handles startup and shutdown of Python backend.
+ * Install is handled by Duet Host app.
  * Multi-window safe via lock files.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn, execSync, ChildProcess } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as vscode from 'vscode';
 import { Paths } from './paths';
 import { readPort } from './pointer';
 import { DuetApiClient } from './api-client';
 
-// Constants from topic_core_architecture.md
-const BACKEND_RELATIVE_PATH = 'dist/backend';
-const INSTALL_TIMEOUT_MS = 60_000;
-const INSTALL_STALE_MS = 60_000;
+// Constants
 const HEALTH_TIMEOUT_MS = 2_000;
 const HEALTH_RETRY_COUNT = 10;
 const HEALTH_RETRY_DELAY_MS = 300;
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const MIN_PYTHON_VERSION = [3, 10];
 
 export type BackendStatus =
     | { state: 'ready'; version: string }
-    | { state: 'installing'; message: string }
     | { state: 'starting'; message: string }
     | { state: 'error'; error: string; recoverable: boolean };
 
 export interface BackendLifecycleOptions {
     paths: Paths;
-    extensionPath: string;
-    extensionVersion: string;
     outputChannel: vscode.OutputChannel;
     onStatusChange?: (status: BackendStatus) => void;
 }
 
 export class BackendLifecycle {
     private readonly paths: Paths;
-    private readonly extensionPath: string;
-    private readonly extensionVersion: string;
     private readonly output: vscode.OutputChannel;
     private readonly onStatusChange?: (status: BackendStatus) => void;
     private readonly apiClient: DuetApiClient;
 
     private backendProcess: ChildProcess | null = null;
-    private heartbeatInterval: NodeJS.Timeout | null = null;
 
     constructor(options: BackendLifecycleOptions) {
         this.paths = options.paths;
-        this.extensionPath = options.extensionPath;
-        this.extensionVersion = options.extensionVersion;
         this.output = options.outputChannel;
         this.onStatusChange = options.onStatusChange;
 
@@ -62,6 +50,9 @@ export class BackendLifecycle {
     /**
      * Ensure backend is running. Main entry point.
      * Returns when backend is ready or throws on unrecoverable error.
+     *
+     * Install is handled by Duet Host app.
+     * Extension only starts the backend process.
      */
     async ensureRunning(): Promise<void> {
         this.log('Ensuring backend is running...');
@@ -74,10 +65,13 @@ export class BackendLifecycle {
             return;
         }
 
-        // PHASE 2: Install if needed (check VERSION file)
+        // PHASE 2: Verify backend is installed (Host handles installation)
         const installedVersion = this.readVersionFile();
-        if (installedVersion !== this.extensionVersion) {
-            await this.install();
+        if (!installedVersion) {
+            throw new BackendError(
+                'Backend не установлен. Запустите Duet Host для установки.',
+                false
+            );
         }
 
         // PHASE 3: Startup
@@ -114,270 +108,17 @@ export class BackendLifecycle {
      * Dispose resources.
      */
     dispose(): void {
-        if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-        }
+        // No-op currently. Reserved for future cleanup.
     }
 
-    // === PHASE 2: INSTALL ===
-
-    private async install(): Promise<void> {
-        this.setStatus({ state: 'installing', message: 'Проверка Python...' });
-
-        // Check Python version
-        const pythonOk = await this.checkPython();
-        if (!pythonOk) {
-            throw new BackendError(
-                'Python 3.10+ не найден. Установите Python и добавьте в PATH.',
-                true
-            );
-        }
-
-        // Try to acquire install lock
-        const lockAcquired = await this.acquireInstallLock();
-
-        if (!lockAcquired) {
-            // Another window is installing, wait for it
-            this.setStatus({ state: 'installing', message: 'Ожидание установки в другом окне...' });
-            await this.waitForInstallLock();
-
-            // Re-check VERSION after wait
-            const installedVersion = this.readVersionFile();
-            if (installedVersion === this.extensionVersion) {
-                return; // Other window installed successfully
-            }
-            throw new BackendError('Установка не удалась в другом окне VS Code', true);
-        }
-
-        try {
-            // Stop running backend
-            await this.stopRunningBackend();
-
-            // Copy backend files
-            this.setStatus({ state: 'installing', message: 'Копирование backend...' });
-            await this.copyBackend();
-
-            // Setup venv
-            this.setStatus({ state: 'installing', message: 'Настройка Python окружения...' });
-            await this.setupVenv();
-
-            // Write VERSION file (backend reads it at startup)
-            this.writeVersionFile(this.extensionVersion);
-
-            this.log('Installation complete');
-        } finally {
-            await this.releaseInstallLock();
-        }
-    }
-
-    private async checkPython(): Promise<boolean> {
-        try {
-            const output = execSync('python3 --version', { encoding: 'utf8' });
-            const match = output.match(/Python (\d+)\.(\d+)/);
-            if (!match) {
-                this.log(`Python version parse failed: ${output}`);
-                return false;
-            }
-
-            const major = parseInt(match[1], 10);
-            const minor = parseInt(match[2], 10);
-
-            if (major < MIN_PYTHON_VERSION[0] ||
-                (major === MIN_PYTHON_VERSION[0] && minor < MIN_PYTHON_VERSION[1])) {
-                this.log(`Python ${major}.${minor} is too old (need ${MIN_PYTHON_VERSION.join('.')}+)`);
-                return false;
-            }
-
-            this.log(`Python ${major}.${minor} found`);
-            return true;
-        } catch (e) {
-            this.log(`Python check failed: ${e}`);
-            return false;
-        }
-    }
-
-    private async acquireInstallLock(): Promise<boolean> {
-        const lockPath = this.paths.installLockPath;
-        const windowName = vscode.workspace.name || 'VS Code';
-
-        try {
-            // Check if lock exists and is stale
-            if (fs.existsSync(lockPath)) {
-                const content = fs.readFileSync(lockPath, 'utf8');
-                const [timestamp] = content.split(':');
-                const startedAt = parseInt(timestamp, 10);
-
-                if (Date.now() - startedAt > INSTALL_STALE_MS) {
-                    this.log('Removing stale install lock');
-                    fs.unlinkSync(lockPath);
-                } else {
-                    return false; // Lock is fresh, held by another window
-                }
-            }
-
-            // Try to create lock exclusively
-            const fd = fs.openSync(lockPath, 'wx');
-            fs.writeSync(fd, `${Date.now()}:${windowName}`);
-            fs.closeSync(fd);
-
-            // Start heartbeat
-            this.heartbeatInterval = setInterval(() => {
-                try {
-                    fs.writeFileSync(lockPath, `${Date.now()}:${windowName}`);
-                } catch {
-                    // Lock might be released
-                }
-            }, HEARTBEAT_INTERVAL_MS);
-
-            return true;
-        } catch (e: unknown) {
-            if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
-                return false;
-            }
-            throw e;
-        }
-    }
-
-    private async releaseInstallLock(): Promise<void> {
-        if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-        }
-
-        try {
-            fs.unlinkSync(this.paths.installLockPath);
-        } catch {
-            // Lock might not exist
-        }
-    }
-
-    private async waitForInstallLock(): Promise<void> {
-        const start = Date.now();
-        while (fs.existsSync(this.paths.installLockPath)) {
-            if (Date.now() - start > INSTALL_TIMEOUT_MS) {
-                throw new BackendError('Таймаут ожидания установки', true);
-            }
-            await this.sleep(500);
-        }
-    }
-
-    private async stopRunningBackend(): Promise<void> {
-        // Try API stop
-        try {
-            const health = await this.checkHealth();
-            if (health) {
-                this.log('Stopping running backend via API...');
-                await this.apiClient.stop();
-                await this.sleep(3000);
-            }
-        } catch {
-            // Backend not responding
-        }
-
-        // Kill by PID
-        await this.killByPid();
-    }
-
-    private async killByPid(): Promise<void> {
-        const pidPath = this.paths.pidPath;
-        if (!fs.existsSync(pidPath)) {
-            return;
-        }
-
-        try {
-            const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
-            if (this.isProcessAlive(pid)) {
-                this.log(`Killing process ${pid}...`);
-                process.kill(pid, 'SIGTERM');
-                await this.sleep(1000);
-
-                if (this.isProcessAlive(pid)) {
-                    process.kill(pid, 'SIGKILL');
-                    await this.sleep(500);
-                }
-            }
-        } catch {
-            // Process might not exist
-        }
-    }
-
-    private isProcessAlive(pid: number): boolean {
-        try {
-            process.kill(pid, 0);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    private async copyBackend(): Promise<void> {
-        const src = path.join(this.extensionPath, BACKEND_RELATIVE_PATH);
-        const dst = this.paths.backendPath;
-        const dstNew = `${dst}.new`;
-        const dstOld = `${dst}.old`;
-
-        // Cleanup
-        this.rmrf(dstOld);
-        this.rmrf(dstNew);
-
-        // Copy to temp
-        this.copyDir(src, dstNew);
-
-        // Atomic switch
-        if (fs.existsSync(dst)) {
-            fs.renameSync(dst, dstOld);
-        }
-        fs.renameSync(dstNew, dst);
-        this.rmrf(dstOld);
-
-        this.log(`Backend copied to ${dst}`);
-    }
-
-    private copyDir(src: string, dst: string): void {
-        fs.mkdirSync(dst, { recursive: true });
-
-        for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-            const srcPath = path.join(src, entry.name);
-            const dstPath = path.join(dst, entry.name);
-
-            if (entry.isDirectory()) {
-                this.copyDir(srcPath, dstPath);
-            } else {
-                fs.copyFileSync(srcPath, dstPath);
-            }
-        }
-    }
-
-    private rmrf(dir: string): void {
-        if (fs.existsSync(dir)) {
-            fs.rmSync(dir, { recursive: true, force: true });
-        }
-    }
-
-    private async setupVenv(): Promise<void> {
-        const venvPath = this.paths.venvPath;
-        const requirementsPath = path.join(this.paths.backendPath, 'requirements.txt');
-
-        if (!fs.existsSync(venvPath)) {
-            this.log('Creating Python venv...');
-            execSync(`python3 -m venv "${venvPath}"`, { encoding: 'utf8' });
-        }
-
-        this.log('Installing dependencies...');
-        execSync(`"${this.paths.venvPython}" -m pip install -q -r "${requirementsPath}"`, {
-            encoding: 'utf8',
-        });
-    }
-
-    // === PHASE 3: STARTUP ===
+    // === STARTUP ===
 
     private async startup(): Promise<void> {
         this.setStatus({ state: 'starting', message: 'Запуск backend...' });
 
         // Quick check if already running
         const health = await this.checkHealth();
-        if (health && health.version === this.extensionVersion) {
+        if (health) {
             this.log(`Backend already running (v${health.version})`);
             this.setStatus({ state: 'ready', version: health.version });
             return;
@@ -391,7 +132,8 @@ export class BackendLifecycle {
             this.setStatus({ state: 'starting', message: 'Ожидание запуска в другом окне...' });
             const ready = await this.waitForHealth();
             if (ready) {
-                this.setStatus({ state: 'ready', version: this.extensionVersion });
+                const h = await this.checkHealth();
+                this.setStatus({ state: 'ready', version: h?.version || 'unknown' });
                 return;
             }
             throw new BackendError('Backend не запустился', true);
@@ -407,7 +149,8 @@ export class BackendLifecycle {
                 throw new BackendError('Backend не ответил после запуска', true);
             }
 
-            this.setStatus({ state: 'ready', version: this.extensionVersion });
+            const h = await this.checkHealth();
+            this.setStatus({ state: 'ready', version: h?.version || 'unknown' });
         } finally {
             await this.releaseStartupLock();
         }
@@ -489,7 +232,41 @@ export class BackendLifecycle {
         }
     }
 
-    // === Helpers ===
+    // === STOP HELPERS ===
+
+    private async killByPid(): Promise<void> {
+        const pidPath = this.paths.pidPath;
+        if (!fs.existsSync(pidPath)) {
+            return;
+        }
+
+        try {
+            const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+            if (this.isProcessAlive(pid)) {
+                this.log(`Killing process ${pid}...`);
+                process.kill(pid, 'SIGTERM');
+                await this.sleep(1000);
+
+                if (this.isProcessAlive(pid)) {
+                    process.kill(pid, 'SIGKILL');
+                    await this.sleep(500);
+                }
+            }
+        } catch {
+            // Process might not exist
+        }
+    }
+
+    private isProcessAlive(pid: number): boolean {
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    // === HELPERS ===
 
     private setStatus(status: BackendStatus): void {
         this.log(`Status: ${JSON.stringify(status)}`);
@@ -513,13 +290,6 @@ export class BackendLifecycle {
         } catch {
             return null;
         }
-    }
-
-    private writeVersionFile(version: string): void {
-        const versionPath = path.join(this.paths.backendPath, 'VERSION');
-        fs.mkdirSync(this.paths.backendPath, { recursive: true });
-        fs.writeFileSync(versionPath, version);
-        this.log(`Wrote VERSION: ${version}`);
     }
 }
 

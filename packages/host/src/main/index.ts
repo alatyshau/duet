@@ -12,6 +12,7 @@ import { app } from 'electron'
 import { existsSync } from 'fs'
 import { checkAppState, createInitialState, type AppState } from '../core/app-state'
 import { getConfigFile } from '../core/config'
+import { isDeployWarning } from '../core/deploy'
 import { createTray, updateTrayIcon } from '../platform/tray'
 import { showWindow, sendAppState, setQuitting } from './window'
 import { setupIpcHandlers } from './ipc-handlers'
@@ -24,10 +25,11 @@ let appState: AppState = createInitialState()
 
 /**
  * Обновляет AppState и уведомляет tray + renderer.
+ * Tray показывает warning если VERSION mismatch (нужен деплой).
  */
 const updateAppState = (): void => {
   appState = checkAppState()
-  updateTrayIcon(appState.status)
+  updateTrayIcon(appState.status, isDeployWarning(appState, app.getVersion()))
   sendAppState(appState)
 }
 
@@ -90,6 +92,9 @@ app.whenReady().then(() => {
       app.quit()
     }
   })
+
+  // Учитываем deploy warning на старте (VERSION mismatch при status=ready)
+  updateTrayIcon(appState.status, isDeployWarning(appState, app.getVersion()))
 
   // На macOS скрываем Dock иконку по умолчанию (живём в Menu Bar)
   if (process.platform === 'darwin') {

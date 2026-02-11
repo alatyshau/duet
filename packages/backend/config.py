@@ -107,9 +107,9 @@ def get_pid_path() -> Path:
     return get_duet_data_path() / ".pid"
 
 
-def get_ai_kit_path() -> Path:
-    """Get path to ai-kit directory."""
-    return get_duet_data_path() / "ai-kit"
+def get_instructions_path() -> Path:
+    """Get path to ai-instructions directory."""
+    return get_duet_data_path() / "ai-instructions"
 
 
 def get_log_path() -> Path:

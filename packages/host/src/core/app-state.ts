@@ -8,21 +8,11 @@
  * - Не зависят от Electron
  */
 import { existsSync } from 'fs'
-import { readConfig } from './config'
+import { readConfig, readMachineConfig } from './config'
+import type { AppState, DeployChannel } from '../shared/types'
 
-// =============================================================================
-// ТИПЫ
-// =============================================================================
-
-export type AppStatus = 'no_config' | 'path_lost' | 'ready'
-
-export interface AppState {
-  status: AppStatus
-  duetDataPath: string | null
-  duetConfigPath: string | null
-  machine: string | null
-  pathExists: boolean
-}
+// Re-export types for existing importers (source of truth: shared/types.ts)
+export type { AppStatus, AppState } from '../shared/types'
 
 // =============================================================================
 // ЛОГИКА
@@ -44,7 +34,8 @@ export const checkAppState = (): AppState => {
       duetDataPath: config.duetDataPath ?? null,
       duetConfigPath: config.duetConfigPath ?? null,
       machine: config.machine ?? null,
-      pathExists: false
+      pathExists: false,
+      deployChannel: 'prod'
     }
   }
 
@@ -58,16 +49,23 @@ export const checkAppState = (): AppState => {
       duetDataPath: config.duetDataPath,
       duetConfigPath: config.duetConfigPath,
       machine: config.machine,
-      pathExists: false
+      pathExists: false,
+      deployChannel: 'prod'
     }
   }
+
+  // Read deployChannel from machine config (default: 'prod')
+  const machineConfig = readMachineConfig()
+  const channel = machineConfig?.deployChannel
+  const deployChannel: DeployChannel = channel === 'dev' ? 'dev' : 'prod'
 
   return {
     status: 'ready',
     duetDataPath: config.duetDataPath,
     duetConfigPath: config.duetConfigPath,
     machine: config.machine,
-    pathExists: true
+    pathExists: true,
+    deployChannel
   }
 }
 
@@ -79,5 +77,6 @@ export const createInitialState = (): AppState => ({
   duetDataPath: null,
   duetConfigPath: null,
   machine: null,
-  pathExists: false
+  pathExists: false,
+  deployChannel: 'prod'
 })

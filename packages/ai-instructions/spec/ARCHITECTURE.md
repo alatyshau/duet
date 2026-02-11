@@ -30,16 +30,15 @@ Pure content package. Source of truth for all AI agent instructions.
 
 **Adding new files:** Create md in the right category folder. Update `core_instructions.md` tables if the new entity needs to be discoverable by agents (e.g. new skill → add row to Skills table).
 
-**Edit rule:** Always edit `packages/ai-instructions/src/`. Never edit `DuetData/ai-kit/` directly — changes are lost on next deploy.
+**Edit rule:** Always edit `packages/ai-instructions/src/`. Never edit `DuetData/ai-instructions/` directly — changes are lost on next deploy.
 
-**Deploy target:** `src/` → `DuetData/ai-kit/`. Note: `DuetData/ai-kit/settings.json` is NOT part of this package — it's a runtime config created by the installer, preserved across deploys.
+**Deploy target:** `src/` → `DuetData/ai-instructions/`. Note: `DuetData/ai-kit/settings.json` lives separately in `ai-kit/` — it's a runtime config, not part of this package.
 
 ## Deploy Chain
 
 ```
-packages/ai-instructions/src/  →  DuetData/ai-kit/
-                               (currently: ai-kit/install.py)
-                               (target: Host app)
+packages/ai-instructions/src/  →  DuetData/ai-instructions/
+                               (deployer: Host app)
 ```
 
 ## Decisions
@@ -48,7 +47,7 @@ packages/ai-instructions/src/  →  DuetData/ai-kit/
 |----------|-----------|
 | `src/` not `templates/` | No templating — files deploy as-is. `src/` consistent with monorepo convention |
 | Separate package from ai-kit | Decouple content from infrastructure (MCP, install.py). Enables Host to bundle content independently |
-| Copy, not move | ai-kit/templates/ stays as frozen legacy — legacy MCP server still depends on install.py deploying from there |
+| Separate deploy target | `ai-instructions/` for content, `ai-kit/` for legacy MCP + settings.json |
 | Short version as primary | Agents adhere to rules better with compact instructions. Full version kept as reference |
 | Claude: output-styles | `~/.claude/output-styles/` injects as system prompt, not user context. Better adherence than CLAUDE.md |
 
@@ -56,7 +55,7 @@ packages/ai-instructions/src/  →  DuetData/ai-kit/
 
 `packages/ai-kit/` contained both content and infrastructure:
 - `templates/` — frozen copy of these same files
-- `install.py` — manual installer (deploys templates/ to DuetData/ai-kit/)
+- `install.py` — legacy manual installer (replaced by Host deploy)
 - `mcp-server/` — legacy Python MCP (timestamp + get_instruction_location)
 
-This package extracts content. Install logic will move to Host.
+This package extracts content. Install logic moved to Host.

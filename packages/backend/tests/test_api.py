@@ -164,7 +164,7 @@ class TestWorkspaceInfoEndpoint:
 
         data = response.json()
         assert data["duetDataPath"] == str(duet_data)
-        assert data["instructionsPath"] == str(duet_data / "ai-kit")
+        assert data["instructionsPath"] == str(duet_data / "ai-instructions")
         assert data["chain"] == []
         assert data["components"] == []
 

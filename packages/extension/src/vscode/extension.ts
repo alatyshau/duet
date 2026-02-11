@@ -249,14 +249,9 @@ function initBackendLifecycle(context: vscode.ExtensionContext, dataFolder: stri
     backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
     context.subscriptions.push(backendOutputChannel);
 
-    // Get extension version from package.json
-    const extensionVersion = context.extension.packageJSON.version as string;
-
-    // Create lifecycle manager
+    // Create lifecycle manager (install handled by Duet Host)
     backendLifecycle = new BackendLifecycle({
         paths,
-        extensionPath: context.extensionPath,
-        extensionVersion,
         outputChannel: backendOutputChannel,
         onStatusChange: (status) => {
             sidebarState?.setFromBackendStatus(status);

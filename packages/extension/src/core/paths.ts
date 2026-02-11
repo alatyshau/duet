@@ -54,10 +54,6 @@ export class Paths {
         return path.join(this.dataFolder, '.pid');
     }
 
-    get installLockPath(): string {
-        return path.join(this.dataFolder, '.install.lock');
-    }
-
     get startupLockPath(): string {
         return path.join(this.dataFolder, '.backend-start.lock');
     }

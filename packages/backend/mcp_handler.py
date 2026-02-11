@@ -12,7 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INVALID_PARAMS
 
-from config import get_ai_kit_path, get_duet_data_path, get_timezone, get_version
+from config import get_duet_data_path, get_timezone, get_version
 from services.entities import EntitiesService
 from services.workspace import WorkspaceService
 
@@ -71,16 +71,11 @@ def get_entities_service() -> EntitiesService:
 def get_timestamp() -> str:
     """Get current timestamp in format YYMMDD_HHMMSS<tz>.
 
-    Uses timezone from config.json (timestampTZ field).
+    Uses timezone from settings.json (timestampTZ field).
     """
     tz_config = get_timezone()
     tz = ZoneInfo(tz_config["value"])
     return datetime.now(tz).strftime(f"%y%m%d_%H%M%S{tz_config['id']}")
-
-
-def get_instruction_location() -> str:
-    """Get absolute path to ai-kit directory containing instructions."""
-    return str(get_ai_kit_path().resolve())
 
 
 def get_duet_data_path_str() -> str:
@@ -95,7 +90,7 @@ def get_duet_data_path_str() -> str:
 def timestamp() -> str:
     """Get current timestamp in format YYMMDD_HHMMSS<tz> (e.g., 260131_143052M).
 
-    Uses timezone from config.json (timestampTZ field).
+    Uses timezone from settings.json (timestampTZ field).
     """
     return get_timestamp()
 
@@ -118,7 +113,7 @@ def workspace_info(workspace_path: str = "") -> dict:
     - duetConfigPath: Path to DuetConfig directory
     - machine: Machine identifier from pointer
     - aliases: Dict mapping @alias to absolute path
-    - instructionsPath: Path to ai-kit instructions
+    - instructionsPath: Path to ai-instructions directory
     - chain: Hierarchy chain from business to current entity
     - components: List of components in the product (if applicable)
     """
@@ -167,7 +162,7 @@ def projects(stream_id: str) -> list[dict]:
 def scan() -> dict:
     """Rescan the entity hierarchy.
 
-    Scans all business folders configured in config.json
+    Scans all business folders configured in settings.json
     and rebuilds the entities database.
 
     Returns scan statistics including entities_count.

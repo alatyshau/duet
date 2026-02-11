@@ -64,7 +64,7 @@ class DuetDataBuilder:
 
     New architecture creates:
     - DuetData/ (tmp_path/DuetData)
-        - ai-kit/
+        - ai-instructions/
         - data/
         - repos/ (optional)
         - backend/VERSION (optional)
@@ -189,7 +189,7 @@ class DuetDataBuilder:
                         sets DUET_POINTER_FILE env and resets config cache.
         """
         # Create DuetData directories
-        (self.duet_data_path / "ai-kit").mkdir(parents=True, exist_ok=True)
+        (self.duet_data_path / "ai-instructions").mkdir(parents=True, exist_ok=True)
         (self.duet_data_path / "data").mkdir(parents=True, exist_ok=True)
 
         # Create version file if specified

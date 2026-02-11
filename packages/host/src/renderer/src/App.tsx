@@ -5,11 +5,12 @@
  */
 import { useState, useEffect } from 'react'
 import { Layout } from './components/layout/Layout'
-import { SetupPage } from './pages/SetupPage'
+import { InstallPage } from './pages/InstallPage'
+import { AgentsPage } from './pages/AgentsPage'
 import type { AppState } from '../../preload/index.d'
 
 function App(): React.JSX.Element {
-  const [currentPage, setCurrentPage] = useState('setup')
+  const [currentPage, setCurrentPage] = useState('install')
   const [appState, setAppState] = useState<AppState | null>(null)
 
   // Draft state for pointer fields (before saving)
@@ -110,9 +111,9 @@ function App(): React.JSX.Element {
 
   const renderPage = (): React.ReactNode => {
     switch (currentPage) {
-      case 'setup':
+      case 'install':
         return (
-          <SetupPage
+          <InstallPage
             appState={displayState}
             onSelectFolder={handleSelectFolder}
             onSave={handleSave}
@@ -121,8 +122,8 @@ function App(): React.JSX.Element {
             onMachineChange={setDraftMachine}
           />
         )
-      case 'settings':
-        return <div className="text-muted-foreground">Настройки (скоро)</div>
+      case 'agents':
+        return <AgentsPage />
       default:
         return null
     }
