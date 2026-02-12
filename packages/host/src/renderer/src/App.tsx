@@ -25,12 +25,15 @@ function App(): React.JSX.Element {
       return
     }
 
-    window.api.getAppState().then((state) => {
-      setAppState(state)
-      if (state.duetDataPath) setDraftDuetDataPath(state.duetDataPath)
-      if (state.duetConfigPath) setDraftDuetConfigPath(state.duetConfigPath)
-      if (state.machine) setDraftMachine(state.machine)
-    }).catch(console.error)
+    window.api
+      .getAppState()
+      .then((state) => {
+        setAppState(state)
+        if (state.duetDataPath) setDraftDuetDataPath(state.duetDataPath)
+        if (state.duetConfigPath) setDraftDuetConfigPath(state.duetConfigPath)
+        if (state.machine) setDraftMachine(state.machine)
+      })
+      .catch(console.error)
 
     const unsubscribe = window.api.onAppStateChanged((state) => {
       setAppState(state)
@@ -60,7 +63,11 @@ function App(): React.JSX.Element {
       const machine = draftMachine.trim()
 
       if (data && config && machine) {
-        const newState = await window.api.savePointer({ duetDataPath: data, duetConfigPath: config, machine })
+        const newState = await window.api.savePointer({
+          duetDataPath: data,
+          duetConfigPath: config,
+          machine
+        })
         setAppState(newState)
       }
     }

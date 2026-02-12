@@ -85,7 +85,9 @@ export const readPort = (): number => {
   }
   const port = config.port
   if (typeof port !== 'number') {
-    throw new Error('Port not configured in machine config. Add "port": 19680 to your machine config.')
+    throw new Error(
+      'Port not configured in machine config. Add "port": 19680 to your machine config.'
+    )
   }
   return port
 }
@@ -102,7 +104,9 @@ export const setMachineConfigKey = (key: string, value: unknown): void => {
   let existing: Record<string, unknown> = {}
   try {
     existing = JSON.parse(readFileSync(machineConfigPath, 'utf-8'))
-  } catch { /* file missing or invalid — start fresh */ }
+  } catch {
+    /* file missing or invalid — start fresh */
+  }
   existing[key] = value
   writeFileSync(machineConfigPath, JSON.stringify(existing, null, 2) + '\n')
 }
@@ -134,7 +138,9 @@ export const isValidMachineName = (name: string): boolean => {
  */
 export const ensureConfigDefaults = (duetConfigPath: string, machine: string): void => {
   if (!isValidMachineName(machine)) {
-    throw new Error(`Invalid machine name: "${machine}". Use alphanumeric characters, hyphens, underscores, dots.`)
+    throw new Error(
+      `Invalid machine name: "${machine}". Use alphanumeric characters, hyphens, underscores, dots.`
+    )
   }
   mkdirSync(duetConfigPath, { recursive: true })
 

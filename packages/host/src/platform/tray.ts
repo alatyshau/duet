@@ -149,9 +149,8 @@ export const updateTrayIcon = (status: AppStatus, deployWarning?: boolean): void
 
   tray.setImage(image)
 
-  const tooltip = deployWarning && status === 'ready'
-    ? 'Duet — требуется обновление'
-    : TRAY_TOOLTIPS[status]
+  const tooltip =
+    deployWarning && status === 'ready' ? 'Duet — требуется обновление' : TRAY_TOOLTIPS[status]
   tray.setToolTip(tooltip)
 }
 

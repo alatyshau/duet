@@ -54,73 +54,73 @@ if (!gotTheLock) {
 // =============================================================================
 
 if (gotTheLock) {
-app.whenReady().then(() => {
-  // Windows: устанавливаем App User Model ID для правильной группировки в taskbar
-  app.setAppUserModelId('org.ve68.duet')
+  app.whenReady().then(() => {
+    // Windows: устанавливаем App User Model ID для правильной группировки в taskbar
+    app.setAppUserModelId('org.ve68.duet')
 
-  // Проверяем первый ли это запуск (нет конфига)
-  const isFirstRun = !existsSync(getConfigFile())
+    // Проверяем первый ли это запуск (нет конфига)
+    const isFirstRun = !existsSync(getConfigFile())
 
-  // Проверяем состояние приложения
-  appState = checkAppState()
+    // Проверяем состояние приложения
+    appState = checkAppState()
 
-  // В production отключаем Cmd/Ctrl+R для перезагрузки
-  if (app.isPackaged) {
-    app.on('browser-window-created', (_, window) => {
-      window.webContents.on('before-input-event', (event, input) => {
-        if (input.control && input.key.toLowerCase() === 'r') {
-          event.preventDefault()
-        }
-        if (input.meta && input.key.toLowerCase() === 'r') {
-          event.preventDefault()
-        }
+    // В production отключаем Cmd/Ctrl+R для перезагрузки
+    if (app.isPackaged) {
+      app.on('browser-window-created', (_, window) => {
+        window.webContents.on('before-input-event', (event, input) => {
+          if (input.control && input.key.toLowerCase() === 'r') {
+            event.preventDefault()
+          }
+          if (input.meta && input.key.toLowerCase() === 'r') {
+            event.preventDefault()
+          }
+        })
       })
-    })
-  }
-
-  // Настраиваем IPC handlers
-  setupIpcHandlers({
-    getAppState: () => appState,
-    updateAppState
-  })
-
-  // Создаём tray
-  createTray(appState.status, {
-    onShowWindow: () => showWindow(appState),
-    onQuit: () => {
-      setQuitting(true)
-      app.quit()
     }
+
+    // Настраиваем IPC handlers
+    setupIpcHandlers({
+      getAppState: () => appState,
+      updateAppState
+    })
+
+    // Создаём tray
+    createTray(appState.status, {
+      onShowWindow: () => showWindow(appState),
+      onQuit: () => {
+        setQuitting(true)
+        app.quit()
+      }
+    })
+
+    // Учитываем deploy warning на старте (VERSION mismatch при status=ready)
+    updateTrayIcon(appState.status, isDeployWarning(appState, app.getVersion()))
+
+    // На macOS скрываем Dock иконку по умолчанию (живём в Menu Bar)
+    if (process.platform === 'darwin') {
+      app.dock?.hide()
+    }
+
+    // Логика показа окна при старте:
+    // - Первый запуск (no config) → показываем окно для onboarding
+    // - path_lost → показываем окно (нужно исправить)
+    // - ready → молча в tray
+    if (isFirstRun || appState.status !== 'ready') {
+      showWindow(appState)
+    }
+
+    app.on('activate', () => {
+      showWindow(appState)
+    })
   })
 
-  // Учитываем deploy warning на старте (VERSION mismatch при status=ready)
-  updateTrayIcon(appState.status, isDeployWarning(appState, app.getVersion()))
-
-  // На macOS скрываем Dock иконку по умолчанию (живём в Menu Bar)
-  if (process.platform === 'darwin') {
-    app.dock?.hide()
-  }
-
-  // Логика показа окна при старте:
-  // - Первый запуск (no config) → показываем окно для onboarding
-  // - path_lost → показываем окно (нужно исправить)
-  // - ready → молча в tray
-  if (isFirstRun || appState.status !== 'ready') {
-    showWindow(appState)
-  }
-
-  app.on('activate', () => {
-    showWindow(appState)
+  // Не завершаем приложение при закрытии всех окон — живём в трее
+  app.on('window-all-closed', () => {
+    // Ничего не делаем — приложение продолжает работать в трее
   })
-})
 
-// Не завершаем приложение при закрытии всех окон — живём в трее
-app.on('window-all-closed', () => {
-  // Ничего не делаем — приложение продолжает работать в трее
-})
-
-// Обработка перед выходом
-app.on('before-quit', () => {
-  setQuitting(true)
-})
+  // Обработка перед выходом
+  app.on('before-quit', () => {
+    setQuitting(true)
+  })
 } // end if (gotTheLock)

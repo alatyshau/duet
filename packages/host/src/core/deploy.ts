@@ -12,7 +12,16 @@
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
-import { existsSync, mkdirSync, cpSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  cpSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  rmSync,
+  readdirSync
+} from 'fs'
 import { join } from 'path'
 import { execFile } from 'child_process'
 
@@ -104,9 +113,7 @@ export const resolveDeployStatus = (
   }
 
   // Upgrade needed: show active status if deploying, otherwise idle
-  return activeStatus.state === 'idle'
-    ? { state: 'idle' }
-    : activeStatus
+  return activeStatus.state === 'idle' ? { state: 'idle' } : activeStatus
 }
 
 /**
@@ -135,7 +142,12 @@ const KILL_GRACE_PERIOD_MS = 1_000
  * Flow: POST /stop → wait 3s → check PID → SIGTERM → wait 1s → SIGKILL.
  * Ошибки не прерывают деплой (бэкенд может быть не запущен).
  */
-export const stopBackend = async (duetDataPath: string, port: number, log: LogFn, opts?: StopOptions): Promise<void> => {
+export const stopBackend = async (
+  duetDataPath: string,
+  port: number,
+  log: LogFn,
+  opts?: StopOptions
+): Promise<void> => {
   const _sleep = opts?.sleep ?? sleep
 
   // 1. Try graceful stop via API
@@ -156,7 +168,11 @@ export const stopBackend = async (duetDataPath: string, port: number, log: LogFn
   await killByPid(duetDataPath, log, _sleep)
 }
 
-const killByPid = async (duetDataPath: string, log: LogFn, _sleep: (ms: number) => Promise<void>): Promise<void> => {
+const killByPid = async (
+  duetDataPath: string,
+  log: LogFn,
+  _sleep: (ms: number) => Promise<void>
+): Promise<void> => {
   const pidPath = join(duetDataPath, '.pid')
   if (!existsSync(pidPath)) return
 
@@ -187,8 +203,7 @@ const isProcessAlive = (pid: number): boolean => {
   }
 }
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise(resolve => setTimeout(resolve, ms))
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 // =============================================================================
 // DEPLOY AI INSTRUCTIONS
@@ -287,7 +302,10 @@ const MIN_PYTHON_VERSION: [number, number] = [3, 10]
  * Возвращает путь к Python внутри venv (platform-aware).
  * Windows: Scripts/python.exe, Unix: bin/python3.
  */
-export const venvPythonPath = (venvDir: string, platform: NodeJS.Platform = process.platform): string => {
+export const venvPythonPath = (
+  venvDir: string,
+  platform: NodeJS.Platform = process.platform
+): string => {
   return platform === 'win32'
     ? join(venvDir, 'Scripts', 'python.exe')
     : join(venvDir, 'bin', 'python3')
@@ -311,15 +329,19 @@ export const pythonInstallHint = (platform: NodeJS.Platform = process.platform):
  * (/usr/bin:/bin:/usr/sbin:/sbin). Homebrew paths are NOT included,
  * so we explicitly check /opt/homebrew/bin (Apple Silicon) and /usr/local/bin (Intel).
  */
-export const findPython = async (platform: NodeJS.Platform = process.platform): Promise<string | null> => {
-  const candidates = platform === 'win32'
-    ? ['python', 'py']
-    : [
-        'python3', 'python',
-        // Explicit brew paths for macOS Electron (Finder/Spotlight PATH is minimal)
-        '/opt/homebrew/bin/python3',   // Apple Silicon
-        '/usr/local/bin/python3',      // Intel
-      ]
+export const findPython = async (
+  platform: NodeJS.Platform = process.platform
+): Promise<string | null> => {
+  const candidates =
+    platform === 'win32'
+      ? ['python', 'py']
+      : [
+          'python3',
+          'python',
+          // Explicit brew paths for macOS Electron (Finder/Spotlight PATH is minimal)
+          '/opt/homebrew/bin/python3', // Apple Silicon
+          '/usr/local/bin/python3' // Intel
+        ]
 
   for (const cmd of candidates) {
     try {
@@ -328,7 +350,10 @@ export const findPython = async (platform: NodeJS.Platform = process.platform): 
       if (match) {
         const major = parseInt(match[1])
         const minor = parseInt(match[2])
-        if (major > MIN_PYTHON_VERSION[0] || (major === MIN_PYTHON_VERSION[0] && minor >= MIN_PYTHON_VERSION[1])) {
+        if (
+          major > MIN_PYTHON_VERSION[0] ||
+          (major === MIN_PYTHON_VERSION[0] && minor >= MIN_PYTHON_VERSION[1])
+        ) {
           return cmd
         }
       }
@@ -355,8 +380,15 @@ export const validatePython = async (pythonPath: string): Promise<PythonStatus> 
     const minor = parseInt(match[2])
     const version = `${major}.${minor}${match[3] ? '.' + match[3] : ''}`
 
-    if (major < MIN_PYTHON_VERSION[0] || (major === MIN_PYTHON_VERSION[0] && minor < MIN_PYTHON_VERSION[1])) {
-      return { state: 'invalid', path: pythonPath, error: `Python ${version} слишком старый (нужен 3.10+)` }
+    if (
+      major < MIN_PYTHON_VERSION[0] ||
+      (major === MIN_PYTHON_VERSION[0] && minor < MIN_PYTHON_VERSION[1])
+    ) {
+      return {
+        state: 'invalid',
+        path: pythonPath,
+        error: `Python ${version} слишком старый (нужен 3.10+)`
+      }
     }
 
     return { state: 'found', path: pythonPath, version }
@@ -369,7 +401,11 @@ export const validatePython = async (pythonPath: string): Promise<PythonStatus> 
  * Создаёт venv и устанавливает зависимости.
  * venv живёт в DuetData/.venv/
  */
-export const setupVenv = async (paths: DeployPaths, pythonCmd: string, log: LogFn): Promise<void> => {
+export const setupVenv = async (
+  paths: DeployPaths,
+  pythonCmd: string,
+  log: LogFn
+): Promise<void> => {
   const venvPath = join(paths.duetDataPath, '.venv')
   const venvPython = venvPythonPath(venvPath)
   const requirementsPath = join(paths.duetDataPath, 'backend', 'requirements.txt')
@@ -400,7 +436,13 @@ export const setupVenv = async (paths: DeployPaths, pythonCmd: string, log: LogF
  * pythonCmd — путь к Python, определённый ДО деплоя через UI (python:detect / python:validate).
  * Файлы копируются всегда. VERSION записывается только если всё ОК.
  */
-export const runDeploy = async (paths: DeployPaths, port: number, pythonCmd: string, log: LogFn, opts?: StopOptions): Promise<void> => {
+export const runDeploy = async (
+  paths: DeployPaths,
+  port: number,
+  pythonCmd: string,
+  log: LogFn,
+  opts?: StopOptions
+): Promise<void> => {
   log(`Деплой v${paths.appVersion}...`)
 
   // 0. Stop running backend before file operations

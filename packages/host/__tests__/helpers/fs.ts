@@ -3,7 +3,7 @@
  * ЗАЧЕМ: Изоляция тестов через tmp директории.
  * КТО ИСПОЛЬЗУЕТ: Unit и integration тесты.
  */
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 

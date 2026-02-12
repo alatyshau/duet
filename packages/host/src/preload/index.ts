@@ -31,8 +31,11 @@ const api = {
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-folder'),
 
   // Сохранить pointer файл (~/.org.ve68.duet)
-  savePointer: (config: { duetDataPath: string; duetConfigPath: string; machine: string }): Promise<AppState> =>
-    ipcRenderer.invoke('config:save-pointer', config),
+  savePointer: (config: {
+    duetDataPath: string
+    duetConfigPath: string
+    machine: string
+  }): Promise<AppState> => ipcRenderer.invoke('config:save-pointer', config),
 
   // Открыть папку в Finder/Explorer
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('shell:open-path', path),
@@ -72,7 +75,8 @@ const api = {
 
   detectPython: (): Promise<PythonStatus> => ipcRenderer.invoke('python:detect'),
 
-  validatePython: (path: string): Promise<PythonStatus> => ipcRenderer.invoke('python:validate', path),
+  validatePython: (path: string): Promise<PythonStatus> =>
+    ipcRenderer.invoke('python:validate', path),
 
   savePythonPath: (path: string): Promise<void> => ipcRenderer.invoke('python:save', path),
 

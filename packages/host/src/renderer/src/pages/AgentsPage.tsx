@@ -18,7 +18,8 @@ export function AgentsPage(): React.ReactElement {
 
   useEffect(() => {
     if (!window.api) return
-    window.api.getAgents()
+    window.api
+      .getAgents()
       .then(setAgents)
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -36,7 +37,7 @@ export function AgentsPage(): React.ReactElement {
     }
   }
 
-  const hasFoundAgents = agents.some(a => a.status !== 'not_found')
+  const hasFoundAgents = agents.some((a) => a.status !== 'not_found')
 
   return (
     <div className="space-y-6">
@@ -46,9 +47,7 @@ export function AgentsPage(): React.ReactElement {
           <Bot size={24} />
           AI Агенты
         </h2>
-        <p className="text-muted-foreground mt-1">
-          Обнаружение и конфигурация AI клиентов
-        </p>
+        <p className="text-muted-foreground mt-1">Обнаружение и конфигурация AI клиентов</p>
       </div>
 
       {/* Список агентов */}
@@ -68,11 +67,7 @@ export function AgentsPage(): React.ReactElement {
 
             {/* Кнопка конфигурации */}
             {hasFoundAgents && (
-              <Button
-                className="w-full"
-                onClick={handleConfigure}
-                disabled={configuring}
-              >
+              <Button className="w-full" onClick={handleConfigure} disabled={configuring}>
                 {configuring ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
@@ -94,8 +89,12 @@ export function AgentsPage(): React.ReactElement {
       <div className="bg-card rounded-xl border border-border p-6">
         <h3 className="text-sm font-medium text-foreground mb-2">Что настраивается?</h3>
         <ul className="text-xs text-muted-foreground space-y-1">
-          <li><strong>Claude Code:</strong> output-style (инструкции) + MCP сервер (duet)</li>
-          <li><strong>Codex:</strong> model_instructions_file + MCP сервер (duet)</li>
+          <li>
+            <strong>Claude Code:</strong> output-style (инструкции) + MCP сервер (duet)
+          </li>
+          <li>
+            <strong>Codex:</strong> model_instructions_file + MCP сервер (duet)
+          </li>
         </ul>
       </div>
     </div>
@@ -125,13 +124,15 @@ function AgentCard({ agent }: { agent: AgentInfo }): React.ReactElement {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm text-foreground">{agent.name}</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
-            agent.status === 'configured'
-              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-              : agent.status === 'needs_setup'
-                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-          }`}>
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full ${
+              agent.status === 'configured'
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : agent.status === 'needs_setup'
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+            }`}
+          >
             {statusLabel[agent.status]}
           </span>
         </div>

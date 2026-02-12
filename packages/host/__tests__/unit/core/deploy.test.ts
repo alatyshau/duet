@@ -2,7 +2,7 @@
  * Unit тесты для src/core/deploy.ts
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { createTestContext, type TestContext } from '../../helpers'
 
@@ -23,7 +23,6 @@ import {
   writeVersion,
   findPython,
   validatePython,
-  setupVenv,
   venvPythonPath,
   pythonInstallHint,
   runDeploy,
@@ -44,7 +43,7 @@ const mockedExecFile = vi.mocked(execFile)
 // HELPERS
 // =============================================================================
 
-function createDeployContext(ctx: TestContext) {
+function createDeployContext(ctx: TestContext): { paths: DeployPaths; resourcesPath: string } {
   const resourcesPath = join(ctx.tmpDir, 'resources')
   const duetDataPath = ctx.duetDataDir
 
@@ -68,17 +67,21 @@ function createDeployContext(ctx: TestContext) {
   return { paths, resourcesPath }
 }
 
-function mockPythonFound(version = 'Python 3.12.0') {
+function mockPythonFound(version = 'Python 3.12.0'): void {
   mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
-    ;(callback as Function)(null, version, '')
-    return undefined as any
+    ;(callback as (err: Error | null, stdout: string, stderr: string) => void)(null, version, '')
+    return undefined as ReturnType<typeof execFile>
   })
 }
 
-function mockPythonNotFound() {
+function mockPythonNotFound(): void {
   mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
-    ;(callback as Function)(new Error('not found'), '', 'command not found')
-    return undefined as any
+    ;(callback as (err: Error | null, stdout: string, stderr: string) => void)(
+      new Error('not found'),
+      '',
+      'command not found'
+    )
+    return undefined as ReturnType<typeof execFile>
   })
 }
 
@@ -402,10 +405,7 @@ describe('core/deploy', () => {
       const log = vi.fn()
       await stopBackend(ctx.duetDataDir, 12345, log, noSleep)
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:12345/stop',
-        expect.anything()
-      )
+      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:12345/stop', expect.anything())
 
       vi.unstubAllGlobals()
     })
@@ -425,7 +425,9 @@ describe('core/deploy', () => {
       const dest = join(ctx.duetDataDir, 'ai-instructions')
       expect(existsSync(join(dest, 'core_instructions.md'))).toBe(true)
       expect(existsSync(join(dest, 'extra.md'))).toBe(true)
-      expect(readFileSync(join(dest, 'core_instructions.md'), 'utf-8')).toBe('# AI Kit Instructions')
+      expect(readFileSync(join(dest, 'core_instructions.md'), 'utf-8')).toBe(
+        '# AI Kit Instructions'
+      )
     })
 
     it('overwrites existing files on re-deploy', () => {
@@ -478,7 +480,9 @@ describe('core/deploy', () => {
       deployInstructions(paths, log)
 
       expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'))).toBe(true)
-      expect(readFileSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'), 'utf-8')).toBe('# Dev Instructions')
+      expect(readFileSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'), 'utf-8')).toBe(
+        '# Dev Instructions'
+      )
     })
 
     it('logs progress', () => {
@@ -633,8 +637,12 @@ describe('core/deploy', () => {
 
     it('returns null when Python too old', async () => {
       mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
-        ;(callback as Function)(null, 'Python 3.9.1', '')
-        return undefined as any
+        ;(callback as (err: Error | null, stdout: string, stderr: string) => void)(
+          null,
+          'Python 3.9.1',
+          ''
+        )
+        return undefined as ReturnType<typeof execFile>
       })
       const result = await findPython('darwin')
       expect(result).toBeNull()
@@ -745,7 +753,9 @@ describe('core/deploy', () => {
       await runDeploy(paths, TEST_PORT, 'python3', log, noSleep)
 
       // AI instructions deployed
-      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(true)
+      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(
+        true
+      )
 
       // Backend deployed
       expect(existsSync(join(ctx.duetDataDir, 'backend', 'main.py'))).toBe(true)

@@ -45,7 +45,8 @@ export const configureClaudeCode = (duetDataPath: string): AgentInfo => {
       id: 'claude-code',
       name: 'Claude Code',
       status: 'not_found',
-      details: 'Папка ~/.claude не найдена. Установите Claude Code: npm install -g @anthropic-ai/claude-code'
+      details:
+        'Папка ~/.claude не найдена. Установите Claude Code: npm install -g @anthropic-ai/claude-code'
     }
   }
 
@@ -157,7 +158,7 @@ export const configureCodex = (duetDataPath: string): AgentInfo => {
 
     // Parse existing config or start fresh
     const raw = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : ''
-    const config = raw ? parseToml(raw) : {} as Record<string, unknown>
+    const config = raw ? parseToml(raw) : ({} as Record<string, unknown>)
 
     // 1. MCP server: [mcp_servers.duet]
     if (!config.mcp_servers || typeof config.mcp_servers !== 'object') {
@@ -219,9 +220,19 @@ export const detectAgents = (): AgentInfo[] => {
   // Claude Code
   const claudeDir = join(homedir(), '.claude')
   if (existsSync(claudeDir)) {
-    agents.push({ id: 'claude-code', name: 'Claude Code', status: 'needs_setup', details: '~/.claude найдена' })
+    agents.push({
+      id: 'claude-code',
+      name: 'Claude Code',
+      status: 'needs_setup',
+      details: '~/.claude найдена'
+    })
   } else {
-    agents.push({ id: 'claude-code', name: 'Claude Code', status: 'not_found', details: 'Не установлен' })
+    agents.push({
+      id: 'claude-code',
+      name: 'Claude Code',
+      status: 'not_found',
+      details: 'Не установлен'
+    })
   }
 
   // Codex
@@ -239,10 +250,7 @@ export const detectAgents = (): AgentInfo[] => {
  * Конфигурировать все найденные AI клиенты.
  */
 export const configureAllAgents = (duetDataPath: string): AgentInfo[] => {
-  return [
-    configureClaudeCode(duetDataPath),
-    configureCodex(duetDataPath)
-  ]
+  return [configureClaudeCode(duetDataPath), configureCodex(duetDataPath)]
 }
 
 // =============================================================================
@@ -252,4 +260,3 @@ export const configureAllAgents = (duetDataPath: string): AgentInfo[] => {
 function getCodexDir(): string {
   return process.env.CODEX_HOME || join(homedir(), '.codex')
 }
-

@@ -345,6 +345,27 @@ Backend: DuetData/backend/VERSION (written by Host at deploy time)
 
 Host writes its version to `DuetData/backend/VERSION` after successful deploy → Backend returns it via `/health` → Host checks for version mismatch → redeploy if upgrade. Extension reads VERSION to verify backend is installed. See "Version Flow" above.
 
+## Pre-commit Checks
+
+Run **before every commit**:
+
+```bash
+npm run verify          # all packages
+npm run verify:host     # typecheck + lint + vitest
+npm run verify:extension # check-types + lint + vitest
+npm run verify:backend  # pytest
+```
+
+Per-package details:
+
+| Package | Type Check | Lint | Tests |
+|---------|-----------|------|-------|
+| **Host** | `npm run typecheck` (tsc node + web) | `npm run lint` (eslint) | `npm run test:run` (vitest) |
+| **Extension** | `npm run check-types` (tsc) | `npm run lint` (eslint) | `npm run test` (vitest) |
+| **Backend** | — | — | `pytest` |
+
+**Important:** `electron-vite build` uses esbuild which skips TypeScript checks (`noUnusedLocals`, etc.). Always run `npm run typecheck` separately.
+
 ## Repository Naming
 
 | Pattern | Meaning |

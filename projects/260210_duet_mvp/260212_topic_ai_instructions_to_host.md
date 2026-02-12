@@ -1,6 +1,6 @@
 # Перенос AI инструкций и backend в Host
 
-**Статус:** IN_REVIEW (все шаги выполнены, 110 тестов green)
+**Статус:** DONE (115 тестов green)
 
 ---
 
@@ -162,9 +162,9 @@ Cleanup:
 - [x] `tsconfig.node.json`: добавлены `src/core/**/*`, `src/platform/**/*` в include (typecheck проходил с ошибками)
 
 ### Шаг 3: Исправления по ревью
-**Статус:** IN_REVIEW
+**Статус:** DONE
 
-Ревью: [review_ai_instructions_to_host.md](review_ai_instructions_to_host.md) (17 пунктов).
+Ревью: [260212_review_ai_instructions_to_host.md](260212_review_ai_instructions_to_host.md) (17 пунктов).
 
 - [x] #8: Комментарии ai-clients.ts — "backend HTTP MCP" → "Node stdio MCP", "[mcp]" → "[mcp.duet]"
 - [x] #4: workspace.py docstring — "ai-kit" → "ai-instructions"
@@ -184,6 +184,23 @@ Cleanup:
 **Не в этом шаге:**
 - #12: Extension `venvPython` — снимается (Python уходит из Extension)
 - #5 (dead code): `get_instruction_location()` удалена из mcp_handler.py
+
+### Шаг 4: Python path selector в UI
+**Статус:** DONE
+
+Electron на macOS при запуске из Finder/Spotlight получает минимальный PATH (`/usr/bin:/bin:/usr/sbin:/sbin`). Homebrew Python недоступен для auto-detect. Решение: явный выбор/подтверждение пути к Python в UI перед установкой.
+
+- [x] `PythonStatus` discriminated union в `shared/types.ts`
+- [x] `validatePython()` в `deploy.ts` — проверка конкретного пути (--version, min 3.10)
+- [x] `runDeploy()` принимает `pythonCmd` как параметр (не ищет сам)
+- [x] 4 новых IPC канала: `python:detect`, `python:validate`, `python:save`, `dialog:select-file`
+- [x] `PythonField` компонент в InstallPage (auto-detect + ручной выбор + retry)
+- [x] Секция "Компоненты" появляется только когда Python найден
+- [x] `pythonPath` хранится в `{machine}.json` (per-machine)
+- [x] 5 новых тестов validatePython, обновлены тесты runDeploy
+- [x] Sidebar scroll fix (Layout.tsx: `h-screen overflow-hidden`)
+
+**Коммит:** `4d9ce8b Fix python path resolution and introduce UI for that`
 
 ---
 
@@ -208,4 +225,4 @@ Cleanup:
 | Host config + validation | `packages/host/src/core/config.ts` |
 | Host spec | `packages/host/spec/ARCHITECTURE.md` |
 | Ecosystem spec | `spec/ECOSYSTEM.md` |
-| Ревью | `projects/260210_duet_mvp/review_ai_instructions_to_host.md` |
+| Ревью | `projects/260210_duet_mvp/260212_review_ai_instructions_to_host.md` |

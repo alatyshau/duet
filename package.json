@@ -8,7 +8,11 @@
   ],
   "scripts": {
     "dev:host": "npm run dev --workspace=duet-host",
-    "build:host": "npm run build --workspace=duet-host"
+    "build:host": "npm run build --workspace=duet-host",
+    "verify": "npm run verify:host && npm run verify:extension && npm run verify:backend",
+    "verify:host": "npm run typecheck --workspace=duet-host && npm run lint --workspace=duet-host && npm run test:run --workspace=duet-host",
+    "verify:extension": "npm run check-types --workspace=duet && npm run lint --workspace=duet && npm run test --workspace=duet",
+    "verify:backend": "cd packages/backend && python -m pytest"
   },
   "keywords": [],
   "author": "ve68.org",

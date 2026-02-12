@@ -8,7 +8,15 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
 // Re-export shared types for renderer imports
-export type { AppStatus, AppState, DeployChannel, DeployStatus, PythonStatus, AgentStatus, AgentInfo } from '../shared/types'
+export type {
+  AppStatus,
+  AppState,
+  DeployChannel,
+  DeployStatus,
+  PythonStatus,
+  AgentStatus,
+  AgentInfo
+} from '../shared/types'
 
 // Import for use in DuetAPI interface
 import type { AppState, DeployStatus, PythonStatus, AgentInfo } from '../shared/types'
@@ -18,7 +26,11 @@ export interface DuetAPI {
   getAppState: () => Promise<AppState>
   onAppStateChanged: (callback: (state: AppState) => void) => () => void
   selectFolder: () => Promise<string | null>
-  savePointer: (config: { duetDataPath: string; duetConfigPath: string; machine: string }) => Promise<AppState>
+  savePointer: (config: {
+    duetDataPath: string
+    duetConfigPath: string
+    machine: string
+  }) => Promise<AppState>
   openPath: (path: string) => Promise<void>
 
   // Config

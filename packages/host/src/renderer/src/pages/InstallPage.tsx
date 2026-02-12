@@ -10,7 +10,18 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, CheckCircle, AlertTriangle, Monitor, Package, Download, Loader2, Code, Search, RefreshCw } from 'lucide-react'
+import {
+  FolderOpen,
+  CheckCircle,
+  AlertTriangle,
+  Monitor,
+  Package,
+  Download,
+  Loader2,
+  Code,
+  Search,
+  RefreshCw
+} from 'lucide-react'
 import type { AppState, DeployStatus, DeployChannel, PythonStatus } from '../../../preload/index.d'
 
 interface InstallPageProps {
@@ -50,7 +61,7 @@ export function InstallPage({
 
     const unsubStatus = window.api.onDeployStatusChanged(setDeployStatus)
     const unsubLog = window.api.onDeployLog((message) => {
-      setLogs(prev => [...prev, message])
+      setLogs((prev) => [...prev, message])
     })
 
     return () => {
@@ -64,16 +75,20 @@ export function InstallPage({
     if (!isReady || !window.api) return
     if (pythonStatus.state !== 'unknown') return
 
-    setPythonStatus({ state: 'detecting' })
-    window.api.detectPython().then(result => {
-      setPythonStatus(result)
-      if (result.state === 'found') {
-        window.api.savePythonPath(result.path)
+    const detect = async (): Promise<void> => {
+      setPythonStatus({ state: 'detecting' })
+      try {
+        const result = await window.api.detectPython()
+        setPythonStatus(result)
+        if (result.state === 'found') {
+          await window.api.savePythonPath(result.path)
+        }
+      } catch {
+        setPythonStatus({ state: 'not_found', hint: 'Ошибка автодетекта' })
       }
-    }).catch(() => {
-      setPythonStatus({ state: 'not_found', hint: 'Ошибка автодетекта' })
-    })
-  }, [isReady])
+    }
+    void detect()
+  }, [isReady, pythonStatus.state])
 
   // Auto-scroll log
   useEffect(() => {
@@ -144,9 +159,7 @@ export function InstallPage({
           <Package size={24} />
           Установка
         </h2>
-        <p className="text-muted-foreground mt-1">
-          Пути, компоненты и деплой
-        </p>
+        <p className="text-muted-foreground mt-1">Пути, компоненты и деплой</p>
       </div>
 
       {/* Секция 1: Папки + машина */}
@@ -198,9 +211,7 @@ export function InstallPage({
                 ${machineError ? 'border-red-500' : 'border-border'}
                 focus:outline-none focus:ring-2 focus:ring-ring`}
             />
-            {machineError && (
-              <p className="text-xs text-red-500 mt-1">Укажите имя машины</p>
-            )}
+            {machineError && <p className="text-xs text-red-500 mt-1">Укажите имя машины</p>}
           </div>
         </div>
 
@@ -224,10 +235,7 @@ export function InstallPage({
         <div className="bg-card rounded-xl border border-border p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-medium text-foreground">Компоненты</h3>
-            <ChannelToggle
-              channel={appState.deployChannel}
-              onChange={handleChannelChange}
-            />
+            <ChannelToggle channel={appState.deployChannel} onChange={handleChannelChange} />
           </div>
 
           {/* DEV banner */}
@@ -262,11 +270,7 @@ export function InstallPage({
           )}
 
           {/* Кнопка */}
-          <Button
-            className="w-full"
-            disabled={isDeploying}
-            onClick={handleDeploy}
-          >
+          <Button className="w-full" disabled={isDeploying} onClick={handleDeploy}>
             {isDeploying ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
@@ -321,7 +325,13 @@ interface FolderFieldProps {
   onOpen: (path: string) => void
 }
 
-function FolderField({ label, description, path, onSelect, onOpen }: FolderFieldProps): React.ReactElement {
+function FolderField({
+  label,
+  description,
+  path,
+  onSelect,
+  onOpen
+}: FolderFieldProps): React.ReactElement {
   return (
     <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-background">
       <div className="flex-shrink-0 mt-0.5">
@@ -333,12 +343,8 @@ function FolderField({ label, description, path, onSelect, onOpen }: FolderField
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-medium text-foreground">{label}</div>
-        {!path && (
-          <p className="text-xs text-muted-foreground mt-1">{description}</p>
-        )}
-        {path && (
-          <p className="text-sm text-green-600 mt-1 break-all">{path}</p>
-        )}
+        {!path && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
+        {path && <p className="text-sm text-green-600 mt-1 break-all">{path}</p>}
         <div className="flex gap-2 mt-3">
           <Button variant={path ? 'outline' : 'default'} size="sm" onClick={onSelect}>
             <FolderOpen size={16} />
@@ -362,11 +368,16 @@ interface PythonFieldProps {
   onSelect: () => void
 }
 
-function PythonField({ status, disabled, onDetect, onSelect }: PythonFieldProps): React.ReactElement {
-  const isDetecting = status.state === 'detecting'
-
+function PythonField({
+  status,
+  disabled,
+  onDetect,
+  onSelect
+}: PythonFieldProps): React.ReactElement {
   return (
-    <div className={`flex items-start gap-3 p-4 rounded-lg border border-border bg-background ${disabled ? 'opacity-50' : ''}`}>
+    <div
+      className={`flex items-start gap-3 p-4 rounded-lg border border-border bg-background ${disabled ? 'opacity-50' : ''}`}
+    >
       <div className="flex-shrink-0 mt-0.5">
         {status.state === 'found' ? (
           <CheckCircle className="w-5 h-5 text-green-600" />
@@ -382,7 +393,9 @@ function PythonField({ status, disabled, onDetect, onSelect }: PythonFieldProps)
         <div className="font-medium text-foreground">Python 3.10+</div>
 
         {status.state === 'unknown' && (
-          <p className="text-xs text-muted-foreground mt-1">Определится после сохранения конфигурации</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Определится после сохранения конфигурации
+          </p>
         )}
 
         {status.state === 'detecting' && (
@@ -390,7 +403,9 @@ function PythonField({ status, disabled, onDetect, onSelect }: PythonFieldProps)
         )}
 
         {status.state === 'found' && (
-          <p className="text-sm text-green-600 mt-1 break-all">{status.path} ({status.version})</p>
+          <p className="text-sm text-green-600 mt-1 break-all">
+            {status.path} ({status.version})
+          </p>
         )}
 
         {status.state === 'not_found' && (
@@ -398,7 +413,9 @@ function PythonField({ status, disabled, onDetect, onSelect }: PythonFieldProps)
         )}
 
         {status.state === 'invalid' && (
-          <p className="text-xs text-amber-500 mt-1 break-all">{status.path}: {status.error}</p>
+          <p className="text-xs text-amber-500 mt-1 break-all">
+            {status.path}: {status.error}
+          </p>
         )}
 
         {!disabled && status.state !== 'detecting' && (
@@ -439,9 +456,10 @@ function ChannelToggle({ channel, onChange }: ChannelToggleProps): React.ReactEl
       type="button"
       onClick={() => onChange(isDev ? 'prod' : 'dev')}
       className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors
-        ${isDev
-          ? 'border-amber-500/50 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20'
-          : 'border-border bg-background text-muted-foreground hover:bg-muted'
+        ${
+          isDev
+            ? 'border-amber-500/50 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20'
+            : 'border-border bg-background text-muted-foreground hover:bg-muted'
         }`}
     >
       {isDev ? 'DEV' : 'PROD'}
@@ -455,7 +473,11 @@ interface ComponentStatusProps {
   deployed: boolean
 }
 
-function ComponentStatus({ name, description, deployed }: ComponentStatusProps): React.ReactElement {
+function ComponentStatus({
+  name,
+  description,
+  deployed
+}: ComponentStatusProps): React.ReactElement {
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-background">
       {deployed ? (

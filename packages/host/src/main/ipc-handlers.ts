@@ -5,8 +5,20 @@
  */
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { writeConfig, readPort, readMachineConfig, setMachineConfigKey, ensureConfigDefaults } from '../core/config'
-import { resolveDeployStatus, runDeploy, findPython, validatePython, pythonInstallHint } from '../core/deploy'
+import {
+  writeConfig,
+  readPort,
+  readMachineConfig,
+  setMachineConfigKey,
+  ensureConfigDefaults
+} from '../core/config'
+import {
+  resolveDeployStatus,
+  runDeploy,
+  findPython,
+  validatePython,
+  pythonInstallHint
+} from '../core/deploy'
 import { detectAgents, configureAllAgents } from '../core/ai-clients'
 import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
 
@@ -62,16 +74,19 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   })
 
   // Сохранить pointer файл (~/.org.ve68.duet) + создать дефолтные конфиги
-  ipcMain.handle('config:save-pointer', (_event, config: { duetDataPath: string; duetConfigPath: string; machine: string }) => {
-    writeConfig({
-      duetDataPath: config.duetDataPath,
-      duetConfigPath: config.duetConfigPath,
-      machine: config.machine
-    })
-    ensureConfigDefaults(config.duetConfigPath, config.machine)
-    context.updateAppState()
-    return context.getAppState()
-  })
+  ipcMain.handle(
+    'config:save-pointer',
+    (_event, config: { duetDataPath: string; duetConfigPath: string; machine: string }) => {
+      writeConfig({
+        duetDataPath: config.duetDataPath,
+        duetConfigPath: config.duetConfigPath,
+        machine: config.machine
+      })
+      ensureConfigDefaults(config.duetConfigPath, config.machine)
+      context.updateAppState()
+      return context.getAppState()
+    }
+  )
 
   // Открыть путь в Finder/Explorer
   ipcMain.handle('shell:open-path', (_event, path: string) => {
@@ -108,13 +123,18 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     // Dev overrides: only when deployChannel === 'dev'
     const machineConfig = readMachineConfig()
     const isDev = machineConfig?.deployChannel === 'dev'
-    const instructionsSourcePath = isDev && typeof machineConfig?.devInstructionsPath === 'string'
-      ? machineConfig.devInstructionsPath : undefined
-    const backendSourcePath = isDev && typeof machineConfig?.devBackendPath === 'string'
-      ? machineConfig.devBackendPath : undefined
+    const instructionsSourcePath =
+      isDev && typeof machineConfig?.devInstructionsPath === 'string'
+        ? machineConfig.devInstructionsPath
+        : undefined
+    const backendSourcePath =
+      isDev && typeof machineConfig?.devBackendPath === 'string'
+        ? machineConfig.devBackendPath
+        : undefined
 
     // Python path must be configured before deploy
-    const pythonPath = typeof machineConfig?.pythonPath === 'string' ? machineConfig.pythonPath : null
+    const pythonPath =
+      typeof machineConfig?.pythonPath === 'string' ? machineConfig.pythonPath : null
     if (!pythonPath) {
       throw new Error('Укажите путь к Python в настройках')
     }
@@ -124,7 +144,13 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     try {
       const port = readPort()
       await runDeploy(
-        { resourcesPath, duetDataPath: state.duetDataPath, appVersion, instructionsSourcePath, backendSourcePath },
+        {
+          resourcesPath,
+          duetDataPath: state.duetDataPath,
+          appVersion,
+          instructionsSourcePath,
+          backendSourcePath
+        },
         port,
         pythonPath,
         (message) => {

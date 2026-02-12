@@ -29,7 +29,7 @@ import {
 // HELPERS
 // =============================================================================
 
-function setupDuetData(ctx: TestContext) {
+function setupDuetData(ctx: TestContext): string {
   // Create ai-instructions with test content
   const instructionsDir = join(ctx.duetDataDir, 'ai-instructions')
   mkdirSync(instructionsDir, { recursive: true })
@@ -175,10 +175,13 @@ describe('core/ai-clients', () => {
     it('preserves existing keys in ~/.claude.json', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       const claudeJsonPath = join(homeDir, '.claude.json')
-      writeFileSync(claudeJsonPath, JSON.stringify({
-        existingKey: 'keep-me',
-        mcpServers: { other: { command: 'other-cmd' } }
-      }))
+      writeFileSync(
+        claudeJsonPath,
+        JSON.stringify({
+          existingKey: 'keep-me',
+          mcpServers: { other: { command: 'other-cmd' } }
+        })
+      )
       const duetDataPath = setupDuetData(ctx)
 
       configureClaudeCode(duetDataPath)
@@ -290,7 +293,8 @@ describe('core/ai-clients', () => {
     it('updates existing [mcp_servers.duet] section', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
-      writeFileSync(join(codexDir, 'config.toml'),
+      writeFileSync(
+        join(codexDir, 'config.toml'),
         '[mcp_servers.duet]\ncommand = "old-command"\nargs = ["old"]\n'
       )
       const duetDataPath = setupDuetData(ctx)
@@ -305,7 +309,8 @@ describe('core/ai-clients', () => {
     it('migrates legacy [mcp.duet] to [mcp_servers.duet]', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
-      writeFileSync(join(codexDir, 'config.toml'),
+      writeFileSync(
+        join(codexDir, 'config.toml'),
         'model = "o3"\n\n[mcp.duet]\ncommand = "old-command"\nargs = ["old"]\n'
       )
       const duetDataPath = setupDuetData(ctx)
@@ -325,9 +330,7 @@ describe('core/ai-clients', () => {
     it('handles config starting with a section (no root keys)', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
-      writeFileSync(join(codexDir, 'config.toml'),
-        '[mcp_servers.other]\ncommand = "other-cmd"\n'
-      )
+      writeFileSync(join(codexDir, 'config.toml'), '[mcp_servers.other]\ncommand = "other-cmd"\n')
       const duetDataPath = setupDuetData(ctx)
 
       configureCodex(duetDataPath)
@@ -344,7 +347,8 @@ describe('core/ai-clients', () => {
     it('handles args with square brackets correctly', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
-      writeFileSync(join(codexDir, 'config.toml'),
+      writeFileSync(
+        join(codexDir, 'config.toml'),
         '[mcp_servers.duet]\ncommand = "old"\nargs = ["old-server.js", "--data-dir", "/old/path"]\n\n[mcp_servers.other]\ncommand = "keep-me"\n'
       )
       const duetDataPath = setupDuetData(ctx)
@@ -359,7 +363,7 @@ describe('core/ai-clients', () => {
       expect(content).toContain('command = "keep-me"')
     })
 
-    it('produces valid TOML parseable by smol-toml', () => {
+    it('produces valid TOML parseable by smol-toml', async () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
       const duetDataPath = setupDuetData(ctx)
@@ -368,7 +372,7 @@ describe('core/ai-clients', () => {
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       // Must parse without errors
-      const { parse } = require('smol-toml')
+      const { parse } = await import('smol-toml')
       const parsed = parse(content)
       expect(parsed.mcp_servers).toBeDefined()
       expect(parsed.mcp_servers.duet.command).toBe('node')

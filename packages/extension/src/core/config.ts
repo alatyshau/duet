@@ -67,7 +67,8 @@ export class ConfigManager {
             const data = JSON.parse(content);
             return this.validateFull(data);
         } catch (error) {
-            console.error('Failed to read config:', error);
+            // Corrupted config → start fresh. Next writeMerge() overwrites with valid JSON.
+            console.warn('Config corrupted, resetting to defaults:', error);
             return {};
         }
     }

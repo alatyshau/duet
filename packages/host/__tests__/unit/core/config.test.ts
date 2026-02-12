@@ -2,7 +2,13 @@
  * Unit тесты для src/core/config.ts
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { readConfig, writeConfig, getConfigFile, ensureConfigDefaults, isValidMachineName } from '../../../src/core/config'
+import {
+  readConfig,
+  writeConfig,
+  getConfigFile,
+  ensureConfigDefaults,
+  isValidMachineName
+} from '../../../src/core/config'
 import { createTestContext, writeTestConfig, type TestContext } from '../../helpers'
 import { existsSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -94,7 +100,10 @@ describe('core/config', () => {
 
     it('does not overwrite existing settings.json', () => {
       const settingsPath = join(ctx.duetConfigDir, 'settings.json')
-      const custom = { business_folders: ['@MyBiz'], timestampTZ: { id: 'M', value: 'Europe/Moscow' } }
+      const custom = {
+        business_folders: ['@MyBiz'],
+        timestampTZ: { id: 'M', value: 'Europe/Moscow' }
+      }
       writeFileSync(settingsPath, JSON.stringify(custom))
 
       ensureConfigDefaults(ctx.duetConfigDir, 'mypc')
@@ -126,7 +135,9 @@ describe('core/config', () => {
     })
 
     it('rejects path traversal in machine name', () => {
-      expect(() => ensureConfigDefaults(ctx.duetConfigDir, '../../etc/passwd')).toThrow('Invalid machine name')
+      expect(() => ensureConfigDefaults(ctx.duetConfigDir, '../../etc/passwd')).toThrow(
+        'Invalid machine name'
+      )
     })
 
     it('rejects empty machine name', () => {
@@ -134,7 +145,9 @@ describe('core/config', () => {
     })
 
     it('rejects machine name with slashes', () => {
-      expect(() => ensureConfigDefaults(ctx.duetConfigDir, 'foo/bar')).toThrow('Invalid machine name')
+      expect(() => ensureConfigDefaults(ctx.duetConfigDir, 'foo/bar')).toThrow(
+        'Invalid machine name'
+      )
     })
   })
 
