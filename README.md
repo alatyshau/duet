@@ -88,6 +88,7 @@ npm install
 ### Первый запуск
 
 1. Установить и запустить **Duet Host** — он создаст pointer file (`~/.org.ve68.duet`) с путями к DuetData и DuetConfig
+   1. На Маке: `sudo xattr -rd com.apple.quarantine /Applications/Duet.app`
 2. Открыть VS Code → установить **Duet Extension** (VSIX) → Extension подхватит pointer и запустит Backend
 
 ## Ключевые концепции

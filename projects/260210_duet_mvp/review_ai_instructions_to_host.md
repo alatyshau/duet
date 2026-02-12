@@ -57,7 +57,7 @@ Frontmatter инжектится в `configureClaudeCode()` при записи 
 - Legacy migration: старая `[mcp.duet]` автоматически удаляется при конфигурации
 - 4 новых edge case теста (legacy migration, args с `[]`, файл начинающийся с секции, валидность TOML). 25 тестов green.
 
-### 11) Кроссплатформенность deploy.ts — IN_REVIEW
+### 11) Кроссплатформенность deploy.ts — DONE
 - `venvPythonPath(venvDir, platform?)`: DI через параметр, тестируемы обе ветки
 - `findPython(platform?)`: DI через параметр, кандидаты win32/unix тестируемы
 - `pythonInstallHint(platform?)`: выделен в отдельный хелпер, 3 платформы
@@ -128,6 +128,6 @@ DI через `StopOptions.sleep` в `stopBackend()` и `runDeploy()`. Тест�
 
 ### Вердикт
 
-Все 17 задач закрыты (13 DONE, 3 LATER, 1 IN_REVIEW → DONE). Код чистый, тесты покрывают edge cases. Критическая находка с `[mcp.duet]` → `[mcp_servers.duet]` пойманна и исправлена. smol-toml — правильное решение.
+Все 17 задач закрыты (14 DONE, 3 LATER). Код чистый, тесты покрывают edge cases. Критическая находка с `[mcp.duet]` → `[mcp_servers.duet]` поймана и исправлена. smol-toml — правильное решение.
 
-**104 теста green. Готово к коммиту.**
+**110 тестов green. Готово к коммиту.**

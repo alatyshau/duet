@@ -1,6 +1,6 @@
 # Перенос AI инструкций и backend в Host
 
-**Статус:** в работе (шаг 3 — исправления по ревью)
+**Статус:** IN_REVIEW (все шаги выполнены, 110 тестов green)
 
 ---
 
@@ -41,10 +41,10 @@ Instructions и backend деплоятся одинаково: bundle в `extraR
 
 | Конфигурация | Файл | Формат |
 |---|---|---|
-| Claude Code output-style | `~/.claude/output-styles/ai-kit.md` | Markdown + YAML frontmatter |
+| Claude Code output-style | `~/.claude/output-styles/duet.md` | Markdown + YAML frontmatter |
 | Claude Code MCP | `~/.claude.json` (не settings.json!) | JSON, `mcpServers` |
 | Codex instructions | `~/.codex/config.toml` | TOML, `model_instructions_file` |
-| Codex MCP | `~/.codex/config.toml` | TOML, `[mcp]` секция |
+| Codex MCP | `~/.codex/config.toml` | TOML, `[mcp_servers.duet]` секция |
 
 Паттерн: detect (есть config dir?) → configure (write files) → show result. Ненайденный AI клиент — не ошибка, просто информация.
 
@@ -127,7 +127,7 @@ Source of truth для AI инструкций.
 **Коммит:** `feat: extract actual AI instructions in the new package`
 
 ### Шаг 2: Host деплоит AI инструкции, backend, конфигурирует AI клиенты
-**Статус:** IN_REVIEW
+**Статус:** DONE
 
 **Ход работы:**
 
@@ -162,30 +162,28 @@ Cleanup:
 - [x] `tsconfig.node.json`: добавлены `src/core/**/*`, `src/platform/**/*` в include (typecheck проходил с ошибками)
 
 ### Шаг 3: Исправления по ревью
-**Статус:** IN_PROGRESS
+**Статус:** IN_REVIEW
 
 Ревью: [review_ai_instructions_to_host.md](review_ai_instructions_to_host.md) (17 пунктов).
 
-**Сделано (мелкие фиксы):**
 - [x] #8: Комментарии ai-clients.ts — "backend HTTP MCP" → "Node stdio MCP", "[mcp]" → "[mcp.duet]"
 - [x] #4: workspace.py docstring — "ai-kit" → "ai-instructions"
 - [x] #5: mcp_handler.py docstrings — "ai-kit" → "ai-instructions", "config.json" → "settings.json"
 - [x] #6: ai-kit instructions.py docstring — "ai-kit" → "ai-instructions"
-- [x] #13: Tray icon на старте — `updateTrayIcon` после `createTray` (deploy warning при VERSION mismatch)
+- [x] #13: Tray icon на старте — `updateTrayIcon` после `createTray`
 - [x] #14: deploy:start — `context.updateAppState()` в error branch + concurrency guard
 - [x] #16: Preload — убраны дублированные типы, `import type` из shared/types.ts
 - [x] #17: Валидация machine name — `isValidMachineName()` (path traversal protection)
+- [x] #9: Честная диагностика — prerequisites check, `needs_setup` при отсутствии ai-instructions
+- [x] #7: Output-style frontmatter — `keep-coding-instructions: true`, файл переименован в `duet.md`
+- [x] #10: TOML — smol-toml вместо regex, `[mcp_servers.duet]`, legacy `[mcp.duet]` migration
+- [x] #2, #3: spec/ECOSYSTEM.md актуализирован (Version Flow, Build & Release, Who Reads What, timestampTZ)
+- [x] #15: Fake timers — DI через `StopOptions.sleep`, тесты 89ms вместо 6085ms
+- [x] #11: Кроссплатформенность deploy.ts — `venvPythonPath()`, `findPython()`, `pythonInstallHint()` с DI platform
 
-**Осталось (от простого к сложному):**
-- [ ] #9: Честная диагностика в configure — проверка prerequisites (instructions deployed? MCP server exists?)
-- [ ] #7: Output-style frontmatter для Claude Code — проверить/добавить YAML frontmatter
-- [ ] #10: TOML regex баг в `upsertCodexMcp` — `[^\[]*` ломается на `args = [...]`
-- [ ] #2, #3: Обновить spec/ECOSYSTEM.md — устаревшие блоки Version Flow, Build & Release, Who Reads What, timestampTZ source
-- [ ] #15: Fake timers для stopBackend тестов — инъекция sleep вместо реальных 3s ожиданий
-
-**Не в этом шаге (отдельные задачи):**
-- #11, #12: Кроссплатформенность deploy.ts / paths.ts (macOS-first стратегия, нужно решение по Windows)
-- #5 (частично): `get_instruction_location()` в mcp_handler.py — dead code (не зарегистрирован как MCP tool). Решить: удалить или зарегистрировать.
+**Не в этом шаге:**
+- #12: Extension `venvPython` — снимается (Python уходит из Extension)
+- #5 (dead code): `get_instruction_location()` удалена из mcp_handler.py
 
 ---
 

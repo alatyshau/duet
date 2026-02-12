@@ -22,6 +22,7 @@ import {
   deployBackend,
   writeVersion,
   findPython,
+  validatePython,
   setupVenv,
   venvPythonPath,
   pythonInstallHint,
@@ -647,6 +648,44 @@ describe('core/deploy', () => {
   })
 
   // ===========================================================================
+  // validatePython
+  // ===========================================================================
+
+  describe('validatePython', () => {
+    it('returns found for valid Python 3.12', async () => {
+      mockPythonFound('Python 3.12.4')
+      const result = await validatePython('/usr/bin/python3')
+      expect(result).toEqual({ state: 'found', path: '/usr/bin/python3', version: '3.12.4' })
+    })
+
+    it('returns found for minimum Python 3.10', async () => {
+      mockPythonFound('Python 3.10.0')
+      const result = await validatePython('/usr/bin/python3')
+      expect(result).toEqual({ state: 'found', path: '/usr/bin/python3', version: '3.10.0' })
+    })
+
+    it('returns invalid for Python too old', async () => {
+      mockPythonFound('Python 3.9.1')
+      const result = await validatePython('/usr/bin/python3')
+      expect(result.state).toBe('invalid')
+      expect(result).toHaveProperty('error')
+    })
+
+    it('returns invalid when file not found', async () => {
+      mockPythonNotFound()
+      const result = await validatePython('/nonexistent/python3')
+      expect(result.state).toBe('invalid')
+      expect(result).toHaveProperty('path', '/nonexistent/python3')
+    })
+
+    it('returns found for Python 4.x (future-proof)', async () => {
+      mockPythonFound('Python 4.0.0')
+      const result = await validatePython('/usr/bin/python4')
+      expect(result.state).toBe('found')
+    })
+  })
+
+  // ===========================================================================
   // venvPythonPath
   // ===========================================================================
 
@@ -698,12 +737,12 @@ describe('core/deploy', () => {
       vi.unstubAllGlobals()
     })
 
-    it('deploys everything when Python available', async () => {
+    it('deploys everything with given pythonCmd', async () => {
       const { paths } = createDeployContext(ctx)
       const log = vi.fn()
       mockPythonFound()
 
-      await runDeploy(paths, TEST_PORT, log, noSleep)
+      await runDeploy(paths, TEST_PORT, 'python3', log, noSleep)
 
       // AI instructions deployed
       expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(true)
@@ -715,30 +754,25 @@ describe('core/deploy', () => {
       expect(readFileSync(join(ctx.duetDataDir, 'backend', 'VERSION'), 'utf-8')).toBe('1.2.3')
     })
 
-    it('throws when Python not found (files copied, no VERSION)', async () => {
-      const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
-      mockPythonNotFound()
-
-      await expect(runDeploy(paths, TEST_PORT, log, noSleep)).rejects.toThrow('Python 3.10+ не найден')
-
-      // Files were copied
-      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(true)
-      expect(existsSync(join(ctx.duetDataDir, 'backend', 'main.py'))).toBe(true)
-
-      // VERSION NOT written (deploy not fully successful)
-      expect(existsSync(join(ctx.duetDataDir, 'backend', 'VERSION'))).toBe(false)
-    })
-
     it('logs deploy progress', async () => {
       const { paths } = createDeployContext(ctx)
       const log = vi.fn()
       mockPythonFound()
 
-      await runDeploy(paths, TEST_PORT, log, noSleep)
+      await runDeploy(paths, TEST_PORT, 'python3', log, noSleep)
 
       expect(log).toHaveBeenCalledWith('Деплой v1.2.3...')
       expect(log).toHaveBeenCalledWith(expect.stringContaining('завершён'))
+    })
+
+    it('logs pythonCmd used', async () => {
+      const { paths } = createDeployContext(ctx)
+      const log = vi.fn()
+      mockPythonFound()
+
+      await runDeploy(paths, TEST_PORT, '/opt/homebrew/bin/python3', log, noSleep)
+
+      expect(log).toHaveBeenCalledWith('Python: /opt/homebrew/bin/python3')
     })
 
     it('calls stopBackend before deploying files', async () => {
@@ -749,7 +783,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true })
       vi.stubGlobal('fetch', mockFetch)
 
-      await runDeploy(paths, TEST_PORT, log, noSleep)
+      await runDeploy(paths, TEST_PORT, 'python3', log, noSleep)
 
       // stopBackend was called (fetch was invoked)
       expect(mockFetch).toHaveBeenCalledWith(

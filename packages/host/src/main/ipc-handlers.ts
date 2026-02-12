@@ -6,9 +6,9 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { writeConfig, readPort, readMachineConfig, setMachineConfigKey, ensureConfigDefaults } from '../core/config'
-import { resolveDeployStatus, runDeploy } from '../core/deploy'
+import { resolveDeployStatus, runDeploy, findPython, validatePython, pythonInstallHint } from '../core/deploy'
 import { detectAgents, configureAllAgents } from '../core/ai-clients'
-import type { AppState, DeployStatus } from '../shared/types'
+import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
 
 // =============================================================================
 // ТИПЫ
@@ -113,6 +113,12 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     const backendSourcePath = isDev && typeof machineConfig?.devBackendPath === 'string'
       ? machineConfig.devBackendPath : undefined
 
+    // Python path must be configured before deploy
+    const pythonPath = typeof machineConfig?.pythonPath === 'string' ? machineConfig.pythonPath : null
+    if (!pythonPath) {
+      throw new Error('Укажите путь к Python в настройках')
+    }
+
     setDeployStatus({ state: 'deploying', message: 'Начинаю деплой...' })
 
     try {
@@ -120,6 +126,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       await runDeploy(
         { resourcesPath, duetDataPath: state.duetDataPath, appVersion, instructionsSourcePath, backendSourcePath },
         port,
+        pythonPath,
         (message) => {
           sendDeployLog(message)
           setDeployStatus({ state: 'deploying', message })
@@ -133,6 +140,46 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       setDeployStatus({ state: 'error', error })
       context.updateAppState() // Refresh tray icon on error too
     }
+  })
+
+  // === Python ===
+
+  ipcMain.handle('python:detect', async (): Promise<PythonStatus> => {
+    // Check saved path first
+    const machineConfig = readMachineConfig()
+    const saved = typeof machineConfig?.pythonPath === 'string' ? machineConfig.pythonPath : null
+
+    if (saved) {
+      const result = await validatePython(saved)
+      if (result.state === 'found') return result
+      // Saved path invalid — fall through to auto-detect
+    }
+
+    // Auto-detect
+    const cmd = await findPython()
+    if (!cmd) {
+      return { state: 'not_found', hint: pythonInstallHint() }
+    }
+    return validatePython(cmd)
+  })
+
+  ipcMain.handle('python:validate', async (_event, path: string): Promise<PythonStatus> => {
+    return validatePython(path)
+  })
+
+  ipcMain.handle('python:save', (_event, path: string) => {
+    setMachineConfigKey('pythonPath', path)
+  })
+
+  ipcMain.handle('dialog:select-file', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      title: 'Выберите Python'
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
   })
 
   // === AI Agents ===

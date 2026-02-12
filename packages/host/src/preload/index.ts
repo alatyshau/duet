@@ -9,7 +9,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { AppState, DeployStatus, AgentInfo } from '../shared/types'
+import type { AppState, DeployStatus, PythonStatus, AgentInfo } from '../shared/types'
 
 // Custom APIs for renderer
 const api = {
@@ -67,6 +67,16 @@ const api = {
       ipcRenderer.removeListener('deploy:status-changed', handler)
     }
   },
+
+  // === Python ===
+
+  detectPython: (): Promise<PythonStatus> => ipcRenderer.invoke('python:detect'),
+
+  validatePython: (path: string): Promise<PythonStatus> => ipcRenderer.invoke('python:validate', path),
+
+  savePythonPath: (path: string): Promise<void> => ipcRenderer.invoke('python:save', path),
+
+  selectFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-file'),
 
   // === AI Agents ===
 

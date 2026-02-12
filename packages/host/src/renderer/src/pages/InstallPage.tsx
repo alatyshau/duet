@@ -10,8 +10,8 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, CheckCircle, AlertTriangle, Monitor, Package, Download, Loader2, Code } from 'lucide-react'
-import type { AppState, DeployStatus, DeployChannel } from '../../../preload/index.d'
+import { FolderOpen, CheckCircle, AlertTriangle, Monitor, Package, Download, Loader2, Code, Search, RefreshCw } from 'lucide-react'
+import type { AppState, DeployStatus, DeployChannel, PythonStatus } from '../../../preload/index.d'
 
 interface InstallPageProps {
   appState: AppState
@@ -35,9 +35,11 @@ export function InstallPage({
   const [deployStatus, setDeployStatus] = useState<DeployStatus>({ state: 'idle' })
   const [logs, setLogs] = useState<string[]>([])
   const logRef = useRef<HTMLDivElement>(null)
+  const [pythonStatus, setPythonStatus] = useState<PythonStatus>({ state: 'unknown' })
 
   const isReady = status === 'ready'
   const canSave = !!duetDataPath && !!duetConfigPath && !!machine.trim()
+  const pythonReady = pythonStatus.state === 'found'
 
   // Подписка на deploy status и logs
   useEffect(() => {
@@ -55,6 +57,22 @@ export function InstallPage({
       unsubStatus()
       unsubLog()
     }
+  }, [isReady])
+
+  // Auto-detect Python when config becomes ready
+  useEffect(() => {
+    if (!isReady || !window.api) return
+    if (pythonStatus.state !== 'unknown') return
+
+    setPythonStatus({ state: 'detecting' })
+    window.api.detectPython().then(result => {
+      setPythonStatus(result)
+      if (result.state === 'found') {
+        window.api.savePythonPath(result.path)
+      }
+    }).catch(() => {
+      setPythonStatus({ state: 'not_found', hint: 'Ошибка автодетекта' })
+    })
   }, [isReady])
 
   // Auto-scroll log
@@ -78,6 +96,31 @@ export function InstallPage({
       await window.api.setDeployChannel(channel)
     } catch (e) {
       console.error('Failed to set deploy channel:', e)
+    }
+  }
+
+  const handlePythonDetect = async (): Promise<void> => {
+    setPythonStatus({ state: 'detecting' })
+    try {
+      const result = await window.api.detectPython()
+      setPythonStatus(result)
+      if (result.state === 'found') {
+        await window.api.savePythonPath(result.path)
+      }
+    } catch {
+      setPythonStatus({ state: 'not_found', hint: 'Ошибка автодетекта' })
+    }
+  }
+
+  const handlePythonSelect = async (): Promise<void> => {
+    const path = await window.api.selectFile()
+    if (!path) return
+
+    setPythonStatus({ state: 'detecting' })
+    const result = await window.api.validatePython(path)
+    setPythonStatus(result)
+    if (result.state === 'found') {
+      await window.api.savePythonPath(result.path)
     }
   }
 
@@ -161,6 +204,14 @@ export function InstallPage({
           </div>
         </div>
 
+        {/* Python path */}
+        <PythonField
+          status={pythonStatus}
+          disabled={!isReady}
+          onDetect={handlePythonDetect}
+          onSelect={handlePythonSelect}
+        />
+
         {!isReady && canSave && (
           <Button className="w-full" onClick={handleSave}>
             Сохранить
@@ -168,8 +219,8 @@ export function InstallPage({
         )}
       </div>
 
-      {/* Секция 2: Компоненты + Установить */}
-      {isReady && (
+      {/* Секция 2: Компоненты + Установить (только когда Python найден) */}
+      {isReady && pythonReady && (
         <div className="bg-card rounded-xl border border-border p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-medium text-foreground">Компоненты</h3>
@@ -299,6 +350,78 @@ function FolderField({ label, description, path, onSelect, onOpen }: FolderField
             </Button>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+interface PythonFieldProps {
+  status: PythonStatus
+  disabled: boolean
+  onDetect: () => void
+  onSelect: () => void
+}
+
+function PythonField({ status, disabled, onDetect, onSelect }: PythonFieldProps): React.ReactElement {
+  const isDetecting = status.state === 'detecting'
+
+  return (
+    <div className={`flex items-start gap-3 p-4 rounded-lg border border-border bg-background ${disabled ? 'opacity-50' : ''}`}>
+      <div className="flex-shrink-0 mt-0.5">
+        {status.state === 'found' ? (
+          <CheckCircle className="w-5 h-5 text-green-600" />
+        ) : status.state === 'detecting' ? (
+          <Search className="w-5 h-5 text-blue-500 animate-pulse" />
+        ) : status.state === 'unknown' ? (
+          <AlertTriangle className="w-5 h-5 text-muted-foreground" />
+        ) : (
+          <AlertTriangle className="w-5 h-5 text-amber-500" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-foreground">Python 3.10+</div>
+
+        {status.state === 'unknown' && (
+          <p className="text-xs text-muted-foreground mt-1">Определится после сохранения конфигурации</p>
+        )}
+
+        {status.state === 'detecting' && (
+          <p className="text-xs text-muted-foreground mt-1">Поиск...</p>
+        )}
+
+        {status.state === 'found' && (
+          <p className="text-sm text-green-600 mt-1 break-all">{status.path} ({status.version})</p>
+        )}
+
+        {status.state === 'not_found' && (
+          <p className="text-xs text-amber-500 mt-1">Не найден. {status.hint}</p>
+        )}
+
+        {status.state === 'invalid' && (
+          <p className="text-xs text-amber-500 mt-1 break-all">{status.path}: {status.error}</p>
+        )}
+
+        {!disabled && status.state !== 'detecting' && (
+          <div className="flex gap-2 mt-3">
+            {status.state === 'found' ? (
+              <Button variant="outline" size="sm" onClick={onSelect}>
+                <FolderOpen size={16} />
+                Изменить
+              </Button>
+            ) : (
+              <>
+                <Button variant="default" size="sm" onClick={onSelect}>
+                  <FolderOpen size={16} />
+                  Выбрать вручную
+                </Button>
+                <Button variant="outline" size="sm" onClick={onDetect}>
+                  <RefreshCw size={16} />
+                  Повторить
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

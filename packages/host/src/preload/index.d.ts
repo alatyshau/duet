@@ -8,10 +8,10 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
 // Re-export shared types for renderer imports
-export type { AppStatus, AppState, DeployChannel, DeployStatus, AgentStatus, AgentInfo } from '../shared/types'
+export type { AppStatus, AppState, DeployChannel, DeployStatus, PythonStatus, AgentStatus, AgentInfo } from '../shared/types'
 
 // Import for use in DuetAPI interface
-import type { AppState, DeployStatus, AgentInfo } from '../shared/types'
+import type { AppState, DeployStatus, PythonStatus, AgentInfo } from '../shared/types'
 
 // Типы для Duet API
 export interface DuetAPI {
@@ -29,6 +29,12 @@ export interface DuetAPI {
   startDeploy: () => Promise<void>
   onDeployLog: (callback: (message: string) => void) => () => void
   onDeployStatusChanged: (callback: (status: DeployStatus) => void) => () => void
+
+  // Python
+  detectPython: () => Promise<PythonStatus>
+  validatePython: (path: string) => Promise<PythonStatus>
+  savePythonPath: (path: string) => Promise<void>
+  selectFile: () => Promise<string | null>
 
   // AI Agents
   getAgents: () => Promise<AgentInfo[]>

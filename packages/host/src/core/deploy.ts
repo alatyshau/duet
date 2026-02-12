@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, cpSync, readFileSync, writeFileSync, renameSync,
 import { join } from 'path'
 import { execFile } from 'child_process'
 
-import type { AppState, DeployStatus } from '../shared/types'
+import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
 
 // Re-export IPC type (source of truth: shared/types.ts)
 export type { DeployStatus } from '../shared/types'
@@ -305,12 +305,21 @@ export const pythonInstallHint = (platform: NodeJS.Platform = process.platform):
 /**
  * Находит Python 3.10+ в системе.
  * Возвращает путь к интерпретатору или null.
- * Windows: python, py. Unix: python3, python.
+ * Windows: python, py. Unix/macOS: python3, python + well-known brew paths.
+ *
+ * NOTE: Electron apps launched from Finder/Spotlight get minimal PATH
+ * (/usr/bin:/bin:/usr/sbin:/sbin). Homebrew paths are NOT included,
+ * so we explicitly check /opt/homebrew/bin (Apple Silicon) and /usr/local/bin (Intel).
  */
 export const findPython = async (platform: NodeJS.Platform = process.platform): Promise<string | null> => {
   const candidates = platform === 'win32'
     ? ['python', 'py']
-    : ['python3', 'python']
+    : [
+        'python3', 'python',
+        // Explicit brew paths for macOS Electron (Finder/Spotlight PATH is minimal)
+        '/opt/homebrew/bin/python3',   // Apple Silicon
+        '/usr/local/bin/python3',      // Intel
+      ]
 
   for (const cmd of candidates) {
     try {
@@ -329,6 +338,31 @@ export const findPython = async (platform: NodeJS.Platform = process.platform): 
   }
 
   return null
+}
+
+/**
+ * Проверяет конкретный путь к Python: запускает --version, парсит результат.
+ * Возвращает PythonStatus ('found' или 'invalid').
+ */
+export const validatePython = async (pythonPath: string): Promise<PythonStatus> => {
+  try {
+    const output = await execAsync(pythonPath, ['--version'])
+    const match = output.match(/Python (\d+)\.(\d+)\.?(\d*)/)
+    if (!match) {
+      return { state: 'invalid', path: pythonPath, error: 'Не удалось определить версию' }
+    }
+    const major = parseInt(match[1])
+    const minor = parseInt(match[2])
+    const version = `${major}.${minor}${match[3] ? '.' + match[3] : ''}`
+
+    if (major < MIN_PYTHON_VERSION[0] || (major === MIN_PYTHON_VERSION[0] && minor < MIN_PYTHON_VERSION[1])) {
+      return { state: 'invalid', path: pythonPath, error: `Python ${version} слишком старый (нужен 3.10+)` }
+    }
+
+    return { state: 'found', path: pythonPath, version }
+  } catch {
+    return { state: 'invalid', path: pythonPath, error: 'Файл не найден или не является Python' }
+  }
 }
 
 /**
@@ -360,14 +394,13 @@ export const setupVenv = async (paths: DeployPaths, pythonCmd: string, log: LogF
 // =============================================================================
 
 /**
- * Полный деплой: stop backend + instructions + backend + python + venv + version.
+ * Полный деплой: stop backend + instructions + backend + venv + version.
  * Вызывается из main process.
  *
+ * pythonCmd — путь к Python, определённый ДО деплоя через UI (python:detect / python:validate).
  * Файлы копируются всегда. VERSION записывается только если всё ОК.
- * Если Python не найден → throw (файлы скопированы, но VERSION не записан →
- * tray показывает warning, пользователь может доустановить Python и нажать ещё раз).
  */
-export const runDeploy = async (paths: DeployPaths, port: number, log: LogFn, opts?: StopOptions): Promise<void> => {
+export const runDeploy = async (paths: DeployPaths, port: number, pythonCmd: string, log: LogFn, opts?: StopOptions): Promise<void> => {
   log(`Деплой v${paths.appVersion}...`)
 
   // 0. Stop running backend before file operations
@@ -379,15 +412,7 @@ export const runDeploy = async (paths: DeployPaths, port: number, log: LogFn, op
   // 2. Deploy backend files (always, atomic swap)
   deployBackend(paths, log)
 
-  // 3. Python check + venv + pip
-  log('Поиск Python 3.10+...')
-  const pythonCmd = await findPython()
-
-  if (!pythonCmd) {
-    log(`Python 3.10+ не найден. ${pythonInstallHint()}`)
-    throw new Error('Python 3.10+ не найден. Установите Python и нажмите "Установить" ещё раз.')
-  }
-
+  // 3. Setup venv + pip install
   log(`Python: ${pythonCmd}`)
   await setupVenv(paths, pythonCmd, log)
 

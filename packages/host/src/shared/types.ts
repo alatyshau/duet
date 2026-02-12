@@ -35,6 +35,17 @@ export type DeployStatus =
   | { state: 'error'; error: string }
 
 // =============================================================================
+// PYTHON (IPC: python:detect, python:validate, python:save)
+// =============================================================================
+
+export type PythonStatus =
+  | { state: 'unknown' }
+  | { state: 'detecting' }
+  | { state: 'found'; path: string; version: string }
+  | { state: 'not_found'; hint: string }
+  | { state: 'invalid'; path: string; error: string }
+
+// =============================================================================
 // AI AGENTS (IPC: agents:detect, agents:configure)
 // =============================================================================
 
