@@ -76,13 +76,14 @@ function monitorBackendProcess(proc: ChildProcess): void {
  * Идемпотентен: если бэкенд уже запущен или запускается, ничего не делает.
  */
 export async function ensureBackendRunning(duetDataPath: string): Promise<void> {
-  const port = readPort()
-
-  // Already running?
-  const current = await getBackendStatus(duetDataPath, port)
-  if (current.state === 'running') {
-    broadcastBackendStatus(current)
-    return
+  // If we already own a running process, just broadcast its status
+  if (currentBackendProc) {
+    const port = readPort()
+    const status = await getBackendStatus(duetDataPath, port)
+    if (status.state === 'running') {
+      broadcastBackendStatus(status)
+      return
+    }
   }
 
   // Already starting? (in-memory guard against concurrent calls)
@@ -92,6 +93,9 @@ export async function ensureBackendRunning(duetDataPath: string): Promise<void> 
   broadcastBackendStatus({ state: 'starting', message: 'Запуск backend...' })
 
   try {
+    const port = readPort()
+    // Always stop first — kills orphans from previous Host sessions
+    await stopBackend(port)
     const proc = await startBackend(duetDataPath, port)
     monitorBackendProcess(proc)
     const status = await getBackendStatus(duetDataPath, port)
@@ -107,11 +111,16 @@ export async function ensureBackendRunning(duetDataPath: string): Promise<void> 
 /**
  * Останавливает бэкенд (используется IPC handler и stop-on-quit).
  */
-export async function ensureBackendStopped(duetDataPath: string): Promise<void> {
+export async function ensureBackendStopped(): Promise<void> {
+  const proc = currentBackendProc
   currentBackendProc = null // Detach monitor — intentional stop, not a crash
   const port = readPort()
   broadcastBackendStatus({ state: 'stopping' })
-  await stopBackend(duetDataPath, port)
+  await stopBackend(port)
+  // Force kill if HTTP stop didn't work
+  if (proc && !proc.killed) {
+    proc.kill('SIGTERM')
+  }
   broadcastBackendStatus({ state: 'stopped' })
 }
 
@@ -302,7 +311,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('backend:stop', async () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return
-    await ensureBackendStopped(state.duetDataPath)
+    await ensureBackendStopped()
   })
 
   // === AI Agents ===

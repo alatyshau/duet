@@ -141,7 +141,7 @@ if (gotTheLock) {
 
     if (appState.status === 'ready' && appState.duetDataPath) {
       e.preventDefault()
-      ensureBackendStopped(appState.duetDataPath)
+      ensureBackendStopped()
         .catch((err) => console.error('Stop backend on quit failed:', err))
         .finally(() => app.quit())
     }

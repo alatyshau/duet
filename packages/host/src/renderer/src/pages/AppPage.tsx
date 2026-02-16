@@ -29,6 +29,7 @@ interface AppPageProps {
   onStart: () => void
   onStop: () => void
   onRestart: () => void
+  onRefresh: () => void
 }
 
 // =============================================================================
@@ -40,7 +41,8 @@ export function AppPage({
   processStatuses,
   onStart,
   onStop,
-  onRestart
+  onRestart,
+  onRefresh
 }: AppPageProps): React.ReactElement {
   return (
     <div className="space-y-6">
@@ -109,6 +111,10 @@ export function AppPage({
             <div className="flex gap-2">
               {status.state === 'running' && (
                 <>
+                  <Button variant="outline" size="sm" onClick={onRefresh}>
+                    <RefreshCw size={14} />
+                    Проверить
+                  </Button>
                   <Button variant="outline" size="sm" onClick={onRestart}>
                     <RefreshCw size={14} />
                     Перезапустить

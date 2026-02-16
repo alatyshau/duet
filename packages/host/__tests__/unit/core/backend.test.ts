@@ -9,8 +9,7 @@ import { createTestContext, type TestContext } from '../../helpers'
 import {
   checkHealth,
   waitForHealth,
-  getBackendStatus,
-  isProcessAlive
+  getBackendStatus
 } from '../../../src/core/backend'
 
 // =============================================================================
@@ -171,17 +170,4 @@ describe('core/backend', () => {
     })
   })
 
-  // ===========================================================================
-  // isProcessAlive
-  // ===========================================================================
-
-  describe('isProcessAlive', () => {
-    it('returns true for current process', () => {
-      expect(isProcessAlive(process.pid)).toBe(true)
-    })
-
-    it('returns false for non-existent process', () => {
-      expect(isProcessAlive(999999999)).toBe(false)
-    })
-  })
 })

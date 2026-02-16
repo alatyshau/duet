@@ -9,7 +9,7 @@
  * - Health check через GET /health (fetch + AbortSignal.timeout).
  * - Stop: POST /stop → grace → SIGTERM → SIGKILL.
  */
-import { existsSync, readFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 
@@ -173,18 +173,15 @@ export const startBackend = async (
 // =============================================================================
 
 /**
- * Останавливает бэкенд.
- * Flow: POST /stop → grace period → check PID → SIGTERM → wait → SIGKILL.
+ * Останавливает бэкенд через HTTP API.
  * Ошибки не пробрасываются (бэкенд может быть не запущен).
  */
 export const stopBackend = async (
-  duetDataPath: string,
   port: number,
   opts?: StopOptions
 ): Promise<void> => {
   const _sleep = opts?.sleep ?? sleep
 
-  // 1. Try graceful stop via API
   try {
     const response = await fetch(`http://127.0.0.1:${port}/stop`, {
       method: 'POST',
@@ -194,11 +191,8 @@ export const stopBackend = async (
       await _sleep(STOP_GRACE_PERIOD_MS)
     }
   } catch {
-    // Backend not running or not responding — continue
+    // Backend not running or not responding — no-op
   }
-
-  // 2. Kill by PID if still alive
-  await killByPid(duetDataPath, _sleep)
 }
 
 // =============================================================================
@@ -213,13 +207,9 @@ export const getBackendStatus = async (
   duetDataPath: string,
   port: number
 ): Promise<BackendStatus> => {
-  // No VERSION = not installed. Any live process is an orphan — kill it.
+  // No VERSION = not installed
   const versionPath = join(duetDataPath, 'backend', 'VERSION')
   if (!existsSync(versionPath)) {
-    const health = await checkHealth(port)
-    if (health) {
-      await stopBackend(duetDataPath, port)
-    }
     return { state: 'stopped' }
   }
 
@@ -239,39 +229,6 @@ export const getBackendStatus = async (
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-export const killByPid = async (
-  duetDataPath: string,
-  _sleep: (ms: number) => Promise<void>
-): Promise<void> => {
-  const pidPath = join(duetDataPath, '.pid')
-  if (!existsSync(pidPath)) return
-
-  try {
-    const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10)
-    if (isNaN(pid)) return
-    if (!isProcessAlive(pid)) return
-
-    process.kill(pid, 'SIGTERM')
-    await _sleep(KILL_GRACE_PERIOD_MS)
-
-    if (isProcessAlive(pid)) {
-      process.kill(pid, 'SIGKILL')
-      await _sleep(500)
-    }
-  } catch {
-    // Process might not exist
-  }
-}
-
-export const isProcessAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
 
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))

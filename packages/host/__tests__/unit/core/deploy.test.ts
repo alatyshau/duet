@@ -341,7 +341,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
+      await stopBackend(TEST_PORT, noSleep)
 
       expect(mockFetch).toHaveBeenCalledOnce()
 
@@ -352,7 +352,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true })
       vi.stubGlobal('fetch', mockFetch)
 
-      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
+      await stopBackend(TEST_PORT, noSleep)
 
       expect(mockFetch).toHaveBeenCalledWith(
         `http://127.0.0.1:${TEST_PORT}/stop`,
@@ -362,34 +362,11 @@ describe('core/deploy', () => {
       vi.unstubAllGlobals()
     })
 
-    it('completes without error when no PID file', async () => {
-      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
-      vi.stubGlobal('fetch', mockFetch)
-
-      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
-
-      // No throw = success
-      vi.unstubAllGlobals()
-    })
-
-    it('completes without error when PID file has dead process', async () => {
-      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
-      vi.stubGlobal('fetch', mockFetch)
-
-      // Write PID of non-existent process
-      writeFileSync(join(ctx.duetDataDir, '.pid'), '999999999')
-
-      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
-
-      // No throw = success
-      vi.unstubAllGlobals()
-    })
-
     it('uses correct port in API URL', async () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      await stopBackend(ctx.duetDataDir, 12345, noSleep)
+      await stopBackend(12345, noSleep)
 
       expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:12345/stop', expect.anything())
 

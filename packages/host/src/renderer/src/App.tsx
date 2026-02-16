@@ -136,6 +136,15 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handleBackendRefresh = async (): Promise<void> => {
+    try {
+      const status = await window.api.getBackendStatus()
+      setBackendStatus(status)
+    } catch (e) {
+      console.error('Backend refresh failed:', e)
+    }
+  }
+
   const isReady = appState?.status === 'ready'
 
   if (!window.api) {
@@ -186,6 +195,7 @@ function App(): React.JSX.Element {
             onStart={handleBackendStart}
             onStop={handleBackendStop}
             onRestart={handleBackendRestart}
+            onRefresh={handleBackendRefresh}
           />
         )
       }
