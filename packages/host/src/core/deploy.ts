@@ -25,7 +25,12 @@ import {
 import { join } from 'path'
 import { execFile } from 'child_process'
 
+import { stopBackend, startBackend, venvPythonPath } from './backend'
+import type { StopOptions } from './backend'
+import type { ChildProcess } from 'child_process'
 import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
+
+type LogFn = (message: string) => void
 
 // Re-export IPC type (source of truth: shared/types.ts)
 export type { DeployStatus } from '../shared/types'
@@ -45,13 +50,6 @@ export interface DeployPaths {
   instructionsSourcePath?: string
   /** Dev override: direct path to backend source dir (bypasses resourcesPath) */
   backendSourcePath?: string
-}
-
-export type LogFn = (message: string) => void
-
-export interface StopOptions {
-  /** Injectable sleep for testability. Default: real setTimeout-based sleep. */
-  sleep?: (ms: number) => Promise<void>
 }
 
 // =============================================================================
@@ -130,82 +128,6 @@ export const isDeployWarning = (appState: AppState, appVersion: string): boolean
 }
 
 // =============================================================================
-// STOP BACKEND (before deploy)
-// =============================================================================
-
-const STOP_API_TIMEOUT_MS = 2_000
-const STOP_GRACE_PERIOD_MS = 3_000
-const KILL_GRACE_PERIOD_MS = 1_000
-
-/**
- * Останавливает запущенный бэкенд перед деплоем.
- * Flow: POST /stop → wait 3s → check PID → SIGTERM → wait 1s → SIGKILL.
- * Ошибки не прерывают деплой (бэкенд может быть не запущен).
- */
-export const stopBackend = async (
-  duetDataPath: string,
-  port: number,
-  log: LogFn,
-  opts?: StopOptions
-): Promise<void> => {
-  const _sleep = opts?.sleep ?? sleep
-
-  // 1. Try graceful stop via API
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/stop`, {
-      method: 'POST',
-      signal: AbortSignal.timeout(STOP_API_TIMEOUT_MS)
-    })
-    if (response.ok) {
-      log('Остановка backend...')
-      await _sleep(STOP_GRACE_PERIOD_MS)
-    }
-  } catch {
-    // Backend not running or not responding — continue
-  }
-
-  // 2. Kill by PID if still alive
-  await killByPid(duetDataPath, log, _sleep)
-}
-
-const killByPid = async (
-  duetDataPath: string,
-  log: LogFn,
-  _sleep: (ms: number) => Promise<void>
-): Promise<void> => {
-  const pidPath = join(duetDataPath, '.pid')
-  if (!existsSync(pidPath)) return
-
-  try {
-    const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10)
-    if (isNaN(pid)) return
-    if (!isProcessAlive(pid)) return
-
-    log(`Завершение процесса ${pid}...`)
-    process.kill(pid, 'SIGTERM')
-    await _sleep(KILL_GRACE_PERIOD_MS)
-
-    if (isProcessAlive(pid)) {
-      process.kill(pid, 'SIGKILL')
-      await _sleep(500)
-    }
-  } catch {
-    // Process might not exist
-  }
-}
-
-const isProcessAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
-
-// =============================================================================
 // DEPLOY AI INSTRUCTIONS
 // =============================================================================
 
@@ -213,8 +135,9 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * Деплоит AI instructions в DuetData/ai-instructions/.
  * Source: instructionsSourcePath (dev override) или resourcesPath/ai-instructions (default).
  * Простой recursive copy (не atomic — инструкции read-only для AI агентов).
+ * Возвращает количество скопированных файлов.
  */
-export const deployInstructions = (paths: DeployPaths, log: LogFn): void => {
+export const deployInstructions = (paths: DeployPaths): number => {
   const src = paths.instructionsSourcePath || join(paths.resourcesPath, 'ai-instructions')
   const dest = join(paths.duetDataPath, 'ai-instructions')
 
@@ -222,16 +145,10 @@ export const deployInstructions = (paths: DeployPaths, log: LogFn): void => {
     throw new Error(`AI instructions source not found: ${src}`)
   }
 
-  log('Копирование AI инструкций...')
-
-  // Создаём целевую папку
   mkdirSync(dest, { recursive: true })
-
-  // Recursive copy (overwrite)
   cpSync(src, dest, { recursive: true, force: true })
 
-  const count = countFiles(dest)
-  log(`AI инструкции: ${count} файлов`)
+  return countFiles(dest)
 }
 
 // =============================================================================
@@ -243,8 +160,9 @@ export const deployInstructions = (paths: DeployPaths, log: LogFn): void => {
  * Source: backendSourcePath (dev override) или resourcesPath/backend (default).
  * Использует atomic swap: copy → .new → rename (.old → delete).
  * Crash-safe: если крэш между rename — .old остаётся, cleanup при следующем запуске.
+ * Возвращает количество скопированных файлов.
  */
-export const deployBackend = (paths: DeployPaths, log: LogFn): void => {
+export const deployBackend = (paths: DeployPaths): number => {
   const src = paths.backendSourcePath || join(paths.resourcesPath, 'backend')
   const dest = join(paths.duetDataPath, 'backend')
   const destNew = dest + '.new'
@@ -253,8 +171,6 @@ export const deployBackend = (paths: DeployPaths, log: LogFn): void => {
   if (!existsSync(src)) {
     throw new Error(`Backend source not found: ${src}`)
   }
-
-  log('Копирование backend...')
 
   // Cleanup stale .new/.old from previous failed deploy
   if (existsSync(destNew)) rmSync(destNew, { recursive: true, force: true })
@@ -275,8 +191,7 @@ export const deployBackend = (paths: DeployPaths, log: LogFn): void => {
     rmSync(destOld, { recursive: true, force: true })
   }
 
-  const count = countFiles(dest)
-  log(`Backend: ${count} файлов`)
+  return countFiles(dest)
 }
 
 // =============================================================================
@@ -297,19 +212,6 @@ export const writeVersion = (paths: DeployPaths): void => {
 // =============================================================================
 
 const MIN_PYTHON_VERSION: [number, number] = [3, 10]
-
-/**
- * Возвращает путь к Python внутри venv (platform-aware).
- * Windows: Scripts/python.exe, Unix: bin/python3.
- */
-export const venvPythonPath = (
-  venvDir: string,
-  platform: NodeJS.Platform = process.platform
-): string => {
-  return platform === 'win32'
-    ? join(venvDir, 'Scripts', 'python.exe')
-    : join(venvDir, 'bin', 'python3')
-}
 
 /**
  * Возвращает подсказку по установке Python для платформы.
@@ -403,25 +305,18 @@ export const validatePython = async (pythonPath: string): Promise<PythonStatus> 
  */
 export const setupVenv = async (
   paths: DeployPaths,
-  pythonCmd: string,
-  log: LogFn
+  pythonCmd: string
 ): Promise<void> => {
   const venvPath = join(paths.duetDataPath, '.venv')
   const venvPython = venvPythonPath(venvPath)
   const requirementsPath = join(paths.duetDataPath, 'backend', 'requirements.txt')
 
-  // Создаём venv если не существует
   if (!existsSync(venvPython)) {
-    log('Создание Python venv...')
     await execAsync(pythonCmd, ['-m', 'venv', venvPath])
-    log('venv создан')
   }
 
-  // pip install
   if (existsSync(requirementsPath)) {
-    log('Установка Python зависимостей...')
     await execAsync(venvPython, ['-m', 'pip', 'install', '-q', '-r', requirementsPath])
-    log('Зависимости установлены')
   }
 }
 
@@ -430,11 +325,13 @@ export const setupVenv = async (
 // =============================================================================
 
 /**
- * Полный деплой: stop backend + instructions + backend + venv + version.
+ * Полный деплой: stop backend + instructions + backend + venv + version + start backend.
  * Вызывается из main process.
  *
  * pythonCmd — путь к Python, определённый ДО деплоя через UI (python:detect / python:validate).
  * Файлы копируются всегда. VERSION записывается только если всё ОК.
+ * После успешного деплоя бэкенд запускается автоматически.
+ * Возвращает ChildProcess если backend запустился (для мониторинга caller'ом), null при ошибке.
  */
 export const runDeploy = async (
   paths: DeployPaths,
@@ -442,27 +339,45 @@ export const runDeploy = async (
   pythonCmd: string,
   log: LogFn,
   opts?: StopOptions
-): Promise<void> => {
+): Promise<ChildProcess | null> => {
   log(`Деплой v${paths.appVersion}...`)
 
   // 0. Stop running backend before file operations
-  await stopBackend(paths.duetDataPath, port, log, opts)
+  log('Остановка backend...')
+  await stopBackend(paths.duetDataPath, port, opts)
 
   // 1. Deploy AI instructions (always)
-  deployInstructions(paths, log)
+  log('Копирование AI инструкций...')
+  const instrCount = deployInstructions(paths)
+  log(`AI инструкции: ${instrCount} файлов`)
 
   // 2. Deploy backend files (always, atomic swap)
-  deployBackend(paths, log)
+  log('Копирование backend...')
+  const backendCount = deployBackend(paths)
+  log(`Backend: ${backendCount} файлов`)
 
   // 3. Setup venv + pip install
   log(`Python: ${pythonCmd}`)
-  await setupVenv(paths, pythonCmd, log)
+  log('Настройка Python venv и зависимостей...')
+  await setupVenv(paths, pythonCmd)
 
   // 4. Write VERSION only after full success
   writeVersion(paths)
   log(`VERSION: ${paths.appVersion}`)
 
+  // 5. Start backend after successful deploy
+  let proc: ChildProcess | null = null
+  try {
+    log('Запуск backend...')
+    proc = await startBackend(paths.duetDataPath, port)
+    log('Backend запущен')
+  } catch (e) {
+    // Log but don't fail deploy — files are deployed, backend can be started manually
+    log(`Не удалось запустить backend: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
   log(`Деплой v${paths.appVersion} завершён`)
+  return proc
 }
 
 // =============================================================================
@@ -505,9 +420,10 @@ function execAsync(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: 120_000 }, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(`${cmd} failed: ${error.message}\n${stderr}`))
+        reject(new Error(`${cmd} failed: ${error.message}\n${stdout}\n${stderr}`))
       } else {
-        resolve(stdout.trim())
+        // Some commands (e.g. python --version) write to stderr on certain platforms
+        resolve(stdout.trim() || stderr.trim())
       }
     })
   })

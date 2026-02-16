@@ -113,23 +113,22 @@ All file writes use atomic pattern: tmp + rename.
 
 **Contract:** `fs.atomicWriteFile(path, data, encoding)` — writes to `.{basename}.{pid}.tmp` then `fs.rename()`. Never `fs.writeFile()` for config.
 
-## Backend Lifecycle
+## Backend Health Monitoring
 
-Extension spawns backend. Spawn details: see ECOSYSTEM.md → Backend Spawn.
-
-Extension-specific logic in `backend-lifecycle.ts`:
+Host owns the full backend lifecycle (start, stop, health). Extension is a lightweight consumer:
 
 | Step | What |
 |------|------|
-| 1. Check `/health` | If backend alive + version matches → ready |
-| 2. Check VERSION file | If matches extension version → skip install |
-| 3. `install()` | Copy backend files, create venv, write VERSION |
-| 4. `startup()` | Spawn backend process |
+| 1. Check `/health` | On activation, poll backend via `DuetApiClient.health()` |
+| 2. Set sidebar state | Running → READY, not running → ERROR (suggest launching Host) |
+| 3. Poll every 10s | Detect when Host starts/stops backend |
 
-**Extension-specific contracts:**
+**Extension contracts:**
 - Port read via `pointer.ts:readPort()` (default 19680)
-- Backend output channel shows startup/shutdown events only
-- `ensureRunning()` called on activation
+- Backend output channel shows health check results
+- `initBackendStatus()` called on activation (non-blocking)
+- `retryBackend` command re-triggers health check
+- No spawn, no venv, no install — all managed by Host
 
 ## Navigation
 
@@ -138,7 +137,7 @@ Extension-specific logic in `backend-lifecycle.ts`:
 | Pointer reading (sync) | `core/pointer.ts` |
 | DuetData paths | `core/paths.ts` |
 | Legacy config.json read/write | `core/config.ts` (ConfigManager) |
-| Backend lifecycle | `core/backend-lifecycle.ts` |
+| Backend API client | `core/api-client.ts` |
 | DB schema, queries | `db/index.ts` |
 | Workspace generation | `core/workspace.ts` |
 | MCP server | `mcp-server/index.ts` |

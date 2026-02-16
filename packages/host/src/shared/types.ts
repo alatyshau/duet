@@ -46,6 +46,47 @@ export type PythonStatus =
   | { state: 'invalid'; path: string; error: string }
 
 // =============================================================================
+// BACKEND (IPC: backend:get-status, backend:start, backend:stop, backend:status-changed)
+// =============================================================================
+
+export type BackendStatus =
+  | { state: 'stopped' }
+  | { state: 'starting'; message: string }
+  | { state: 'running'; version: string; uptime: number }
+  | { state: 'stopping' }
+  | { state: 'error'; error: string }
+
+// =============================================================================
+// APPS (generalized process management)
+// =============================================================================
+
+export type ProcessType = 'http' | 'worker' | 'cron'
+export type ProcessState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+
+export interface ProcessStatus {
+  state: ProcessState
+  message?: string
+  version?: string
+  uptime?: number
+  error?: string
+}
+
+export interface ProcessInfo {
+  id: string
+  name: string
+  type: ProcessType
+  port?: number
+}
+
+export interface AppInfo {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  processes: ProcessInfo[]
+}
+
+// =============================================================================
 // AI AGENTS (IPC: agents:detect, agents:configure)
 // =============================================================================
 

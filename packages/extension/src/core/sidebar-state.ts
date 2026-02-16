@@ -6,7 +6,6 @@
  */
 
 import * as vscode from 'vscode';
-import { BackendStatus } from './backend-lifecycle';
 
 /**
  * Context keys for sidebar states.
@@ -48,25 +47,14 @@ export class SidebarStateManager {
     }
 
     /**
-     * Set state from BackendStatus.
+     * Set state based on backend health check result.
+     * Called by extension on activation and manual retry.
      */
-    async setFromBackendStatus(status: BackendStatus): Promise<void> {
-        switch (status.state) {
-            case 'starting':
-                await this.setInitializing(status.message);
-                break;
-
-            case 'ready':
-                await this.setReady();
-                break;
-
-            case 'error':
-                if (status.error.includes('Python')) {
-                    await this.setErrorPython(status.error);
-                } else {
-                    await this.setError(status.error);
-                }
-                break;
+    async setFromHealthCheck(running: boolean): Promise<void> {
+        if (running) {
+            await this.setReady();
+        } else {
+            await this.setError('Backend не запущен. Запустите Duet Host.');
         }
     }
 
@@ -99,6 +87,7 @@ export class SidebarStateManager {
             vscode.commands.executeCommand('setContext', CONTEXT_KEYS.initializing, false),
             vscode.commands.executeCommand('setContext', CONTEXT_KEYS.initFailed, false),
             vscode.commands.executeCommand('setContext', CONTEXT_KEYS.initFailedPython, false),
+            vscode.commands.executeCommand('setContext', CONTEXT_KEYS.errorMessage, ''),
         ]);
     }
 

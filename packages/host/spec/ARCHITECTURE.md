@@ -17,6 +17,8 @@ Electron tray app. Writes pointer file (`~/.org.ve68.duet`). Deploys AI instruct
 | AI client detection + configuration | Done |
 | InstallPage UI (folders + deploy + log) | Done |
 | Deploy channel toggle (DEV / PROD) | Done |
+| Backend lifecycle (start, stop, health) | Done |
+| Apps UI (sidebar sections, AppPage, process cards) | Done |
 | AgentsPage UI (detect + configure) | Done |
 | Single instance lock | Done |
 | Autostart (auto-launch) | Done |
@@ -26,12 +28,12 @@ Electron tray app. Writes pointer file (`~/.org.ve68.duet`). Deploys AI instruct
 
 | Layer | Responsibility | Files |
 |-------|----------------|-------|
-| `shared/` | Types crossing process boundary (IPC) | `types.ts` (single source of truth) |
-| `core/` | Config, app state, deploy, AI clients | `config.ts`, `app-state.ts`, `deploy.ts`, `ai-clients.ts` |
+| `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
+| `core/` | Config, app state, deploy, backend, AI clients, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `apps.ts` |
 | `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
 | `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
 | `preload/` | Bridge main ↔ renderer | `index.ts`, `index.d.ts` |
-| `renderer/` | React UI | `App.tsx`, `pages/InstallPage.tsx`, `pages/AgentsPage.tsx`, `components/` |
+| `renderer/` | React UI | `App.tsx`, `pages/InstallPage.tsx`, `pages/AppPage.tsx`, `pages/AgentsPage.tsx`, `components/` |
 
 ## Engineering Principles
 
@@ -99,6 +101,30 @@ Deploys AI instructions and backend from bundled resources to DuetData.
 
 Implementation: `core/deploy.ts`
 
+## Backend Lifecycle
+
+Host is the single owner of backend process lifecycle (start, stop, health monitoring).
+
+**Start:** `startBackend(duetDataPath, port, log)` — spawn venv Python with `server.py`, detached + stdio: 'ignore' + unref. Poll `/health` until ready. Kill process if health check fails after all retries.
+
+**Stop:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) → wait 3s → kill by PID (`.pid` file) with SIGTERM → SIGKILL fallback.
+
+**Health:** `checkHealth(port)` — GET `/health` with 2s timeout. Returns `{version, uptime}` or null.
+
+**Status:** `getBackendStatus(duetDataPath, port)` → `BackendStatus` (stopped | starting | running | stopping | error).
+
+**Auto-start on startup:** When `status === 'ready'` and deployed (no VERSION mismatch) → `ensureBackendRunning()`.
+
+**Auto-start after deploy:** `runDeploy()` calls `startBackend()` after writing VERSION.
+
+**Stop on quit:** `before-quit` handler calls `ensureBackendStopped()` with re-entrance guard.
+
+**Concurrent start guard:** In-memory `isStarting` flag in `ipc-handlers.ts` prevents race between auto-start and user click (single-instance lock guarantees one Host process).
+
+**IPC push:** `backend:status-changed` broadcasts `BackendStatus` during start/stop operations.
+
+Implementation: `core/backend.ts`
+
 ## AI Clients
 
 Detects and configures AI clients via direct file writes (no CLI).
@@ -127,6 +153,10 @@ Implementation: `core/ai-clients.ts`
 | `deploy:start` | renderer → main | Start deploy (async) |
 | `deploy:status-changed` | main → renderer | Push deploy status updates |
 | `deploy:log` | main → renderer | Push deploy log messages |
+| `backend:get-status` | renderer → main | Get backend status (stopped/starting/running/error) |
+| `backend:start` | renderer → main | Start backend |
+| `backend:stop` | renderer → main | Stop backend |
+| `backend:status-changed` | main → renderer | Push backend status updates |
 | `agents:detect` | renderer → main | Detect installed AI clients |
 | `agents:configure` | renderer → main | Configure all AI clients |
 
@@ -158,6 +188,14 @@ Three sections:
 2. **Components** — deploy channel toggle (DEV/PROD) in header + deploy status for AI instructions + backend. DEV mode shows amber banner. "Установить" button when deploy needed.
 3. **Log** — deploy log (subscribes to `deploy:log` events).
 
+### AppPage
+
+Per-application page with process cards. Navigate via sidebar → Приложения → {app name} (route: `app:{app-id}`).
+
+Process card shows: state badge, version, uptime, Start/Stop/Restart buttons. States: stopped, starting, running, stopping, error.
+
+Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `AppInfo`, `ProcessInfo`, `ProcessStatus` in `shared/types.ts`. Mapper: `backendStatusToProcessStatus()` in `shared/mappers.ts`. Registry: `BUILTIN_APPS` in `core/apps.ts`.
+
 ### AgentsPage
 
 Detects AI clients on mount. Shows status card per client. "Настроить все" button to configure.
@@ -167,9 +205,12 @@ Detects AI clients on mount. Shows status card per client. "Настроить �
 | Concept | File |
 |---------|------|
 | Shared IPC types | `shared/types.ts` |
+| IPC → UI mappers | `shared/mappers.ts` |
 | Pointer + machine config | `core/config.ts` |
 | App state logic | `core/app-state.ts` |
 | Deploy service | `core/deploy.ts` |
+| Backend lifecycle | `core/backend.ts` |
+| App registry | `core/apps.ts` |
 | AI client config | `core/ai-clients.ts` |
 | Tray menu + icon | `platform/tray.ts` |
 | Autostart | `platform/autolaunch.ts` |
@@ -179,6 +220,7 @@ Detects AI clients on mount. Shows status card per client. "Настроить �
 | Preload bridge | `preload/index.ts` |
 | Root React component | `renderer/src/App.tsx` |
 | Install page | `renderer/src/pages/InstallPage.tsx` |
+| App page | `renderer/src/pages/AppPage.tsx` |
 | Agents page | `renderer/src/pages/AgentsPage.tsx` |
 | Layout (sidebar) | `renderer/src/components/layout/` |
 
@@ -214,13 +256,11 @@ npm run typecheck    # tsc
 
 | Suite | Files | What |
 |-------|-------|------|
-| Unit | `__tests__/unit/core/` | core-flow, config, app-state, deploy, ai-clients |
+| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, mappers |
 | E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
 
 ## Future
 
 | Feature | Status |
 |---------|--------|
-| Backend spawn + lifecycle in Host | TODO (currently Extension does this) |
-| Health check of backend in Host | TODO |
 | Auto-deploy on startup (if ready) | TODO |

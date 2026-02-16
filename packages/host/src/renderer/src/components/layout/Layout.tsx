@@ -4,6 +4,7 @@
  * КТО ИСПОЛЬЗУЕТ: App.tsx как обёртка для страниц.
  */
 import { Sidebar } from './Sidebar'
+import type { ProcessState } from '../../../../shared/types'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -11,6 +12,7 @@ interface LayoutProps {
   onNavigate: (page: string) => void
   onOpenFolder: () => void
   folderConfigured: boolean
+  backendProcessState?: ProcessState
 }
 
 export function Layout({
@@ -18,7 +20,8 @@ export function Layout({
   currentPage,
   onNavigate,
   onOpenFolder,
-  folderConfigured
+  folderConfigured,
+  backendProcessState
 }: LayoutProps): React.ReactElement {
   return (
     <div className="flex h-screen overflow-hidden">
@@ -27,6 +30,7 @@ export function Layout({
         onNavigate={onNavigate}
         onOpenFolder={onOpenFolder}
         folderConfigured={folderConfigured}
+        backendProcessState={backendProcessState}
       />
       <main className="flex-1 overflow-y-auto p-6">{children}</main>
     </div>

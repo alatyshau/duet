@@ -9,7 +9,13 @@
  */
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { AppState, DeployStatus, PythonStatus, AgentInfo } from '../shared/types'
+import type {
+  AppState,
+  DeployStatus,
+  BackendStatus,
+  PythonStatus,
+  AgentInfo
+} from '../shared/types'
 
 // Custom APIs for renderer
 const api = {
@@ -28,7 +34,8 @@ const api = {
   },
 
   // Выбор папки через диалог
-  selectFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-folder'),
+  selectFolder: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:select-folder', defaultPath),
 
   // Сохранить pointer файл (~/.org.ve68.duet)
   savePointer: (config: {
@@ -80,7 +87,26 @@ const api = {
 
   savePythonPath: (path: string): Promise<void> => ipcRenderer.invoke('python:save', path),
 
-  selectFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-file'),
+  selectFile: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:select-file', defaultPath),
+
+  // === Backend ===
+
+  getBackendStatus: (): Promise<BackendStatus> => ipcRenderer.invoke('backend:get-status'),
+
+  startBackend: (): Promise<void> => ipcRenderer.invoke('backend:start'),
+
+  stopBackend: (): Promise<void> => ipcRenderer.invoke('backend:stop'),
+
+  onBackendStatusChanged: (callback: (status: BackendStatus) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: BackendStatus): void => {
+      callback(status)
+    }
+    ipcRenderer.on('backend:status-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('backend:status-changed', handler)
+    }
+  },
 
   // === AI Agents ===
 

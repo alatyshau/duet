@@ -3,7 +3,8 @@
  * ЗАЧЕМ: Host конфигурирует AI клиенты прямой записью файлов (не CLI).
  * КТО ИСПОЛЬЗУЕТ: main process, страница "AI Агенты".
  *
- * ПАТТЕРН: detect (есть config dir?) → configure (write files) → show result.
+ * ПАТТЕРН: detect (проверить реальные файлы конфигурации) → configure (write files) → show result.
+ * detect и configure должны возвращать одинаковый status — это проверяется round-trip тестом.
  * Ненайденный AI клиент — не ошибка, просто информация.
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
@@ -55,7 +56,7 @@ export const configureClaudeCode = (duetDataPath: string): AgentInfo => {
     const stylesDir = join(claudeDir, 'output-styles')
     mkdirSync(stylesDir, { recursive: true })
 
-    const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
+    const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
     const styleDest = join(stylesDir, 'duet.md')
 
     // Cleanup legacy output-style (renamed from ai-kit → duet)
@@ -213,37 +214,83 @@ export const configureCodex = (duetDataPath: string): AgentInfo => {
 
 /**
  * Обнаружить все AI клиенты (без конфигурации).
+ * Проверяет реальные файлы конфигурации, а не только директории.
  */
-export const detectAgents = (): AgentInfo[] => {
-  const agents: AgentInfo[] = []
+export const detectAgents = (duetDataPath: string): AgentInfo[] => {
+  return [detectClaudeCode(duetDataPath), detectCodex(duetDataPath)]
+}
 
-  // Claude Code
+function detectClaudeCode(duetDataPath: string): AgentInfo {
   const claudeDir = join(homedir(), '.claude')
-  if (existsSync(claudeDir)) {
-    agents.push({
-      id: 'claude-code',
-      name: 'Claude Code',
-      status: 'needs_setup',
-      details: '~/.claude найдена'
-    })
-  } else {
-    agents.push({
-      id: 'claude-code',
-      name: 'Claude Code',
-      status: 'not_found',
-      details: 'Не установлен'
-    })
+  if (!existsSync(claudeDir)) {
+    return { id: 'claude-code', name: 'Claude Code', status: 'not_found', details: 'Не установлен' }
   }
 
-  // Codex
+  const hasOutputStyle = existsSync(join(claudeDir, 'output-styles', 'duet.md'))
+  const hasMcp = claudeJsonHasDuetMcp(join(homedir(), '.claude.json'), duetDataPath)
+
+  if (hasOutputStyle && hasMcp) {
+    return {
+      id: 'claude-code',
+      name: 'Claude Code',
+      status: 'configured',
+      details: 'Output style + MCP настроены'
+    }
+  }
+
+  const parts: string[] = []
+  if (hasMcp) parts.push('MCP настроен')
+  if (hasOutputStyle) parts.push('Output style настроен')
+  const detail = parts.length > 0 ? parts.join(', ') : '~/.claude найдена'
+
+  return { id: 'claude-code', name: 'Claude Code', status: 'needs_setup', details: detail }
+}
+
+function detectCodex(duetDataPath: string): AgentInfo {
   const codexDir = getCodexDir()
-  if (existsSync(codexDir)) {
-    agents.push({ id: 'codex', name: 'Codex', status: 'needs_setup', details: '~/.codex найдена' })
-  } else {
-    agents.push({ id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' })
+  if (!existsSync(codexDir)) {
+    return { id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' }
   }
 
-  return agents
+  const configPath = join(codexDir, 'config.toml')
+  if (!existsSync(configPath)) {
+    return { id: 'codex', name: 'Codex', status: 'needs_setup', details: '~/.codex найдена' }
+  }
+
+  try {
+    const config = parseToml(readFileSync(configPath, 'utf-8'))
+    const mcpServers = config.mcp_servers as Record<string, unknown> | undefined
+    const hasMcp = !!(mcpServers && mcpServers.duet)
+    const hasInstructions = typeof config.model_instructions_file === 'string' &&
+      config.model_instructions_file.includes(duetDataPath)
+
+    if (hasMcp && hasInstructions) {
+      return { id: 'codex', name: 'Codex', status: 'configured', details: 'Instructions + MCP настроены' }
+    }
+
+    const parts: string[] = []
+    if (hasMcp) parts.push('MCP настроен')
+    if (hasInstructions) parts.push('Instructions настроены')
+    const detail = parts.length > 0 ? parts.join(', ') : '~/.codex найдена'
+
+    return { id: 'codex', name: 'Codex', status: 'needs_setup', details: detail }
+  } catch {
+    return { id: 'codex', name: 'Codex', status: 'needs_setup', details: '~/.codex найдена' }
+  }
+}
+
+/** Проверяет наличие mcpServers.duet в ~/.claude.json */
+function claudeJsonHasDuetMcp(claudeJsonPath: string, duetDataPath: string): boolean {
+  if (!existsSync(claudeJsonPath)) return false
+  try {
+    const config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'))
+    const mcp = config?.mcpServers?.duet
+    if (!mcp) return false
+    // Verify it points to our duetDataPath
+    return Array.isArray(mcp.args) && mcp.args.some((a: string) => a.includes(duetDataPath))
+  } catch {
+    return false
+  }
 }
 
 /**

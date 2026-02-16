@@ -68,7 +68,7 @@ export function InstallPage({
       unsubStatus()
       unsubLog()
     }
-  }, [isReady])
+  }, [])
 
   // Auto-detect Python when config becomes ready
   useEffect(() => {
@@ -128,7 +128,8 @@ export function InstallPage({
   }
 
   const handlePythonSelect = async (): Promise<void> => {
-    const path = await window.api.selectFile()
+    const currentPath = pythonStatus.state === 'found' ? pythonStatus.path : undefined
+    const path = await window.api.selectFile(currentPath)
     if (!path) return
 
     setPythonStatus({ state: 'detecting' })

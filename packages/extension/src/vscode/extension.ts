@@ -9,20 +9,20 @@ import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from '
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { TreeNode } from '../core/tree/businessTree';
 import { installHost } from './commands/onboarding';
-import { readPointer } from '../core/pointer';
+import { readPointer, readPort } from '../core/pointer';
 import { refresh } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { dumpIndex } from './commands/refresh';
 import { DatabaseManager } from '../core/db';
 import { Paths } from '../core/paths';
-import { BackendLifecycle, BackendError } from '../core/backend-lifecycle';
+import { DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
 
 // Global instances for lifecycle management
-let backendLifecycle: BackendLifecycle | null = null;
 let backendOutputChannel: vscode.OutputChannel | null = null;
 let sidebarState: SidebarStateManager | null = null;
+let lastHealthOk: boolean | null = null;
 
 /**
  * Copy MCP server to DuetData for use by Claude Code, Codex, etc.
@@ -74,14 +74,14 @@ export async function activate(context: vscode.ExtensionContext) {
     // Set initial sidebar state
     await sidebarState.setHasDataFolder(!!dataFolder);
 
-    // Initialize backend lifecycle (async, non-blocking)
+    // Initialize backend health monitoring (async, non-blocking)
     if (dataFolder) {
-        initBackendLifecycle(context, dataFolder);
+        initBackendStatus(context, dataFolder);
     }
 
     // Register backend-related commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('duet.retryBackend', () => retryBackend(context)),
+        vscode.commands.registerCommand('duet.retryBackend', retryBackend),
         vscode.commands.registerCommand('duet.showPythonHelp', showPythonHelp),
         vscode.commands.registerCommand('duet.showBackendLogs', showBackendLogs)
     );
@@ -236,78 +236,72 @@ function registerStubs(context: vscode.ExtensionContext) {
     );
 }
 
-// === Backend Lifecycle Functions ===
+// === Backend Health Monitoring ===
 
 /**
- * Initialize backend lifecycle (async, non-blocking).
- * Called during activation if data folder is configured.
+ * Initialize backend status: single check on activation.
+ * No polling — Extension is a thin API client.
+ * If backend is down, sidebar shows error + retry button.
  */
-function initBackendLifecycle(context: vscode.ExtensionContext, dataFolder: string): void {
-    const paths = new Paths(dataFolder);
+function initBackendStatus(context: vscode.ExtensionContext, _dataFolder: string): void {
+    const port = readPort();
+    const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
 
     // Create output channel for backend logs
     backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
     context.subscriptions.push(backendOutputChannel);
 
-    // Create lifecycle manager (install handled by Duet Host)
-    backendLifecycle = new BackendLifecycle({
-        paths,
-        outputChannel: backendOutputChannel,
-        onStatusChange: (status) => {
-            sidebarState?.setFromBackendStatus(status);
-        },
-    });
-
-    context.subscriptions.push({ dispose: () => backendLifecycle?.dispose() });
-
-    // Start backend (async, don't await)
-    sidebarState?.setInitializing('Запуск backend...');
-    backendLifecycle.ensureRunning().catch((error) => {
-        console.error('Backend startup failed:', error);
-        if (error instanceof BackendError) {
-            sidebarState?.setFromBackendStatus({
-                state: 'error',
-                error: error.message,
-                recoverable: error.recoverable,
-            });
-        } else {
-            sidebarState?.setError(String(error));
-        }
-    });
+    // Single check on activation
+    sidebarState?.setInitializing('Подключение к backend...');
+    checkBackendHealth(apiClient);
 }
 
 /**
- * Retry backend startup.
+ * Check backend health and update sidebar state.
  */
-async function retryBackend(context: vscode.ExtensionContext): Promise<void> {
+async function checkBackendHealth(apiClient: DuetApiClient): Promise<void> {
+    try {
+        const health = await apiClient.health();
+        // Log only on transition (down→up) to avoid spam every 10s
+        if (lastHealthOk !== true) {
+            backendOutputChannel?.appendLine(`Backend OK: v${health.version}, uptime ${Math.round(health.uptime_seconds)}s`);
+        }
+        lastHealthOk = true;
+        await sidebarState?.setFromHealthCheck(true);
+    } catch {
+        if (lastHealthOk !== false) {
+            backendOutputChannel?.appendLine('Backend offline');
+        }
+        lastHealthOk = false;
+        await sidebarState?.setFromHealthCheck(false);
+    }
+}
+
+/**
+ * Retry backend health check.
+ */
+async function retryBackend(): Promise<void> {
     const retryPointer = readPointer();
-    const dataFolder = retryPointer?.duetDataPath;
-    if (!dataFolder) {
+    if (!retryPointer?.duetDataPath) {
         vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
         return;
     }
 
-    // Dispose old lifecycle
-    backendLifecycle?.dispose();
-    backendLifecycle = null;
+    const port = readPort();
+    const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
 
-    // Re-initialize
-    initBackendLifecycle(context, dataFolder);
+    await sidebarState?.setInitializing('Проверка backend...');
+    await checkBackendHealth(apiClient);
 }
 
 /**
  * Show Python installation help.
+ * Kept for backward compatibility with package.json welcome views.
  */
 function showPythonHelp(): void {
-    const message = `Duet требует Python 3.10+
+    const message = `Python управляется через Duet Host.
 
-Скопируйте в AI чат:
-"My python3 points to an old Python version. I need Python 3.10+ for Duet. Help me fix my PATH."
-
-Или установите Python:
-• macOS: brew install python@3.12
-• Windows: https://www.python.org/downloads/
-• Linux: sudo apt install python3.12`;
+Откройте Duet Host для настройки Python и backend.`;
 
     vscode.window.showInformationMessage(message, { modal: true });
 }
@@ -321,5 +315,4 @@ function showBackendLogs(): void {
 
 export function deactivate() {
     disposeGitOutputChannel();
-    backendLifecycle?.dispose();
 }

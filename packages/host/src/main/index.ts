@@ -15,7 +15,7 @@ import { getConfigFile } from '../core/config'
 import { isDeployWarning } from '../core/deploy'
 import { createTray, updateTrayIcon } from '../platform/tray'
 import { showWindow, sendAppState, setQuitting } from './window'
-import { setupIpcHandlers } from './ipc-handlers'
+import { setupIpcHandlers, ensureBackendRunning, ensureBackendStopped } from './ipc-handlers'
 
 // =============================================================================
 // APP STATE
@@ -109,6 +109,17 @@ if (gotTheLock) {
       showWindow(appState)
     }
 
+    // Auto-start backend if ready and deployed
+    if (
+      appState.status === 'ready' &&
+      appState.duetDataPath &&
+      !isDeployWarning(appState, app.getVersion())
+    ) {
+      ensureBackendRunning(appState.duetDataPath).catch((err) => {
+        console.error('Auto-start backend failed:', err)
+      })
+    }
+
     app.on('activate', () => {
       showWindow(appState)
     })
@@ -119,8 +130,20 @@ if (gotTheLock) {
     // Ничего не делаем — приложение продолжает работать в трее
   })
 
-  // Обработка перед выходом
-  app.on('before-quit', () => {
+  // Обработка перед выходом: остановить бэкенд
+  let isQuitting = false
+  app.on('before-quit', (e) => {
     setQuitting(true)
+
+    // Prevent re-entrant quit while stopping backend
+    if (isQuitting) return
+    isQuitting = true
+
+    if (appState.status === 'ready' && appState.duetDataPath) {
+      e.preventDefault()
+      ensureBackendStopped(appState.duetDataPath)
+        .catch((err) => console.error('Stop backend on quit failed:', err))
+        .finally(() => app.quit())
+    }
   })
 } // end if (gotTheLock)

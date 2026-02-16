@@ -13,22 +13,20 @@
 ┌─────────────────┐     writes      ┌──────────────────┐
 │  Host (Electron) │ ──────────────→ │ ~/.org.ve68.duet │
 │  Tray app, UI    │                 │   (pointer file) │
-└─────────────────┘                 └────────┬─────────┘
-                                      reads  │  reads
-                              ┌──────────────┴──────────────┐
-                              ▼                              ▼
-                   ┌──────────────────┐          ┌──────────────────┐
-                   │ Extension (VSCode)│          │ Backend (Python)  │
-                   │ UI, tree, scanner │          │ HTTP API + MCP    │
-                   └──────────────────┘          └──────────────────┘
-                              │          spawns           ▲
-                              └──────────────────────────┘
+└────────┬────────┘                 └────────┬─────────┘
+  spawns │                            reads  │  reads
+         │                    ┌──────────────┴──────────────┐
+         ▼                    ▼                              ▼
+┌──────────────────┐          ┌──────────────────┐
+│ Backend (Python)  │◀─health─│ Extension (VSCode)│
+│ HTTP API + MCP    │  polls  │ UI, tree, scanner │
+└──────────────────┘          └──────────────────┘
 ```
 
 | Component | Package | Language | Role |
 |-----------|---------|----------|------|
 | **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend + AI instructions. Configures AI clients |
-| **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Spawns backend. Reads pointer |
+| **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Polls backend health. Reads pointer |
 | **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
 | **AI Instructions** | `packages/ai-instructions` | Markdown | Pure content: modes, stances, skills, personas, workflows, schemas |
 | **AI Kit** | `packages/ai-kit` | Markdown + Python | Legacy: install.py, MCP server, legacy templates. Being replaced by AI Instructions + Host |
@@ -259,18 +257,22 @@ Backend (reads VERSION → returns via /health)
     │
     ▼
 Host (isDeployNeeded: app version > deployed → redeploy)
-Extension (reads VERSION → verifies installed; no deploy, suggests "run Host" if missing)
+Extension (polls /health → detects when backend is up)
 ```
 
 ### Backend Spawn
 
 ```
-Extension → spawn(venvPython, [serverPath]) → Backend
+Host → spawn(venvPython, [serverPath]) → Backend
+Extension → polls /health → detects when backend is up
 ```
 
-- No CLI arguments (backend reads pointer itself)
-- `stdio: 'ignore'` (backend logs to `DuetData/backend.log`)
-- `detached: true`
+- Host is the single owner of backend lifecycle (start, stop, health)
+- `spawn(venvPython, [server.py], { stdio: 'ignore' })` — attached child, dies with Host
+- Auto-start on Host startup (when ready + deployed)
+- Auto-start after deploy
+- Stop on Host quit (`before-quit` handler)
+- Extension checks `/health` once on activation (no polling)
 - Port read from `DuetConfig/{machine}.json` (default: 19680)
 
 ### Who Reads What
@@ -280,12 +282,12 @@ Extension → spawn(venvPython, [serverPath]) → Backend
 | `~/.org.ve68.duet` | **writes** | reads | reads | — |
 | `DuetConfig/settings.json` | creates defaults | — | reads | — |
 | `DuetConfig/{machine}.json` | reads+writes (port, defaults) | reads (port) | reads (port, @aliases) | — |
-| `DuetData/backend/VERSION` | writes | reads | reads | — |
+| `DuetData/backend/VERSION` | writes | — | reads | — |
 | `DuetData/config.json` | — | reads (legacy scanner) | — | — |
 | `DuetData/ai-instructions/` | deploys | — | — | reads (instructions) |
 | `DuetData/ai-kit/` | — | — | — | reads (settings.json) |
 | `DuetData/backend.log` | — | — | writes | — |
-| `DuetData/.pid` | — | — | writes | — |
+| `DuetData/.pid` | reads | — | writes | — |
 
 ## Build & Release
 

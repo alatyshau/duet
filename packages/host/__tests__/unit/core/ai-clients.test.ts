@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { stringify as stringifyToml } from 'smol-toml'
 import { createTestContext, type TestContext } from '../../helpers'
 
 // Mock os.homedir to use test tmp dir
@@ -66,25 +67,25 @@ describe('core/ai-clients', () => {
 
   describe('detectAgents', () => {
     it('returns not_found when no agents installed', () => {
-      const agents = detectAgents()
+      const agents = detectAgents(ctx.duetDataDir)
 
       expect(agents).toHaveLength(2)
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'not_found' })
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'not_found' })
     })
 
-    it('returns found when ~/.claude exists', () => {
+    it('returns needs_setup when ~/.claude exists but not configured', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
 
-      const agents = detectAgents()
+      const agents = detectAgents(ctx.duetDataDir)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
     })
 
-    it('returns found when ~/.codex exists', () => {
+    it('returns needs_setup when ~/.codex exists but not configured', () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
 
-      const agents = detectAgents()
+      const agents = detectAgents(ctx.duetDataDir)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
     })
@@ -94,9 +95,95 @@ describe('core/ai-clients', () => {
       mkdirSync(customCodexDir, { recursive: true })
       process.env.CODEX_HOME = customCodexDir
 
-      const agents = detectAgents()
+      const agents = detectAgents(ctx.duetDataDir)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
+    })
+
+    it('returns configured for Claude Code when output-style + MCP exist', () => {
+      mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
+      writeFileSync(join(homeDir, '.claude', 'output-styles', 'duet.md'), '# Instructions')
+      writeFileSync(
+        join(homeDir, '.claude.json'),
+        JSON.stringify({
+          mcpServers: {
+            duet: { command: 'node', args: ['mcp-server.js', '--data-dir', ctx.duetDataDir] }
+          }
+        })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir)
+
+      expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'configured' })
+    })
+
+    it('returns needs_setup for Claude Code when only MCP exists', () => {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      writeFileSync(
+        join(homeDir, '.claude.json'),
+        JSON.stringify({
+          mcpServers: {
+            duet: { command: 'node', args: ['mcp-server.js', '--data-dir', ctx.duetDataDir] }
+          }
+        })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir)
+
+      expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
+      expect(agents[0].details).toContain('MCP настроен')
+    })
+
+    it('returns configured for Codex when config.toml has MCP + instructions', () => {
+      const codexDir = join(homeDir, '.codex')
+      mkdirSync(codexDir, { recursive: true })
+      writeFileSync(
+        join(codexDir, 'config.toml'),
+        stringifyToml({
+          model_instructions_file: join(ctx.duetDataDir, 'ai-instructions', 'core_instructions_short.md'),
+          mcp_servers: {
+            duet: { command: 'node', args: ['mcp-server.js', '--data-dir', ctx.duetDataDir] }
+          }
+        }) + '\n'
+      )
+
+      const agents = detectAgents(ctx.duetDataDir)
+
+      expect(agents[1]).toMatchObject({ id: 'codex', status: 'configured' })
+    })
+
+    it('returns needs_setup for Codex when only MCP configured', () => {
+      const codexDir = join(homeDir, '.codex')
+      mkdirSync(codexDir, { recursive: true })
+      writeFileSync(
+        join(codexDir, 'config.toml'),
+        stringifyToml({
+          mcp_servers: {
+            duet: { command: 'node', args: ['mcp-server.js'] }
+          }
+        }) + '\n'
+      )
+
+      const agents = detectAgents(ctx.duetDataDir)
+
+      expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
+      expect(agents[1].details).toContain('MCP настроен')
+    })
+
+    it('detect after configure returns configured (round-trip)', () => {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      mkdirSync(join(homeDir, '.codex'), { recursive: true })
+      const duetDataPath = setupDuetData(ctx)
+
+      // Configure
+      const configResult = configureAllAgents(duetDataPath)
+      expect(configResult[0].status).toBe('configured')
+      expect(configResult[1].status).toBe('configured')
+
+      // Detect should also return configured
+      const detectResult = detectAgents(duetDataPath)
+      expect(detectResult[0]).toMatchObject({ id: 'claude-code', status: 'configured' })
+      expect(detectResult[1]).toMatchObject({ id: 'codex', status: 'configured' })
     })
   })
 
@@ -141,7 +228,7 @@ describe('core/ai-clients', () => {
       const styleContent = readFileSync(stylePath, 'utf-8')
       expect(styleContent).toMatch(/^---\nname: Duet\n/)
       expect(styleContent).toContain('keep-coding-instructions: true')
-      expect(styleContent).toContain('# Test Instructions')
+      expect(styleContent).toContain('# Short Instructions')
     })
 
     it('removes legacy ai-kit.md output style', () => {

@@ -17,18 +17,16 @@ import {
   resolveDeployStatus,
   isDeployWarning,
   compareSemver,
-  stopBackend,
   deployInstructions,
   deployBackend,
   writeVersion,
   findPython,
   validatePython,
-  venvPythonPath,
   pythonInstallHint,
   runDeploy,
-  type DeployPaths,
-  type StopOptions
+  type DeployPaths
 } from '../../../src/core/deploy'
+import { stopBackend, venvPythonPath, type StopOptions } from '../../../src/core/backend'
 
 /** Instant sleep for tests — no real delay. */
 const noSleep: StopOptions = { sleep: async () => {} }
@@ -343,12 +341,9 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      const log = vi.fn()
-      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
 
       expect(mockFetch).toHaveBeenCalledOnce()
-      // No log about stopping (backend wasn't running)
-      expect(log).not.toHaveBeenCalledWith('Остановка backend...')
 
       vi.unstubAllGlobals()
     })
@@ -357,44 +352,36 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true })
       vi.stubGlobal('fetch', mockFetch)
 
-      const log = vi.fn()
-      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
 
       expect(mockFetch).toHaveBeenCalledWith(
         `http://127.0.0.1:${TEST_PORT}/stop`,
         expect.objectContaining({ method: 'POST' })
       )
-      expect(log).toHaveBeenCalledWith('Остановка backend...')
 
       vi.unstubAllGlobals()
     })
 
-    it('skips kill when no PID file', async () => {
+    it('completes without error when no PID file', async () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      const log = vi.fn()
-      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
 
-      // Should not log about killing
-      expect(log).not.toHaveBeenCalledWith(expect.stringContaining('Завершение процесса'))
-
+      // No throw = success
       vi.unstubAllGlobals()
     })
 
-    it('skips kill when PID file has dead process', async () => {
+    it('completes without error when PID file has dead process', async () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
       // Write PID of non-existent process
       writeFileSync(join(ctx.duetDataDir, '.pid'), '999999999')
 
-      const log = vi.fn()
-      await stopBackend(ctx.duetDataDir, TEST_PORT, log, noSleep)
+      await stopBackend(ctx.duetDataDir, TEST_PORT, noSleep)
 
-      // Should not log about killing (process already dead)
-      expect(log).not.toHaveBeenCalledWith(expect.stringContaining('Завершение процесса'))
-
+      // No throw = success
       vi.unstubAllGlobals()
     })
 
@@ -402,8 +389,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      const log = vi.fn()
-      await stopBackend(ctx.duetDataDir, 12345, log, noSleep)
+      await stopBackend(ctx.duetDataDir, 12345, noSleep)
 
       expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:12345/stop', expect.anything())
 
@@ -418,9 +404,8 @@ describe('core/deploy', () => {
   describe('deployInstructions', () => {
     it('copies ai-instructions to DuetData', () => {
       const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
 
-      deployInstructions(paths, log)
+      deployInstructions(paths)
 
       const dest = join(ctx.duetDataDir, 'ai-instructions')
       expect(existsSync(join(dest, 'core_instructions.md'))).toBe(true)
@@ -430,12 +415,18 @@ describe('core/deploy', () => {
       )
     })
 
+    it('returns file count', () => {
+      const { paths } = createDeployContext(ctx)
+
+      const count = deployInstructions(paths)
+
+      expect(count).toBe(2) // core_instructions.md + extra.md
+    })
+
     it('overwrites existing files on re-deploy', () => {
       const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
 
-      // First deploy
-      deployInstructions(paths, log)
+      deployInstructions(paths)
 
       // Modify source
       writeFileSync(
@@ -443,8 +434,7 @@ describe('core/deploy', () => {
         '# Updated'
       )
 
-      // Re-deploy
-      deployInstructions(paths, log)
+      deployInstructions(paths)
 
       const content = readFileSync(
         join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'),
@@ -459,9 +449,8 @@ describe('core/deploy', () => {
         duetDataPath: ctx.duetDataDir,
         appVersion: '1.0.0'
       }
-      const log = vi.fn()
 
-      expect(() => deployInstructions(paths, log)).toThrow('AI instructions source not found')
+      expect(() => deployInstructions(paths)).toThrow('AI instructions source not found')
     })
 
     it('uses instructionsSourcePath override when provided', () => {
@@ -475,24 +464,13 @@ describe('core/deploy', () => {
         appVersion: '1.0.0',
         instructionsSourcePath: devInstructions
       }
-      const log = vi.fn()
 
-      deployInstructions(paths, log)
+      deployInstructions(paths)
 
       expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'))).toBe(true)
       expect(readFileSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'), 'utf-8')).toBe(
         '# Dev Instructions'
       )
-    })
-
-    it('logs progress', () => {
-      const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
-
-      deployInstructions(paths, log)
-
-      expect(log).toHaveBeenCalledWith('Копирование AI инструкций...')
-      expect(log).toHaveBeenCalledWith(expect.stringContaining('AI инструкции:'))
     })
   })
 
@@ -503,20 +481,26 @@ describe('core/deploy', () => {
   describe('deployBackend', () => {
     it('copies backend to DuetData', () => {
       const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
 
-      deployBackend(paths, log)
+      deployBackend(paths)
 
       const dest = join(ctx.duetDataDir, 'backend')
       expect(existsSync(join(dest, 'main.py'))).toBe(true)
       expect(existsSync(join(dest, 'requirements.txt'))).toBe(true)
     })
 
+    it('returns file count', () => {
+      const { paths } = createDeployContext(ctx)
+
+      const count = deployBackend(paths)
+
+      expect(count).toBe(2) // main.py + requirements.txt
+    })
+
     it('performs atomic swap (no .new or .old left)', () => {
       const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
 
-      deployBackend(paths, log)
+      deployBackend(paths)
 
       expect(existsSync(join(ctx.duetDataDir, 'backend.new'))).toBe(false)
       expect(existsSync(join(ctx.duetDataDir, 'backend.old'))).toBe(false)
@@ -525,14 +509,13 @@ describe('core/deploy', () => {
 
     it('replaces existing backend directory', () => {
       const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
 
       // Create existing backend with old file
       const existingBackend = join(ctx.duetDataDir, 'backend')
       mkdirSync(existingBackend, { recursive: true })
       writeFileSync(join(existingBackend, 'old_file.py'), 'old')
 
-      deployBackend(paths, log)
+      deployBackend(paths)
 
       // Old file should be gone, new files present
       expect(existsSync(join(existingBackend, 'old_file.py'))).toBe(false)
@@ -541,13 +524,12 @@ describe('core/deploy', () => {
 
     it('cleans up stale .new/.old from previous failed deploy', () => {
       const { paths } = createDeployContext(ctx)
-      const log = vi.fn()
 
       // Create stale directories
       mkdirSync(join(ctx.duetDataDir, 'backend.new'), { recursive: true })
       mkdirSync(join(ctx.duetDataDir, 'backend.old'), { recursive: true })
 
-      deployBackend(paths, log)
+      deployBackend(paths)
 
       expect(existsSync(join(ctx.duetDataDir, 'backend.new'))).toBe(false)
       expect(existsSync(join(ctx.duetDataDir, 'backend.old'))).toBe(false)
@@ -559,9 +541,8 @@ describe('core/deploy', () => {
         duetDataPath: ctx.duetDataDir,
         appVersion: '1.0.0'
       }
-      const log = vi.fn()
 
-      expect(() => deployBackend(paths, log)).toThrow('Backend source not found')
+      expect(() => deployBackend(paths)).toThrow('Backend source not found')
     })
 
     it('uses backendSourcePath override when provided', () => {
@@ -575,9 +556,8 @@ describe('core/deploy', () => {
         appVersion: '1.0.0',
         backendSourcePath: devBackend
       }
-      const log = vi.fn()
 
-      deployBackend(paths, log)
+      deployBackend(paths)
 
       expect(existsSync(join(ctx.duetDataDir, 'backend', 'app.py'))).toBe(true)
       expect(readFileSync(join(ctx.duetDataDir, 'backend', 'app.py'), 'utf-8')).toBe('print("dev")')

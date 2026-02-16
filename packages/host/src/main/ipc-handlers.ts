@@ -19,8 +19,10 @@ import {
   validatePython,
   pythonInstallHint
 } from '../core/deploy'
+import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents } from '../core/ai-clients'
-import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
+import type { AppState, DeployStatus, BackendStatus, PythonStatus } from '../shared/types'
+import type { ChildProcess } from 'child_process'
 
 // =============================================================================
 // ТИПЫ
@@ -46,6 +48,73 @@ function sendDeployLog(message: string): void {
   }
 }
 
+function broadcastBackendStatus(status: BackendStatus): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('backend:status-changed', status)
+  }
+}
+
+let isStarting = false
+let currentBackendProc: ChildProcess | null = null
+
+/**
+ * Сохраняет ref на процесс и слушает exit.
+ * Backend — long-running сервер, любое самостоятельное завершение = ошибка.
+ * Намеренная остановка (ensureBackendStopped / deploy) обнуляет ref ДО stop.
+ */
+function monitorBackendProcess(proc: ChildProcess): void {
+  currentBackendProc = proc
+  proc.on('exit', (code) => {
+    if (proc !== currentBackendProc) return // stale listener
+    currentBackendProc = null
+    broadcastBackendStatus({ state: 'error', error: `Backend упал (код ${code})` })
+  })
+}
+
+/**
+ * Запускает бэкенд (используется IPC handler и auto-start).
+ * Идемпотентен: если бэкенд уже запущен или запускается, ничего не делает.
+ */
+export async function ensureBackendRunning(duetDataPath: string): Promise<void> {
+  const port = readPort()
+
+  // Already running?
+  const current = await getBackendStatus(duetDataPath, port)
+  if (current.state === 'running') {
+    broadcastBackendStatus(current)
+    return
+  }
+
+  // Already starting? (in-memory guard against concurrent calls)
+  if (isStarting) return
+  isStarting = true
+
+  broadcastBackendStatus({ state: 'starting', message: 'Запуск backend...' })
+
+  try {
+    const proc = await startBackend(duetDataPath, port)
+    monitorBackendProcess(proc)
+    const status = await getBackendStatus(duetDataPath, port)
+    broadcastBackendStatus(status)
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    broadcastBackendStatus({ state: 'error', error })
+  } finally {
+    isStarting = false
+  }
+}
+
+/**
+ * Останавливает бэкенд (используется IPC handler и stop-on-quit).
+ */
+export async function ensureBackendStopped(duetDataPath: string): Promise<void> {
+  currentBackendProc = null // Detach monitor — intentional stop, not a crash
+  const port = readPort()
+  broadcastBackendStatus({ state: 'stopping' })
+  await stopBackend(duetDataPath, port)
+  broadcastBackendStatus({ state: 'stopped' })
+}
+
 // =============================================================================
 // SETUP
 // =============================================================================
@@ -62,10 +131,11 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   })
 
   // Диалог выбора папки
-  ipcMain.handle('dialog:select-folder', async () => {
+  ipcMain.handle('dialog:select-folder', async (_event, defaultPath?: string) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
-      title: 'Выберите папку'
+      title: 'Выберите папку',
+      ...(defaultPath ? { defaultPath } : {})
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
@@ -89,8 +159,9 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   )
 
   // Открыть путь в Finder/Explorer
-  ipcMain.handle('shell:open-path', (_event, path: string) => {
-    shell.openPath(path)
+  ipcMain.handle('shell:open-path', async (_event, path: string) => {
+    const error = await shell.openPath(path)
+    if (error) console.error(`shell.openPath failed: ${error}`)
   })
 
   // Переключить deploy channel (dev / prod)
@@ -141,9 +212,12 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
     setDeployStatus({ state: 'deploying', message: 'Начинаю деплой...' })
 
+    // Detach old monitor — deploy will stop and restart backend
+    currentBackendProc = null
+
     try {
       const port = readPort()
-      await runDeploy(
+      const proc = await runDeploy(
         {
           resourcesPath,
           duetDataPath: state.duetDataPath,
@@ -158,6 +232,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
           setDeployStatus({ state: 'deploying', message })
         }
       )
+      if (proc) monitorBackendProcess(proc)
       setDeployStatus({ state: 'deployed', version: appVersion })
       context.updateAppState() // Refresh tray icon (clear deploy warning)
     } catch (e) {
@@ -197,10 +272,11 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     setMachineConfigKey('pythonPath', path)
   })
 
-  ipcMain.handle('dialog:select-file', async () => {
+  ipcMain.handle('dialog:select-file', async (_event, defaultPath?: string) => {
     const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      title: 'Выберите Python'
+      properties: ['openFile', 'showHiddenFiles'],
+      title: 'Выберите Python',
+      ...(defaultPath ? { defaultPath } : {})
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
@@ -208,12 +284,33 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     return result.filePaths[0]
   })
 
+  // === Backend ===
+
+  ipcMain.handle('backend:get-status', async () => {
+    const state = context.getAppState()
+    if (!state.duetDataPath) return { state: 'stopped' } as BackendStatus
+    const port = readPort()
+    return getBackendStatus(state.duetDataPath, port)
+  })
+
+  ipcMain.handle('backend:start', async () => {
+    const state = context.getAppState()
+    if (!state.duetDataPath) throw new Error('App not configured')
+    await ensureBackendRunning(state.duetDataPath)
+  })
+
+  ipcMain.handle('backend:stop', async () => {
+    const state = context.getAppState()
+    if (!state.duetDataPath) return
+    await ensureBackendStopped(state.duetDataPath)
+  })
+
   // === AI Agents ===
 
   ipcMain.handle('agents:detect', () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
-    return detectAgents()
+    return detectAgents(state.duetDataPath)
   })
 
   ipcMain.handle('agents:configure', () => {

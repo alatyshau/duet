@@ -13,19 +13,31 @@ export type {
   AppState,
   DeployChannel,
   DeployStatus,
+  BackendStatus,
   PythonStatus,
   AgentStatus,
-  AgentInfo
+  AgentInfo,
+  ProcessType,
+  ProcessState,
+  ProcessStatus,
+  ProcessInfo,
+  AppInfo
 } from '../shared/types'
 
 // Import for use in DuetAPI interface
-import type { AppState, DeployStatus, PythonStatus, AgentInfo } from '../shared/types'
+import type {
+  AppState,
+  DeployStatus,
+  BackendStatus,
+  PythonStatus,
+  AgentInfo
+} from '../shared/types'
 
 // Типы для Duet API
 export interface DuetAPI {
   getAppState: () => Promise<AppState>
   onAppStateChanged: (callback: (state: AppState) => void) => () => void
-  selectFolder: () => Promise<string | null>
+  selectFolder: (defaultPath?: string) => Promise<string | null>
   savePointer: (config: {
     duetDataPath: string
     duetConfigPath: string
@@ -46,7 +58,13 @@ export interface DuetAPI {
   detectPython: () => Promise<PythonStatus>
   validatePython: (path: string) => Promise<PythonStatus>
   savePythonPath: (path: string) => Promise<void>
-  selectFile: () => Promise<string | null>
+  selectFile: (defaultPath?: string) => Promise<string | null>
+
+  // Backend
+  getBackendStatus: () => Promise<BackendStatus>
+  startBackend: () => Promise<void>
+  stopBackend: () => Promise<void>
+  onBackendStatusChanged: (callback: (status: BackendStatus) => void) => () => void
 
   // AI Agents
   getAgents: () => Promise<AgentInfo[]>
