@@ -24,28 +24,6 @@ let backendOutputChannel: vscode.OutputChannel | null = null;
 let sidebarState: SidebarStateManager | null = null;
 let lastHealthOk: boolean | null = null;
 
-/**
- * Copy MCP server to DuetData for use by Claude Code, Codex, etc.
- */
-function deployMcpServer(extensionUri: vscode.Uri, dataFolder: string): void {
-    const distDir = vscode.Uri.joinPath(extensionUri, 'dist').fsPath;
-    const destDir = path.join(dataFolder, 'mcp');
-
-    const files = ['mcp-server.js', 'sql-wasm.wasm'];
-
-    try {
-        if (!fs.existsSync(destDir)) {
-            fs.mkdirSync(destDir, { recursive: true });
-        }
-        for (const file of files) {
-            fs.copyFileSync(path.join(distDir, file), path.join(destDir, file));
-        }
-        console.log(`Deployed MCP server to ${destDir}`);
-    } catch (e) {
-        console.error('Failed to deploy MCP server:', e);
-    }
-}
-
 class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
     getChildren(): vscode.ProviderResult<vscode.TreeItem[]> { return Promise.resolve([]); }
@@ -116,11 +94,6 @@ export async function activate(context: vscode.ExtensionContext) {
             })
         );
         console.log('Duet MCP server provider registered');
-    }
-
-    // Deploy MCP server to DuetData for Claude Code, Codex, etc.
-    if (dataFolder) {
-        deployMcpServer(context.extensionUri, dataFolder);
     }
 
     // Commands

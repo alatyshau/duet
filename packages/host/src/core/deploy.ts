@@ -303,10 +303,7 @@ export const validatePython = async (pythonPath: string): Promise<PythonStatus> 
  * Создаёт venv и устанавливает зависимости.
  * venv живёт в DuetData/.venv/
  */
-export const setupVenv = async (
-  paths: DeployPaths,
-  pythonCmd: string
-): Promise<void> => {
+export const setupVenv = async (paths: DeployPaths, pythonCmd: string): Promise<void> => {
   const venvPath = join(paths.duetDataPath, '.venv')
   const venvPython = venvPythonPath(venvPath)
   const requirementsPath = join(paths.duetDataPath, 'backend', 'requirements.txt')

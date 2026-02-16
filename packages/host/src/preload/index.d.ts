@@ -16,6 +16,7 @@ export type {
   BackendStatus,
   PythonStatus,
   AgentStatus,
+  AgentCheckedFile,
   AgentInfo,
   ProcessType,
   ProcessState,

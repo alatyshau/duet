@@ -125,10 +125,7 @@ export const waitForHealth = async (
  * NOTE: Не вешает proc.on('exit'/'error') — мониторинг после старта
  * это ответственность caller'а (см. monitorBackendProcess в ipc-handlers).
  */
-export const startBackend = async (
-  duetDataPath: string,
-  port: number
-): Promise<ChildProcess> => {
+export const startBackend = async (duetDataPath: string, port: number): Promise<ChildProcess> => {
   const backendPath = join(duetDataPath, 'backend')
   const serverPath = join(backendPath, 'server.py')
   const venvPath = join(duetDataPath, '.venv')
@@ -176,10 +173,7 @@ export const startBackend = async (
  * Останавливает бэкенд через HTTP API.
  * Ошибки не пробрасываются (бэкенд может быть не запущен).
  */
-export const stopBackend = async (
-  port: number,
-  opts?: StopOptions
-): Promise<void> => {
+export const stopBackend = async (port: number, opts?: StopOptions): Promise<void> => {
   const _sleep = opts?.sleep ?? sleep
 
   try {

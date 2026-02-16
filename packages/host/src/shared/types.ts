@@ -92,9 +92,16 @@ export interface AppInfo {
 
 export type AgentStatus = 'not_found' | 'needs_setup' | 'configured'
 
+export interface AgentCheckedFile {
+  path: string
+  ok: boolean
+}
+
 export interface AgentInfo {
   id: string
   name: string
   status: AgentStatus
   details: string
+  version?: string
+  checkedFiles?: AgentCheckedFile[]
 }

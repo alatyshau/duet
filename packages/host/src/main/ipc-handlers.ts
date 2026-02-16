@@ -319,13 +319,15 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('agents:detect', () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
-    return detectAgents(state.duetDataPath)
+    const port = readPort()
+    return detectAgents(state.duetDataPath, port)
   })
 
   ipcMain.handle('agents:configure', () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
-    return configureAllAgents(state.duetDataPath)
+    const port = readPort()
+    return configureAllAgents(state.duetDataPath, port)
   })
 }
 

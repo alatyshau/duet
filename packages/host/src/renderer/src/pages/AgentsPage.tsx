@@ -115,7 +115,7 @@ function AgentCard({ agent }: { agent: AgentInfo }): React.ReactElement {
   const statusLabel = {
     not_found: 'Не найден',
     needs_setup: 'Требует настройки',
-    configured: 'Настроен'
+    configured: agent.version ? `v${agent.version}` : 'Настроен'
   }
 
   return (
@@ -137,6 +137,21 @@ function AgentCard({ agent }: { agent: AgentInfo }): React.ReactElement {
           </span>
         </div>
         <p className="text-xs text-muted-foreground mt-1">{agent.details}</p>
+        {agent.checkedFiles && agent.checkedFiles.length > 0 && (
+          <div className="mt-2 space-y-0.5">
+            {agent.checkedFiles.map((f) => (
+              <div
+                key={f.path}
+                className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground"
+              >
+                <span className={f.ok ? 'text-green-600' : 'text-red-400'}>
+                  {f.ok ? '\u2713' : '\u2717'}
+                </span>
+                <span className="truncate">{f.path}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

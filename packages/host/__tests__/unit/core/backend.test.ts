@@ -6,11 +6,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createTestContext, type TestContext } from '../../helpers'
 
-import {
-  checkHealth,
-  waitForHealth,
-  getBackendStatus
-} from '../../../src/core/backend'
+import { checkHealth, waitForHealth, getBackendStatus } from '../../../src/core/backend'
 
 // =============================================================================
 // TESTS
@@ -146,8 +142,7 @@ describe('core/backend', () => {
         'fetch',
         vi.fn().mockResolvedValue({
           ok: true,
-          json: () =>
-            Promise.resolve({ status: 'ok', version: '1.0.0', uptime_seconds: 100 })
+          json: () => Promise.resolve({ status: 'ok', version: '1.0.0', uptime_seconds: 100 })
         })
       )
 
@@ -169,5 +164,4 @@ describe('core/backend', () => {
       expect(result).toEqual({ state: 'stopped' })
     })
   })
-
 })
