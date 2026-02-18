@@ -324,7 +324,7 @@ describe('core/ai-clients', () => {
       expect(config.mcpServers.duet.url).toBe(MCP_URL)
     })
 
-    it('removes legacy ai-kit MCP entry from ~/.claude.json', () => {
+    it('preserves existing MCP entries when adding duet', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       const claudeJsonPath = join(homeDir, '.claude.json')
       writeFileSync(
@@ -338,7 +338,8 @@ describe('core/ai-clients', () => {
       configureClaudeCode(duetDataPath, TEST_PORT)
 
       const config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'))
-      expect(config.mcpServers['ai-kit']).toBeUndefined()
+      // Legacy entries are preserved (user may remove manually)
+      expect(config.mcpServers['ai-kit']).toBeDefined()
       expect(config.mcpServers.duet).toBeDefined()
     })
 

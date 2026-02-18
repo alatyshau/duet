@@ -201,6 +201,7 @@ export class DuetApiClient {
         try {
             const response = await fetch(`${this.baseUrl}${path}`, {
                 method: 'POST',
+                // eslint-disable-next-line @typescript-eslint/naming-convention
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
                 signal: controller.signal,
