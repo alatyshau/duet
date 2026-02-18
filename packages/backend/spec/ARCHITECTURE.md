@@ -40,7 +40,7 @@ server.py (entry point, lifecycle)
 | `db.py` | SQLite CRUD | Business rules |
 | `pointer.py` | Read pointer file | Write pointer |
 | `aliases.py` | Resolve `@alias` → absolute path | Config management |
-| `config.py` | Read pointer + settings + machine config, path getters, `atomic_write()` | Write config files |
+| `config.py` | Read pointer + settings + machine config, path getters | Write config files |
 
 ## Boundaries (CRITICAL)
 
@@ -68,7 +68,6 @@ server.py (entry point, lifecycle)
 | Alias resolution | `aliases.py` |
 | PID lifecycle | `server.py:write_pid_file/check_pid_file` |
 | Logging setup | `server.py:setup_logging()` |
-| Atomic file write | `config.py:atomic_write()` |
 
 ## API Contracts
 
@@ -81,8 +80,8 @@ server.py (entry point, lifecycle)
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
 | GET | `/workspace-info` | Query: `workspace_path`. Returns chain, components |
-| GET | `/streams` | Returns `{ streams: [...] }` — all business/stream/product |
-| GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream |
+| GET | `/streams` | Returns `{ streams: [...] }` — all business/stream/product. Each entity includes `absolute_path` (resolved from `drive_path` via business_folders) |
+| GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms }` |
 
 #### `/scan` Behavior
@@ -120,12 +119,6 @@ DuetData/backend.log  ← RotatingFileHandler
 ├── Backups: 1 (backend.log.1)
 └── Format: YYYY-MM-DD HH:MM:SS [LEVEL] message
 ```
-
-## File Safety
-
-All file writes use atomic pattern: tmp + rename.
-
-**Contract:** `config.py:atomic_write(path, content)` — write to `.tmp` then `os.rename()`.
 
 ## Lifecycle
 

@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
@@ -10,11 +8,9 @@ import { ProjectsProvider } from './providers/ProjectsProvider';
 import { TreeNode } from '../core/tree/businessTree';
 import { installHost } from './commands/onboarding';
 import { readPointer, readPort } from '../core/pointer';
-import { refresh } from './commands/refresh';
+import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
-import { dumpIndex } from './commands/refresh';
-import { DatabaseManager } from '../core/db';
 import { Paths } from '../core/paths';
 import { DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
@@ -52,49 +48,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // Set initial sidebar state
     await sidebarState.setHasDataFolder(!!dataFolder);
 
-    // Initialize backend health monitoring (async, non-blocking)
-    if (dataFolder) {
-        initBackendStatus(context, dataFolder);
-    }
-
     // Register backend-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand('duet.retryBackend', retryBackend),
         vscode.commands.registerCommand('duet.showPythonHelp', showPythonHelp),
         vscode.commands.registerCommand('duet.showBackendLogs', showBackendLogs)
     );
-
-    // Register MCP server provider (VS Code 1.102+)
-    // Provider reads config dynamically, so it works even if dataFolder changes
-    if (vscode.lm?.registerMcpServerDefinitionProvider) {
-        const serverPath = vscode.Uri.joinPath(
-            context.extensionUri, 'dist', 'mcp-server.js'
-        ).fsPath;
-
-        context.subscriptions.push(
-            vscode.lm.registerMcpServerDefinitionProvider('duet-ai-kit', {
-                provideMcpServerDefinitions: async () => {
-                    const currentPointer = readPointer();
-                    const currentDataFolder = currentPointer?.duetDataPath;
-
-                    if (!currentDataFolder) {
-                        return []; // No server if pointer not found
-                    }
-
-                    return [
-                        new vscode.McpStdioServerDefinition(
-                            'Duet AI Kit',
-                            process.execPath,
-                            [serverPath, '--data-dir', currentDataFolder],
-                            {},
-                            '1.0.0'
-                        )
-                    ];
-                }
-            })
-        );
-        console.log('Duet MCP server provider registered');
-    }
 
     // Commands
     context.subscriptions.push(
@@ -103,18 +62,45 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (dataFolder) {
         const paths = new Paths(dataFolder);
-        const db = new DatabaseManager(paths);
-        const wasmPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'sql-wasm.wasm').fsPath;
-        
+        const port = readPort();
+        const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
+
+        // Create output channel for backend logs
+        backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
+        context.subscriptions.push(backendOutputChannel);
+
+        // Register MCP server for Copilot (VS Code 1.102+)
+        // Uses Backend HTTP MCP — same endpoint as Claude Code and Codex
+        if (vscode.lm?.registerMcpServerDefinitionProvider) {
+            context.subscriptions.push(
+                vscode.lm.registerMcpServerDefinitionProvider('duet', {
+                    provideMcpServerDefinitions: async () => [
+                        new vscode.McpHttpServerDefinition(
+                            'Duet',
+                            vscode.Uri.parse(`http://127.0.0.1:${port}/mcp`)
+                        )
+                    ]
+                })
+            );
+        }
+
         try {
-            await db.init({ wasmPath });
-            const businessProvider = new BusinessTreeProvider(db, wasmPath, paths.reposPath);
-            const contextProvider = new ContextProvider(db, paths);
-            const projectsProvider = new ProjectsProvider(db);
+            // Load initial data from backend
+            await sidebarState.setInitializing('Подключение к backend...');
+            const { streams } = await apiClient.streams();
+
+            // Backend is up — update state
+            lastHealthOk = true;
+            await sidebarState.setFromHealthCheck(true);
+            backendOutputChannel.appendLine(`Backend OK: ${streams.length} streams loaded`);
+
+            const businessProvider = new BusinessTreeProvider(streams, paths.reposPath);
+            const contextProvider = new ContextProvider(streams, paths.reposPath);
+            const projectsProvider = new ProjectsProvider(apiClient);
             context.subscriptions.push(
                 vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
             );
-            
+
             const businessTreeView = vscode.window.createTreeView('duet.businesses', {
                 treeDataProvider: businessProvider,
                 showCollapseAll: false // Hide native collapse, we use toggle
@@ -131,7 +117,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     const item = e.selection[0];
                     // Filter out VisualRoot and PlaceholderItem (they don't have entityId)
                     if ('entityId' in item) {
-                        projectsProvider.setContext((item as TreeNode).id);
+                        projectsProvider.setContext((item as TreeNode).entityId);
                     }
                 }
             });
@@ -147,12 +133,22 @@ export async function activate(context: vscode.ExtensionContext) {
                 { dispose: () => businessProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
                 vscode.commands.registerCommand('duet.refresh', async () => {
-                   await refresh(context);
-                   await businessProvider.refresh();
-                   contextProvider.refresh();
-                   projectsProvider.refresh();
+                    await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Scanning Duet...",
+                        cancellable: false
+                    }, async () => {
+                        try {
+                            const newStreams = await refreshFromBackend(apiClient, paths);
+                            businessProvider.updateStreams(newStreams);
+                            contextProvider.updateStreams(newStreams);
+                            projectsProvider.refresh();
+                        } catch (error) {
+                            vscode.window.showErrorMessage(`Scan failed: ${error}`);
+                        }
+                    });
                 }),
-                vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(context)),
+                vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(apiClient)),
                 vscode.commands.registerCommand('duet.toggleExpand', async () => {
                     if (isExpanded) {
                         await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
@@ -181,16 +177,19 @@ export async function activate(context: vscode.ExtensionContext) {
                 }),
                 vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
                 vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
-                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(context)),
-                vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths)), // Legacy, redirects to open
-                vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths)),
+                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(apiClient)),
+                vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths.reposPath)), // Legacy, redirects to open
+                vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths.reposPath)),
                 vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
                 // Noop command — used in TreeItem.command to prevent toggle on label click
                 vscode.commands.registerCommand('duet.selectNode', () => {})
             );
         } catch (e) {
-            console.error('Failed to init DB:', e);
-            // Fallback to stubs if DB fails
+            console.error('Failed to connect to backend:', e);
+            lastHealthOk = false;
+            await sidebarState.setFromHealthCheck(false);
+            backendOutputChannel.appendLine(`Backend offline: ${e}`);
+            // Fallback to stubs if backend unavailable
             registerStubs(context);
         }
     } else {
@@ -204,30 +203,11 @@ function registerStubs(context: vscode.ExtensionContext) {
         vscode.window.registerTreeDataProvider('duet.businesses', stubProvider),
         vscode.window.registerTreeDataProvider('duet.context', stubProvider),
         vscode.window.registerTreeDataProvider('duet.projects', stubProvider)
-        // refresh command is not registered here to avoid collision if dataFolder is set but DB init fails
-        // If exact stub needed: use a check or try-catch block wrapping registration
+        // refresh command is not registered here to avoid collision if dataFolder is set but backend is down
     );
 }
 
 // === Backend Health Monitoring ===
-
-/**
- * Initialize backend status: single check on activation.
- * No polling — Extension is a thin API client.
- * If backend is down, sidebar shows error + retry button.
- */
-function initBackendStatus(context: vscode.ExtensionContext, _dataFolder: string): void {
-    const port = readPort();
-    const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
-
-    // Create output channel for backend logs
-    backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
-    context.subscriptions.push(backendOutputChannel);
-
-    // Single check on activation
-    sidebarState?.setInitializing('Подключение к backend...');
-    checkBackendHealth(apiClient);
-}
 
 /**
  * Check backend health and update sidebar state.
@@ -235,7 +215,7 @@ function initBackendStatus(context: vscode.ExtensionContext, _dataFolder: string
 async function checkBackendHealth(apiClient: DuetApiClient): Promise<void> {
     try {
         const health = await apiClient.health();
-        // Log only on transition (down→up) to avoid spam every 10s
+        // Log only on transition (down→up) to avoid spam
         if (lastHealthOk !== true) {
             backendOutputChannel?.appendLine(`Backend OK: v${health.version}, uptime ${Math.round(health.uptime_seconds)}s`);
         }

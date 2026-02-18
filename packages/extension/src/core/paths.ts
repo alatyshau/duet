@@ -20,10 +20,6 @@ export class Paths {
         return this.dataFolder;
     }
 
-    get configPath(): string {
-        return path.join(this.dataFolder, 'config.json');
-    }
-
     get reposPath(): string {
         return path.join(this.dataFolder, 'repos');
     }
@@ -34,39 +30,5 @@ export class Paths {
 
     get allBusinessesWorkspacePath(): string {
         return path.join(this.dataFolder, 'all-businesses.code-workspace');
-    }
-
-    get dbPath(): string {
-        return path.join(this.dataFolder, 'data', 'index.db');
-    }
-
-    get dbDir(): string {
-        return path.join(this.dataFolder, 'data');
-    }
-
-    // Backend lifecycle paths
-
-    get backendPath(): string {
-        return path.join(this.dataFolder, 'backend');
-    }
-
-    get pidPath(): string {
-        return path.join(this.dataFolder, '.pid');
-    }
-
-    get startupLockPath(): string {
-        return path.join(this.dataFolder, '.backend-start.lock');
-    }
-
-    get venvPath(): string {
-        return path.join(this.dataFolder, '.venv');
-    }
-
-    get venvPython(): string {
-        return path.join(this.venvPath, 'bin', 'python3');
-    }
-
-    get statePath(): string {
-        return path.join(this.dataFolder, 'state.json');
     }
 }

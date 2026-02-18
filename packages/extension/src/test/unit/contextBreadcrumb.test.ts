@@ -2,79 +2,56 @@
  * Unit tests for ContextBreadcrumb
  *
  * Tests cover:
- * - Empty workspace folders → empty result
- * - Git repo in repos/ with matching product → chain
- * - Git repo in repos/ without match → orphan error
- * - Git repo in repos/ with name conflict → name_conflict error
- * - Folder on Drive found in DB → chain
- * - Folder not in DB → external
+ * - Empty workspace folders -> empty result
+ * - Git repo in repos/ with matching product -> chain
+ * - Git repo in repos/ without match -> orphan error
+ * - Git repo in repos/ with name conflict -> name_conflict error
+ * - Folder on Drive found in streams -> chain
+ * - Folder not in streams -> external
  * - Common ancestor merging
  * - Root sorting by leaf type
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as fs from 'fs/promises';
+import { describe, it, expect } from 'vitest';
 import * as path from 'path';
-import * as os from 'os';
-import { DatabaseManager, Entity } from '../../core/db';
-import { Paths } from '../../core/paths';
+import { StreamEntity } from '../../core/api-client';
 import { ContextBreadcrumb, ContextNode } from '../../core/tree/contextBreadcrumb';
 
+const REPOS_PATH = '/DuetData/repos';
+
+function makeStream(overrides: Partial<StreamEntity> & { id: string; name: string; type: StreamEntity['type'] }): StreamEntity {
+    return {
+        icon: null,
+        path: '',
+        absolute_path: null,
+        parent_id: null,
+        git_url: null,
+        ...overrides,
+    };
+}
+
+function createBreadcrumb(streams: StreamEntity[]): ContextBreadcrumb {
+    return new ContextBreadcrumb({ streams, reposPath: REPOS_PATH });
+}
+
 describe('ContextBreadcrumb', () => {
-    let tempDir: string;
-    let dataDir: string;
-    let reposPath: string;
-    let db: DatabaseManager;
-    let breadcrumb: ContextBreadcrumb;
-
-    beforeEach(async () => {
-        // Create temp directory structure
-        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'duet-context-test-'));
-        dataDir = path.join(tempDir, 'DuetData');
-        reposPath = path.join(dataDir, 'repos');
-        await fs.mkdir(reposPath, { recursive: true });
-
-        // Initialize DB
-        const paths = new Paths(dataDir);
-        db = new DatabaseManager(paths);
-        await db.init();
-
-        // Create breadcrumb builder
-        breadcrumb = new ContextBreadcrumb({ db, reposPath });
-    });
-
-    afterEach(async () => {
-        await fs.rm(tempDir, { recursive: true, force: true });
-    });
-
     describe('Empty input', () => {
         it('should return empty array for empty folder list', () => {
-            const result = breadcrumb.build([]);
+            const result = createBreadcrumb([]).build([]);
             expect(result).toEqual([]);
         });
     });
 
     describe('Git repos in repos/ folder', () => {
         it('should build chain for git repo with matching product', () => {
-            // Setup DB: Business -> Product
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'TestBiz',
-                icon: '🔬',
-                drivePath: '/drive/TestBiz'
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'MyApp',
-                icon: '📱',
-                drivePath: '/drive/TestBiz/MyApp',
-                parentId: bizId
-            });
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'TestBiz', icon: '🔬', absolute_path: '/drive/TestBiz' }),
+                makeStream({ id: '2', type: 'product', name: 'MyApp', icon: '📱', absolute_path: '/drive/TestBiz/MyApp', parent_id: '1' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            const gitFolder = path.join(REPOS_PATH, 'MyApp.git');
 
-            // Git repo folder
-            const gitFolder = path.join(reposPath, 'MyApp.git');
-
-            const result = breadcrumb.build([gitFolder]);
+            const result = bc.build([gitFolder]);
 
             expect(result).toHaveLength(1);
             expect(result[0].type).toBe('business');
@@ -93,55 +70,46 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should return orphan error as child of git folder', () => {
-            // No entities in DB
-            const gitFolder = path.join(reposPath, 'Unknown.git');
+            const bc = createBreadcrumb([]);
+            const gitFolder = path.join(REPOS_PATH, 'Unknown.git');
 
-            const result = breadcrumb.build([gitFolder]);
+            const result = bc.build([gitFolder]);
 
             expect(result).toHaveLength(1);
-            // Root is the git folder
             expect(result[0].type).toBe('git');
             expect(result[0].name).toBe('Unknown.git');
             expect(result[0].errorCode).toBe('orphan');
-            // Error is a child
             expect(result[0].children).toHaveLength(1);
             expect(result[0].children[0].type).toBe('error');
             expect(result[0].children[0].errorCode).toBe('orphan');
         });
 
         it('should return name_conflict error as child of git folder', () => {
-            // Setup DB: Business with same name as repo
-            db.insertEntity({
-                type: 'business',
-                name: 'Conflict',
-                icon: '🔬',
-                drivePath: '/drive/Conflict'
-            });
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'Conflict', icon: '🔬', absolute_path: '/drive/Conflict' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            const gitFolder = path.join(REPOS_PATH, 'Conflict.git');
 
-            const gitFolder = path.join(reposPath, 'Conflict.git');
-
-            const result = breadcrumb.build([gitFolder]);
+            const result = bc.build([gitFolder]);
 
             expect(result).toHaveLength(1);
-            // Root is the git folder
             expect(result[0].type).toBe('git');
             expect(result[0].errorCode).toBe('name_conflict');
-            // Error is a child
             expect(result[0].children).toHaveLength(1);
             expect(result[0].children[0].type).toBe('error');
             expect(result[0].children[0].errorCode).toBe('name_conflict');
         });
 
         it('should treat repos/ folder without .git suffix as external with info child', () => {
-            const folder = path.join(reposPath, 'SomeFolder');
+            const bc = createBreadcrumb([]);
+            const folder = path.join(REPOS_PATH, 'SomeFolder');
 
-            const result = breadcrumb.build([folder]);
+            const result = bc.build([folder]);
 
             expect(result).toHaveLength(1);
             expect(result[0].type).toBe('external');
-            // No errorCode on parent - only child is clickable
             expect(result[0].errorCode).toBeUndefined();
-            // Info child for help
             expect(result[0].children).toHaveLength(1);
             expect(result[0].children[0].type).toBe('error');
             expect(result[0].children[0].errorCode).toBe('outside_hierarchy');
@@ -149,34 +117,17 @@ describe('ContextBreadcrumb', () => {
         });
     });
 
-    describe('Folders on Drive (DB lookup)', () => {
-        it('should build chain for folder found in DB', () => {
-            // Setup DB: Business -> Stream -> Product
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'МетаЛаб',
-                icon: '🔬',
-                drivePath: '/drive/МетаЛаб'
-            });
-            const streamId = db.insertEntity({
-                type: 'stream',
-                name: 'ТехноЛаб',
-                icon: '💻',
-                drivePath: '/drive/МетаЛаб/ТехноЛаб',
-                parentId: bizId
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Duet',
-                icon: '🎭',
-                drivePath: '/drive/МетаЛаб/ТехноЛаб/Duet',
-                parentId: streamId
-            });
-
-            // Open product folder on Drive
+    describe('Folders on Drive (lookup)', () => {
+        it('should build chain for folder found in streams', () => {
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
+                makeStream({ id: '2', type: 'stream', name: 'ТехноЛаб', icon: '💻', absolute_path: '/drive/МетаЛаб/ТехноЛаб', parent_id: '1' }),
+                makeStream({ id: '3', type: 'product', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Duet', parent_id: '2' }),
+            ];
+            const bc = createBreadcrumb(streams);
             const driveFolder = '/drive/МетаЛаб/ТехноЛаб/Duet';
 
-            const result = breadcrumb.build([driveFolder]);
+            const result = bc.build([driveFolder]);
 
             expect(result).toHaveLength(1);
             expect(result[0].type).toBe('business');
@@ -191,16 +142,13 @@ describe('ContextBreadcrumb', () => {
             expect(product.name).toBe('Duet');
         });
 
-        it('should return external for folder not in DB with info child', () => {
-            const unknownFolder = '/some/random/path';
-
-            const result = breadcrumb.build([unknownFolder]);
+        it('should return external for folder not in streams with info child', () => {
+            const bc = createBreadcrumb([]);
+            const result = bc.build(['/some/random/path']);
 
             expect(result).toHaveLength(1);
             expect(result[0].type).toBe('external');
-            // No errorCode on parent - only child is clickable
             expect(result[0].errorCode).toBeUndefined();
-            // Info child for help
             expect(result[0].children).toHaveLength(1);
             expect(result[0].children[0].type).toBe('error');
             expect(result[0].children[0].errorCode).toBe('outside_hierarchy');
@@ -208,65 +156,52 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should match deepest entity for nested path', () => {
-            // Setup DB: Business -> Product
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'Biz',
-                icon: 'B',
-                drivePath: '/drive/Biz'
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Prod',
-                icon: 'P',
-                drivePath: '/drive/Biz/Prod',
-                parentId: bizId
-            });
-
-            // Open subfolder of product
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'Biz', icon: 'B', absolute_path: '/drive/Biz' }),
+                makeStream({ id: '2', type: 'product', name: 'Prod', icon: 'P', absolute_path: '/drive/Biz/Prod', parent_id: '1' }),
+            ];
+            const bc = createBreadcrumb(streams);
             const subFolder = '/drive/Biz/Prod/src/components';
 
-            const result = breadcrumb.build([subFolder]);
+            const result = bc.build([subFolder]);
 
             expect(result).toHaveLength(1);
-            // Should match Product (deepest) and build chain to Business
             expect(result[0].type).toBe('business');
             expect(result[0].children[0].type).toBe('product');
             expect(result[0].children[0].name).toBe('Prod');
+        });
+
+        it('should not false-match path with same prefix but different entity', () => {
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'Biz', icon: 'B', absolute_path: '/drive/Biz' }),
+                makeStream({ id: '2', type: 'product', name: 'BizExtra', icon: 'P', absolute_path: '/drive/BizExtra' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            // /drive/BizExtra should NOT match /drive/Biz
+            const folder = '/drive/BizExtra/something';
+
+            const result = bc.build([folder]);
+
+            expect(result).toHaveLength(1);
+            // Should match BizExtra (exact entity), not Biz (false prefix)
+            expect(result[0].type).toBe('product');
+            expect(result[0].name).toBe('BizExtra');
         });
     });
 
     describe('Common ancestor merging', () => {
         it('should merge two products from same business into one tree', () => {
-            // Setup DB: Business -> [Product1, Product2]
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'МетаЛаб',
-                icon: '🔬',
-                drivePath: '/drive/МетаЛаб'
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Duet',
-                icon: '🎭',
-                drivePath: '/drive/МетаЛаб/Duet',
-                parentId: bizId
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Kreator',
-                icon: '🎨',
-                drivePath: '/drive/МетаЛаб/Kreator',
-                parentId: bizId
-            });
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
+                makeStream({ id: '2', type: 'product', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/Duet', parent_id: '1' }),
+                makeStream({ id: '3', type: 'product', name: 'Kreator', icon: '🎨', absolute_path: '/drive/МетаЛаб/Kreator', parent_id: '1' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            const duetRepo = path.join(REPOS_PATH, 'Duet.git');
+            const kreatorRepo = path.join(REPOS_PATH, 'Kreator.git');
 
-            // Open both git repos
-            const duetRepo = path.join(reposPath, 'Duet.git');
-            const kreatorRepo = path.join(reposPath, 'Kreator.git');
+            const result = bc.build([duetRepo, kreatorRepo]);
 
-            const result = breadcrumb.build([duetRepo, kreatorRepo]);
-
-            // Should be ONE root (МетаЛаб) with TWO product children
             expect(result).toHaveLength(1);
             expect(result[0].type).toBe('business');
             expect(result[0].name).toBe('МетаЛаб');
@@ -278,41 +213,18 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should merge products from same stream into one subtree', () => {
-            // Setup DB: Business -> Stream -> [Product1, Product2]
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'МетаЛаб',
-                icon: '🔬',
-                drivePath: '/drive/МетаЛаб'
-            });
-            const streamId = db.insertEntity({
-                type: 'stream',
-                name: 'ТехноЛаб',
-                icon: '💻',
-                drivePath: '/drive/МетаЛаб/ТехноЛаб',
-                parentId: bizId
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Duet',
-                icon: '🎭',
-                drivePath: '/drive/МетаЛаб/ТехноЛаб/Duet',
-                parentId: streamId
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Kreator',
-                icon: '🎨',
-                drivePath: '/drive/МетаЛаб/ТехноЛаб/Kreator',
-                parentId: streamId
-            });
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
+                makeStream({ id: '2', type: 'stream', name: 'ТехноЛаб', icon: '💻', absolute_path: '/drive/МетаЛаб/ТехноЛаб', parent_id: '1' }),
+                makeStream({ id: '3', type: 'product', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Duet', parent_id: '2' }),
+                makeStream({ id: '4', type: 'product', name: 'Kreator', icon: '🎨', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Kreator', parent_id: '2' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            const duetRepo = path.join(REPOS_PATH, 'Duet.git');
+            const kreatorRepo = path.join(REPOS_PATH, 'Kreator.git');
 
-            const duetRepo = path.join(reposPath, 'Duet.git');
-            const kreatorRepo = path.join(reposPath, 'Kreator.git');
+            const result = bc.build([duetRepo, kreatorRepo]);
 
-            const result = breadcrumb.build([duetRepo, kreatorRepo]);
-
-            // One root -> one stream -> two products
             expect(result).toHaveLength(1);
             const stream = result[0].children[0];
             expect(stream.type).toBe('stream');
@@ -320,40 +232,18 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should create separate roots for different businesses', () => {
-            // Setup DB: Two separate businesses with products
-            const biz1Id = db.insertEntity({
-                type: 'business',
-                name: 'Business1',
-                icon: '1️⃣',
-                drivePath: '/drive/Business1'
-            });
-            const biz2Id = db.insertEntity({
-                type: 'business',
-                name: 'Business2',
-                icon: '2️⃣',
-                drivePath: '/drive/Business2'
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Prod1',
-                icon: 'P1',
-                drivePath: '/drive/Business1/Prod1',
-                parentId: biz1Id
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'Prod2',
-                icon: 'P2',
-                drivePath: '/drive/Business2/Prod2',
-                parentId: biz2Id
-            });
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'Business1', icon: '1️⃣', absolute_path: '/drive/Business1' }),
+                makeStream({ id: '2', type: 'business', name: 'Business2', icon: '2️⃣', absolute_path: '/drive/Business2' }),
+                makeStream({ id: '3', type: 'product', name: 'Prod1', icon: 'P1', absolute_path: '/drive/Business1/Prod1', parent_id: '1' }),
+                makeStream({ id: '4', type: 'product', name: 'Prod2', icon: 'P2', absolute_path: '/drive/Business2/Prod2', parent_id: '2' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            const prod1Repo = path.join(REPOS_PATH, 'Prod1.git');
+            const prod2Repo = path.join(REPOS_PATH, 'Prod2.git');
 
-            const prod1Repo = path.join(reposPath, 'Prod1.git');
-            const prod2Repo = path.join(reposPath, 'Prod2.git');
+            const result = bc.build([prod1Repo, prod2Repo]);
 
-            const result = breadcrumb.build([prod1Repo, prod2Repo]);
-
-            // Two separate roots
             expect(result).toHaveLength(2);
             const names = result.map(r => r.name);
             expect(names).toContain('Business1');
@@ -363,44 +253,22 @@ describe('ContextBreadcrumb', () => {
 
     describe('Root sorting', () => {
         it('should sort roots by leaf type: business > stream > product > external', () => {
-            // Setup: Various entity types as deepest match
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'JustBusiness',
-                icon: 'B',
-                drivePath: '/drive/JustBusiness'
-            });
-            db.insertEntity({
-                type: 'stream',
-                name: 'JustStream',
-                icon: 'S',
-                drivePath: '/drive/JustBusiness/JustStream',
-                parentId: bizId
-            });
-            const biz2Id = db.insertEntity({
-                type: 'business',
-                name: 'BizWithProduct',
-                icon: 'B',
-                drivePath: '/drive/BizWithProduct'
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'TheProduct',
-                icon: 'P',
-                drivePath: '/drive/BizWithProduct/TheProduct',
-                parentId: biz2Id
-            });
-
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'JustBusiness', icon: 'B', absolute_path: '/drive/JustBusiness' }),
+                makeStream({ id: '2', type: 'stream', name: 'JustStream', icon: 'S', absolute_path: '/drive/JustBusiness/JustStream', parent_id: '1' }),
+                makeStream({ id: '3', type: 'business', name: 'BizWithProduct', icon: 'B', absolute_path: '/drive/BizWithProduct' }),
+                makeStream({ id: '4', type: 'product', name: 'TheProduct', icon: 'P', absolute_path: '/drive/BizWithProduct/TheProduct', parent_id: '3' }),
+            ];
+            const bc = createBreadcrumb(streams);
             const folders = [
                 '/drive/JustBusiness/JustStream', // Stream deepest
                 '/some/external/folder',          // External
-                path.join(reposPath, 'TheProduct.git'), // Product via git
+                path.join(REPOS_PATH, 'TheProduct.git'), // Product via git
                 '/drive/JustBusiness'             // Business deepest
             ];
 
-            const result = breadcrumb.build(folders);
+            const result = bc.build(folders);
 
-            // External should be sorted last
             expect(result.length).toBeGreaterThan(0);
             const lastRoot = result[result.length - 1];
             expect(lastRoot).toBeDefined();
@@ -408,16 +276,15 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should sort alphabetically within same leaf type', () => {
-            // Two external folders with different names
+            const bc = createBreadcrumb([]);
             const folders = [
                 '/some/path/Zebra',
                 '/other/path/Apple'
             ];
 
-            const result = breadcrumb.build(folders);
+            const result = bc.build(folders);
 
             expect(result).toHaveLength(2);
-            // Should be sorted alphabetically: Apple before Zebra
             expect(result[0].name).toBe('Apple');
             expect(result[1].name).toBe('Zebra');
         });
@@ -425,17 +292,15 @@ describe('ContextBreadcrumb', () => {
 
     describe('Git repo outside repos/ folder', () => {
         it('should return outside_repos error as child of git folder', () => {
-            // A git repo outside the DuetData/repos folder
+            const bc = createBreadcrumb([]);
             const externalGitRepo = '/home/user/projects/SomeRepo.git';
 
-            const result = breadcrumb.build([externalGitRepo]);
+            const result = bc.build([externalGitRepo]);
 
             expect(result).toHaveLength(1);
-            // Root is the git folder
             expect(result[0].type).toBe('git');
             expect(result[0].name).toBe('SomeRepo.git');
             expect(result[0].errorCode).toBe('outside_repos');
-            // Error is a child
             expect(result[0].children).toHaveLength(1);
             expect(result[0].children[0].type).toBe('error');
             expect(result[0].children[0].errorCode).toBe('outside_repos');
@@ -444,32 +309,21 @@ describe('ContextBreadcrumb', () => {
 
     describe('Complex scenarios', () => {
         it('should handle mix of valid chains, errors, and externals', () => {
-            // Setup DB
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'ValidBiz',
-                icon: '✓',
-                drivePath: '/drive/ValidBiz'
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'ValidProd',
-                icon: 'P',
-                drivePath: '/drive/ValidBiz/ValidProd',
-                parentId: bizId
-            });
-
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'ValidBiz', icon: '✓', absolute_path: '/drive/ValidBiz' }),
+                makeStream({ id: '2', type: 'product', name: 'ValidProd', icon: 'P', absolute_path: '/drive/ValidBiz/ValidProd', parent_id: '1' }),
+            ];
+            const bc = createBreadcrumb(streams);
             const folders = [
-                path.join(reposPath, 'ValidProd.git'),  // Valid chain
-                path.join(reposPath, 'Orphan.git'),     // Orphan error
-                '/some/random/folder'                   // External
+                path.join(REPOS_PATH, 'ValidProd.git'),  // Valid chain
+                path.join(REPOS_PATH, 'Orphan.git'),     // Orphan error
+                '/some/random/folder'                     // External
             ];
 
-            const result = breadcrumb.build(folders);
+            const result = bc.build(folders);
 
             expect(result).toHaveLength(3);
 
-            // Find each type
             const validRoot = result.find(r => r.type === 'business');
             const orphan = result.find(r => r.errorCode === 'orphan');
             const external = result.find(r => r.type === 'external');
@@ -480,42 +334,19 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should handle deeply nested hierarchy', () => {
-            // Business -> Stream1 -> Stream2 -> Product
-            const bizId = db.insertEntity({
-                type: 'business',
-                name: 'DeepBiz',
-                icon: 'B',
-                drivePath: '/drive/DeepBiz'
-            });
-            const s1Id = db.insertEntity({
-                type: 'stream',
-                name: 'Stream1',
-                icon: 'S1',
-                drivePath: '/drive/DeepBiz/Stream1',
-                parentId: bizId
-            });
-            const s2Id = db.insertEntity({
-                type: 'stream',
-                name: 'Stream2',
-                icon: 'S2',
-                drivePath: '/drive/DeepBiz/Stream1/Stream2',
-                parentId: s1Id
-            });
-            db.insertEntity({
-                type: 'product',
-                name: 'DeepProd',
-                icon: 'P',
-                drivePath: '/drive/DeepBiz/Stream1/Stream2/DeepProd',
-                parentId: s2Id
-            });
+            const streams = [
+                makeStream({ id: '1', type: 'business', name: 'DeepBiz', icon: 'B', absolute_path: '/drive/DeepBiz' }),
+                makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S1', absolute_path: '/drive/DeepBiz/Stream1', parent_id: '1' }),
+                makeStream({ id: '3', type: 'stream', name: 'Stream2', icon: 'S2', absolute_path: '/drive/DeepBiz/Stream1/Stream2', parent_id: '2' }),
+                makeStream({ id: '4', type: 'product', name: 'DeepProd', icon: 'P', absolute_path: '/drive/DeepBiz/Stream1/Stream2/DeepProd', parent_id: '3' }),
+            ];
+            const bc = createBreadcrumb(streams);
+            const gitFolder = path.join(REPOS_PATH, 'DeepProd.git');
 
-            const gitFolder = path.join(reposPath, 'DeepProd.git');
-
-            const result = breadcrumb.build([gitFolder]);
+            const result = bc.build([gitFolder]);
 
             expect(result).toHaveLength(1);
 
-            // Verify full chain
             let node = result[0];
             expect(node.type).toBe('business');
             expect(node.name).toBe('DeepBiz');
@@ -536,16 +367,29 @@ describe('ContextBreadcrumb', () => {
             expect(node.type).toBe('git');
         });
     });
-});
 
-// Helper function to get deepest node type (for sorting verification)
-function getDeepestType(node: ContextNode): string {
-    if (node.children.length === 0) {
-        return node.type;
-    }
-    const nonGit = node.children.filter(c => c.type !== 'git');
-    if (nonGit.length > 0) {
-        return getDeepestType(nonGit[0]);
-    }
-    return node.type;
-}
+    describe('updateStreams', () => {
+        it('should rebuild tree with new data', () => {
+            const streams1 = [
+                makeStream({ id: '1', type: 'business', name: 'OldBiz', icon: 'O', absolute_path: '/drive/OldBiz' }),
+                makeStream({ id: '2', type: 'product', name: 'OldProd', icon: 'P', absolute_path: '/drive/OldBiz/OldProd', parent_id: '1' }),
+            ];
+            const bc = createBreadcrumb(streams1);
+
+            // Should find OldProd
+            const result1 = bc.build([path.join(REPOS_PATH, 'OldProd.git')]);
+            expect(result1[0].type).toBe('business');
+
+            // Update streams
+            const streams2 = [
+                makeStream({ id: '1', type: 'business', name: 'NewBiz', icon: 'N', absolute_path: '/drive/NewBiz' }),
+                makeStream({ id: '2', type: 'product', name: 'OldProd', icon: 'P', absolute_path: '/drive/NewBiz/OldProd', parent_id: '1' }),
+            ];
+            bc.updateStreams(streams2);
+
+            // Should now find under NewBiz
+            const result2 = bc.build([path.join(REPOS_PATH, 'OldProd.git')]);
+            expect(result2[0].name).toBe('NewBiz');
+        });
+    });
+});

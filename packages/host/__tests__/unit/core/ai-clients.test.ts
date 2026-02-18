@@ -104,7 +104,7 @@ describe('core/ai-clients', () => {
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
     })
 
-    it('returns configured for Claude Code when output-style + MCP exist and content matches', () => {
+    it('returns configured for Claude Code when output-style + settings + MCP exist and content matches', () => {
       const duetDataPath = setupDuetData(ctx)
 
       // Write output-style with correct content (frontmatter + source)
@@ -118,6 +118,10 @@ describe('core/ai-clients', () => {
       writeFileSync(
         join(homeDir, '.claude', 'output-styles', 'duet.md'),
         frontmatter + sourceContent
+      )
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({ outputStyle: 'Duet' })
       )
       writeFileSync(
         join(homeDir, '.claude.json'),
@@ -140,6 +144,10 @@ describe('core/ai-clients', () => {
 
       mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
       writeFileSync(join(homeDir, '.claude', 'output-styles', 'duet.md'), '# Old content')
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({ outputStyle: 'Duet' })
+      )
       writeFileSync(
         join(homeDir, '.claude.json'),
         JSON.stringify({
@@ -273,16 +281,31 @@ describe('core/ai-clients', () => {
       expect(styleContent).toContain('# Short Instructions')
     })
 
-    it('removes legacy ai-kit.md output style', () => {
-      mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
-      const legacyPath = join(homeDir, '.claude', 'output-styles', 'ai-kit.md')
-      writeFileSync(legacyPath, 'old content')
+    it('writes outputStyle to ~/.claude/settings.json', () => {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
       const duetDataPath = setupDuetData(ctx)
 
       configureClaudeCode(duetDataPath, TEST_PORT)
 
-      expect(existsSync(legacyPath)).toBe(false)
-      expect(existsSync(join(homeDir, '.claude', 'output-styles', 'duet.md'))).toBe(true)
+      const settingsPath = join(homeDir, '.claude', 'settings.json')
+      expect(existsSync(settingsPath)).toBe(true)
+      const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+      expect(config.outputStyle).toBe('Duet')
+    })
+
+    it('preserves existing keys in ~/.claude/settings.json', () => {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({ permissions: { allow: ['Edit'] } })
+      )
+      const duetDataPath = setupDuetData(ctx)
+
+      configureClaudeCode(duetDataPath, TEST_PORT)
+
+      const config = JSON.parse(readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf-8'))
+      expect(config.outputStyle).toBe('Duet')
+      expect(config.permissions).toEqual({ allow: ['Edit'] })
     })
 
     it('writes HTTP MCP config to ~/.claude.json', () => {

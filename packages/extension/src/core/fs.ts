@@ -6,7 +6,7 @@ import type { Dirent } from 'fs';
 /**
  * FileSystem interface for dependency injection.
  *
- * Used by ConfigManager, Scanner, and other core modules.
+ * Used by WorkspaceManager and other core modules.
  * Enables easy mocking in tests without vi.mock() hacks.
  */
 export interface FileSystem {

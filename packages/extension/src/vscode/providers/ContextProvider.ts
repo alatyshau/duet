@@ -14,8 +14,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { ContextBreadcrumb, ContextNode } from '../../core/tree/contextBreadcrumb';
-import { DatabaseManager } from '../../core/db';
-import { Paths } from '../../core/paths';
+import { StreamEntity } from '../../core/api-client';
 
 /**
  * TreeDataProvider for the КОНТЕКСТ section in sidebar.
@@ -30,10 +29,10 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
     private roots: ContextNode[] = [];
     private disposables: vscode.Disposable[] = [];
 
-    constructor(db: DatabaseManager, paths: Paths) {
+    constructor(streams: StreamEntity[], reposPath: string) {
         this.logic = new ContextBreadcrumb({
-            db,
-            reposPath: paths.reposPath
+            streams,
+            reposPath
         });
 
         // Listen to workspace folder changes
@@ -51,7 +50,17 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
     }
 
     /**
-     * Refresh the tree. Called after scan or workspace changes.
+     * Update streams data (after scan/refresh).
+     * Replaces dataset, rebuilds tree.
+     */
+    updateStreams(streams: StreamEntity[]): void {
+        this.logic.updateStreams(streams);
+        this.rebuildTree();
+        this._onDidChangeTreeData.fire();
+    }
+
+    /**
+     * Refresh the tree. Called after workspace folder changes.
      */
     refresh(): void {
         this.rebuildTree();
@@ -212,8 +221,8 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
 /**
  * Command handler for opening DuetData folder in system file manager.
  */
-export async function openDataFolderCommand(paths: Paths): Promise<void> {
-    const dataFolder = path.dirname(paths.reposPath);
+export async function openDataFolderCommand(reposPath: string): Promise<void> {
+    const dataFolder = path.dirname(reposPath);
     await vscode.env.openExternal(vscode.Uri.file(dataFolder));
 }
 

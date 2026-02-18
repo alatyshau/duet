@@ -18,15 +18,15 @@
          │                    ┌──────────────┴──────────────┐
          ▼                    ▼                              ▼
 ┌──────────────────┐          ┌──────────────────┐
-│ Backend (Python)  │◀─health─│ Extension (VSCode)│
-│ HTTP API + MCP    │  polls  │ UI, tree, scanner │
+│ Backend (Python)  │◀──HTTP──│ Extension (VSCode)│
+│ HTTP API + MCP    │         │ UI (tree views)   │
 └──────────────────┘          └──────────────────┘
 ```
 
 | Component | Package | Language | Role |
 |-----------|---------|----------|------|
 | **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend + AI instructions. Configures AI clients |
-| **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Polls backend health. Reads pointer |
+| **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Thin client — all data from Backend HTTP API. Reads pointer for port |
 | **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
 | **AI Instructions** | `packages/ai-instructions` | Markdown | Pure content: modes, stances, skills, personas, workflows, schemas |
 | **AI Kit** | `packages/ai-kit` | Markdown + Python | Legacy: install.py, MCP server, legacy templates. Being replaced by AI Instructions + Host |
@@ -67,7 +67,7 @@ packages/ai-kit/
 └── spec/                   # AI Kit's own specs
 ```
 
-**MCP server:** Legacy Python MCP (timestamp + get_instruction_location). Replaced by Extension's Node.js MCP (5 tools). Don't touch until backend health management is in Host UI.
+**MCP server:** Legacy Python MCP (timestamp + get_instruction_location). Replaced by Backend HTTP MCP (7 tools). Folder deleted from DuetData.
 
 ## Pointer File
 
@@ -99,7 +99,6 @@ Local cache. Fully recoverable — can be deleted and rebuilt.
 ```
 DuetData/
 ├── data/
-│   ├── index.db                    # Extension's SQLite (sql.js WASM)
 │   └── entities.db                 # Backend's SQLite (native sqlite3)
 ├── repos/
 │   └── {Product}.git/              # cloned repositories
@@ -112,12 +111,8 @@ DuetData/
 ├── .venv/                          # Python virtual environment
 ├── .pid                            # backend PID lockfile
 ├── backend.log                     # backend log (RotatingFileHandler)
-├── mcp/
-│   └── mcp-server.js              # Extension Node.js MCP (deployed for VS Code Copilot)
 ├── all-businesses.code-workspace   # multi-root for all businesses
-├── config.json                     # LEGACY — Extension scanner only
-├── ai-instructions/                # AI instructions (modes, stances, skills, personas, etc.)
-└── ai-kit/                         # Legacy: settings.json, MCP server
+└── ai-instructions/                # AI instructions (modes, stances, skills, personas, etc.)
 ```
 
 ## DuetConfig Directory
@@ -142,7 +137,7 @@ DuetConfig/
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
 | `business_folders` | Backend | List of business roots (may use @aliases) |
-| `timestampTZ` | Backend, Extension MCP (via legacy `DuetData/ai-kit/settings.json`) | Timezone for timestamps |
+| `timestampTZ` | Backend | Timezone for timestamps |
 
 ### {machine}.json
 
@@ -230,7 +225,7 @@ Scanner auto-fixes manifest issues:
 
 ## Database Schema
 
-Shared schema — used by both Extension (`index.db`, sql.js) and Backend (`entities.db`, native sqlite3):
+Backend's SQLite schema (`entities.db`, native sqlite3):
 
 ```sql
 CREATE TABLE entities (
@@ -257,14 +252,14 @@ Backend (reads VERSION → returns via /health)
     │
     ▼
 Host (isDeployNeeded: app version > deployed → redeploy)
-Extension (polls /health → detects when backend is up)
+Extension (checks /health → detects when backend is up)
 ```
 
 ### Backend Spawn
 
 ```
 Host → spawn(venvPython, [serverPath]) → Backend
-Extension → polls /health → detects when backend is up
+Extension → checks /health → detects when backend is up
 ```
 
 - Host is the single owner of backend lifecycle (start, stop, health)
@@ -283,9 +278,7 @@ Extension → polls /health → detects when backend is up
 | `DuetConfig/settings.json` | creates defaults | — | reads | — |
 | `DuetConfig/{machine}.json` | reads+writes (port, defaults) | reads (port) | reads (port, @aliases) | — |
 | `DuetData/backend/VERSION` | writes | — | reads | — |
-| `DuetData/config.json` | — | reads (legacy scanner) | — | — |
 | `DuetData/ai-instructions/` | deploys | — | — | reads (instructions) |
-| `DuetData/ai-kit/` | — | — | — | reads (settings.json) |
 | `DuetData/backend.log` | — | — | writes | — |
 | `DuetData/.pid` | reads | — | writes | — |
 
@@ -297,7 +290,7 @@ Extension → polls /health → detects when backend is up
 |-----------|---------|----------|--------------|
 | **Host** | `cd packages/host && npm run release` | `dist/Duet-{ver}.dmg` (or `.exe`, `.AppImage`) | Auto patch bump |
 | **Extension** | `cd packages/extension && npm run vsix` | `dist/duet-{ver}.vsix` | Auto patch bump |
-| **Backend** | — | No standalone artifact. Bundled into Host (extraResources) + Extension VSIX | Inherits Host version (at deploy) |
+| **Backend** | — | No standalone artifact. Bundled into Host (extraResources) | Inherits Host version (at deploy) |
 
 ### Host Release (`packages/host/build-release.cjs`)
 
@@ -322,11 +315,10 @@ npm run vsix
   1. Bump patch in package.json (0.0.8 → 0.0.9)
   2. Update viewContainer title → "Duet {version}"
   3. npm run package (typecheck + lint + esbuild --production)
-  4. bundle-backend.js: copy packages/backend/ → dist/backend/ (excludes tests, __pycache__)
-  5. vsce package → dist/duet-{version}.vsix
+  4. vsce package → dist/duet-{version}.vsix
 ```
 
-**Backend bundling:** `bundle-backend.js` copies Python source into VSIX (legacy). Extension no longer deploys backend — Host handles deployment via `deploy.ts`.
+Extension is a thin UI client — no backend bundling. Host handles backend deployment via `deploy.ts`.
 
 ### CI/CD (GitHub Actions)
 

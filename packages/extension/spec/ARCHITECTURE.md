@@ -25,27 +25,26 @@
 | Decision | Rationale |
 |----------|-----------|
 | Pointer-based config (`pointer.ts`) | Reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
-| sql.js (WASM) | Works in VS Code extension sandbox, no native deps |
+| Backend HTTP API as data source | `DuetApiClient` → all entity data via `/streams`, `/projects`, `/scan` |
+| `StreamEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
-| `atomicWriteFile()` in FileSystem | Prevents config.json corruption on crash |
-| Deterministic scan order | `readdir` sorted by name for reproducible results |
+| Deterministic scan order | Backend scanner: `readdir` sorted by name for reproducible results |
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
 | Workspace files | Multi-root workspace for repo + Drive folder |
-| Backend `stdio: 'ignore'` | Backend logs to file, avoids BrokenPipe/SIGPIPE |
-| VERSION file (not config.json) | Backend version in `DuetData/backend/VERSION` |
 
-## Scanner Behaviors
+## Data Flow
 
-| Behavior | Description |
-|----------|-------------|
-| Self-healing | Auto-creates `business.json` at roots, renames misplaced manifests |
-| Recursive descent | Scans nested streams until product found |
-| Product is terminal | On `product.json` found → stop, no manifests below product |
-| Projects detection | Any entity with `projects/` subfolder |
+```
+activation → apiClient.streams() → StreamEntity[]
+           → pass to BusinessTreeProvider, ContextProvider
+           → ProjectsProvider gets apiClient for async /projects calls
 
-Implementation: `scanner.ts` (legacy — reads `config.json`). Name conflict resolution → see ECOSYSTEM.md
+refresh    → apiClient.scan() + apiClient.streams() → new StreamEntity[]
+           → updateStreams() on all providers → fire onDidChangeTreeData
+```
 
-**Legacy note:** Scanner still reads `DuetData/config.json` via `ConfigManager`. Will migrate to Backend API when Extension stops doing its own scan.
+Tree providers work synchronously over `StreamEntity[]` (filter, find, sort).
+Only `ProjectsProvider.getChildren()` is async (calls `/projects/{id}`).
 
 ## Launcher (openFolder.ts)
 
@@ -93,25 +92,12 @@ Note: Active color takes priority over business color.
 npm run vsix   # bump + build + package → dist/duet-{version}.vsix
 ```
 
-`build-vsix.js`: bump patch → update UI title → esbuild --production → bundle-backend → vsce package
+`build-vsix.js`: bump patch → update UI title → esbuild --production → vsce package
 
 | Script | What |
 |--------|------|
-| `esbuild.js` | Bundle extension + MCP server. Copies `sql-wasm.wasm` to dist/ |
-| `bundle-backend.js` | Copy `packages/backend/` → `dist/backend/` (excludes tests, `__pycache__`) |
+| `esbuild.js` | Bundle extension to `dist/extension.js` |
 | `build-vsix.js` | Orchestrates: version bump + package + vsce |
-
-**Backend is embedded in VSIX** — Extension deploys it to `DuetData/backend/` on activation.
-
-## File Safety
-
-All file writes use atomic pattern: tmp + rename.
-
-| File | Module | Method |
-|------|--------|--------|
-| `config.json` | `ConfigManager` | `fs.atomicWriteFile()` |
-
-**Contract:** `fs.atomicWriteFile(path, data, encoding)` — writes to `.{basename}.{pid}.tmp` then `fs.rename()`. Never `fs.writeFile()` for config.
 
 ## Backend Health Monitoring
 
@@ -119,15 +105,14 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a light
 
 | Step | What |
 |------|------|
-| 1. Check `/health` | On activation, poll backend via `DuetApiClient.health()` |
-| 2. Set sidebar state | Running → READY, not running → ERROR (suggest launching Host) |
-| 3. Poll every 10s | Detect when Host starts/stops backend |
+| 1. Load streams | On activation, call `apiClient.streams()` |
+| 2. Set sidebar state | Success → READY, failure → ERROR (suggest launching Host) |
+| 3. Retry on demand | `retryBackend` command re-triggers health check |
 
 **Extension contracts:**
 - Port read via `pointer.ts:readPort()` (default 19680)
-- Backend output channel shows health check results
-- `initBackendStatus()` called on activation (non-blocking)
-- `retryBackend` command re-triggers health check
+- Backend output channel shows connection results
+- Single check on activation (no polling) — if backend offline, user clicks retry
 - No spawn, no venv, no install — all managed by Host
 
 ## Navigation
@@ -136,15 +121,16 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a light
 |---------|------|
 | Pointer reading (sync) | `core/pointer.ts` |
 | DuetData paths | `core/paths.ts` |
-| Legacy config.json read/write | `core/config.ts` (ConfigManager) |
 | Backend API client | `core/api-client.ts` |
-| DB schema, queries | `db/index.ts` |
+| Business tree logic | `core/tree/businessTree.ts` |
+| Context breadcrumb | `core/tree/contextBreadcrumb.ts` |
+| Projects list | `core/tree/projectsList.ts` |
+| Legacy config.json read/write | `core/config.ts` (ConfigManager — only for addBusiness) |
 | Workspace generation | `core/workspace.ts` |
-| MCP server | `mcp-server/index.ts` |
 
 ## Testing
 
 | Layer | Tool | Approach |
 |-------|------|----------|
-| `core/` | vitest | Unit tests with mock FileSystem |
+| `core/` | vitest | Unit tests with mock StreamEntity[] and DuetApiClient |
 | `vscode/` | @vscode/test-electron | Integration tests (planned) |

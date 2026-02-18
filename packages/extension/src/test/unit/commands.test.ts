@@ -2,12 +2,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { openInCurrentWindow, openInNewWindow } from '../../vscode/commands/openFolder';
 import { addBusiness } from '../../vscode/commands/addBusiness';
-import { refresh } from '../../vscode/commands/refresh';
+import { refreshFromBackend } from '../../vscode/commands/refresh';
 import { TreeNode } from '../../core/tree/businessTree';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
-import { ConfigManager } from '../../core/config';
-import { readPointer } from '../../core/pointer';
 
 // Mock pointer
 vi.mock('../../core/pointer', () => ({
@@ -59,29 +57,15 @@ vi.mock('fs/promises', () => ({
     stat: vi.fn().mockResolvedValue({ isDirectory: () => true })
 }));
 
-vi.mock('../../core/config', () => {
-    const readMock = vi.fn().mockResolvedValue({ businessFolders: [] });
-    const writeMock = vi.fn().mockResolvedValue(undefined);
+// Mock DuetApiClient for addBusiness tests
+function createMockApiClient(overrides: Record<string, unknown> = {}) {
     return {
-        ConfigManager: vi.fn().mockImplementation(() => ({
-            read: readMock,
-            write: writeMock
-        }))
-    };
-});
-
-vi.mock('../../core/db', () => ({
-    DatabaseManager: vi.fn().mockImplementation(() => ({
-         init: vi.fn(),
-    }))
-}));
-
-const scanMock = vi.fn().mockResolvedValue(undefined);
-vi.mock('../../core/scanner', () => ({
-    Scanner: vi.fn().mockImplementation(() => ({
-        scan: scanMock
-    }))
-}));
+        addBusiness: vi.fn().mockResolvedValue({ status: 'added', business_folders: [] }),
+        scan: vi.fn().mockResolvedValue({ status: 'completed' }),
+        streams: vi.fn().mockResolvedValue({ streams: [] }),
+        ...overrides,
+    } as any;
+}
 
 describe('VS Code Commands', () => {
     beforeEach(() => {
@@ -127,115 +111,128 @@ describe('VS Code Commands', () => {
                 { forceNewWindow: true }
             );
         });
+
+        it('should show error for relative path (null absolute_path fallback)', async () => {
+            const node: TreeNode = {
+                id: '!МетаЛаб/ДЕЛА/ТехноЛаб', // relative drive_path — no absolute_path from backend
+                label: 'ТехноЛаб',
+                icon: '',
+                type: 'stream',
+                hasChildren: false,
+                entityId: 2
+            };
+
+            await openInCurrentWindow(node);
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('relative path')
+            );
+            // Should NOT attempt to open folder
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+                'vscode.openFolder',
+                expect.anything(),
+                expect.anything()
+            );
+        });
     });
 
     describe('addBusiness', () => {
-        it('should add business folder if selected', async () => {
-            // Setup mocks
+        it('should add business folder via backend API', async () => {
             (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/new/business' }]);
-            
-            // Mock access to fail (file doesn't exist) so we trigger creation
+            // Manifest doesn't exist → triggers creation
             (fs.access as any).mockRejectedValueOnce(new Error('ENOENT'));
-            
-            const context: any = { extensionUri: { fsPath: '/ext' } };
-            
-            await addBusiness(context);
 
-            // Verify
+            const apiClient = createMockApiClient();
+            await addBusiness(apiClient);
+
+            // Verify dialog was shown
             expect(vscode.window.showOpenDialog).toHaveBeenCalled();
-            
-            // Check ConfigManager usage
-            const configManager = new ConfigManager('dummy');
-            expect(configManager.read).toHaveBeenCalled();
-            expect(configManager.write).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    businessFolders: ['/new/business']
-                })
-            );
 
-            // Check manifest creation
-            expect(fs.writeFile).toHaveBeenCalled(); // create business.json
+            // Verify manifest creation (business.json)
+            expect(fs.writeFile).toHaveBeenCalled();
 
-            // Check refresh command
+            // Verify backend API was called with the path
+            expect(apiClient.addBusiness).toHaveBeenCalledWith('/new/business');
+
+            // Verify refresh command
             expect(vscode.commands.executeCommand).toHaveBeenCalledWith('duet.refresh');
+        });
+
+        it('should not create manifest if business.json already exists', async () => {
+            (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/new/business' }]);
+            // Manifest exists → access succeeds
+            (fs.access as any).mockResolvedValue(undefined);
+
+            const apiClient = createMockApiClient();
+            await addBusiness(apiClient);
+
+            // Should NOT write business.json
+            expect(fs.writeFile).not.toHaveBeenCalled();
+            // But should still call API
+            expect(apiClient.addBusiness).toHaveBeenCalledWith('/new/business');
         });
 
         it('should do nothing if dialog cancelled', async () => {
             (vscode.window.showOpenDialog as any).mockResolvedValue(undefined);
-            const context: any = { extensionUri: { fsPath: '/ext' } };
-            
-            await addBusiness(context);
+
+            const apiClient = createMockApiClient();
+            await addBusiness(apiClient);
 
             expect(vscode.window.showOpenDialog).toHaveBeenCalled();
-            const configManager = new ConfigManager('dummy');
-            expect(configManager.write).not.toHaveBeenCalled();
+            expect(apiClient.addBusiness).not.toHaveBeenCalled();
             expect(fs.writeFile).not.toHaveBeenCalled();
         });
 
-        it('should not add if already exists', async () => {
-             // Redefine mock specifically for this test to simulate existence
-            const readMock = vi.fn().mockResolvedValue({ businessFolders: ['/existing/business'] });
-            (ConfigManager as any).mockImplementation(() => ({
-                read: readMock,
-                write: vi.fn()
-            }));
-
+        it('should show info message if business already exists', async () => {
             (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/existing/business' }]);
-            
-            const context: any = { extensionUri: { fsPath: '/ext' } };
-            await addBusiness(context);
+            (fs.access as any).mockResolvedValue(undefined); // manifest exists
 
+            const apiClient = createMockApiClient({
+                addBusiness: vi.fn().mockResolvedValue({ status: 'exists', business_folders: ['/existing/business'] })
+            });
+            await addBusiness(apiClient);
+
+            expect(apiClient.addBusiness).toHaveBeenCalledWith('/existing/business');
             expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Business folder already added.');
-            expect(fs.writeFile).not.toHaveBeenCalled();
+            // Should NOT trigger refresh
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('duet.refresh');
+        });
+
+        it('should show error message on API failure', async () => {
+            (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/new/business' }]);
+            (fs.access as any).mockResolvedValue(undefined);
+
+            const apiClient = createMockApiClient({
+                addBusiness: vi.fn().mockRejectedValue(new Error('connection refused'))
+            });
+            await addBusiness(apiClient);
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to add business')
+            );
         });
     });
 
-    describe('refresh', () => {
-        beforeEach(() => {
-            vi.clearAllMocks();
-            scanMock.mockResolvedValue(undefined);
-        });
+    describe('refreshFromBackend', () => {
+        it('should call apiClient.scan and return streams', async () => {
+            const mockStreams = [
+                { id: '1', type: 'business', name: 'Biz1', icon: 'B', path: '', absolute_path: '/drive/biz1', parent_id: null, git_url: null }
+            ];
+            const apiClient = {
+                scan: vi.fn().mockResolvedValue({ status: 'completed' }),
+                streams: vi.fn().mockResolvedValue({ streams: mockStreams }),
+            } as any;
+            const paths = {
+                workspacesPath: '/tmp/workspaces',
+                reposPath: '/tmp/repos',
+                allBusinessesWorkspacePath: '/tmp/all.code-workspace',
+            } as any;
 
-        it('should call scanner.scan and NOT call any vscode commands', async () => {
-            const context: any = { extensionUri: { fsPath: '/ext' } };
+            const result = await refreshFromBackend(apiClient, paths);
 
-            await refresh(context);
-
-            // Scanner should be called
-            expect(scanMock).toHaveBeenCalled();
-
-            // IMPORTANT: refresh should NOT call any executeCommand
-            // Bug fix: previously called non-existent 'duet.refreshTree'
-            expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
-        });
-
-        it('should show warning if pointer not found', async () => {
-            // Override mock for this test — no pointer
-            (readPointer as any).mockReturnValueOnce(null);
-
-            const context: any = { extensionUri: { fsPath: '/ext' } };
-
-            await refresh(context);
-
-            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Duet не настроен. Запустите Duet Host.');
-            expect(scanMock).not.toHaveBeenCalled();
-        });
-
-        it('should log to OutputChannel and show warning if scan fails', async () => {
-            scanMock.mockRejectedValue(new Error('Scan error'));
-
-            const context: any = { extensionUri: { fsPath: '/ext' } };
-
-            await refresh(context);
-
-            // Summary warning is shown with error count (errors logged to OutputChannel)
-            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-                expect.stringContaining('error(s)'),
-                'Show Output'
-            );
-
-            // Verify showErrorMessage is NOT called (errors go to OutputChannel instead)
-            expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+            expect(apiClient.scan).toHaveBeenCalled();
+            expect(apiClient.streams).toHaveBeenCalled();
+            expect(result).toEqual(mockStreams);
         });
     });
 

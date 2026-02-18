@@ -3,10 +3,10 @@
 Provides entity listing and hierarchy scanning.
 """
 
-import json
 import time
+from pathlib import Path
 
-from config import atomic_write, get_state_path
+from config import get_business_folders, get_repos_path, add_business_folder
 from db import DatabaseManager, Entity
 from scanner import Scanner
 
@@ -49,7 +49,8 @@ class EntitiesService:
         if entity_type:
             entities = [e for e in entities if e.type == entity_type]
 
-        return [self._entity_to_dict(e) for e in entities]
+        path_lookup = self._build_path_lookup()
+        return [self._entity_to_dict(e, path_lookup) for e in entities]
 
     def get_streams(self) -> list[dict]:
         """Get all streams (business, stream, product) without projects.
@@ -58,7 +59,8 @@ class EntitiesService:
         Client computes hasChildren from parent_id relations.
         """
         entities = self.db.get_streams()
-        return [self._entity_to_dict(e) for e in entities]
+        path_lookup = self._build_path_lookup()
+        return [self._entity_to_dict(e, path_lookup) for e in entities]
 
     def get_projects(self, stream_id: int) -> list[dict]:
         """Get projects for a stream (any level: business, stream, or product).
@@ -67,16 +69,14 @@ class EntitiesService:
             stream_id: Parent entity ID
         """
         entities = self.db.get_projects(stream_id)
-        return [self._entity_to_dict(e) for e in entities]
+        path_lookup = self._build_path_lookup()
+        return [self._entity_to_dict(e, path_lookup) for e in entities]
 
     def run_scan(self) -> dict:
         """Run full hierarchy scan.
 
         Returns scan statistics. If scan was run < 5 seconds ago,
         returns {"status": "skipped", "reason": "recent_scan"}.
-
-        After successful scan, writes state.json for multi-window sync.
-        Other VS Code windows watch this file to refresh their TreeView.
         """
         now = time.time()
         if now - self._last_scan_time < SCAN_DEBOUNCE_SECONDS:
@@ -86,30 +86,93 @@ class EntitiesService:
         result = scanner.scan()
         self._last_scan_time = time.time()
 
-        # Write state.json for multi-window sync
-        self._write_state()
+        return result
+
+    def add_business(self, absolute_path: str) -> dict:
+        """Add a business folder and trigger rescan.
+
+        Args:
+            absolute_path: Absolute filesystem path to the business folder.
+
+        Returns:
+            Dict with status, business_folders, and scan result.
+        """
+        result = add_business_folder(absolute_path)
+
+        if result["status"] == "added":
+            # Force rescan to pick up new business
+            self._last_scan_time = 0
+            scan_result = self.run_scan()
+            result["scan"] = scan_result
 
         return result
 
-    def _write_state(self) -> None:
-        """Write state.json with last_scan_at timestamp.
+    @staticmethod
+    def _build_path_lookup() -> dict:
+        """Build lookup for resolving relative drive_path to absolute path.
 
-        Used by Extension FileSystemWatcher for multi-window sync.
-        Uses atomic_write to prevent corruption.
+        Called once per request, shared across all entities in response.
+
+        Returns dict with:
+        - business_folders: {folder_name: Path} mapping
+        - repos_path: Path | None
         """
-        state_path = get_state_path()
-        state = {"last_scan_at": int(time.time() * 1000)}  # JS timestamp (ms)
-        atomic_write(state_path, json.dumps(state, indent=2))
+        business_folders = get_business_folders()
+        bf_lookup = {}
+        for folder in business_folders:
+            p = Path(folder)
+            bf_lookup[p.name] = p
+        return {
+            "business_folders": bf_lookup,
+            "repos_path": get_repos_path(),
+        }
 
     @staticmethod
-    def _entity_to_dict(entity: Entity) -> dict:
+    def _resolve_absolute_path(drive_path: str | None, path_lookup: dict) -> str | None:
+        """Resolve relative drive_path to absolute filesystem path.
+
+        Algorithm:
+        1. Split first segment of drive_path (business_folder name)
+        2. Match against business_folder names → business_folder / rest
+        3. If no match, try repos_path / drive_path (repos projects)
+        4. If neither → None
+        """
+        if not drive_path:
+            return None
+
+        parts = drive_path.split("/", 1)
+        first_segment = parts[0]
+        rest = parts[1] if len(parts) > 1 else None
+
+        # Try business folder match
+        bf = path_lookup["business_folders"].get(first_segment)
+        if bf:
+            if rest:
+                return str(bf / rest)
+            return str(bf)
+
+        # Try repos path (for repos projects like "Duet.git/projects/...")
+        repos_path = path_lookup["repos_path"]
+        if repos_path:
+            return str(repos_path / drive_path)
+
+        return None
+
+    @staticmethod
+    def _entity_to_dict(entity: Entity, path_lookup: dict | None = None) -> dict:
         """Convert Entity to dict for API response."""
+        absolute_path = None
+        if path_lookup is not None:
+            absolute_path = EntitiesService._resolve_absolute_path(
+                entity.drive_path, path_lookup
+            )
         return {
             "id": str(entity.id),
             "type": entity.type,
             "name": entity.name,
             "icon": entity.icon,
             "path": entity.drive_path,
+            "absolute_path": absolute_path,
             "parent_id": str(entity.parent_id) if entity.parent_id else None,
             "git_url": entity.git_url,
         }

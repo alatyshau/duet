@@ -29,6 +29,7 @@ export interface StreamEntity {
     name: string;
     icon: string | null;
     path: string;
+    absolute_path: string | null;
     parent_id: string | null;
     git_url: string | null;
 }
@@ -39,6 +40,7 @@ export interface ProjectEntity {
     name: string;
     icon: string | null;
     path: string;
+    absolute_path: string | null;
     parent_id: string;
     git_url: string | null;
 }
@@ -76,6 +78,12 @@ export interface ScanResponse {
     reason?: string;
     entities_count?: number;
     duration_ms?: number;
+}
+
+export interface AddBusinessResponse {
+    status: 'added' | 'exists';
+    business_folders: string[];
+    scan?: ScanResponse;
 }
 
 export interface ApiError {
@@ -140,6 +148,10 @@ export class DuetApiClient {
         return this.post('/scan', 30000); // scan can take time
     }
 
+    async addBusiness(absolutePath: string): Promise<AddBusinessResponse> {
+        return this.postJson('/add-business', { path: absolutePath }, 30000);
+    }
+
     private async get<T>(path: string, timeoutMs: number = 10000): Promise<T> {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -168,6 +180,29 @@ export class DuetApiClient {
         try {
             const response = await fetch(`${this.baseUrl}${path}`, {
                 method: 'POST',
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                const errorMsg = await this.parseErrorResponse(response);
+                throw new Error(`API error: ${errorMsg}`);
+            }
+
+            return await response.json() as T;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    private async postJson<T>(path: string, body: unknown, timeoutMs: number = 10000): Promise<T> {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            const response = await fetch(`${this.baseUrl}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
                 signal: controller.signal,
             });
 

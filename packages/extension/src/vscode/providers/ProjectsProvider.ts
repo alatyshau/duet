@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ProjectsList, ProjectItem } from '../../core/tree/projectsList';
-import { DatabaseManager } from '../../core/db';
+import { DuetApiClient } from '../../core/api-client';
 
 /**
  * TreeDataProvider for ПРОЕКТЫ section.
@@ -11,18 +11,18 @@ export class ProjectsProvider implements vscode.TreeDataProvider<ProjectItem> {
     readonly onDidChangeTreeData: vscode.Event<ProjectItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private logic: ProjectsList;
-    private selectedContext: string | null = null;
+    private selectedContext: number | null = null;
 
-    constructor(db: DatabaseManager) {
-        this.logic = new ProjectsList(db);
+    constructor(api: DuetApiClient) {
+        this.logic = new ProjectsList(api);
     }
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
     }
 
-    setContext(drivePath: string) {
-        this.selectedContext = drivePath;
+    setContext(entityId: number) {
+        this.selectedContext = entityId;
         this.refresh();
     }
 

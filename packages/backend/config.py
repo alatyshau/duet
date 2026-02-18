@@ -12,8 +12,6 @@ For testing: env DUET_POINTER_FILE overrides pointer path.
 """
 
 import json
-import tempfile
-import os
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
@@ -115,11 +113,6 @@ def get_instructions_path() -> Path:
 def get_log_path() -> Path:
     """Get path to backend.log."""
     return get_duet_data_path() / "backend.log"
-
-
-def get_state_path() -> Path:
-    """Get path to state.json for multi-window sync."""
-    return get_duet_data_path() / "state.json"
 
 
 def get_repos_path() -> Path | None:
@@ -347,36 +340,50 @@ def resolve_alias(path: str) -> str:
         raise ConfigError(f"Failed to resolve alias: {e}") from e
 
 
-# === Utility functions ===
+def add_business_folder(absolute_path: str) -> dict:
+    """Add a business folder to settings.json.
 
-
-def atomic_write(path: Path, content: str) -> None:
-    """Write content to file atomically using tmp + rename.
-
-    Prevents corruption if process crashes mid-write.
-    Works on same filesystem (rename is atomic on POSIX).
+    Appends the absolute path to business_folders list.
+    Checks for duplicates by resolving existing entries.
+    Resets config cache so next call picks up changes.
 
     Args:
-        path: Target file path
-        content: Content to write
-    """
-    # Create temp file in same directory (ensures same filesystem for atomic rename)
-    dir_path = path.parent
-    dir_path.mkdir(parents=True, exist_ok=True)
+        absolute_path: Absolute filesystem path to the business folder.
 
-    fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        os.write(fd, content.encode("utf-8"))
-        os.close(fd)
-        os.rename(tmp_path, path)
-    except Exception:
-        # Cleanup on error
-        os.close(fd) if fd else None
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    Returns:
+        Dict with status and current business_folders list.
+
+    Raises:
+        ConfigError: If settings.json is invalid or path already exists.
+    """
+    # Normalize for comparison
+    normalized = unicodedata.normalize("NFC", absolute_path.rstrip("/"))
+
+    # Check for duplicates against resolved existing folders
+    existing_resolved = get_business_folders()
+    for existing in existing_resolved:
+        if unicodedata.normalize("NFC", existing.rstrip("/")) == normalized:
+            return {"status": "exists", "business_folders": existing_resolved}
+
+    # Read raw settings to preserve @alias entries
+    settings = read_settings()
+    raw_folders = settings.get("business_folders", [])
+
+    # Append absolute path (AliasResolver passes through absolute paths)
+    raw_folders.append(absolute_path)
+    settings["business_folders"] = raw_folders
+
+    # Write back
+    settings_path = get_settings_path()
+    settings_path.write_text(
+        json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    # Reset cache so next get_business_folders() picks up changes
+    reset_cache()
+
+    return {"status": "added", "business_folders": get_business_folders()}
 
 
 # === Legacy compatibility (for gradual migration) ===

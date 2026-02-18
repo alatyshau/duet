@@ -119,6 +119,16 @@ async function openNode(
         return;
     }
 
+    // Guard: node.id must be an absolute path (from backend absolute_path).
+    // If backend returned null absolute_path, node.id falls back to relative drive_path
+    // which is meaningless for filesystem operations.
+    if (!path.isAbsolute(node.id)) {
+        vscode.window.showErrorMessage(
+            `Cannot open "${node.label}": backend returned relative path. Check settings.json business_folders and reposPath.`
+        );
+        return;
+    }
+
     // For products with git_url: handle git clone and workspace
     if (node.type === 'product' && node.gitUrl) {
         await openProductWithGit(node, forceNewWindow, paths);

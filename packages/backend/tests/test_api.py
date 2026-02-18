@@ -1,10 +1,12 @@
 """Tests for server.py - HTTP API endpoints."""
 
+import time
 from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
 
+from services.entities import EntitiesService
 from tests.fixtures import EntityFactory
 
 
@@ -256,3 +258,155 @@ class TestScanEndpoint:
         data = response2.json()
         assert data["status"] == "skipped"
         assert data["reason"] == "recent_scan"
+
+
+class TestResolveAbsolutePath:
+    """Unit tests for EntitiesService._resolve_absolute_path()."""
+
+    def test_drive_entity_root(self) -> None:
+        """Resolves business folder root (drive_path = folder name only)."""
+        path_lookup = {
+            "business_folders": {"MyBiz": Path("/drive/MyBiz")},
+            "repos_path": None,
+        }
+        result = EntitiesService._resolve_absolute_path("MyBiz", path_lookup)
+        assert result == str(Path("/drive/MyBiz"))
+
+    def test_drive_entity_nested(self) -> None:
+        """Resolves nested drive entity (stream/product)."""
+        path_lookup = {
+            "business_folders": {"MyBiz": Path("/drive/MyBiz")},
+            "repos_path": None,
+        }
+        result = EntitiesService._resolve_absolute_path(
+            "MyBiz/Streams/TechStream", path_lookup
+        )
+        assert result == str(Path("/drive/MyBiz/Streams/TechStream"))
+
+    def test_repos_project(self) -> None:
+        """Resolves repos project (drive_path not matching any business folder)."""
+        path_lookup = {
+            "business_folders": {"MyBiz": Path("/drive/MyBiz")},
+            "repos_path": Path("/data/repos"),
+        }
+        result = EntitiesService._resolve_absolute_path(
+            "Product.git/projects/my_project", path_lookup
+        )
+        assert result == str(Path("/data/repos/Product.git/projects/my_project"))
+
+    def test_none_drive_path(self) -> None:
+        """Returns None for empty drive_path."""
+        path_lookup = {
+            "business_folders": {},
+            "repos_path": None,
+        }
+        assert EntitiesService._resolve_absolute_path(None, path_lookup) is None
+        assert EntitiesService._resolve_absolute_path("", path_lookup) is None
+
+    def test_no_match_no_repos(self) -> None:
+        """Returns None when no business folder matches and no repos_path."""
+        path_lookup = {
+            "business_folders": {"Other": Path("/drive/Other")},
+            "repos_path": None,
+        }
+        assert EntitiesService._resolve_absolute_path("Unknown/path", path_lookup) is None
+
+
+@pytest.mark.asyncio
+class TestAbsolutePathIntegration:
+    """Integration tests: /streams and /projects return absolute_path."""
+
+    async def test_streams_absolute_path(
+        self, client: AsyncClient, db, duet_data_builder, monkeypatch
+    ) -> None:
+        """Streams response includes correct absolute_path for scanned entities."""
+        from scanner import Scanner
+        from mcp_handler import init_services
+        from services.workspace import WorkspaceService
+
+        # Build hierarchy: business → stream → product
+        builder = duet_data_builder
+        builder.add_business("TestBiz")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        stream_path = biz_path / "MyStream"
+        stream_path.mkdir()
+        from tests.fixtures import ManifestBuilder
+        ManifestBuilder.stream(stream_path, "MyStream")
+
+        # Scan
+        scanner = Scanner(db)
+        scanner.scan()
+
+        # Re-init services
+        workspace_service = WorkspaceService(db)
+        entities_service = EntitiesService(db)
+        init_services(workspace_service, entities_service, time.time())
+
+        # Request streams
+        response = await client.get("/streams")
+        assert response.status_code == 200
+
+        streams = response.json()["streams"]
+        assert len(streams) == 2  # business + stream
+
+        # Find business and stream
+        biz = next(s for s in streams if s["type"] == "business")
+        stream = next(s for s in streams if s["type"] == "stream")
+
+        # Verify absolute_path resolves correctly
+        assert biz["absolute_path"] == str(biz_path)
+        assert stream["absolute_path"] == str(stream_path)
+
+    async def test_projects_absolute_path_repos(
+        self, client: AsyncClient, db, duet_data_builder, monkeypatch
+    ) -> None:
+        """Projects from repos/ get correct absolute_path."""
+        from scanner import Scanner
+        from mcp_handler import init_services
+        from services.workspace import WorkspaceService
+
+        # Build hierarchy with repos
+        builder = duet_data_builder
+        builder.add_business("TestBiz")
+        builder.add_repo("MyProduct")
+        duet_data = builder.build(monkeypatch)
+
+        # Create product manifest in business folder
+        biz_path = builder.get_business_path(0)
+        product_path = biz_path / "MyProduct"
+        product_path.mkdir()
+        from tests.fixtures import ManifestBuilder
+        ManifestBuilder.product(product_path, "MyProduct")
+
+        # Create project in repos
+        repo_path = builder.get_repo_path("MyProduct")
+        projects_dir = repo_path / "projects"
+        projects_dir.mkdir()
+        (projects_dir / "test_project").mkdir()
+
+        # Scan
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        # Re-init services
+        workspace_service = WorkspaceService(db)
+        entities_service = EntitiesService(db)
+        init_services(workspace_service, entities_service, time.time())
+
+        # Find product to get its ID
+        response = await client.get("/streams")
+        streams = response.json()["streams"]
+        product = next(s for s in streams if s["type"] == "product")
+
+        # Request projects for product
+        response = await client.get(f"/projects/{product['id']}")
+        assert response.status_code == 200
+
+        projects = response.json()["projects"]
+        assert len(projects) == 1
+
+        project = projects[0]
+        expected = str(builder.get_repos_path() / "MyProduct.git" / "projects" / "test_project")
+        assert project["absolute_path"] == expected

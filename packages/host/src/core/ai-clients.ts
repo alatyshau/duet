@@ -9,7 +9,7 @@
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
@@ -60,14 +60,13 @@ export const configureClaudeCode = (duetDataPath: string, port: number): AgentIn
     const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
     const styleDest = join(stylesDir, 'duet.md')
 
-    // Cleanup legacy output-style (renamed from ai-kit → duet)
-    const legacyStyle = join(stylesDir, 'ai-kit.md')
-    if (existsSync(legacyStyle)) unlinkSync(legacyStyle)
-
     // 2. MCP server config in ~/.claude.json
     configureClaudeJsonMcp(claudeJson, port)
 
-    // 3. Output style (requires deployed ai-instructions)
+    // 3. outputStyle in ~/.claude/settings.json
+    configureClaudeSettings(claudeDir)
+
+    // 4. Output style (requires deployed ai-instructions)
     if (!existsSync(instructionsSource)) {
       return {
         id: 'claude-code',
@@ -124,9 +123,6 @@ function configureClaudeJsonMcp(claudeJsonPath: string, port: number): void {
     type: 'http',
     url: `http://127.0.0.1:${port}/mcp`
   }
-
-  // Cleanup legacy ai-kit MCP if present
-  delete mcpServers['ai-kit']
 
   writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
 }
@@ -231,11 +227,13 @@ function detectClaudeCode(duetDataPath: string, port: number): AgentInfo {
   }
 
   const stylePath = join(claudeDir, 'output-styles', 'duet.md')
+  const settingsPath = join(claudeDir, 'settings.json')
   const claudeJsonPath = join(homedir(), '.claude.json')
   const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
 
   const hasOutputStyle = existsSync(stylePath)
   const hasMcp = claudeJsonHasDuetMcp(claudeJsonPath, port)
+  const hasOutputStyleSetting = claudeSettingsHasOutputStyle(settingsPath)
 
   // Check content freshness (only when both files exist)
   let contentFresh = false
@@ -247,13 +245,15 @@ function detectClaudeCode(duetDataPath: string, port: number): AgentInfo {
 
   const checkedFiles: AgentCheckedFile[] = [
     { path: stylePath, ok: hasOutputStyle && contentFresh },
+    { path: settingsPath, ok: hasOutputStyleSetting },
     { path: claudeJsonPath, ok: hasMcp }
   ]
 
-  if (!hasOutputStyle || !hasMcp) {
+  if (!hasOutputStyle || !hasMcp || !hasOutputStyleSetting) {
     const parts: string[] = []
     if (hasMcp) parts.push('MCP настроен')
     if (hasOutputStyle) parts.push('Output style настроен')
+    if (hasOutputStyleSetting) parts.push('Settings настроены')
     const detail = parts.length > 0 ? parts.join(', ') : '~/.claude найдена'
     return {
       id: 'claude-code',
@@ -347,6 +347,34 @@ function detectCodex(duetDataPath: string, port: number): AgentInfo {
       details: '~/.codex найдена',
       checkedFiles: [{ path: configPath, ok: false }]
     }
+  }
+}
+
+/** Устанавливает outputStyle: "Duet" в ~/.claude/settings.json */
+function configureClaudeSettings(claudeDir: string): void {
+  const settingsPath = join(claudeDir, 'settings.json')
+  let config: Record<string, unknown> = {}
+
+  if (existsSync(settingsPath)) {
+    try {
+      config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    } catch {
+      // Invalid JSON — overwrite
+    }
+  }
+
+  config.outputStyle = 'Duet'
+  writeFileSync(settingsPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+}
+
+/** Проверяет наличие outputStyle: "Duet" в ~/.claude/settings.json */
+function claudeSettingsHasOutputStyle(settingsPath: string): boolean {
+  if (!existsSync(settingsPath)) return false
+  try {
+    const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    return config?.outputStyle === 'Duet'
+  } catch {
+    return false
   }
 }
 

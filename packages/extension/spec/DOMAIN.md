@@ -35,11 +35,13 @@ When duplicate name found during scan:
 
 ## Implementation
 
-| Concept | File |
-|---------|------|
-| Entity types, markers | `scanner.ts` |
-| Name conflict resolution | `scanner.ts` |
-| DB schema (name unique) | `db/index.ts` |
+| Concept | Where |
+|---------|-------|
+| Entity types, markers | Backend `scanner.py` |
+| Name conflict resolution | Backend `scanner.py` |
+| DB schema (name unique) | Backend `db.py` |
+| Entity data in Extension | `api-client.ts` → `StreamEntity` type |
+| Tree navigation | `core/tree/businessTree.ts`, `contextBreadcrumb.ts`, `projectsList.ts` |
 
 ## Bilingual Terms
 

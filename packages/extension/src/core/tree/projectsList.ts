@@ -1,45 +1,31 @@
-import { DatabaseManager, Entity } from '../db';
+import { DuetApiClient } from '../api-client';
 
 export interface ProjectItem {
-    id: string; // drivePath
+    id: string; // drive path (relative)
     label: string;
     icon: string;
-    path: string; // drivePath
+    path: string; // absolute path (for navigation)
 }
 
 export class ProjectsList {
-    constructor(private readonly db: DatabaseManager) {}
+    constructor(private readonly api: DuetApiClient) {}
 
-    getProjects(contextPath: string | null): ProjectItem[] {
-        if (!contextPath) {
+    async getProjects(entityId: number | null): Promise<ProjectItem[]> {
+        if (entityId === null) {
             return [];
         }
 
-        // Any entity (business, stream, product) can have projects as children.
-        // If context is a project, show sibling projects (parent's children).
-
-        const entity = this.db.findClosestEntity(contextPath);
-        if (!entity) { return []; }
-
-        let parent: Entity | null = null;
-        if (entity.type === 'project' && entity.parentId) {
-            // For project context, get parent to show siblings
-            parent = this.db.getEntity(entity.parentId);
-        } else {
-            // For business/stream/product, show their own projects
-            parent = entity;
+        try {
+            const { projects } = await this.api.projects(entityId);
+            return projects.map(p => ({
+                id: p.path,
+                label: p.name,
+                icon: 'clipboard',
+                path: p.absolute_path ?? p.path
+            }));
+        } catch (error) {
+            console.error(`[Duet] Failed to load projects for entity ${entityId}:`, error);
+            return [];
         }
-
-        if (!parent || !parent.id) { return []; }
-
-        const children = this.db.getEntities(parent.id);
-        const projects = children.filter(c => c.type === 'project');
-
-        return projects.map(p => ({
-            id: p.drivePath,
-            label: p.name,
-            icon: 'clipboard', // Default, but we might use p.icon
-            path: p.drivePath
-        }));
     }
 }

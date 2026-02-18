@@ -1,38 +1,29 @@
 // src/test/unit/businessTree.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { DatabaseManager, Entity } from '../../core/db';
+import { describe, it, expect } from 'vitest';
 import { BusinessTree } from '../../core/tree/businessTree';
-import { Paths } from '../../core/paths';
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import * as os from 'os';
+import { StreamEntity } from '../../core/api-client';
+
+function makeStream(overrides: Partial<StreamEntity> & { id: string; name: string; type: StreamEntity['type'] }): StreamEntity {
+    return {
+        icon: null,
+        path: '',
+        absolute_path: null,
+        parent_id: null,
+        git_url: null,
+        ...overrides,
+    };
+}
 
 describe('BusinessTree', () => {
-    let tempDir: string;
-    let db: DatabaseManager;
-    let tree: BusinessTree;
-
-    beforeEach(async () => {
-        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'duet-tree-test-'));
-        const paths = new Paths(path.join(tempDir, 'DuetData'));
-        db = new DatabaseManager(paths);
-        await db.init(); // Initialize in-memory DB
-        tree = new BusinessTree(db);
-    });
-
-    afterEach(async () => {
-        await fs.rm(tempDir, { recursive: true, force: true });
-    });
-
     it('should return top-level businesses as roots', () => {
-        const biz1: Entity = { type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' };
-        const biz2: Entity = { type: 'business', name: 'Biz2', icon: 'B', drivePath: '/b2' };
-        
-        db.insertEntity(biz1);
-        db.insertEntity(biz2);
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+            makeStream({ id: '2', type: 'business', name: 'Biz2', icon: 'B', absolute_path: '/b2' }),
+        ];
+        const tree = new BusinessTree(streams);
 
         const roots = tree.getRoots();
-        
+
         expect(roots).toHaveLength(2);
         expect(roots.find(n => n.label === 'Biz1')).toBeDefined();
         expect(roots.find(n => n.label === 'Biz2')).toBeDefined();
@@ -40,62 +31,31 @@ describe('BusinessTree', () => {
     });
 
     it('should return children properly', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-        
-        const streamId = db.insertEntity({ 
-            type: 'stream', 
-            name: 'Stream1', 
-            icon: 'S', 
-            drivePath: '/b1/s1',
-            parentId: bizId 
-        });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+            makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S', absolute_path: '/b1/s1', parent_id: '1' }),
+            makeStream({ id: '3', type: 'product', name: 'Prod1', icon: 'P', absolute_path: '/b1/s1/p1', parent_id: '2' }),
+        ];
+        const tree = new BusinessTree(streams);
 
-        const children = tree.getChildren(bizId);
-        expect(children).toHaveLength(1);
-        expect(children[0].label).toBe('Stream1');
-        expect(children[0].type).toBe('stream');
-        expect(children[0].hasChildren).toBe(false);
+        const bizChildren = tree.getChildren(1);
+        expect(bizChildren).toHaveLength(1);
+        expect(bizChildren[0].label).toBe('Stream1');
+        expect(bizChildren[0].type).toBe('stream');
+        expect(bizChildren[0].hasChildren).toBe(true); // has Prod1 as child
 
-        // Insert Product as child of Stream
-        db.insertEntity({ 
-            type: 'product', 
-            name: 'Prod1', 
-            icon: 'P', 
-            drivePath: '/b1/s1/p1',
-            parentId: streamId 
-        });
-
-        // Clear cache to pick up database changes
-        tree.clearCache();
-
-        // hasChildren should be true now
-        // Wait, 'children' variable is just a snapshot. We need to fetch again to see update?
-        // Actually mapEntity calls db.hasChildren() at moment of mapping.
-        // So we need to call tree.getChildren again to get fresh nodes
-        const streamChildren = tree.getChildren(streamId);
+        const streamChildren = tree.getChildren(2);
         expect(streamChildren).toHaveLength(1);
         expect(streamChildren[0].label).toBe('Prod1');
-        
-        // Verify parent's hasChildren updated
-        const bizChildrenCompat = tree.getChildren(bizId);
-        expect(bizChildrenCompat[0].hasChildren).toBe(true);
+        expect(streamChildren[0].hasChildren).toBe(false);
     });
 
     it('should map entities to tree nodes correctly', () => {
-        const id = db.insertEntity({ 
-            type: 'business', 
-            name: 'BizMapped', 
-            icon: '🧪', 
-            drivePath: '/path/to/biz' 
-        });
-
-        db.insertEntity({ 
-            type: 'stream', 
-            name: 'Child', 
-            icon: 'C', 
-            drivePath: '/path/to/biz/child', 
-            parentId: id 
-        });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'BizMapped', icon: '🧪', absolute_path: '/path/to/biz' }),
+            makeStream({ id: '2', type: 'stream', name: 'Child', icon: 'C', absolute_path: '/path/to/biz/child', parent_id: '1' }),
+        ];
+        const tree = new BusinessTree(streams);
 
         const roots = tree.getRoots();
         const node = roots.find(n => n.label === 'BizMapped');
@@ -109,33 +69,27 @@ describe('BusinessTree', () => {
     });
 
     it('should return parent node correctly', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-        const streamId = db.insertEntity({ 
-            type: 'stream', 
-            name: 'Stream1', 
-            icon: 'S', 
-            drivePath: '/b1/s1',
-            parentId: bizId 
-        });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+            makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S', absolute_path: '/b1/s1', parent_id: '1' }),
+        ];
+        const tree = new BusinessTree(streams);
 
-        const parent = tree.getParent(streamId);
+        const parent = tree.getParent(2);
         expect(parent).toBeDefined();
         expect(parent?.label).toBe('Biz1');
-        expect(parent?.entityId).toBe(bizId);
+        expect(parent?.entityId).toBe(1);
 
-        const rootParent = tree.getParent(bizId);
+        const rootParent = tree.getParent(1);
         expect(rootParent).toBeNull();
     });
 
     it('should return all nodes flattened', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-        db.insertEntity({ 
-            type: 'stream', 
-            name: 'Stream1', 
-            icon: 'S', 
-            drivePath: '/b1/s1',
-            parentId: bizId 
-        });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+            makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S', absolute_path: '/b1/s1', parent_id: '1' }),
+        ];
+        const tree = new BusinessTree(streams);
 
         const all = tree.getAllNodes();
         expect(all).toHaveLength(2);
@@ -144,7 +98,10 @@ describe('BusinessTree', () => {
     });
 
     it('should cache nodes and return identical references', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+        ];
+        const tree = new BusinessTree(streams);
 
         const roots1 = tree.getRoots();
         const roots2 = tree.getRoots();
@@ -152,113 +109,40 @@ describe('BusinessTree', () => {
         expect(roots1[0]).toBe(roots2[0]); // Reference equality check
 
         const all = tree.getAllNodes();
-        expect(all.find(n => n.entityId === bizId)).toBe(roots1[0]);
-    });
-
-    it('should exclude projects from children (projects only in ПРОЕКТЫ section)', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-
-        // Add a stream child
-        db.insertEntity({
-            type: 'stream',
-            name: 'Stream1',
-            icon: 'S',
-            drivePath: '/b1/s1',
-            parentId: bizId
-        });
-
-        // Add a project child (should be filtered out)
-        db.insertEntity({
-            type: 'project',
-            name: 'Project1',
-            icon: '📋',
-            drivePath: '/b1/projects/p1',
-            parentId: bizId
-        });
-
-        const children = tree.getChildren(bizId);
-
-        expect(children).toHaveLength(1);
-        expect(children[0].label).toBe('Stream1');
-        expect(children.find(c => c.type === 'project')).toBeUndefined();
-    });
-
-    it('should report hasChildren=false when only projects exist', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-
-        // Add only a project child
-        db.insertEntity({
-            type: 'project',
-            name: 'Project1',
-            icon: '📋',
-            drivePath: '/b1/projects/p1',
-            parentId: bizId
-        });
-
-        // hasChildren should be false (projects excluded)
-        const roots = tree.getRoots();
-        expect(roots[0].hasChildren).toBe(false);
+        expect(all.find(n => n.entityId === 1)).toBe(roots1[0]);
     });
 
     it('should return all descendants in BFS order for accordion expand', () => {
-        // Create a hierarchy: Biz1 -> Stream1 -> Product1 -> (leaf)
-        //                          -> Stream2 -> (leaf)
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+            makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S', absolute_path: '/b1/s1', parent_id: '1' }),
+            makeStream({ id: '3', type: 'stream', name: 'Stream2', icon: 'S', absolute_path: '/b1/s2', parent_id: '1' }),
+            makeStream({ id: '4', type: 'product', name: 'Product1', icon: 'P', absolute_path: '/b1/s1/p1', parent_id: '2' }),
+        ];
+        const tree = new BusinessTree(streams);
 
-        const stream1Id = db.insertEntity({
-            type: 'stream',
-            name: 'Stream1',
-            icon: 'S',
-            drivePath: '/b1/s1',
-            parentId: bizId
-        });
+        const descendants = tree.getDescendants(1);
 
-        const stream2Id = db.insertEntity({
-            type: 'stream',
-            name: 'Stream2',
-            icon: 'S',
-            drivePath: '/b1/s2',
-            parentId: bizId
-        });
-
-        db.insertEntity({
-            type: 'product',
-            name: 'Product1',
-            icon: 'P',
-            drivePath: '/b1/s1/p1',
-            parentId: stream1Id
-        });
-
-        tree.clearCache();
-
-        const descendants = tree.getDescendants(bizId);
-
-        // Should have 3 descendants: Stream1, Stream2, Product1
         expect(descendants).toHaveLength(3);
 
-        // BFS order: streams first (level 1), then products (level 2)
         const labels = descendants.map(d => d.label);
         expect(labels).toContain('Stream1');
         expect(labels).toContain('Stream2');
         expect(labels).toContain('Product1');
 
-        // Verify types
         expect(descendants.filter(d => d.type === 'stream')).toHaveLength(2);
         expect(descendants.filter(d => d.type === 'product')).toHaveLength(1);
     });
 
     it('should return empty array for leaf nodes in getDescendants', () => {
-        const bizId = db.insertEntity({ type: 'business', name: 'Biz1', icon: 'B', drivePath: '/b1' });
-        const streamId = db.insertEntity({
-            type: 'stream',
-            name: 'Stream1',
-            icon: 'S',
-            drivePath: '/b1/s1',
-            parentId: bizId
-        });
+        const streams = [
+            makeStream({ id: '1', type: 'business', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
+            makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S', absolute_path: '/b1/s1', parent_id: '1' }),
+        ];
+        const tree = new BusinessTree(streams);
 
         // Stream1 is a leaf (no children)
-        const descendants = tree.getDescendants(streamId);
+        const descendants = tree.getDescendants(2);
         expect(descendants).toHaveLength(0);
     });
 });

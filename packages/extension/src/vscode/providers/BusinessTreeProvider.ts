@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { BusinessTree, TreeNode } from '../../core/tree/businessTree';
-import { DatabaseManager } from '../../core/db';
+import { StreamEntity } from '../../core/api-client';
 import { normalizePath, isPathInside } from '../../core/pathUtils';
 
 class VisualRoot {
@@ -57,8 +57,8 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
     private expandedBusinessId: number | null = null;
     private disposables: vscode.Disposable[] = [];
 
-    constructor(private readonly db: DatabaseManager, private readonly wasmPath: string, private readonly reposPath?: string) {
-        this.tree = new BusinessTree(db);
+    constructor(streams: StreamEntity[], private readonly reposPath?: string) {
+        this.tree = new BusinessTree(streams);
         this.updateCurrentContext();
 
         // Listen to workspace folder changes
@@ -160,8 +160,21 @@ export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement
         }
     }
 
-    async refresh(): Promise<void> {
-        await this.db.reload({ wasmPath: this.wasmPath });
+    /**
+     * Update streams data (after scan/refresh).
+     * Replaces entire dataset and rebuilds tree.
+     */
+    updateStreams(streams: StreamEntity[]): void {
+        this.tree.updateStreams(streams);
+        this.updateCurrentContext();
+        this._onDidChangeTreeData.fire();
+    }
+
+    /**
+     * Refresh tree display (without data reload).
+     * Used when only visual state changed.
+     */
+    refresh(): void {
         this.tree.clearCache();
         this.updateCurrentContext();
         this._onDidChangeTreeData.fire();

@@ -1,18 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { ConfigManager } from '../../core/config';
-import { Paths } from '../../core/paths';
-import { readPointer } from '../../core/pointer';
+import { DuetApiClient } from '../../core/api-client';
 
-export async function addBusiness(context: vscode.ExtensionContext): Promise<void> {
-    const pointer = readPointer();
-    const dataFolder = pointer?.duetDataPath;
-    if (!dataFolder) {
-        vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
-        return;
-    }
-
+export async function addBusiness(apiClient: DuetApiClient): Promise<void> {
     const uris = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
@@ -25,17 +16,8 @@ export async function addBusiness(context: vscode.ExtensionContext): Promise<voi
     }
 
     const businessPath = uris[0].fsPath;
-    const paths = new Paths(dataFolder);
-    const configManager = new ConfigManager(paths.configPath);
 
     try {
-        const duetConfig = await configManager.read();
-        
-        if (duetConfig.businessFolders.includes(businessPath)) {
-            vscode.window.showInformationMessage('Business folder already added.');
-            return;
-        }
-
         // Check/Create manifest
         const manifestPath = path.join(businessPath, 'business.json');
         try {
@@ -48,8 +30,13 @@ export async function addBusiness(context: vscode.ExtensionContext): Promise<voi
             await fs.writeFile(manifestPath, JSON.stringify(defaultManifest, null, 2));
         }
 
-        duetConfig.businessFolders.push(businessPath);
-        await configManager.write(duetConfig);
+        // Add via backend API (writes to DuetConfig/settings.json + rescans)
+        const result = await apiClient.addBusiness(businessPath);
+
+        if (result.status === 'exists') {
+            vscode.window.showInformationMessage('Business folder already added.');
+            return;
+        }
 
         vscode.window.showInformationMessage(`Added business: ${businessPath}`);
         await vscode.commands.executeCommand('duet.refresh');

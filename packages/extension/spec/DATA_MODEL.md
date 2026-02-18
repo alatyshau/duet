@@ -11,23 +11,18 @@ Extension reads pointer + machine config. Does NOT read settings.json.
 | `~/.org.ve68.duet` | `pointer.ts:readPointer()` | `duetDataPath`, `duetConfigPath`, `machine` |
 | `DuetConfig/{machine}.json` | `pointer.ts:readMachineConfig()` | `port` (for backend API) |
 
-## index.db (Extension-specific)
+## Entity Data
 
-Extension's own SQLite cache (sql.js WASM, in-memory).
+Extension loads entities from Backend HTTP API, not from local storage.
 
-- Saved to disk after each scan via atomic writes
-- Schema: see ECOSYSTEM.md → Database Schema
-- Implementation: `db/index.ts`
+| Source | Method | Data |
+|--------|--------|------|
+| `GET /streams` | `apiClient.streams()` | All business/stream/product entities with `absolute_path` |
+| `GET /projects/{id}` | `apiClient.projects(id)` | Projects for a given stream |
+| `POST /scan` | `apiClient.scan()` | Trigger backend rescan |
+| `POST /add-business` | `apiClient.addBusiness(path)` | Add business folder to settings.json |
 
-## Legacy: config.json
-
-```json
-{ "business_folders": ["/absolute/path/to/Business1"] }
-```
-
-**Status:** Legacy. Still used by `scanner.ts`, `addBusiness.ts`, `refresh.ts` via `ConfigManager`. Will be removed when Extension migrates to Backend API for hierarchy data.
-
-**Contract:** NOT used by backend lifecycle. Backend reads its own config from pointer chain.
+Loaded `StreamEntity[]` is kept in memory and shared across tree providers (sync access). Refreshed on `duet.refresh` command.
 
 ## Workspace Files
 
@@ -64,6 +59,5 @@ Generated/updated on each open of product with `git_url`. Combines repo and Driv
 |---------|------|
 | Pointer reading | `pointer.ts` |
 | DuetData paths | `paths.ts` |
-| Legacy config.json read/write | `config.ts` |
-| DB schema, queries | `db/index.ts` |
+| HTTP API client | `api-client.ts` |
 | Workspace generation | `workspace.ts` |

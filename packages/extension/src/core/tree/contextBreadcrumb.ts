@@ -4,18 +4,18 @@
  * Builds a tree representation of workspace folders in the business hierarchy.
  *
  * Algorithm:
- * 1. Folders from DuetData/repos/ with .git suffix → lookup product by name
- * 2. Folders from DuetData/repos/ without .git suffix → external folder
- * 3. Other folders → lookup in DB or mark as external
+ * 1. Folders from DuetData/repos/ with .git suffix -> lookup product by name
+ * 2. Folders from DuetData/repos/ without .git suffix -> external folder
+ * 3. Other folders -> lookup in streams[] or mark as external
  *
  * Features:
- * - Merges common ancestors (two products from same business → single tree)
+ * - Merges common ancestors (two products from same business -> single tree)
  * - Sorts roots by leaf type: businesses > streams > products > external
  * - Git folders displayed as children of products
  */
 
 import * as path from 'path';
-import { DatabaseManager, Entity } from '../db';
+import { StreamEntity } from '../api-client';
 import { isPathInside } from '../pathUtils';
 
 // Node types for the context tree
@@ -52,7 +52,7 @@ export interface ContextNode {
  * Injected for testability.
  */
 export interface ContextBreadcrumbDeps {
-    db: DatabaseManager;
+    streams: StreamEntity[];
     reposPath: string;
 }
 
@@ -62,8 +62,8 @@ export interface ContextBreadcrumbDeps {
 interface FolderClassification {
     /** The original folder path */
     folderPath: string;
-    /** Entity chain from root to leaf (business → stream* → product) */
-    chain: Entity[];
+    /** Entity chain from root to leaf (business -> stream* -> product) */
+    chain: StreamEntity[];
     /** Whether this is a git repo folder (has .git suffix in repos/) */
     isGitRepo: boolean;
     /** Error if folder couldn't be resolved */
@@ -75,17 +75,24 @@ interface FolderClassification {
  *
  * Usage:
  * ```typescript
- * const builder = new ContextBreadcrumb({ db, reposPath });
+ * const builder = new ContextBreadcrumb({ streams, reposPath });
  * const roots = builder.build(workspaceFolderPaths);
  * ```
  */
 export class ContextBreadcrumb {
-    private readonly db: DatabaseManager;
+    private streams: StreamEntity[];
     private readonly reposPath: string;
 
     constructor(deps: ContextBreadcrumbDeps) {
-        this.db = deps.db;
+        this.streams = deps.streams;
         this.reposPath = deps.reposPath;
+    }
+
+    /**
+     * Update streams array (after refresh/scan).
+     */
+    updateStreams(streams: StreamEntity[]): void {
+        this.streams = streams;
     }
 
     /**
@@ -125,7 +132,7 @@ export class ContextBreadcrumb {
                 return this.classifyGitRepo(normalizedPath, folderName);
             }
 
-            // Case 2: Folder in repos/ without .git suffix → external (no error - migration possible)
+            // Case 2: Folder in repos/ without .git suffix -> external (no error - migration possible)
             return {
                 folderPath: normalizedPath,
                 chain: [],
@@ -140,11 +147,11 @@ export class ContextBreadcrumb {
                 folderPath: normalizedPath,
                 chain: [],
                 isGitRepo: true,
-                error: { code: 'outside_repos', message: 'Репозиторий вне DuetData' }
+                error: { code: 'outside_repos', message: '\u0420\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440\u0438\u0439 \u0432\u043d\u0435 DuetData' }
             };
         }
 
-        // Case 4: Regular folder - look up in database
+        // Case 4: Regular folder - look up in streams
         return this.classifyByPath(normalizedPath);
     }
 
@@ -155,8 +162,8 @@ export class ContextBreadcrumb {
         // Strip .git suffix to get product name
         const productName = folderName.slice(0, -4);
 
-        // Look up by name in database
-        const entity = this.db.findByName(productName);
+        // Look up by name in streams
+        const entity = this.streams.find(s => s.name === productName);
 
         if (!entity) {
             // Orphan: repo exists but no matching entity
@@ -164,7 +171,7 @@ export class ContextBreadcrumb {
                 folderPath,
                 chain: [],
                 isGitRepo: true,
-                error: { code: 'orphan', message: 'Репозиторий не связан' }
+                error: { code: 'orphan', message: '\u0420\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440\u0438\u0439 \u043d\u0435 \u0441\u0432\u044f\u0437\u0430\u043d' }
             };
         }
 
@@ -174,7 +181,7 @@ export class ContextBreadcrumb {
                 folderPath,
                 chain: [],
                 isGitRepo: true,
-                error: { code: 'name_conflict', message: `Имя занято (${entity.type})` }
+                error: { code: 'name_conflict', message: `\u0418\u043c\u044f \u0437\u0430\u043d\u044f\u0442\u043e (${entity.type})` }
             };
         }
 
@@ -189,11 +196,11 @@ export class ContextBreadcrumb {
     }
 
     /**
-     * Classify a folder by looking it up in the database.
+     * Classify a folder by looking it up in the streams array.
      */
     private classifyByPath(folderPath: string): FolderClassification {
-        // Find closest entity matching this path
-        const entity = this.db.findClosestEntity(folderPath);
+        // Find closest entity matching this path (by absolute_path prefix)
+        const entity = this.findClosestEntity(folderPath);
 
         if (!entity) {
             // External folder - not in hierarchy
@@ -201,7 +208,7 @@ export class ContextBreadcrumb {
                 folderPath,
                 chain: [],
                 isGitRepo: false,
-                error: { code: 'outside_hierarchy', message: 'Папка вне иерархии' }
+                error: { code: 'outside_hierarchy', message: '\u041f\u0430\u043f\u043a\u0430 \u0432\u043d\u0435 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438' }
             };
         }
 
@@ -216,18 +223,32 @@ export class ContextBreadcrumb {
     }
 
     /**
+     * Find closest entity whose absolute_path is a prefix of the given path.
+     * Returns the deepest match (longest path).
+     */
+    private findClosestEntity(folderPath: string): StreamEntity | null {
+        const matches = this.streams
+            .filter(s => s.absolute_path && (
+                folderPath === s.absolute_path || isPathInside(folderPath, s.absolute_path)
+            ))
+            .sort((a, b) => (b.absolute_path?.length ?? 0) - (a.absolute_path?.length ?? 0));
+
+        return matches[0] ?? null;
+    }
+
+    /**
      * Build entity chain from given entity up to root business.
      */
-    private buildChainToRoot(entity: Entity): Entity[] {
-        const chain: Entity[] = [];
-        let current: Entity | null = entity;
+    private buildChainToRoot(entity: StreamEntity): StreamEntity[] {
+        const chain: StreamEntity[] = [];
+        let current: StreamEntity | undefined = entity;
 
         while (current) {
             chain.unshift(current);
-            if (current.parentId) {
-                current = this.db.getEntity(current.parentId);
+            if (current.parent_id) {
+                current = this.streams.find(s => s.id === current!.parent_id);
             } else {
-                current = null;
+                current = undefined;
             }
         }
 
@@ -238,7 +259,7 @@ export class ContextBreadcrumb {
      * Merge classified folders into a tree with common ancestors.
      */
     private mergeIntoTree(classifications: FolderClassification[]): ContextNode[] {
-        // Map from entity drive_path to ContextNode (for merging)
+        // Map from entity path to ContextNode (for merging)
         const nodeMap = new Map<string, ContextNode>();
         // Root nodes (no parent in our tree)
         const roots: ContextNode[] = [];
@@ -257,14 +278,15 @@ export class ContextBreadcrumb {
             for (let i = 0; i < classification.chain.length; i++) {
                 const entity = classification.chain[i];
                 const isLast = i === classification.chain.length - 1;
+                const entityPath = entity.absolute_path ?? entity.path;
 
                 // Check if node already exists (for merging)
-                let node = nodeMap.get(entity.drivePath);
+                let node = nodeMap.get(entityPath);
 
                 if (!node) {
                     // Create new node
                     node = this.entityToNode(entity);
-                    nodeMap.set(entity.drivePath, node);
+                    nodeMap.set(entityPath, node);
 
                     if (parentNode) {
                         // Add as child if we have a parent
@@ -298,7 +320,7 @@ export class ContextBreadcrumb {
      * Create a ContextNode for an error/external folder.
      *
      * Error nodes are children of the problematic folder, not replacements.
-     * Example: `📁 Duet.git` → `⚠️ Репозиторий не связан` (child)
+     * Example: `Duet.git` -> `\u0420\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440\u0438\u0439 \u043d\u0435 \u0441\u0432\u044f\u0437\u0430\u043d` (child)
      */
     private createErrorNode(classification: FolderClassification): ContextNode {
         const folderName = path.basename(classification.folderPath);
@@ -329,7 +351,7 @@ export class ContextBreadcrumb {
         // Both repos/ without .git suffix and folders outside hierarchy
         const infoChild: ContextNode = {
             type: 'error',  // Use 'error' type for clickable behavior
-            name: 'Папка вне иерархии',
+            name: '\u041f\u0430\u043f\u043a\u0430 \u0432\u043d\u0435 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438',
             icon: 'info',
             path: `${classification.folderPath}#info`,
             children: [],
@@ -339,7 +361,7 @@ export class ContextBreadcrumb {
         return {
             type: 'external',
             name: folderName,
-            icon: '📁',
+            icon: '\uD83D\uDCC1',
             path: classification.folderPath,
             children: [infoChild]
             // No errorCode on parent - only child is clickable
@@ -361,16 +383,16 @@ export class ContextBreadcrumb {
     }
 
     /**
-     * Convert a database entity to a ContextNode.
+     * Convert a stream entity to a ContextNode.
      */
-    private entityToNode(entity: Entity): ContextNode {
+    private entityToNode(entity: StreamEntity): ContextNode {
         return {
             type: entity.type as ContextNodeType,
             name: entity.name,
-            icon: entity.icon,
-            path: entity.drivePath,
+            icon: entity.icon ?? '',
+            path: entity.absolute_path ?? entity.path,
             children: [],
-            entityId: entity.id
+            entityId: parseInt(entity.id, 10)
         };
     }
 
@@ -444,9 +466,6 @@ export class ContextBreadcrumb {
      * Check if a folder is a git repository (contains .git folder).
      */
     private isGitRepository(folderPath: string): boolean {
-        // Simple heuristic: if folder name ends with .git or contains .git subfolder
-        // For now, we just check the name pattern since we can't do async fs checks here
-        // In practice, git repos cloned outside repos/ would be detected by other means
         return path.basename(folderPath).endsWith('.git');
     }
 }

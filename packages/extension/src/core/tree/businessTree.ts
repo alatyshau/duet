@@ -1,7 +1,7 @@
-import { DatabaseManager, Entity } from '../db';
+import { StreamEntity } from '../api-client';
 
 export interface TreeNode {
-    id: string; // drivePath
+    id: string; // absolute_path (for path comparison with workspace folders)
     label: string;
     icon: string;
     type: 'business' | 'stream' | 'product' | 'project';
@@ -12,35 +12,46 @@ export interface TreeNode {
 
 export class BusinessTree {
     private nodeCache = new Map<number, TreeNode>();
+    private streams: StreamEntity[];
 
-    constructor(private readonly db: DatabaseManager) {}
+    constructor(streams: StreamEntity[]) {
+        this.streams = streams;
+    }
 
-    clearCache() {
+    updateStreams(streams: StreamEntity[]): void {
+        this.streams = streams;
+        this.nodeCache.clear();
+    }
+
+    clearCache(): void {
         this.nodeCache.clear();
     }
 
     getRoots(): TreeNode[] {
-        const businesses = this.db.getEntities(null);
-        return businesses.map(b => this.mapEntity(b));
+        return this.streams
+            .filter(s => s.parent_id === null)
+            .map(s => this.mapEntity(s));
     }
 
     getChildren(parentId: number): TreeNode[] {
-        const children = this.db.getEntities(parentId)
-            .filter(c => c.type !== 'project'); // Projects only in ПРОЕКТЫ section
-        return children.map(c => this.mapEntity(c));
+        const parentIdStr = String(parentId);
+        // /streams already excludes projects (R4), no filter needed
+        return this.streams
+            .filter(s => s.parent_id === parentIdStr)
+            .map(s => this.mapEntity(s));
     }
 
     getAllNodes(): TreeNode[] {
-        const entities = this.db.getAllEntities();
-        return entities.map(e => this.mapEntity(e));
+        return this.streams.map(s => this.mapEntity(s));
     }
 
     getParent(entityId: number): TreeNode | null {
-        const entity = this.db.getEntity(entityId);
-        if (!entity || !entity.parentId) {
+        const entityIdStr = String(entityId);
+        const entity = this.streams.find(s => s.id === entityIdStr);
+        if (!entity || !entity.parent_id) {
             return null;
         }
-        const parent = this.db.getEntity(entity.parentId);
+        const parent = this.streams.find(s => s.id === entity.parent_id);
         return parent ? this.mapEntity(parent) : null;
     }
 
@@ -66,22 +77,23 @@ export class BusinessTree {
         return result;
     }
 
-    private mapEntity(entity: Entity): TreeNode {
-        if (this.nodeCache.has(entity.id!)) {
-            return this.nodeCache.get(entity.id!)!;
+    private mapEntity(stream: StreamEntity): TreeNode {
+        const numId = parseInt(stream.id, 10);
+        if (this.nodeCache.has(numId)) {
+            return this.nodeCache.get(numId)!;
         }
 
         const node: TreeNode = {
-            id: entity.drivePath,
-            label: entity.name,
-            icon: entity.icon,
-            type: entity.type,
-            hasChildren: this.db.hasChildren(entity.id!, ['project']),
-            entityId: entity.id!,
-            gitUrl: entity.gitUrl
+            id: stream.absolute_path ?? stream.path,
+            label: stream.name,
+            icon: stream.icon ?? '',
+            type: stream.type,
+            hasChildren: this.streams.some(s => s.parent_id === stream.id),
+            entityId: numId,
+            gitUrl: stream.git_url ?? undefined
         };
 
-        this.nodeCache.set(entity.id!, node);
+        this.nodeCache.set(numId, node);
         return node;
     }
 }

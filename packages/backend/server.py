@@ -173,6 +173,37 @@ async def scan_handler(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+async def add_business_handler(request: Request) -> JSONResponse:
+    """POST /add-business - Add a business folder to settings.json and rescan.
+
+    Request body: {"path": "/absolute/path/to/business"}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "Invalid JSON body", "code": "BAD_REQUEST"},
+            status_code=400,
+        )
+
+    business_path = body.get("path")
+    if not business_path or not isinstance(business_path, str):
+        return JSONResponse(
+            {"error": "Missing or invalid 'path' field", "code": "BAD_REQUEST"},
+            status_code=400,
+        )
+
+    try:
+        result = get_entities_service().add_business(business_path)
+        return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"Failed to add business: {e}")
+        return JSONResponse(
+            {"error": str(e), "code": "ADD_BUSINESS_FAILED"},
+            status_code=500,
+        )
+
+
 # === Lifecycle Management ===
 
 
@@ -273,6 +304,7 @@ def create_app() -> Starlette:
         Route("/streams", streams_handler, methods=["GET"]),
         Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
+        Route("/add-business", add_business_handler, methods=["POST"]),
         # Mount MCP at /mcp (streamable HTTP transport)
         Mount("/mcp", app=mcp_app),
     ]
