@@ -1,4 +1,4 @@
-"""Tests for server lifecycle (PID file, /stop endpoint)."""
+"""Tests for server lifecycle (/stop endpoint, startup validation)."""
 
 import json
 import os
@@ -11,87 +11,7 @@ from httpx import AsyncClient
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import config
-from server import (
-    check_pid_file,
-    remove_pid_file,
-    write_pid_file,
-)
 from tests.fixtures import DuetDataBuilder
-
-
-class TestPidFile:
-    """Tests for PID file operations."""
-
-    def test_write_pid_file(self, duet_data: Path) -> None:
-        """write_pid_file() writes current PID."""
-        write_pid_file()
-
-        pid_path = duet_data / ".pid"
-        assert pid_path.exists()
-
-        content = pid_path.read_text().strip()
-        assert content == str(os.getpid())
-
-    def test_write_pid_file_creates_parent_dirs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """write_pid_file() creates parent directories if needed."""
-        # Create DuetData at a nested path
-        builder = DuetDataBuilder(tmp_path / "nested")
-        builder.build(monkeypatch)
-
-        write_pid_file()
-
-        pid_path = builder.duet_data_path / ".pid"
-        assert pid_path.exists()
-
-    def test_remove_pid_file(self, duet_data: Path) -> None:
-        """remove_pid_file() removes the PID file."""
-        write_pid_file()
-        pid_path = duet_data / ".pid"
-        assert pid_path.exists()
-
-        remove_pid_file()
-        assert not pid_path.exists()
-
-    def test_remove_pid_file_no_error_if_missing(self, duet_data: Path) -> None:
-        """remove_pid_file() doesn't raise if file doesn't exist."""
-        pid_path = duet_data / ".pid"
-        assert not pid_path.exists()
-
-        # Should not raise
-        remove_pid_file()
-
-    def test_check_pid_file_returns_none_if_no_file(self, duet_data: Path) -> None:
-        """check_pid_file() returns None if no PID file."""
-        result = check_pid_file()
-        assert result is None
-
-    def test_check_pid_file_returns_pid_if_process_running(self, duet_data: Path) -> None:
-        """check_pid_file() returns PID if process is running."""
-        # Write our own PID (we're running)
-        write_pid_file()
-
-        result = check_pid_file()
-        assert result == os.getpid()
-
-    def test_check_pid_file_returns_none_if_process_not_running(self, duet_data: Path) -> None:
-        """check_pid_file() returns None if process is not running."""
-        pid_path = duet_data / ".pid"
-        # Write a PID that definitely doesn't exist
-        pid_path.write_text("999999999")
-
-        result = check_pid_file()
-        assert result is None
-
-    def test_check_pid_file_returns_none_if_invalid_pid(self, duet_data: Path) -> None:
-        """check_pid_file() returns None if PID file contains invalid data."""
-        pid_path = duet_data / ".pid"
-        pid_path.write_text("not_a_number")
-
-        result = check_pid_file()
-        assert result is None
 
 
 class TestStartupValidation:

@@ -95,7 +95,7 @@ export async function ensureBackendRunning(duetDataPath: string): Promise<void> 
   try {
     const port = readPort()
     // Always stop first — kills orphans from previous Host sessions
-    await stopBackend(port)
+    await stopBackend(port, currentBackendProc)
     const proc = await startBackend(duetDataPath, port)
     monitorBackendProcess(proc)
     const status = await getBackendStatus(duetDataPath, port)
@@ -116,11 +116,7 @@ export async function ensureBackendStopped(): Promise<void> {
   currentBackendProc = null // Detach monitor — intentional stop, not a crash
   const port = readPort()
   broadcastBackendStatus({ state: 'stopping' })
-  await stopBackend(port)
-  // Force kill if HTTP stop didn't work
-  if (proc && !proc.killed) {
-    proc.kill('SIGTERM')
-  }
+  await stopBackend(port, proc)
   broadcastBackendStatus({ state: 'stopped' })
 }
 

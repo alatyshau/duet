@@ -15,7 +15,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-import os
 import signal
 import sys
 import time
@@ -29,12 +28,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
-import config
 from config import (
     get_business_folders,
     get_db_path,
     get_log_path,
-    get_pid_path,
     get_port,
     get_timezone,
     get_version,
@@ -60,6 +57,11 @@ _start_time: float = 0
 
 # Shutdown event
 _shutdown_event: asyncio.Event | None = None
+
+# Timeout for uvicorn graceful shutdown (seconds).
+# Host waits STOP_GRACE_PERIOD_MS (2s) = this timeout + 1s margin.
+# See: packages/host/src/core/backend.ts → STOP_GRACE_PERIOD_MS
+SHUTDOWN_TIMEOUT_S = 1.0
 
 
 def setup_logging() -> None:
@@ -121,7 +123,6 @@ async def health_handler(request: Request) -> JSONResponse:
 
 async def stop_handler(request: Request) -> JSONResponse:
     """POST /stop - Graceful shutdown."""
-    global _shutdown_event
     if _shutdown_event:
         _shutdown_event.set()
     return JSONResponse({"status": "stopping"})
@@ -204,44 +205,6 @@ async def add_business_handler(request: Request) -> JSONResponse:
         )
 
 
-# === Lifecycle Management ===
-
-
-def write_pid_file() -> None:
-    """Write current PID to lockfile."""
-    pid_path = get_pid_path()
-    pid_path.parent.mkdir(parents=True, exist_ok=True)
-    pid_path.write_text(str(os.getpid()))
-
-
-def remove_pid_file() -> None:
-    """Remove PID lockfile."""
-    pid_path = get_pid_path()
-    try:
-        pid_path.unlink()
-    except FileNotFoundError:
-        pass
-
-
-def check_pid_file() -> int | None:
-    """Check if PID file exists and process is running.
-
-    Returns PID if running, None otherwise.
-    """
-    pid_path = get_pid_path()
-    if not pid_path.exists():
-        return None
-
-    try:
-        pid = int(pid_path.read_text().strip())
-        # Check if process is running (signal 0 doesn't kill)
-        os.kill(pid, 0)
-        return pid
-    except (ValueError, ProcessLookupError, PermissionError):
-        # Invalid PID or process not running
-        return None
-
-
 # === Application Setup ===
 
 
@@ -264,9 +227,6 @@ async def lifespan(app: Starlette):
     # Initialize services (shared between REST and MCP handlers)
     init_services(workspace_service, entities_service, _start_time)
 
-    # Write PID file
-    write_pid_file()
-
     logger.info(f"Duet backend started (version {get_version()})")
 
     # Setup signal handlers for graceful shutdown
@@ -286,7 +246,6 @@ async def lifespan(app: Starlette):
         finally:
             # Cleanup
             db.close()
-            remove_pid_file()
             logger.info("Duet backend stopped")
 
 
@@ -336,9 +295,25 @@ async def run_server(port: int, host: str = "127.0.0.1") -> None:
     # Wait for shutdown signal
     await _shutdown_event.wait()
 
-    # Trigger graceful shutdown
+    # Graceful shutdown: tell uvicorn to exit, then wait with timeout.
+    #
+    # When managed by Host (normal mode):
+    #   Host sends SIGTERM → SIGKILL if needed. The timeout below never fires.
+    #
+    # When running standalone (dev/testing, no Host):
+    #   No external process to send SIGTERM. Without timeout, open MCP/SSE
+    #   connections would keep uvicorn alive forever after /stop.
+    #   The 1s timeout + cancel() is the only safety net.
     server.should_exit = True
-    await server_task
+    try:
+        await asyncio.wait_for(server_task, timeout=SHUTDOWN_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.warning("Server shutdown timed out, forcing exit")
+        server_task.cancel()
+        try:
+            await server_task
+        except asyncio.CancelledError:
+            pass
 
 
 def main() -> None:
@@ -373,12 +348,6 @@ def main() -> None:
         logger.error(
             "Run Duet Host to create pointer file and configuration."
         )
-        sys.exit(1)
-
-    # Check if already running
-    existing_pid = check_pid_file()
-    if existing_pid:
-        logger.error(f"Backend already running (PID {existing_pid})")
         sys.exit(1)
 
     # Read port from config (validated above)

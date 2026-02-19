@@ -341,7 +341,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      await stopBackend(TEST_PORT, noSleep)
+      await stopBackend(TEST_PORT, null, noSleep)
 
       expect(mockFetch).toHaveBeenCalledOnce()
 
@@ -352,7 +352,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true })
       vi.stubGlobal('fetch', mockFetch)
 
-      await stopBackend(TEST_PORT, noSleep)
+      await stopBackend(TEST_PORT, null, noSleep)
 
       expect(mockFetch).toHaveBeenCalledWith(
         `http://127.0.0.1:${TEST_PORT}/stop`,
@@ -366,7 +366,7 @@ describe('core/deploy', () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
       vi.stubGlobal('fetch', mockFetch)
 
-      await stopBackend(12345, noSleep)
+      await stopBackend(12345, null, noSleep)
 
       expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:12345/stop', expect.anything())
 

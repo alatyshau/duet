@@ -44,7 +44,7 @@ const HEALTH_RETRY_COUNT = 10
 const HEALTH_RETRY_DELAY_MS = 300
 
 const STOP_API_TIMEOUT_MS = 2_000
-const STOP_GRACE_PERIOD_MS = 3_000
+const STOP_GRACE_PERIOD_MS = 2_000  // Backend SHUTDOWN_TIMEOUT_S (1s) + 1s margin
 const KILL_GRACE_PERIOD_MS = 1_000
 
 // =============================================================================
@@ -52,7 +52,7 @@ const KILL_GRACE_PERIOD_MS = 1_000
 // =============================================================================
 
 export interface StopOptions {
-  /** Injectable sleep for testability. Default: real setTimeout-based sleep. */
+  /** Injectable sleep for testability (used when no proc reference). */
   sleep?: (ms: number) => Promise<void>
 }
 
@@ -151,9 +151,8 @@ export const startBackend = async (duetDataPath: string, port: number): Promise<
     // Kill the process we just spawned — it didn't come up
     try {
       proc.kill('SIGTERM')
-      await sleep(KILL_GRACE_PERIOD_MS)
-      // Escalate to SIGKILL if still alive
-      if (!proc.killed) {
+      const exited = await waitForExit(proc, KILL_GRACE_PERIOD_MS)
+      if (!exited) {
         proc.kill('SIGKILL')
       }
     } catch {
@@ -170,22 +169,43 @@ export const startBackend = async (duetDataPath: string, port: number): Promise<
 // =============================================================================
 
 /**
- * Останавливает бэкенд через HTTP API.
+ * Останавливает бэкенд: POST /stop → SIGTERM → SIGKILL.
+ * Host — единственный владелец lifecycle. Гарантирует смерть процесса.
  * Ошибки не пробрасываются (бэкенд может быть не запущен).
  */
-export const stopBackend = async (port: number, opts?: StopOptions): Promise<void> => {
+export const stopBackend = async (
+  port: number,
+  proc?: ChildProcess | null,
+  opts?: StopOptions
+): Promise<void> => {
   const _sleep = opts?.sleep ?? sleep
 
+  // 1. Graceful: POST /stop
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/stop`, {
+    await fetch(`http://127.0.0.1:${port}/stop`, {
       method: 'POST',
       signal: AbortSignal.timeout(STOP_API_TIMEOUT_MS)
     })
-    if (response.ok) {
-      await _sleep(STOP_GRACE_PERIOD_MS)
+    // Wait for process to exit after /stop
+    if (proc) {
+      await waitForExit(proc, STOP_GRACE_PERIOD_MS)
+    } else {
+      await _sleep(STOP_GRACE_PERIOD_MS) // No proc reference — blind wait
     }
   } catch {
-    // Backend not running or not responding — no-op
+    // Backend not running or not responding — proceed to kill
+  }
+
+  if (!proc) return
+  if (proc.exitCode !== null) return // Already dead from POST /stop
+
+  // 2. SIGTERM
+  proc.kill('SIGTERM')
+  await waitForExit(proc, KILL_GRACE_PERIOD_MS)
+
+  // 3. SIGKILL if SIGTERM didn't work
+  if (proc.exitCode === null) {
+    proc.kill('SIGKILL')
   }
 }
 
@@ -226,3 +246,22 @@ export const getBackendStatus = async (
 
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Ждёт завершения child process с таймаутом.
+ * Resolve true — процесс завершился, false — таймаут.
+ * Слушает 'exit' event, чистит listener при таймауте (нет утечки).
+ */
+export const waitForExit = (proc: ChildProcess, timeoutMs: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null) return resolve(true)
+    const timer = setTimeout(() => {
+      proc.removeListener('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    function onExit(): void {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    proc.once('exit', onExit)
+  })

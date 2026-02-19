@@ -100,11 +100,6 @@ def get_db_path() -> Path:
     return get_duet_data_path() / "data" / "entities.db"
 
 
-def get_pid_path() -> Path:
-    """Get path to PID lockfile."""
-    return get_duet_data_path() / ".pid"
-
-
 def get_instructions_path() -> Path:
     """Get path to ai-instructions directory."""
     return get_duet_data_path() / "ai-instructions"

@@ -43,10 +43,6 @@ class TestPathGetters:
         """get_db_path() returns correct path."""
         assert config.get_db_path() == duet_data / "data" / "entities.db"
 
-    def test_get_pid_path(self, duet_data: Path) -> None:
-        """get_pid_path() returns correct path."""
-        assert config.get_pid_path() == duet_data / ".pid"
-
     def test_get_instructions_path(self, duet_data: Path) -> None:
         """get_instructions_path() returns correct path."""
         assert config.get_instructions_path() == duet_data / "ai-instructions"

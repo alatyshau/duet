@@ -341,7 +341,7 @@ export const runDeploy = async (
 
   // 0. Stop running backend before file operations
   log('Остановка backend...')
-  await stopBackend(port, opts)
+  await stopBackend(port, null, opts)
 
   // 1. Deploy AI instructions (always)
   log('Копирование AI инструкций...')

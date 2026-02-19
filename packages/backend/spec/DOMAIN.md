@@ -40,5 +40,4 @@ config.py  → DuetConfig/settings.json + {machine}.json
 |------|---------|
 | `DuetData/data/entities.db` | Backend's SQLite database |
 | `DuetData/backend/VERSION` | Installed backend version |
-| `DuetData/.pid` | Backend PID lockfile |
 | `DuetData/backend.log` | Backend log file |
