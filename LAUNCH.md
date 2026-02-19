@@ -79,9 +79,9 @@ npm run verify
 Можно проверять пакеты по отдельности, если работаешь только с одним:
 
 ```bash
-npm run verify:host         # typecheck + lint + vitest (115 tests)
-npm run verify:extension    # check-types + lint + vitest (112 tests)
-npm run verify:backend      # pytest (157 tests)
+npm run verify:host         # typecheck + lint + vitest
+npm run verify:extension    # check-types + lint + vitest
+npm run verify:backend      # pytest
 ```
 
 Важно: `electron-vite build` использует esbuild, который пропускает проверки TypeScript (`noUnusedLocals` и т.д.). Команда `verify` включает отдельный `typecheck` — это ловит ошибки, которые esbuild пропускает.

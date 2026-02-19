@@ -101,19 +101,26 @@ npm run vsix   # bump + build + package → dist/duet-{version}.vsix
 
 ## Backend Health Monitoring
 
-Host owns the full backend lifecycle (start, stop, health). Extension is a lightweight consumer:
+Host owns the full backend lifecycle (start, stop, health). Extension is a pure consumer:
 
 | Step | What |
 |------|------|
-| 1. Load streams | On activation, call `apiClient.streams()` |
-| 2. Set sidebar state | Success → READY, failure → ERROR (suggest launching Host) |
-| 3. Retry on demand | `retryBackend` command re-triggers health check |
+| 1. Read pointer | `readPointer()` → `duetDataPath`, set `duet.hasPointer` |
+| 2. Read port | `readPort()` → port (default 19680), create `DuetApiClient` |
+| 3. Set initializing | `duet.initializing=true`, `duet.ready=false` → spinner in status view |
+| 4. Load streams | `apiClient.streams()` → `StreamEntity[]` |
+| 5. Register providers | Create and register all tree providers |
+| 6. Set ready | `duet.ready=true`, `duet.initializing=false` → main views appear |
+
+**On failure** (no pointer, no port, backend offline):
+- `duet.ready=false` → status view shows "Установите и запустите Duet Host"
+- User clicks "Перезагрузить окно" → `workbench.action.reloadWindow`
 
 **Extension contracts:**
-- Port read via `pointer.ts:readPort()` (default 19680)
-- Backend output channel shows connection results
-- Single check on activation (no polling) — if backend offline, user clicks retry
 - No spawn, no venv, no install — all managed by Host
+- Single check on activation (no polling, no retry command)
+- `duet.ready=true` set AFTER providers registered (prevents "no data provider" flash)
+- Backend-independent commands (`openDataFolder`, `showContextHelp`) work regardless of backend state
 
 ## Navigation
 
@@ -125,7 +132,7 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a light
 | Business tree logic | `core/tree/businessTree.ts` |
 | Context breadcrumb | `core/tree/contextBreadcrumb.ts` |
 | Projects list | `core/tree/projectsList.ts` |
-| Legacy config.json read/write | `core/config.ts` (ConfigManager — only for addBusiness) |
+| Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` |
 
 ## Testing

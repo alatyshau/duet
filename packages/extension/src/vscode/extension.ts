@@ -1,12 +1,10 @@
 import * as vscode from 'vscode';
-import { OnboardingProvider } from './providers/OnboardingProvider';
 import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { AccordionController } from './providers/AccordionController';
 import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { ProjectsProvider } from './providers/ProjectsProvider';
 import { TreeNode } from '../core/tree/businessTree';
-import { installHost } from './commands/onboarding';
 import { readPointer, readPort } from '../core/pointer';
 import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
@@ -15,10 +13,8 @@ import { Paths } from '../core/paths';
 import { DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
 
-// Global instances for lifecycle management
 let backendOutputChannel: vscode.OutputChannel | null = null;
 let sidebarState: SidebarStateManager | null = null;
-let lastHealthOk: boolean | null = null;
 
 class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
@@ -28,44 +24,27 @@ class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Duet extension is active');
 
-    // Initialize sidebar state manager
     sidebarState = new SidebarStateManager();
 
-    // Onboarding View
-    const onboardingProvider = new OnboardingProvider();
+    // Status view — shown when backend is not ready (no pointer, backend offline, etc.)
+    // Uses viewsWelcome from package.json for content
     context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('duet.onboarding', onboardingProvider)
+        vscode.window.registerTreeDataProvider('duet.status', new StubProvider())
     );
 
-    // Read pointer file (~/.org.ve68.duet)
     const pointer = readPointer();
     const dataFolder = pointer?.duetDataPath ?? null;
+    console.log('[Duet] pointer:', pointer ? `OK (${dataFolder})` : 'NULL');
 
-    // Set context for view visibility (package.json uses duet.hasPointer / duet.noPointer)
+    // View visibility: main views require duet.hasPointer && duet.ready (see package.json)
     await vscode.commands.executeCommand('setContext', 'duet.hasPointer', !!pointer);
-    await vscode.commands.executeCommand('setContext', 'duet.noPointer', !pointer);
-
-    // Set initial sidebar state
-    await sidebarState.setHasDataFolder(!!dataFolder);
-
-    // Register backend-related commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand('duet.retryBackend', retryBackend),
-        vscode.commands.registerCommand('duet.showPythonHelp', showPythonHelp),
-        vscode.commands.registerCommand('duet.showBackendLogs', showBackendLogs)
-    );
-
-    // Commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand('duet.installHost', installHost)
-    );
 
     if (dataFolder) {
         const paths = new Paths(dataFolder);
         const port = readPort();
+        console.log('[Duet] port:', port);
         const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
 
-        // Create output channel for backend logs
         backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
         context.subscriptions.push(backendOutputChannel);
 
@@ -84,14 +63,30 @@ export async function activate(context: vscode.ExtensionContext) {
             );
         }
 
+        // Backend-independent commands — work even when backend is down
+        context.subscriptions.push(
+            vscode.commands.registerCommand('duet.openAllBusinesses', async () => {
+                const workspacePath = paths.allBusinessesWorkspacePath;
+                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
+            }),
+            vscode.commands.registerCommand('duet.openAllBusinessesHere', async () => {
+                const workspacePath = paths.allBusinessesWorkspacePath;
+                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: false });
+            }),
+            vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
+            vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
+            vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths.reposPath)),
+            vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths.reposPath)),
+            vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
+            // Noop command — used in TreeItem.command to prevent toggle on label click
+            vscode.commands.registerCommand('duet.selectNode', () => {})
+        );
+
         try {
-            // Load initial data from backend
             await sidebarState.setInitializing('Подключение к backend...');
+            backendOutputChannel.appendLine(`Connecting to http://127.0.0.1:${port}/streams...`);
             const { streams } = await apiClient.streams();
 
-            // Backend is up — update state
-            lastHealthOk = true;
-            await sidebarState.setFromHealthCheck(true);
             backendOutputChannel.appendLine(`Backend OK: ${streams.length} streams loaded`);
 
             const businessProvider = new BusinessTreeProvider(streams, paths.reposPath);
@@ -125,11 +120,11 @@ export async function activate(context: vscode.ExtensionContext) {
             // Track expand state for toggle
             let isExpanded = false;
 
+            // Backend-dependent commands — require live connection
             context.subscriptions.push(
                 businessTreeView,
                 vscode.window.registerTreeDataProvider('duet.context', contextProvider),
                 vscode.window.registerTreeDataProvider('duet.projects', projectsProvider),
-                // Add disposables
                 { dispose: () => businessProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
                 vscode.commands.registerCommand('duet.refresh', async () => {
@@ -165,105 +160,19 @@ export async function activate(context: vscode.ExtensionContext) {
                         isExpanded = true;
                     }
                 }),
-                vscode.commands.registerCommand('duet.openAllBusinesses', async () => {
-                    // Open multi-root workspace with all businesses in new window
-                    const workspacePath = paths.allBusinessesWorkspacePath;
-                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
-                }),
-                vscode.commands.registerCommand('duet.openAllBusinessesHere', async () => {
-                    // Open multi-root workspace with all businesses in current window
-                    const workspacePath = paths.allBusinessesWorkspacePath;
-                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: false });
-                }),
-                vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
-                vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
-                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(apiClient)),
-                vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths.reposPath)), // Legacy, redirects to open
-                vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths.reposPath)),
-                vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
-                // Noop command — used in TreeItem.command to prevent toggle on label click
-                vscode.commands.registerCommand('duet.selectNode', () => {})
+                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(apiClient))
             );
+
+            // Set ready AFTER providers are registered — views become visible only when providers exist
+            await sidebarState.setFromHealthCheck(true);
         } catch (e) {
-            console.error('Failed to connect to backend:', e);
-            lastHealthOk = false;
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error('Failed to connect to backend:', msg);
             await sidebarState.setFromHealthCheck(false);
-            backendOutputChannel.appendLine(`Backend offline: ${e}`);
-            // Fallback to stubs if backend unavailable
-            registerStubs(context);
+            backendOutputChannel.appendLine(`Backend offline: ${msg}`);
+            backendOutputChannel.show(true); // Show output panel so user sees the error
         }
-    } else {
-        registerStubs(context);
     }
-}
-
-function registerStubs(context: vscode.ExtensionContext) {
-    const stubProvider = new StubProvider();
-    context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('duet.businesses', stubProvider),
-        vscode.window.registerTreeDataProvider('duet.context', stubProvider),
-        vscode.window.registerTreeDataProvider('duet.projects', stubProvider)
-        // refresh command is not registered here to avoid collision if dataFolder is set but backend is down
-    );
-}
-
-// === Backend Health Monitoring ===
-
-/**
- * Check backend health and update sidebar state.
- */
-async function checkBackendHealth(apiClient: DuetApiClient): Promise<void> {
-    try {
-        const health = await apiClient.health();
-        // Log only on transition (down→up) to avoid spam
-        if (lastHealthOk !== true) {
-            backendOutputChannel?.appendLine(`Backend OK: v${health.version}, uptime ${Math.round(health.uptime_seconds)}s`);
-        }
-        lastHealthOk = true;
-        await sidebarState?.setFromHealthCheck(true);
-    } catch {
-        if (lastHealthOk !== false) {
-            backendOutputChannel?.appendLine('Backend offline');
-        }
-        lastHealthOk = false;
-        await sidebarState?.setFromHealthCheck(false);
-    }
-}
-
-/**
- * Retry backend health check.
- */
-async function retryBackend(): Promise<void> {
-    const retryPointer = readPointer();
-    if (!retryPointer?.duetDataPath) {
-        vscode.window.showErrorMessage('Duet не настроен. Запустите Duet Host.');
-        return;
-    }
-
-    const port = readPort();
-    const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
-
-    await sidebarState?.setInitializing('Проверка backend...');
-    await checkBackendHealth(apiClient);
-}
-
-/**
- * Show Python installation help.
- * Kept for backward compatibility with package.json welcome views.
- */
-function showPythonHelp(): void {
-    const message = `Python управляется через Duet Host.
-
-Откройте Duet Host для настройки Python и backend.`;
-
-    vscode.window.showInformationMessage(message, { modal: true });
-}
-
-/**
- * Show backend logs in output channel.
- */
-function showBackendLogs(): void {
-    backendOutputChannel?.show();
 }
 
 export function deactivate() {

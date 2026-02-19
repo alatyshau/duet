@@ -22,7 +22,7 @@ import {
   rmSync,
   readdirSync
 } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { execFile } from 'child_process'
 
 import { stopBackend, startBackend, venvPythonPath } from './backend'
@@ -31,6 +31,18 @@ import type { ChildProcess } from 'child_process'
 import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
 
 type LogFn = (message: string) => void
+
+/** Directory names excluded from deploy copy (dev artifacts, not needed at runtime). */
+const DEPLOY_EXCLUDE_DIRS = new Set([
+  '.venv',
+  '__pycache__',
+  '.pytest_cache',
+  'node_modules',
+  '.git'
+])
+
+/** cpSync filter: skip dev artifact directories. */
+const deployFilter = (src: string): boolean => !DEPLOY_EXCLUDE_DIRS.has(basename(src))
 
 // Re-export IPC type (source of truth: shared/types.ts)
 export type { DeployStatus } from '../shared/types'
@@ -146,7 +158,7 @@ export const deployInstructions = (paths: DeployPaths): number => {
   }
 
   mkdirSync(dest, { recursive: true })
-  cpSync(src, dest, { recursive: true, force: true })
+  cpSync(src, dest, { recursive: true, force: true, filter: deployFilter })
 
   return countFiles(dest)
 }
@@ -176,9 +188,9 @@ export const deployBackend = (paths: DeployPaths): number => {
   if (existsSync(destNew)) rmSync(destNew, { recursive: true, force: true })
   if (existsSync(destOld)) rmSync(destOld, { recursive: true, force: true })
 
-  // Copy to .new
+  // Copy to .new (filter excludes dev artifacts like .venv, __pycache__)
   mkdirSync(destNew, { recursive: true })
-  cpSync(src, destNew, { recursive: true, force: true })
+  cpSync(src, destNew, { recursive: true, force: true, filter: deployFilter })
 
   // Atomic swap
   if (existsSync(dest)) {

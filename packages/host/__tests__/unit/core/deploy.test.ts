@@ -430,6 +430,26 @@ describe('core/deploy', () => {
       expect(() => deployInstructions(paths)).toThrow('AI instructions source not found')
     })
 
+    it('excludes dev artifacts (node_modules, .git)', () => {
+      const { paths, resourcesPath } = createDeployContext(ctx)
+      const aiSrc = join(resourcesPath, 'ai-instructions')
+
+      // Create dev artifacts in source
+      mkdirSync(join(aiSrc, 'node_modules', 'dep'), { recursive: true })
+      writeFileSync(join(aiSrc, 'node_modules', 'dep', 'index.js'), '')
+      mkdirSync(join(aiSrc, '.git'), { recursive: true })
+      writeFileSync(join(aiSrc, '.git', 'HEAD'), '')
+
+      deployInstructions(paths)
+
+      const dest = join(ctx.duetDataDir, 'ai-instructions')
+      // Production files are copied
+      expect(existsSync(join(dest, 'core_instructions.md'))).toBe(true)
+      // Dev artifacts are excluded
+      expect(existsSync(join(dest, 'node_modules'))).toBe(false)
+      expect(existsSync(join(dest, '.git'))).toBe(false)
+    })
+
     it('uses instructionsSourcePath override when provided', () => {
       const devInstructions = join(ctx.tmpDir, 'dev-instructions')
       mkdirSync(devInstructions, { recursive: true })
@@ -538,6 +558,29 @@ describe('core/deploy', () => {
 
       expect(existsSync(join(ctx.duetDataDir, 'backend', 'app.py'))).toBe(true)
       expect(readFileSync(join(ctx.duetDataDir, 'backend', 'app.py'), 'utf-8')).toBe('print("dev")')
+    })
+
+    it('excludes dev artifacts (.venv, __pycache__, .pytest_cache)', () => {
+      const { paths, resourcesPath } = createDeployContext(ctx)
+      const backendSrc = join(resourcesPath, 'backend')
+
+      // Create dev artifacts in source
+      mkdirSync(join(backendSrc, '.venv', 'bin'), { recursive: true })
+      writeFileSync(join(backendSrc, '.venv', 'bin', 'python3'), '')
+      mkdirSync(join(backendSrc, '__pycache__'), { recursive: true })
+      writeFileSync(join(backendSrc, '__pycache__', 'main.cpython-312.pyc'), '')
+      mkdirSync(join(backendSrc, '.pytest_cache'), { recursive: true })
+      writeFileSync(join(backendSrc, '.pytest_cache', 'README.md'), '')
+
+      deployBackend(paths)
+
+      const dest = join(ctx.duetDataDir, 'backend')
+      // Production files are copied
+      expect(existsSync(join(dest, 'main.py'))).toBe(true)
+      // Dev artifacts are excluded
+      expect(existsSync(join(dest, '.venv'))).toBe(false)
+      expect(existsSync(join(dest, '__pycache__'))).toBe(false)
+      expect(existsSync(join(dest, '.pytest_cache'))).toBe(false)
     })
   })
 

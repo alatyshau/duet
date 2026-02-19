@@ -44,7 +44,7 @@ const HEALTH_RETRY_COUNT = 10
 const HEALTH_RETRY_DELAY_MS = 300
 
 const STOP_API_TIMEOUT_MS = 2_000
-const STOP_GRACE_PERIOD_MS = 2_000  // Backend SHUTDOWN_TIMEOUT_S (1s) + 1s margin
+const STOP_GRACE_PERIOD_MS = 2_000 // Backend SHUTDOWN_TIMEOUT_S (1s) + 1s margin
 const KILL_GRACE_PERIOD_MS = 1_000
 
 // =============================================================================

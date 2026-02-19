@@ -4,19 +4,35 @@
 
 | View | Purpose | Provider |
 |------|---------|----------|
+| DUET (status) | Shown when backend not ready — welcome message or spinner | Stub `TreeDataProvider` (empty array) |
 | КОНТЕКСТ | Current workspace position in hierarchy | `ContextProvider.ts` |
 | ДЕЛА | Full business tree for navigation | `BusinessTreeProvider.ts` |
 | ПРОЕКТЫ | Projects of selected entity | `ProjectsProvider.ts` |
-| Onboarding | Shown when pointer file not found | `OnboardingProvider.ts` |
 
 ## Visibility Contract
 
 | View | Condition (`when` in package.json) |
 |------|-----------------------------------|
-| Onboarding | `duet.noPointer` |
-| КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ | `duet.hasPointer` |
+| DUET (status) | `!duet.ready` |
+| КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ | `duet.hasPointer && duet.ready` |
 
-**How it works:** Extension reads `~/.org.ve68.duet` at activation via `readPointer()`. Sets context `duet.hasPointer` / `duet.noPointer`. Views toggle visibility based on these contexts.
+**Context keys:**
+
+| Key | Type | Set by |
+|-----|------|--------|
+| `duet.ready` | boolean | `SidebarStateManager.setFromHealthCheck()` — true after providers registered |
+| `duet.hasPointer` | boolean | `extension.ts` activation — true if `~/.org.ve68.duet` exists |
+| `duet.initializing` | boolean | `SidebarStateManager.setInitializing()` — true during backend connection |
+
+**How it works:** Extension reads pointer → sets `duet.hasPointer`. Tries to connect to backend → on success, registers providers, sets `duet.ready=true`. On failure, `duet.ready` stays false → status view shows "Установите и запустите Duet Host".
+
+**viewsWelcome content:**
+
+| View | When | Content |
+|------|------|---------|
+| DUET (status) | `duet.initializing` | `$(sync~spin) Подключение к backend...` |
+| DUET (status) | default | `Установите и запустите Duet Host` + reload button |
+| КОНТЕКСТ | default (no folder open) | `Нет открытой папки` + open folder button |
 
 ## Behavioral Contracts
 

@@ -80,8 +80,10 @@ Deploys AI instructions and backend from bundled resources to DuetData.
 
 | Component | Source (extraResources) | Target | Method |
 |-----------|------------------------|--------|--------|
-| AI instructions | `ai-instructions/` | `DuetData/ai-instructions/` | Recursive copy |
-| Backend | `backend/` | `DuetData/backend/` | Atomic swap (.new → rename → .old → delete) |
+| AI instructions | `ai-instructions/` | `DuetData/ai-instructions/` | Recursive copy (filtered) |
+| Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered) (.new → rename → .old → delete) |
+
+**Deploy filter:** Both copy operations exclude dev artifact directories: `.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`. This prevents copying dev environment into DuetData when deploying from source (`devBackendPath`).
 
 **Deploy channel:** When `deployChannel === 'dev'` in `{machine}.json`, deploy uses `devInstructionsPath` and `devBackendPath` from machine config instead of bundled resources. Toggle via IPC `config:set-deploy-channel`.
 

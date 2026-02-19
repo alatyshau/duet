@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.12",
+    "version": "0.0.20",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.108.0"
@@ -16,10 +16,6 @@
     "main": "./dist/extension.js",
     "contributes": {
         "commands": [
-            {
-                "command": "duet.installHost",
-                "title": "Duet: Установить Duet Host"
-            },
             {
                 "command": "duet.refresh",
                 "title": "Duet: Refresh Index",
@@ -86,21 +82,6 @@
                 "icon": "$(go-to-file)",
                 "category": "Duet",
                 "shortTitle": "Все дела"
-            },
-            {
-                "command": "duet.retryBackend",
-                "title": "Повторить запуск backend",
-                "category": "Duet"
-            },
-            {
-                "command": "duet.showPythonHelp",
-                "title": "Справка по установке Python",
-                "category": "Duet"
-            },
-            {
-                "command": "duet.showBackendLogs",
-                "title": "Показать логи backend",
-                "category": "Duet"
             }
         ],
         "submenus": [
@@ -166,7 +147,7 @@
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.12",
+                    "title": "Duet 0.0.20",
                     "icon": "resources/duet-icon.svg"
                 }
             ]
@@ -174,49 +155,49 @@
         "views": {
             "duet-explorer": [
                 {
-                    "id": "duet.onboarding",
+                    "id": "duet.status",
                     "name": "DUET",
-                    "when": "duet.noPointer"
+                    "when": "!duet.ready"
                 },
                 {
                     "id": "duet.context",
                     "name": "КОНТЕКСТ",
-                    "when": "duet.hasPointer",
+                    "when": "duet.hasPointer && duet.ready",
                     "initialSize": 1
                 },
                 {
                     "id": "duet.businesses",
                     "name": "ДЕЛА",
-                    "when": "duet.hasPointer",
+                    "when": "duet.hasPointer && duet.ready",
                     "initialSize": 4
                 },
                 {
                     "id": "duet.projects",
                     "name": "ПРОЕКТЫ",
-                    "when": "duet.hasPointer",
+                    "when": "duet.hasPointer && duet.ready",
                     "initialSize": 1
                 }
             ]
         },
         "viewsWelcome": [
             {
+                "view": "duet.status",
+                "contents": "$(sync~spin) Подключение к backend...",
+                "when": "duet.initializing"
+            },
+            {
+                "view": "duet.status",
+                "contents": "Установите и запустите Duet Host.\n\n[Перезагрузить окно](command:workbench.action.reloadWindow)"
+            },
+            {
                 "view": "duet.context",
                 "contents": "Нет открытой папки.\n[Открыть папку](command:vscode.openFolder)"
-            },
+            }
+        ],
+        "mcpServerDefinitionProviders": [
             {
-                "view": "duet.businesses",
-                "contents": "$(sync~spin) Запуск backend...",
-                "when": "duet.hasDataFolder && duet.initializing"
-            },
-            {
-                "view": "duet.businesses",
-                "contents": "$(error) Python 3.10+ не найден\n\nDuet требует Python 3.10 или новее.\n\n[Повторить](command:duet.retryBackend) · [Справка](command:duet.showPythonHelp)",
-                "when": "duet.hasDataFolder && duet.initFailed.python"
-            },
-            {
-                "view": "duet.businesses",
-                "contents": "$(error) Ошибка запуска backend\n\n[Повторить](command:duet.retryBackend) · [Логи](command:duet.showBackendLogs)",
-                "when": "duet.hasDataFolder && duet.initFailed && !duet.initFailed.python"
+                "id": "duet",
+                "label": "Duet"
             }
         ]
     },
