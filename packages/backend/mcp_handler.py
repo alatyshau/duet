@@ -110,12 +110,14 @@ def workspace_info(workspace_path: str = "") -> dict:
 
     Returns information about:
     - duetDataPath: Path to DuetData directory
-    - duetConfigPath: Path to DuetConfig directory
-    - machine: Machine identifier from pointer
-    - aliases: Dict mapping @alias to absolute path
+    - machineConfig: Path to machine config JSON file
     - instructionsPath: Path to ai-instructions directory
-    - chain: Hierarchy chain from business to current entity
-    - components: List of components in the product (if applicable)
+    - workspace_type: product_folder_with_git_repo | product_folder | stream_folder | business_folder | project_folder
+    - main_folder: Absolute path to entity root directory
+    - projects_folder: Absolute path to projects/ on Drive (product/stream only, absent for business/project)
+    - context: {breadcrumb, chain with type/name/description?}
+    - key_files: {spec?, readme?} — absolute paths to read first (absent if no files found)
+    - components: List of components with name, path, spec?, description?
     """
     service = _get_workspace_service()
     return service.get_workspace_info(workspace_path if workspace_path else None)

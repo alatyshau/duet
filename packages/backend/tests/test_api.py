@@ -194,10 +194,10 @@ class TestWorkspaceInfoEndpoint:
         assert response.status_code == 200
 
         data = response.json()
-        assert data["duetDataPath"] == str(duet_data)
-        assert data["instructionsPath"] == str(duet_data / "ai-instructions")
-        assert data["chain"] == []
-        assert data["components"] == []
+        assert data["status"] == "unknown"
+        assert data["reason"] == "no_workspace_path"
+        assert data["duet_paths"]["duetDataPath"] == str(duet_data)
+        assert data["duet_paths"]["instructionsPath"] == str(duet_data / "ai-instructions")
 
     async def test_returns_chain(
         self, client: AsyncClient, db, duet_data_builder, monkeypatch
@@ -240,13 +240,15 @@ class TestWorkspaceInfoEndpoint:
         assert response.status_code == 200
 
         data = response.json()
-        assert len(data["chain"]) == 3
-        assert data["chain"][0]["name"] == "Business"
-        assert data["chain"][0]["type"] == "business"
-        assert data["chain"][1]["name"] == "Stream"
-        assert data["chain"][1]["type"] == "stream"
-        assert data["chain"][2]["name"] == "Product"
-        assert data["chain"][2]["type"] == "product"
+        assert data["status"] == "found"
+        chain = data["context"]["chain"]
+        assert len(chain) == 3
+        assert chain[0]["name"] == "Business"
+        assert chain[0]["type"] == "business"
+        assert chain[1]["name"] == "Stream"
+        assert chain[1]["type"] == "stream"
+        assert chain[2]["name"] == "Product"
+        assert chain[2]["type"] == "product"
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,47 @@
-# Duet Host — Architecture
+# Host
+
+Electron tray app that writes pointer file, deploys backend and AI instructions to DuetData, and configures AI clients.
 
 > Shared model (pointer file format, DuetData, DuetConfig): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
+>
+> See also: [UI.md](UI.md)
 
-## Purpose
+## Domain
 
-Electron tray app. Writes pointer file (`~/.org.ve68.duet`). Deploys AI instructions and backend to DuetData. Configures AI clients (Claude Code, Codex). See PRODUCT.md → Components.
+### Role in Ecosystem
+
+Host is the **only writer** of the pointer file. Extension and Backend only read it. See PRODUCT.md -> Pointer File.
+
+### AppState
+
+Single source of truth for application status.
+
+| Status | Condition |
+|--------|-----------|
+| `no_config` | Pointer file missing, or any of 3 required fields empty |
+| `path_lost` | All fields present, but `duetDataPath` or `duetConfigPath` doesn't exist on disk |
+| `ready` | All fields present AND both directories exist |
+
+**Derivation:** `checkAppState()` reads pointer -> checks fields -> checks `existsSync()` -> returns status.
+
+### Config Interface
+
+```typescript
+interface Config {
+  machine?: string
+  duetDataPath?: string
+  duetConfigPath?: string
+}
+```
+
+Operations:
+- `readConfig()` — reads pointer file, returns `{}` if missing or broken
+- `writeConfig(config)` — writes pointer file (JSON, 2-space indent)
+- `getConfigFile()` — returns pointer path (`DUET_CONFIG_FILE` env overrides for tests)
+
+### Single Instance
+
+Host uses Electron `requestSingleInstanceLock()`. Second instance shows window of the first and exits.
 
 ## Current State
 
@@ -12,7 +49,7 @@ Electron tray app. Writes pointer file (`~/.org.ve68.duet`). Deploys AI instruct
 |---------|--------|
 | Tray app (Menu Bar / System Tray) | Done |
 | Pointer file creation (3 fields) | Done |
-| AppState machine (no_config → path_lost → ready) | Done |
+| AppState machine (no_config -> path_lost -> ready) | Done |
 | Deploy AI instructions + backend | Done |
 | AI client detection + configuration | Done |
 | InstallPage UI (folders + deploy + log) | Done |
@@ -32,14 +69,14 @@ Electron tray app. Writes pointer file (`~/.org.ve68.duet`). Deploys AI instruct
 | `core/` | Config, app state, deploy, backend, AI clients, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `apps.ts` |
 | `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
 | `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
-| `preload/` | Bridge main ↔ renderer | `index.ts`, `index.d.ts` |
+| `preload/` | Bridge main <-> renderer | `index.ts`, `index.d.ts` |
 | `renderer/` | React UI | `App.tsx`, `pages/InstallPage.tsx`, `pages/AppPage.tsx`, `pages/AgentsPage.tsx`, `components/` |
 
 ## Engineering Principles
 
 | Principle | Rule |
 |-----------|------|
-| **Thin shell** | `main/`, `platform/`, `preload/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner → extract to `core/`. |
+| **Thin shell** | `main/`, `platform/`, `preload/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner -> extract to `core/`. |
 | **No framework imports in core/** | `core/` has zero Electron imports. Testable with plain Node.js. |
 | **Shared types** | `shared/types.ts` — single source of truth for all types crossing process boundary (IPC). Core modules re-export from shared. No type duplication. |
 | **Unit tests for core/ only** | Don't mock Electron. Test pure `core/` functions directly. Shell is validated by TypeScript + E2E. |
@@ -49,26 +86,20 @@ Electron tray app. Writes pointer file (`~/.org.ve68.duet`). Deploys AI instruct
 ## AppState Machine
 
 ```
-┌──────────────┐
-│  no_config   │ ← pointer missing OR fields incomplete
-└──────┬───────┘
-       │ user fills all 3 fields
-       ▼
-┌──────────────┐
-│    ready     │ ← both paths exist on disk
-└──────┬───────┘
-       │ folder deleted/moved
-       ▼
-┌──────────────┐
-│  path_lost   │ ← fields set but paths don't exist
-└──────────────┘
++----------------+
+|   no_config    | <- pointer missing OR fields incomplete
++-------+--------+
+        | user fills all 3 fields
+        v
++----------------+
+|     ready      | <- both paths exist on disk
++-------+--------+
+        | folder deleted/moved
+        v
++----------------+
+|   path_lost    | <- fields set but paths don't exist
++----------------+
 ```
-
-| Status | Condition |
-|--------|-----------|
-| `no_config` | Pointer file missing, or any of 3 fields empty |
-| `path_lost` | All fields set, but `duetDataPath` or `duetConfigPath` doesn't exist |
-| `ready` | All fields set AND both paths exist |
 
 **deployChannel:** AppState includes `deployChannel: 'dev' | 'prod'` (default `'prod'`). Read from `{machine}.json`. Controls whether deploy uses bundled resources (`prod`) or dev override paths (`dev`).
 
@@ -81,7 +112,7 @@ Deploys AI instructions and backend from bundled resources to DuetData.
 | Component | Source (extraResources) | Target | Method |
 |-----------|------------------------|--------|--------|
 | AI instructions | `ai-instructions/` | `DuetData/ai-instructions/` | Recursive copy (filtered) |
-| Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered) (.new → rename → .old → delete) |
+| Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered) (.new -> rename -> .old -> delete) |
 
 **Deploy filter:** Both copy operations exclude dev artifact directories: `.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`. This prevents copying dev environment into DuetData when deploying from source (`devBackendPath`).
 
@@ -89,17 +120,17 @@ Deploys AI instructions and backend from bundled resources to DuetData.
 
 **Version comparison:** Uses `compareSemver(appVersion, deployed)` — deploy only when app version is newer (not on downgrade or same version).
 
-**Flow:** VERSION check (semver) → skip if not newer → **stop backend** (POST /stop + kill by PID) → deploy instructions → deploy backend (atomic swap) → Python check → venv + pip → write VERSION (only on full success).
+**Flow:** VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop + kill by PID) -> deploy instructions -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
 
 **VERSION file:** `DuetData/backend/VERSION` contains `app.getVersion()`. Newer app version triggers deploy. VERSION is NOT written if any step fails (Python not found, pip failed, etc.).
 
-**Tray warning:** When `status === 'ready'` but VERSION mismatch → tray shows warning icon + "требуется обновление".
+**Tray warning:** When `status === 'ready'` but VERSION mismatch -> tray shows warning icon + "требуется обновление".
 
-**Backend stop before deploy:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) → wait 3s → kill by PID (`DuetData/.pid`) with SIGTERM → SIGKILL fallback. Errors don't abort deploy (backend may not be running).
+**Backend stop before deploy:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) -> wait 3s -> kill by PID (`DuetData/.pid`) with SIGTERM -> SIGKILL fallback. Errors don't abort deploy (backend may not be running).
 
 **Pure functions (extracted from Electron shell):**
-- `resolveDeployStatus(appState, appVersion, activeStatus)` → DeployStatus — used by IPC handler `deploy:get-status`
-- `isDeployWarning(appState, appVersion)` → boolean — used by `main/index.ts` for tray icon
+- `resolveDeployStatus(appState, appVersion, activeStatus)` -> DeployStatus — used by IPC handler `deploy:get-status`
+- `isDeployWarning(appState, appVersion)` -> boolean — used by `main/index.ts` for tray icon
 
 Implementation: `core/deploy.ts`
 
@@ -109,13 +140,13 @@ Host is the single owner of backend process lifecycle (start, stop, health monit
 
 **Start:** `startBackend(duetDataPath, port, log)` — spawn venv Python with `server.py`, detached + stdio: 'ignore' + unref. Poll `/health` until ready. Kill process if health check fails after all retries.
 
-**Stop:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) → wait 3s → kill by PID (`.pid` file) with SIGTERM → SIGKILL fallback.
+**Stop:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) -> wait 3s -> kill by PID (`.pid` file) with SIGTERM -> SIGKILL fallback.
 
 **Health:** `checkHealth(port)` — GET `/health` with 2s timeout. Returns `{version, uptime}` or null.
 
-**Status:** `getBackendStatus(duetDataPath, port)` → `BackendStatus` (stopped | starting | running | stopping | error).
+**Status:** `getBackendStatus(duetDataPath, port)` -> `BackendStatus` (stopped | starting | running | stopping | error).
 
-**Auto-start on startup:** When `status === 'ready'` and deployed (no VERSION mismatch) → `ensureBackendRunning()`.
+**Auto-start on startup:** When `status === 'ready'` and deployed (no VERSION mismatch) -> `ensureBackendRunning()`.
 
 **Auto-start after deploy:** `runDeploy()` calls `startBackend()` after writing VERSION.
 
@@ -137,7 +168,7 @@ Detects and configures AI clients via direct file writes (no CLI).
 | Claude Code | `~/.claude.json` | MCP server (mcpServers.duet) |
 | Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp.duet]` |
 
-**Pattern:** detect (config dir exists?) → configure (write files) → show result. Not found = info, not error.
+**Pattern:** detect (config dir exists?) -> configure (write files) -> show result. Not found = info, not error.
 
 Implementation: `core/ai-clients.ts`
 
@@ -145,41 +176,28 @@ Implementation: `core/ai-clients.ts`
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `app:get-state` | renderer → main | Get current AppState |
-| `app-state-changed` | main → renderer | Push state updates |
-| `dialog:select-folder` | renderer → main | Open system folder picker |
-| `config:save-pointer` | renderer → main | Save pointer file (all 3 fields) |
-| `shell:open-path` | renderer → main | Open path in Finder/Explorer |
-| `config:set-deploy-channel` | renderer → main | Set deploy channel (dev/prod) in machine config |
-| `deploy:get-status` | renderer → main | Get deploy status (idle/up_to_date/deploying/etc.) |
-| `deploy:start` | renderer → main | Start deploy (async) |
-| `deploy:status-changed` | main → renderer | Push deploy status updates |
-| `deploy:log` | main → renderer | Push deploy log messages |
-| `backend:get-status` | renderer → main | Get backend status (stopped/starting/running/error) |
-| `backend:start` | renderer → main | Start backend |
-| `backend:stop` | renderer → main | Stop backend |
-| `backend:status-changed` | main → renderer | Push backend status updates |
-| `agents:detect` | renderer → main | Detect installed AI clients |
-| `agents:configure` | renderer → main | Configure all AI clients |
+| `app:get-state` | renderer -> main | Get current AppState |
+| `app-state-changed` | main -> renderer | Push state updates |
+| `dialog:select-folder` | renderer -> main | Open system folder picker |
+| `config:save-pointer` | renderer -> main | Save pointer file (all 3 fields) |
+| `shell:open-path` | renderer -> main | Open path in Finder/Explorer |
+| `config:set-deploy-channel` | renderer -> main | Set deploy channel (dev/prod) in machine config |
+| `deploy:get-status` | renderer -> main | Get deploy status (idle/up_to_date/deploying/etc.) |
+| `deploy:start` | renderer -> main | Start deploy (async) |
+| `deploy:status-changed` | main -> renderer | Push deploy status updates |
+| `deploy:log` | main -> renderer | Push deploy log messages |
+| `backend:get-status` | renderer -> main | Get backend status (stopped/starting/running/error) |
+| `backend:start` | renderer -> main | Start backend |
+| `backend:stop` | renderer -> main | Stop backend |
+| `backend:status-changed` | main -> renderer | Push backend status updates |
+| `agents:detect` | renderer -> main | Detect installed AI clients |
+| `agents:configure` | renderer -> main | Configure all AI clients |
 
 **Contract:** `config:save-pointer` writes pointer file, creates default DuetConfig files if missing (`ensureConfigDefaults`), then calls `updateAppState()`, returns new AppState. `deploy:start` runs async deploy, broadcasts status + log events. `config:set-deploy-channel` writes `deployChannel` to `{machine}.json`, calls `updateAppState()`, returns new AppState.
 
 **Config defaults:** `ensureConfigDefaults(duetConfigPath, machine)` — creates `settings.json` (`{ business_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
 
 **Machine config write:** `setMachineConfigKey(key, value)` — read-modify-write single field in `{machine}.json`. Validates machine name. Implementation: `core/config.ts`.
-
-## Behavioral Contracts
-
-| Behavior | Contract |
-|----------|----------|
-| Window close | Hides window, does NOT quit app |
-| First run (no pointer file) | Shows window for onboarding |
-| Status `path_lost` | Shows window (needs attention) |
-| Status `ready` | Silent in tray, no window |
-| Tray icon | Warning when status ≠ ready OR deploy needed |
-| macOS Dock | Hidden by default, visible when window shown |
-| Second instance | Shows window of first instance, second exits |
-| Production | Cmd/Ctrl+R reload disabled |
 
 ## Pages
 
@@ -202,39 +220,28 @@ Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `A
 
 Detects AI clients on mount. Shows status card per client. "Настроить все" button to configure.
 
-## Navigation
+## Behavioral Contracts
 
-| Concept | File |
-|---------|------|
-| Shared IPC types | `shared/types.ts` |
-| IPC → UI mappers | `shared/mappers.ts` |
-| Pointer + machine config | `core/config.ts` |
-| App state logic | `core/app-state.ts` |
-| Deploy service | `core/deploy.ts` |
-| Backend lifecycle | `core/backend.ts` |
-| App registry | `core/apps.ts` |
-| AI client config | `core/ai-clients.ts` |
-| Tray menu + icon | `platform/tray.ts` |
-| Autostart | `platform/autolaunch.ts` |
-| Main lifecycle | `main/index.ts` |
-| Window management | `main/window.ts` |
-| IPC registration | `main/ipc-handlers.ts` |
-| Preload bridge | `preload/index.ts` |
-| Root React component | `renderer/src/App.tsx` |
-| Install page | `renderer/src/pages/InstallPage.tsx` |
-| App page | `renderer/src/pages/AppPage.tsx` |
-| Agents page | `renderer/src/pages/AgentsPage.tsx` |
-| Layout (sidebar) | `renderer/src/components/layout/` |
+| Behavior | Contract |
+|----------|----------|
+| Window close | Hides window, does NOT quit app |
+| First run (no pointer file) | Shows window for onboarding |
+| Status `path_lost` | Shows window (needs attention) |
+| Status `ready` | Silent in tray, no window |
+| Tray icon | Warning when status != ready OR deploy needed |
+| macOS Dock | Hidden by default, visible when window shown |
+| Second instance | Shows window of first instance, second exits |
+| Production | Cmd/Ctrl+R reload disabled |
 
 ## Build & Release
 
-> Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) → Build & Release
+> Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) -> Build & Release
 
 ```bash
 npm run release [-- --mac|--win|--linux]   # default: --mac
 ```
 
-`build-release.cjs`: bump patch → `electron-vite build` → `electron-builder` → `dist/Duet-{version}.dmg`
+`build-release.cjs`: bump patch -> `electron-vite build` -> `electron-builder` -> `dist/Duet-{version}.dmg`
 
 | Tool | Role |
 |------|------|
@@ -260,6 +267,39 @@ npm run typecheck    # tsc
 |-------|-------|------|
 | Unit | `__tests__/unit/core/`, `__tests__/unit/shared/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, mappers |
 | E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
+
+### Testability
+
+| Module | Testable without Electron |
+|--------|--------------------------|
+| `core/config.ts` | Yes — pure fs, env override via `DUET_CONFIG_FILE` |
+| `core/app-state.ts` | Yes — pure functions, depends only on config + fs |
+| `platform/tray.ts` | No — requires Electron (manual testing) |
+| `main/window.ts` | No — requires Electron |
+
+## Navigation
+
+| Concept | File |
+|---------|------|
+| Shared IPC types | `shared/types.ts` |
+| IPC -> UI mappers | `shared/mappers.ts` |
+| Pointer + machine config | `core/config.ts` |
+| App state logic | `core/app-state.ts` |
+| Deploy service | `core/deploy.ts` |
+| Backend lifecycle | `core/backend.ts` |
+| App registry | `core/apps.ts` |
+| AI client config | `core/ai-clients.ts` |
+| Tray menu + icon | `platform/tray.ts` |
+| Autostart | `platform/autolaunch.ts` |
+| Main lifecycle | `main/index.ts` |
+| Window management | `main/window.ts` |
+| IPC registration | `main/ipc-handlers.ts` |
+| Preload bridge | `preload/index.ts` |
+| Root React component | `renderer/src/App.tsx` |
+| Install page | `renderer/src/pages/InstallPage.tsx` |
+| App page | `renderer/src/pages/AppPage.tsx` |
+| Agents page | `renderer/src/pages/AgentsPage.tsx` |
+| Layout (sidebar) | `renderer/src/components/layout/` |
 
 ## Future
 

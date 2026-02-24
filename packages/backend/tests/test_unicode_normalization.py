@@ -203,10 +203,11 @@ class TestWorkspaceServiceNormalization:
 
         # Should return chain: СЕМЬЯ -> ЗОЖ -> Андрей
         assert result["status"] == "found"
-        assert len(result["chain"]) == 3
-        assert result["chain"][0]["name"] == "СЕМЬЯ"
-        assert result["chain"][1]["name"] == "ЗОЖ"
-        assert result["chain"][2]["name"] == "Андрей"
+        chain = result["context"]["chain"]
+        assert len(chain) == 3
+        assert chain[0]["name"] == "СЕМЬЯ"
+        assert chain[1]["name"] == "ЗОЖ"
+        assert chain[2]["name"] == "Андрей"
 
 
 class TestConfigNormalization:

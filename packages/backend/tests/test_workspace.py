@@ -211,29 +211,33 @@ class TestStripRepoSuffixes:
 
 
 class TestGetWorkspaceInfo:
-    """Tests for WorkspaceService.get_workspace_info method."""
+    """Tests for WorkspaceService.get_workspace_info method (v2 format)."""
 
-    def test_returns_base_info_without_path(
+    def test_returns_duet_paths_without_workspace_path(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Returns duetDataPath and instructionsPath without workspace_path."""
+        """Returns duet_paths and status=unknown without workspace_path."""
         builder = DuetDataBuilder(tmp_path)
         duet_data = builder.build(monkeypatch)
 
         service = WorkspaceService(db)
         result = service.get_workspace_info()
 
-        assert "duetDataPath" in result
-        assert "instructionsPath" in result
-        assert result["chain"] == []
-        assert result["components"] == []
         assert result["status"] == "unknown"
         assert result["reason"] == "no_workspace_path"
+        # duet_paths always present
+        assert "duet_paths" in result
+        assert "duetDataPath" in result["duet_paths"]
+        assert "machineConfig" in result["duet_paths"]
+        assert "instructionsPath" in result["duet_paths"]
+        # No workspace-specific fields
+        assert "context" not in result
+        assert "workspace_paths" not in result
 
-    def test_returns_chain_for_repos_path(
+    def test_returns_context_for_repos_path(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Returns chain when workspace_path is in repos."""
+        """Returns context with chain when workspace_path is in repos."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         builder.add_repo("Duet", components=["extension", "backend"])
@@ -255,16 +259,26 @@ class TestGetWorkspaceInfo:
 
         result = service.get_workspace_info(repo_path)
 
-        # Should have chain: Business -> Stream -> Duet
-        assert len(result["chain"]) == 3
-        assert result["chain"][0]["name"] == "Business"
-        assert result["chain"][0]["type"] == "business"
-        assert result["chain"][1]["name"] == "Stream"
-        assert result["chain"][1]["type"] == "stream"
-        assert result["chain"][2]["name"] == "Duet"
-        assert result["chain"][2]["type"] == "product"
+        # Status found
         assert result["status"] == "found"
         assert "reason" not in result
+
+        # Context with chain
+        context = result["context"]
+        assert len(context["chain"]) == 3
+        assert context["chain"][0]["name"] == "Business"
+        assert context["chain"][0]["type"] == "business"
+        assert context["chain"][1]["name"] == "Stream"
+        assert context["chain"][1]["type"] == "stream"
+        assert context["chain"][2]["name"] == "Duet"
+        assert context["chain"][2]["type"] == "product"
+
+        # Chain items have no id or path
+        assert "id" not in context["chain"][0]
+        assert "path" not in context["chain"][0]
+
+        # Breadcrumb
+        assert context["breadcrumb"] == "Business / Stream / Duet"
 
     def test_returns_components_for_product(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
@@ -292,10 +306,10 @@ class TestGetWorkspaceInfo:
         names = {c["name"] for c in result["components"]}
         assert names == {"extension", "backend"}
 
-    def test_returns_empty_chain_for_unknown_path(
+    def test_status_unknown_for_unknown_path(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Returns empty chain for unknown workspace path."""
+        """Returns status=unknown for unknown workspace path."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         duet_data = builder.build(monkeypatch)
@@ -306,10 +320,10 @@ class TestGetWorkspaceInfo:
 
         result = service.get_workspace_info("/unknown/path")
 
-        assert result["chain"] == []
-        assert result["components"] == []
         assert result["status"] == "unknown"
         assert result["reason"] == "path_not_in_hierarchy"
+        assert "context" not in result
+        assert "workspace_paths" not in result
 
     def test_status_entity_not_in_db(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
@@ -318,14 +332,13 @@ class TestGetWorkspaceInfo:
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         duet_data = builder.build(monkeypatch)
-        # Don't scan — DB is empty
+        # Don't scan -- DB is empty
 
         service = WorkspaceService(db)
         biz_path = str(builder.get_business_path(0))
 
         result = service.get_workspace_info(biz_path)
 
-        assert result["chain"] == []
         assert result["status"] == "unknown"
         assert result["reason"] == "entity_not_in_db"
 
@@ -346,6 +359,361 @@ class TestGetWorkspaceInfo:
 
         assert result["status"] == "found"
         assert "reason" not in result
+
+    def test_workspace_type_product_with_git(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Product with git_url -> workspace_type = product_folder_with_git_repo."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        builder.add_repo("Duet", components=[])
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        product_path = biz_path / "Duet"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "Duet", git_url="https://github.com/...")
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        repo_path = str(builder.get_repo_path("Duet"))
+
+        result = service.get_workspace_info(repo_path)
+
+        ws = result["workspace_paths"]
+        assert ws["workspace_type"] == "product_folder_with_git_repo"
+        assert ws["main_folder"] == str(builder.get_repo_path("Duet"))
+        # projects_folder is on drive
+        assert "projects_folder" in ws
+        assert ws["projects_folder"] == str(product_path / "projects")
+
+    def test_workspace_type_business(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Business -> workspace_type = business_folder, no projects_folder."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        biz_path = str(builder.get_business_path(0))
+
+        result = service.get_workspace_info(biz_path)
+
+        ws = result["workspace_paths"]
+        assert ws["workspace_type"] == "business_folder"
+        assert "projects_folder" not in ws
+
+    def test_workspace_type_stream(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stream -> workspace_type = stream_folder, has projects_folder."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        stream_path = biz_path / "Stream"
+        stream_path.mkdir()
+        ManifestBuilder.stream(stream_path, "Stream")
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+
+        result = service.get_workspace_info(str(stream_path))
+
+        ws = result["workspace_paths"]
+        assert ws["workspace_type"] == "stream_folder"
+        assert ws["projects_folder"] == str(stream_path / "projects")
+
+    def test_workspace_type_project(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Project -> workspace_type = project_folder, no projects_folder."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        # Create project inside business/projects/
+        biz_path = builder.get_business_path(0)
+        projects_dir = biz_path / "projects"
+        projects_dir.mkdir()
+        project_path = projects_dir / "WIP_my_project"
+        project_path.mkdir()
+
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(project_path))
+
+        assert result["status"] == "found"
+        ws = result["workspace_paths"]
+        assert ws["workspace_type"] == "project_folder"
+        assert "projects_folder" not in ws
+
+        # Chain includes business and project
+        chain = result["context"]["chain"]
+        assert chain[0]["type"] == "business"
+        assert chain[-1]["type"] == "project"
+
+    def test_workspace_type_product_without_git(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Product without git_url -> workspace_type = product_folder."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        product_path = biz_path / "Duet"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "Duet")  # no git_url
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(product_path))
+
+        ws = result["workspace_paths"]
+        assert ws["workspace_type"] == "product_folder"
+        assert ws["main_folder"] == str(product_path)
+
+    def test_components_absent_for_business(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """components field absent when workspace is business (no product in chain)."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(builder.get_business_path(0)))
+
+        assert result["status"] == "found"
+        assert "components" not in result
+
+    def test_components_absent_for_stream(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """components field absent when workspace is stream (no product in chain)."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        stream_path = biz_path / "Stream"
+        stream_path.mkdir()
+        ManifestBuilder.stream(stream_path, "Stream")
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(stream_path))
+
+        assert result["status"] == "found"
+        assert "components" not in result
+
+    def test_key_files_with_only_readme(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """key_files includes only readme when spec is absent."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        (biz_path / "README.md").write_text("# Business", encoding="utf-8")
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(biz_path))
+
+        assert "key_files" in result
+        assert "readme" in result["key_files"]
+        assert "spec" not in result["key_files"]
+
+    def test_key_files_with_only_spec(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """key_files includes only spec when readme is absent."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        spec_dir = biz_path / "spec"
+        spec_dir.mkdir()
+        (spec_dir / "BUSINESS.md").write_text("# Business", encoding="utf-8")
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(biz_path))
+
+        assert "key_files" in result
+        assert "spec" in result["key_files"]
+        assert "readme" not in result["key_files"]
+
+    def test_key_files_with_spec_and_readme(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """key_files includes spec and readme when they exist."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        builder.add_repo("Duet", components=[])
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        product_path = biz_path / "Duet"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "Duet", git_url="https://...")
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        # Create spec and readme in repo
+        repo_path = builder.get_repo_path("Duet")
+        spec_dir = repo_path / "spec"
+        spec_dir.mkdir()
+        (spec_dir / "PRODUCT.md").write_text("# Duet\n\nSome description.", encoding="utf-8")
+        (repo_path / "README.md").write_text("# Duet\n\nReadme text.", encoding="utf-8")
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(repo_path))
+
+        assert "key_files" in result
+        assert result["key_files"]["spec"] == str(spec_dir / "PRODUCT.md")
+        assert result["key_files"]["readme"] == str(repo_path / "README.md")
+
+    def test_key_files_absent_when_no_files(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """key_files absent when neither spec nor readme exist."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        biz_path = str(builder.get_business_path(0))
+
+        result = service.get_workspace_info(biz_path)
+
+        assert "key_files" not in result
+
+    def test_chain_includes_description_from_readme(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chain entities include description from README.md."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        # Write README with description
+        (biz_path / "README.md").write_text(
+            "# Business\n\nThis is the business description.",
+            encoding="utf-8",
+        )
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(biz_path))
+
+        chain = result["context"]["chain"]
+        assert chain[0]["description"] == "This is the business description."
+
+    def test_chain_omits_description_when_no_readme(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chain entities have no description field when README is absent."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+        scanner = Scanner(db)
+        scanner.scan()
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(builder.get_business_path(0)))
+
+        chain = result["context"]["chain"]
+        assert "description" not in chain[0]
+
+    def test_components_with_spec_and_description(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Components include spec path and description from COMPONENT.md."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        builder.add_repo("Duet", components=["backend"])
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        product_path = biz_path / "Duet"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "Duet")
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        # Create COMPONENT.md in backend spec/
+        repo_path = builder.get_repo_path("Duet")
+        spec_dir = repo_path / "packages" / "backend" / "spec"
+        spec_dir.mkdir(parents=True)
+        (spec_dir / "COMPONENT.md").write_text(
+            "# Backend\n\nPython HTTP backend for Duet.",
+            encoding="utf-8",
+        )
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(repo_path))
+
+        assert len(result["components"]) == 1
+        comp = result["components"][0]
+        assert comp["name"] == "backend"
+        assert comp["spec"] == "packages/backend/spec/COMPONENT.md"
+        assert comp["description"] == "Python HTTP backend for Duet."
+
+    def test_spec_fallback_chain(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Spec fallback: ARCHITECTURE.md found when COMPONENT.md absent."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        builder.add_repo("Duet", components=["ext"])
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        product_path = biz_path / "Duet"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "Duet")
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        # Only ARCHITECTURE.md, no COMPONENT.md
+        repo_path = builder.get_repo_path("Duet")
+        spec_dir = repo_path / "packages" / "ext" / "spec"
+        spec_dir.mkdir(parents=True)
+        (spec_dir / "ARCHITECTURE.md").write_text(
+            "# Architecture\n\n## Overview\n\nSome arch.",
+            encoding="utf-8",
+        )
+
+        service = WorkspaceService(db)
+        result = service.get_workspace_info(str(repo_path))
+
+        comp = result["components"][0]
+        assert comp["spec"] == "packages/ext/spec/ARCHITECTURE.md"
+        # Description = H1 text (since next content is ## not paragraph)
+        assert comp["description"] == "Architecture"
 
 
 class TestScannerRelativePaths:

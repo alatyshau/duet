@@ -1,6 +1,6 @@
 # Backend Architecture
 
-> Shared model (pointer, DuetData, DuetConfig, version flow, spawn): see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md)
+> Shared model (pointer, DuetData, DuetConfig, version flow, spawn): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
 
 ## Overview
 

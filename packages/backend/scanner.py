@@ -13,6 +13,8 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from description import extract_description, find_spec_file
 from typing import Callable
 
 from db import DatabaseManager, Entity
@@ -430,30 +432,43 @@ class Scanner:
 
 
 def scan_components(product_path: Path) -> list[dict]:
-    """Scan product directory for components (packages with spec/).
+    """Scan product directory for components (packages/).
 
-    Components are subdirectories of packages/ that may contain a spec/ folder.
+    For each component, finds spec file via fallback chain and extracts
+    description (first sentence) from it.
 
     Args:
         product_path: Path to product directory.
 
     Returns:
-        List of component dicts with name, path, hasSpec.
+        List of component dicts with name, path, and optionally spec, description.
     """
     components = []
 
-    # Check packages/ directory
     packages_dir = product_path / "packages"
     if packages_dir.exists():
         for entry in sorted(packages_dir.iterdir()):
-            if entry.is_dir():
-                has_spec = (entry / "spec").exists()
-                components.append(
-                    {
-                        "name": entry.name,
-                        "path": f"packages/{entry.name}",
-                        "hasSpec": has_spec,
-                    }
-                )
+            if entry.is_dir() and not entry.name.startswith("."):
+                component: dict = {
+                    "name": entry.name,
+                    "path": f"packages/{entry.name}",
+                }
+
+                # Find spec file using fallback chain
+                spec_path = find_spec_file(entry, "component")
+                if spec_path:
+                    # Store relative path from product root
+                    try:
+                        rel_spec = spec_path.relative_to(product_path)
+                        component["spec"] = str(rel_spec).replace("\\", "/")
+                    except ValueError:
+                        component["spec"] = str(spec_path)
+
+                    # Extract description from spec file
+                    desc = extract_description(spec_path)
+                    if desc:
+                        component["description"] = desc
+
+                components.append(component)
 
     return components

@@ -31,9 +31,24 @@
 - ❌ Assuming task is finished without human confirmation
 - ✅ "Step completed. Awaiting your review."
 
-**Be extremely cautios about deletions:** Never do harm or dangerous operations like git checkout or replacing whole file contents or replacing the whole file. Always double-check that and ask permission first! Always prefer safe operations!
+**Be extremely cautious about deletions:** Never do harm or dangerous operations like git checkout or replacing whole file contents or replacing the whole file. Always double-check that and ask permission first! Always prefer safe operations!
 
-**Orientation:** At session start, call `workspace_info(workspace_path=<current repo>)` MCP tool — returns entity chain (business→stream→product), components, all @aliases, `instructionsPath`. This is the primary orientation call before reading any files.
+**Orientation:** At session start, call `workspace_info(workspace_path=<current repo>)` MCP tool. Returns:
+- `duet_paths` — instructionsPath, machineConfig, duetDataPath
+- `context` — breadcrumb + chain (type, name, description)
+- `workspace_paths` — workspace_type, main_folder, projects_folder
+- `key_files` — spec, readme (absolute paths to read first)
+- `components` — product packages with spec path and description
+
+After the call, read files from `key_files` (spec, readme) to orient in the codebase.
+
+**Three roots:** All local paths are relative to three roots from `workspace_info`:
+
+| Domain | Root | Example |
+|--------|------|---------|
+| Projects, topic files | `projects_folder` | `WIP_workspace_info/prompt.md` |
+| Instructions (personas, modes, stances, skills) | `instructionsPath` | `personas/daedalus.md` |
+| Code, specs, README | `main_folder` | `packages/backend/services/workspace.py` |
 
 **Instructions root:** Use `instructionsPath` from `workspace_info` response. Paths in tables below are relative to it.
 
@@ -77,7 +92,7 @@ Business
 | **component** | компонент | Package in monorepo | `packages/ai-kit` |
 | **spec** | спецификация | Source of truth for AI (in `spec/`) | `packages/ai-kit/spec/` |
 | **project** | проект | GTD project with completion criteria | `260110_ai_kit_design` |
-| **project folder** | проектная папка | Folder with index.md and topic files | `projects/260110_ai_kit_design/` |
+| **project folder** | проектная папка | Folder in `projects/` (naming: `YYMMDD_name`, `WIP_name`, `TODO_name`) | `projects/WIP_workspace_info/` |
 | **topic file** | топик-файл | topic_*.md — sub-project with steps | `topic_ai_kit_redesign.md` |
 | **step** | шаг | Unit of work in IMPLEMENTATION PLAN | Step 5, Step 6 |
 | **docs** | документация | Materialized view for humans (in component) | `packages/ai-kit/docs/` |
@@ -131,10 +146,11 @@ Business
 ## Spec-Driven Development
 
 **spec/ structure** (in component):
-- `DOMAIN.md` — concepts, glossary
-- `ARCHITECTURE.md` — modules, layers
+- `COMPONENT.md` — architecture, domain, decisions (primary file)
+- `DATA_MODEL.md` — data model, constraints (if applicable)
+- `UI.md` — view purposes, behavioral contracts (if applicable)
 
-**Working with a component?** → Read `spec/ARCHITECTURE.md` FIRST.
+**Working with a component?** → Read `spec/COMPONENT.md` FIRST.
 It contains commands, structure, and "how things work here".
 
 **Before changes:** Read spec/ to understand current state

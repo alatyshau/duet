@@ -374,14 +374,16 @@ class TestScanComponents:
         names = {c["name"] for c in result}
         assert names == {"component-a", "component-b"}
 
-    def test_detects_spec_directory(self, tmp_path: Path) -> None:
-        """Detects hasSpec when spec/ exists in component."""
+    def test_detects_spec_file(self, tmp_path: Path) -> None:
+        """Detects spec when spec/ contains a recognized file."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
 
         comp_with_spec = packages_path / "with-spec"
         comp_with_spec.mkdir(parents=True)
-        (comp_with_spec / "spec").mkdir()
+        spec_dir = comp_with_spec / "spec"
+        spec_dir.mkdir()
+        (spec_dir / "COMPONENT.md").write_text("# With Spec\n\nA component.")
 
         comp_without_spec = packages_path / "without-spec"
         comp_without_spec.mkdir(parents=True)
@@ -389,8 +391,9 @@ class TestScanComponents:
         result = scan_components(product_path)
 
         by_name = {c["name"]: c for c in result}
-        assert by_name["with-spec"]["hasSpec"] is True
-        assert by_name["without-spec"]["hasSpec"] is False
+        assert "spec" in by_name["with-spec"]
+        assert by_name["with-spec"]["description"] == "A component."
+        assert "spec" not in by_name["without-spec"]
 
     def test_returns_relative_paths(self, tmp_path: Path) -> None:
         """Returns relative paths in format packages/{name}."""
@@ -429,3 +432,33 @@ class TestScanComponents:
 
         assert len(result) == 1
         assert result[0]["name"] == "real-component"
+
+    def test_skips_hidden_directories(self, tmp_path: Path) -> None:
+        """Skips hidden directories (starting with .) in packages/."""
+        product_path = tmp_path / "product"
+        packages_path = product_path / "packages"
+        packages_path.mkdir(parents=True)
+
+        (packages_path / "visible-component").mkdir()
+        (packages_path / ".hidden-component").mkdir()
+
+        result = scan_components(product_path)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "visible-component"
+
+    def test_spec_without_description(self, tmp_path: Path) -> None:
+        """Component has spec but no extractable description (no H1)."""
+        product_path = tmp_path / "product"
+        packages_path = product_path / "packages"
+        comp_path = packages_path / "my-comp"
+        comp_path.mkdir(parents=True)
+        spec_dir = comp_path / "spec"
+        spec_dir.mkdir()
+        (spec_dir / "COMPONENT.md").write_text("## No H1 heading\n\nSome text.")
+
+        result = scan_components(product_path)
+
+        assert len(result) == 1
+        assert "spec" in result[0]
+        assert "description" not in result[0]

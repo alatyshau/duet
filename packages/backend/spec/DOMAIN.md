@@ -1,6 +1,6 @@
 # Backend Domain
 
-> Shared model (pointer, DuetData, DuetConfig, entities, @aliases, timestamps): see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md)
+> Shared model (pointer, DuetData, DuetConfig, entities, @aliases, timestamps): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
 
 ## Glossary
 
@@ -11,14 +11,14 @@
 | **Chain** | Path from root business to current entity |
 | **Component** | Package in product's `packages/` with optional `spec/` |
 
-Entity hierarchy, manifests, name uniqueness, self-healing: see ECOSYSTEM.md
+Entity hierarchy, manifests, name uniqueness, self-healing: see PRODUCT.md
 
 ## Backend-Specific Business Rules
 
 ### Scanner
 
 - Reads `business_folders` from `DuetConfig/settings.json`
-- Resolves `@aliases` via `{machine}.json` (see ECOSYSTEM.md → @Alias Resolution)
+- Resolves `@aliases` via `{machine}.json` (see PRODUCT.md → @Alias Resolution)
 - Stores results in `DuetData/data/entities.db` (native sqlite3)
 
 ### Config Reading Order

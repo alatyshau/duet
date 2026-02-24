@@ -1,10 +1,10 @@
 # Domain
 
-> Shared model (pointer file format, DuetData, DuetConfig): see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md)
+> Shared model (pointer file format, DuetData, DuetConfig): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
 
 ## Role in Ecosystem
 
-Host is the **only writer** of the pointer file. Extension and Backend only read it. See ECOSYSTEM.md → Pointer File.
+Host is the **only writer** of the pointer file. Extension and Backend only read it. See PRODUCT.md → Pointer File.
 
 ## AppState
 

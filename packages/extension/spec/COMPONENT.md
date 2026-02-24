@@ -1,6 +1,14 @@
-# Architecture
+# Extension
+
+VS Code extension — tree views, commands, and workspace management as thin client over Backend HTTP API.
 
 > Shared model (pointer, DuetData, DuetConfig, entities): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
+>
+> See also: [DATA_MODEL.md](DATA_MODEL.md), [UI.md](UI.md)
+
+## Domain
+
+Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.md](/spec/PRODUCT.md)
 
 ## Layer Separation
 
@@ -13,7 +21,7 @@
 
 | Principle | Rule |
 |-----------|------|
-| **Thin shell** | `vscode/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner → extract to `core/`. |
+| **Thin shell** | `vscode/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner -> extract to `core/`. |
 | **No framework imports in core/** | `core/` has zero VS Code imports. Testable with plain Node.js + vitest. |
 | **Unit tests for core/ only** | Don't mock VS Code APIs. Test pure `core/` functions directly. Shell is validated by TypeScript + integration tests. |
 | **Pure functions over state** | Prefer pure functions with explicit args over closures capturing module state. Makes testing trivial. |
@@ -25,7 +33,7 @@
 | Decision | Rationale |
 |----------|-----------|
 | Pointer-based config (`pointer.ts`) | Reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
-| Backend HTTP API as data source | `DuetApiClient` → all entity data via `/streams`, `/projects`, `/scan` |
+| Backend HTTP API as data source | `DuetApiClient` -> all entity data via `/streams`, `/projects`, `/scan` |
 | `StreamEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
 | Deterministic scan order | Backend scanner: `readdir` sorted by name for reproducible results |
@@ -35,12 +43,12 @@
 ## Data Flow
 
 ```
-activation → apiClient.streams() → StreamEntity[]
-           → pass to BusinessTreeProvider, ContextProvider
-           → ProjectsProvider gets apiClient for async /projects calls
+activation -> apiClient.streams() -> StreamEntity[]
+           -> pass to BusinessTreeProvider, ContextProvider
+           -> ProjectsProvider gets apiClient for async /projects calls
 
-refresh    → apiClient.scan() + apiClient.streams() → new StreamEntity[]
-           → updateStreams() on all providers → fire onDidChangeTreeData
+refresh    -> apiClient.scan() + apiClient.streams() -> new StreamEntity[]
+           -> updateStreams() on all providers -> fire onDidChangeTreeData
 ```
 
 Tree providers work synchronously over `StreamEntity[]` (filter, find, sort).
@@ -52,7 +60,7 @@ Only `ProjectsProvider.getChildren()` is async (calls `/projects/{id}`).
 |-------------|--------|
 | Business/Stream | Open Drive folder directly |
 | Product (no git_url) | Open Drive folder |
-| Product (with git_url) | Clone if needed → generate workspace → open workspace |
+| Product (with git_url) | Clone if needed -> generate workspace -> open workspace |
 
 Git clone UX:
 - `withProgress` notification (cancellable)
@@ -84,43 +92,50 @@ Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
 
 Note: Active color takes priority over business color.
 
-## Build & Release
-
-> Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) → Build & Release
-
-```bash
-npm run vsix   # bump + build + package → dist/duet-{version}.vsix
-```
-
-`build-vsix.js`: bump patch → update UI title → esbuild --production → vsce package
-
-| Script | What |
-|--------|------|
-| `esbuild.js` | Bundle extension to `dist/extension.js` |
-| `build-vsix.js` | Orchestrates: version bump + package + vsce |
-
 ## Backend Health Monitoring
 
 Host owns the full backend lifecycle (start, stop, health). Extension is a pure consumer:
 
 | Step | What |
 |------|------|
-| 1. Read pointer | `readPointer()` → `duetDataPath`, set `duet.hasPointer` |
-| 2. Read port | `readPort()` → port (default 19680), create `DuetApiClient` |
-| 3. Set initializing | `duet.initializing=true`, `duet.ready=false` → spinner in status view |
-| 4. Load streams | `apiClient.streams()` → `StreamEntity[]` |
+| 1. Read pointer | `readPointer()` -> `duetDataPath`, set `duet.hasPointer` |
+| 2. Read port | `readPort()` -> port (default 19680), create `DuetApiClient` |
+| 3. Set initializing | `duet.initializing=true`, `duet.ready=false` -> spinner in status view |
+| 4. Load streams | `apiClient.streams()` -> `StreamEntity[]` |
 | 5. Register providers | Create and register all tree providers |
-| 6. Set ready | `duet.ready=true`, `duet.initializing=false` → main views appear |
+| 6. Set ready | `duet.ready=true`, `duet.initializing=false` -> main views appear |
 
 **On failure** (no pointer, no port, backend offline):
-- `duet.ready=false` → status view shows "Установите и запустите Duet Host"
-- User clicks "Перезагрузить окно" → `workbench.action.reloadWindow`
+- `duet.ready=false` -> status view shows "Установите и запустите Duet Host"
+- User clicks "Перезагрузить окно" -> `workbench.action.reloadWindow`
 
 **Extension contracts:**
 - No spawn, no venv, no install — all managed by Host
 - Single check on activation (no polling, no retry command)
 - `duet.ready=true` set AFTER providers registered (prevents "no data provider" flash)
 - Backend-independent commands (`openDataFolder`, `showContextHelp`) work regardless of backend state
+
+## Build & Release
+
+> Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) -> Build & Release
+
+```bash
+npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
+```
+
+`build-vsix.js`: bump patch -> update UI title -> esbuild --production -> vsce package
+
+| Script | What |
+|--------|------|
+| `esbuild.js` | Bundle extension to `dist/extension.js` |
+| `build-vsix.js` | Orchestrates: version bump + package + vsce |
+
+## Testing
+
+| Layer | Tool | Approach |
+|-------|------|----------|
+| `core/` | vitest | Unit tests with mock StreamEntity[] and DuetApiClient |
+| `vscode/` | @vscode/test-electron | Integration tests (planned) |
 
 ## Navigation
 
@@ -134,10 +149,8 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 | Projects list | `core/tree/projectsList.ts` |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` |
-
-## Testing
-
-| Layer | Tool | Approach |
-|-------|------|----------|
-| `core/` | vitest | Unit tests with mock StreamEntity[] and DuetApiClient |
-| `vscode/` | @vscode/test-electron | Integration tests (planned) |
+| Entity types, markers | Backend `scanner.py` |
+| Name conflict resolution | Backend `scanner.py` |
+| DB schema (name unique) | Backend `db.py` |
+| Entity data in Extension | `api-client.ts` -> `StreamEntity` type |
+| Tree navigation | `core/tree/businessTree.ts`, `contextBreadcrumb.ts`, `projectsList.ts` |

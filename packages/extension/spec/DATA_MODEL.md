@@ -1,6 +1,6 @@
 # Data Model
 
-> Shared model (pointer, DuetData, DuetConfig, entities, timestamps): see [/spec/ECOSYSTEM.md](/spec/ECOSYSTEM.md)
+> Shared model (pointer, DuetData, DuetConfig, entities, timestamps): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
 
 ## Extension Config Chain
 

@@ -57,13 +57,28 @@ Spec exists when:
 
 ## Standard Files
 
+Primary spec per entity type:
+
+| Entity | Primary file | Content |
+|--------|-------------|---------|
+| product | `spec/PRODUCT.md` | Cross-component contracts, shared model |
+| component | `spec/COMPONENT.md` | Architecture + domain (merged) |
+| stream | `spec/STREAM.md` | Stream purpose, structure |
+| business | `spec/BUSINESS.md` | Business purpose, structure |
+| project | `spec/PROJECT.md` | Project goals, decisions |
+
+Optional companion files (component only):
+
 ```
 spec/
-├── DOMAIN.md       — glossary, business rules
-├── ARCHITECTURE.md — layers, decisions, boundaries
-├── DATA_MODEL.md   — constraints, persistence
-└── UI.md           — view purposes, behavioral contracts
+├── COMPONENT.md    — architecture, domain, decisions (ALWAYS present)
+├── DATA_MODEL.md   — constraints, persistence (when relevant)
+└── UI.md           — view purposes, behavioral contracts (when relevant)
 ```
+
+**COMPONENT.md is the merged replacement** for the former DOMAIN.md + ARCHITECTURE.md split. First sentence becomes `description` in workspace_info response.
+
+**Fallback chain:** workspace_info searches for spec file in order: primary file > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md. First found wins.
 
 ## Anti-patterns
 
