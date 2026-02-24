@@ -25,6 +25,7 @@ class Manifest:
     name: str
     icon: str | None = None
     git_url: str | None = None
+    status: str | None = None
 
 
 # Type priorities: lower number = higher priority
@@ -370,7 +371,10 @@ class Scanner:
 
         for entry in self._readdir_sorted(projects_path):
             if entry.is_dir() and not entry.name.startswith("."):
-                project_base_name = entry.name
+                # Read project.json manifest (optional)
+                manifest = self._read_manifest(Path(entry.path), "project.json")
+
+                project_base_name = manifest.name if manifest and manifest.name else entry.name
                 project_unique_name = self._resolve_unique_name(
                     project_base_name, "project"
                 )
@@ -395,9 +399,10 @@ class Scanner:
                         id=None,
                         type="project",
                         name=project_unique_name,
-                        icon="📋",
+                        icon=(manifest.icon or "📋") if manifest else "📋",
                         drive_path=relative_path,
                         parent_id=parent_id,
+                        status=manifest.status if manifest else None,
                     )
                 )
 
@@ -411,6 +416,7 @@ class Scanner:
                     name=data.get("name", ""),
                     icon=data.get("icon"),
                     git_url=data.get("git_url"),
+                    status=data.get("status"),
                 )
         except FileNotFoundError:
             return None

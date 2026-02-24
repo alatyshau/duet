@@ -191,16 +191,30 @@ Business (root)
 | business | `business.json` | No | No |
 | stream | `stream.json` | No | No |
 | product | `product.json` | Yes — stops recursion | Optional |
-| project | (subfolder of `projects/`) | Yes | No |
+| project | `project.json` (optional) | Yes | No |
 
 ### Manifest Format
 
 ```json
 { "name": "Name", "icon": "📁" }
 { "name": "Name", "icon": "📦", "git_url": "https://..." }
+{ "name": "Name", "icon": "📋", "status": "active" }
 ```
 
 **Contract:** Keys are `snake_case`. `name` globally unique.
+
+### Project Status
+
+Projects support `status` field in `project.json`. Only projects with `status: "active"` under business/stream (not product) appear in the sidebar tree.
+
+| Status | Meaning | Visible in ДЕЛА? |
+|--------|---------|------------------|
+| `"active"` | Active project | Yes (if parent is business/stream) |
+| `"postponed"` | On hold | No |
+| `"archived"` | Completed | No |
+| absent / `null` | Undefined | No |
+
+No `project.json` → project exists in DB but not shown in sidebar.
 
 ### Name Uniqueness (CRITICAL)
 
@@ -235,7 +249,8 @@ CREATE TABLE entities (
     icon TEXT,
     drive_path TEXT UNIQUE,
     parent_id INTEGER REFERENCES entities(id),
-    git_url TEXT
+    git_url TEXT,
+    status TEXT       -- project status: 'active', 'postponed', 'archived', NULL
 );
 CREATE UNIQUE INDEX idx_name ON entities(name);
 ```

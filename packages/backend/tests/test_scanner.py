@@ -283,6 +283,71 @@ class TestScanner:
         assert "Hidden" not in names
 
 
+    def test_scan_project_with_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Reads project.json manifest: name, icon, status."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        projects_path = biz_path / "projects"
+        projects_path.mkdir()
+        project_path = projects_path / "my_project"
+        project_path.mkdir()
+        ManifestBuilder.project(project_path, "My Project", icon="🎭", status="active")
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        scanner.scan()
+
+        project = db.find_by_name("My Project")
+        assert project is not None
+        assert project.icon == "🎭"
+        assert project.status == "active"
+
+    def test_scan_project_without_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Project without project.json gets defaults: 📋 icon, status=None."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        projects_path = biz_path / "projects"
+        projects_path.mkdir()
+        (projects_path / "bare_project").mkdir()
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        scanner.scan()
+
+        project = db.find_by_name("bare_project")
+        assert project is not None
+        assert project.icon == "📋"
+        assert project.status is None
+
+    def test_scan_project_manifest_without_status(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """project.json without status field → status=None."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        projects_path = biz_path / "projects"
+        projects_path.mkdir()
+        project_path = projects_path / "named_project"
+        project_path.mkdir()
+        ManifestBuilder.project(project_path, "Named Project", icon="📝")
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        scanner.scan()
+
+        project = db.find_by_name("Named Project")
+        assert project is not None
+        assert project.icon == "📝"
+        assert project.status is None
+
+
 class TestScanComponents:
     """Tests for scan_components() function."""
 

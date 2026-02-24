@@ -58,6 +58,16 @@ class ManifestBuilder:
         cls._write(path, data)
         return path
 
+    @classmethod
+    def project(cls, folder: Path, name: str, icon: str = "📋", status: str | None = None, **kwargs) -> Path:
+        """Create project.json manifest."""
+        data = {"name": name, "icon": icon, **kwargs}
+        if status:
+            data["status"] = status
+        path = folder / "project.json"
+        cls._write(path, data)
+        return path
+
 
 class DuetDataBuilder:
     """Builder for creating DuetData + DuetConfig + pointer structure for tests.
@@ -310,9 +320,9 @@ class HierarchyBuilder:
         self._children.append(child)
         return child
 
-    def add_project(self, name: str) -> "HierarchyBuilder":
-        """Add a project folder."""
-        self._projects.append(name)
+    def add_project(self, name: str, status: str | None = None, icon: str | None = None) -> "HierarchyBuilder":
+        """Add a project folder. If status/icon provided, creates project.json."""
+        self._projects.append((name, status, icon))
         return self
 
     def build(self) -> Path:
@@ -331,8 +341,11 @@ class HierarchyBuilder:
         if self._projects:
             projects_path = self.root / "projects"
             projects_path.mkdir(exist_ok=True)
-            for project_name in self._projects:
-                (projects_path / project_name).mkdir(exist_ok=True)
+            for project_name, status, icon in self._projects:
+                project_path = projects_path / project_name
+                project_path.mkdir(exist_ok=True)
+                if status or icon:
+                    ManifestBuilder.project(project_path, project_name, icon=icon or "📋", status=status)
 
         # Build children
         for child in self._children:

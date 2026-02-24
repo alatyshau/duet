@@ -24,6 +24,7 @@ class Entity:
     drive_path: str
     parent_id: int | None = None
     git_url: str | None = None
+    status: str | None = None
 
 
 class DatabaseManager:
@@ -58,7 +59,8 @@ class DatabaseManager:
                 icon TEXT,
                 drive_path TEXT UNIQUE,
                 parent_id INTEGER REFERENCES entities(id),
-                git_url TEXT
+                git_url TEXT,
+                status TEXT
             )
         """)
 
@@ -91,8 +93,8 @@ class DatabaseManager:
 
         self.conn.execute(
             """INSERT OR IGNORE INTO entities
-               (type, name, icon, drive_path, parent_id, git_url)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (type, name, icon, drive_path, parent_id, git_url, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 entity.type,
                 entity.name,
@@ -100,6 +102,7 @@ class DatabaseManager:
                 entity.drive_path,
                 entity.parent_id,
                 entity.git_url,
+                entity.status,
             ),
         )
         self.conn.commit()
@@ -253,16 +256,22 @@ class DatabaseManager:
         return row[0] if row else 0
 
     def get_streams(self) -> list[Entity]:
-        """Get all streams (business, stream, product) without projects.
+        """Get streams (business, stream, product) + active projects under business/stream.
 
         Used for sidebar tree view.
+        Active projects under products are excluded (they live in a separate panel).
         """
         if not self.conn:
             raise RuntimeError("Database not initialized")
 
-        cursor = self.conn.execute(
-            "SELECT * FROM entities WHERE type IN ('business', 'stream', 'product')"
-        )
+        cursor = self.conn.execute("""
+            SELECT * FROM entities WHERE type IN ('business', 'stream', 'product')
+            UNION
+            SELECT p.* FROM entities p
+            JOIN entities parent ON p.parent_id = parent.id
+            WHERE p.type = 'project' AND p.status = 'active'
+              AND parent.type IN ('business', 'stream')
+        """)
         return [self._row_to_entity(row) for row in cursor.fetchall()]
 
     def get_projects(self, stream_id: int) -> list[Entity]:
@@ -290,4 +299,5 @@ class DatabaseManager:
             drive_path=row["drive_path"],
             parent_id=row["parent_id"],
             git_url=row["git_url"],
+            status=row["status"],
         )

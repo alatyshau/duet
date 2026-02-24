@@ -35,7 +35,6 @@ export class BusinessTree {
 
     getChildren(parentId: number): TreeNode[] {
         const parentIdStr = String(parentId);
-        // /streams already excludes projects (R4), no filter needed
         return this.streams
             .filter(s => s.parent_id === parentIdStr)
             .map(s => this.mapEntity(s));

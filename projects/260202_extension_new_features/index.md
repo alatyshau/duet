@@ -19,6 +19,7 @@
 | Файл | Название | Статус |
 |------|----------|--------|
 | [topic_worktree_support.md](topic_worktree_support.md) | Git Worktree Support | backlog |
+| [topic_ai_duet_integration.md](topic_ai_duet_integration.md) | Интеграция AI с Duet | бэклог |
 
 ### ОРБИТА
 

@@ -80,7 +80,7 @@ server.py (entry point, lifecycle)
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
 | GET | `/workspace-info` | Query: `workspace_path`. Returns chain, components |
-| GET | `/streams` | Returns `{ streams: [...] }` — all business/stream/product. Each entity includes `absolute_path` (resolved from `drive_path` via business_folders) |
+| GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
 | GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms }` |
 

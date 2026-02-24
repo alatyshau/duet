@@ -16,8 +16,8 @@
 
 ## ССЫЛКИ
 
-- [topic_core_architecture.md](../260117_extension_design/topic_core_architecture.md) — Python vs TS, архитектура ядра
-- [topic_ai_duet_integration.md](../260117_extension_design/topic_ai_duet_integration.md) — интеграция AI с Duet
+- [260224_topic_core_architecture.md](../ARCHIVE/260117_extension_design/260224_topic_core_architecture.md) — Python vs TS, архитектура ядра (архив)
+- [topic_ai_duet_integration.md](topic_ai_duet_integration.md) — интеграция AI с Duet
 
 ---
 

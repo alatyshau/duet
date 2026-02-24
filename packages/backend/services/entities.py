@@ -53,7 +53,7 @@ class EntitiesService:
         return [self._entity_to_dict(e, path_lookup) for e in entities]
 
     def get_streams(self) -> list[dict]:
-        """Get all streams (business, stream, product) without projects.
+        """Get streams (business, stream, product) + active projects under business/stream.
 
         Returns flat list for sidebar tree view.
         Client computes hasChildren from parent_id relations.
@@ -175,4 +175,5 @@ class EntitiesService:
             "absolute_path": absolute_path,
             "parent_id": str(entity.parent_id) if entity.parent_id else None,
             "git_url": entity.git_url,
+            "status": entity.status,
         }

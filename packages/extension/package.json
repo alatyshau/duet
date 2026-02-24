@@ -2,10 +2,10 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.20",
+    "version": "0.0.22",
     "publisher": "duet-org",
     "engines": {
-        "vscode": "^1.108.0"
+        "vscode": "^1.104.0"
     },
     "categories": [
         "Other"
@@ -147,7 +147,7 @@
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.20",
+                    "title": "Duet 0.0.22",
                     "icon": "resources/duet-icon.svg"
                 }
             ]
@@ -219,7 +219,7 @@
     },
     "devDependencies": {
         "@types/node": "18.x",
-        "@types/vscode": "^1.108.1",
+        "@types/vscode": "^1.104.0",
         "@typescript-eslint/eslint-plugin": "^8.52.0",
         "@typescript-eslint/parser": "^8.52.0",
         "@vscode/vsce": "^3.7.1",

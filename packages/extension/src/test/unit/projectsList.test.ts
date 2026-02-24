@@ -17,6 +17,7 @@ function makeProject(overrides: Partial<ProjectEntity> & { name: string }): Proj
         absolute_path: null,
         parent_id: '5',
         git_url: null,
+        status: null,
         ...overrides,
     };
 }
