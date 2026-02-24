@@ -68,7 +68,24 @@ class DatabaseManager:
         self.conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name)"
         )
+
+        # Migrations: add columns that may be missing in older databases
+        self._migrate_add_column("entities", "status", "TEXT")
+
         self.conn.commit()
+
+    def _migrate_add_column(
+        self, table: str, column: str, col_type: str
+    ) -> None:
+        """Add column to table if it doesn't exist (schema migration)."""
+        if not self.conn:
+            return
+        cursor = self.conn.execute(f"PRAGMA table_info({table})")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column not in columns:
+            self.conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
+            )
 
     def close(self) -> None:
         """Close database connection."""

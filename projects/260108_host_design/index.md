@@ -40,7 +40,6 @@
 
 | Топик | Статус | Суть |
 |-------|--------|------|
-| [topic_host_e2e.md](topic_host_e2e.md) | законсервировано | E2E тесты — нестабильны, инфраструктура есть |
 | [topic_host_integrations.md](topic_host_integrations.md) | бэклог | Другие AI-клиенты + Extension в форках VS Code |
 
 ---
