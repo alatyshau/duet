@@ -43,6 +43,14 @@ def init_services(
     _start_time = start_time
 
 
+def reset_services() -> None:
+    """Reset services to uninitialized state. Used by test teardown."""
+    global _workspace_service, _entities_service, _start_time
+    _workspace_service = None
+    _entities_service = None
+    _start_time = 0
+
+
 def _get_workspace_service() -> WorkspaceService:
     if _workspace_service is None:
         raise RuntimeError("Services not initialized. Call init_services() first.")

@@ -18,8 +18,9 @@ Transition to REVIEW happens by **explicit user request** specifying:
 1. **Read results** of another agent's work
 2. **Compare with specification** in OUTPUTS section
 3. **Find discrepancies** between plan and implementation
-4. **Update spec** (if decision changed) or point out error
-5. **Record review result** in topic file
+4. **Verify each discrepancy against spec/** — if product/component spec describes it as by-design, it's NOT an issue
+5. **Update spec** (if decision changed) or point out error
+6. **Record review result** in topic file
 
 ---
 
@@ -132,6 +133,7 @@ Reviewer re-checks and updates issue statuses:
 
 | What to load | Why |
 |--------------|-----|
+| Component spec/ | Baseline — what's by-design vs what's a bug |
 | Entire topic file | NARRATIVE + OUTPUTS + IMPLEMENTATION PLAN |
 | Created artifacts | Code files, configs — work result |
 | Previous reviews | If any — for discussion context |

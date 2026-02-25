@@ -161,7 +161,7 @@ class Scanner:
                 json.dump(manifest, f, indent=2, ensure_ascii=False)
             print(f"Self-healing: created {file_path}")
             return True
-        except OSError as e:
+        except OSError as e:  # pragma: no cover — OS-level write error
             msg = f"Self-healing failed: could not create {file_path}: {e}"
             if self.on_error:
                 self.on_error(msg)
@@ -206,7 +206,7 @@ class Scanner:
         try:
             entries = list(os.scandir(folder_path))
             return sorted(entries, key=lambda e: e.name)
-        except OSError:
+        except OSError:  # pragma: no cover — OS-level filesystem error
             return []
 
     def _scan_business(self, folder_path: str) -> None:

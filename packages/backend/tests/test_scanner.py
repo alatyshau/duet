@@ -348,6 +348,88 @@ class TestScanner:
         assert project.status is None
 
 
+class TestScannerEdgeCases:
+    """Edge case tests for Scanner — error handling branches."""
+
+    def test_scan_nonexistent_business_folder(self, db: DatabaseManager, monkeypatch) -> None:
+        """_scan_business skips folder that doesn't exist."""
+        monkeypatch.setattr(
+            "scanner.get_business_folders",
+            lambda: ["/nonexistent/path/that/does/not/exist"]
+        )
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        assert result["status"] == "completed"
+        assert result["entities_count"] == 0
+
+    def test_read_manifest_json_decode_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """_read_manifest returns None and calls on_error for corrupt JSON."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        (biz_path / "business.json").write_text("{corrupt json!!!")
+
+        errors: list[str] = []
+        monkeypatch.setattr(
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
+        )
+
+        scanner = Scanner(db, on_error=errors.append)
+        scanner.scan()
+
+        assert len(errors) == 1
+        assert "Failed to parse" in errors[0]
+        # Self-healing should have created a fallback
+        entities = db.get_all_entities()
+        assert len(entities) == 1
+        assert entities[0].name == "Business"
+
+    def test_scan_reentrancy_guard(self, db: DatabaseManager, monkeypatch) -> None:
+        """scan() returns 'skipped' if already in progress."""
+        monkeypatch.setattr(
+            "scanner.get_business_folders",
+            lambda: []
+        )
+
+        scanner = Scanner(db)
+        scanner._scan_in_progress = True
+
+        result = scanner.scan()
+
+        assert result["status"] == "skipped"
+        assert "already in progress" in result["reason"]
+
+    def test_scan_intermediate_folder_without_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Folder without any manifest recurses to find deeper items."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        # Intermediate folder with no manifest
+        intermediate = biz_path / "SomeFolder"
+        intermediate.mkdir()
+        # Product nested inside intermediate
+        product_path = intermediate / "DeepProduct"
+        product_path.mkdir()
+        ManifestBuilder.product(product_path, "DeepProduct", "📦")
+
+        monkeypatch.setattr(
+            "scanner.get_business_folders",
+            lambda: [str(biz_path)]
+        )
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        # business + product (intermediate is skipped, not an entity)
+        assert result["entities_count"] == 2
+        product = db.find_by_name("DeepProduct")
+        assert product is not None
+        assert product.type == "product"
+
+
 class TestScanComponents:
     """Tests for scan_components() function."""
 

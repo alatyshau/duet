@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
 from db import DatabaseManager
-from mcp_handler import init_services
+from mcp_handler import init_services, reset_services
 from server import create_app
 from services.entities import EntitiesService
 from services.workspace import WorkspaceService
@@ -105,7 +105,8 @@ def db_with_services(db: DatabaseManager) -> DatabaseManager:
     workspace_service = WorkspaceService(db)
     entities_service = EntitiesService(db)
     init_services(workspace_service, entities_service, time.time())
-    return db
+    yield db
+    reset_services()
 
 
 @pytest_asyncio.fixture

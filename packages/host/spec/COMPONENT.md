@@ -43,24 +43,6 @@ Operations:
 
 Host uses Electron `requestSingleInstanceLock()`. Second instance shows window of the first and exits.
 
-## Current State
-
-| Feature | Status |
-|---------|--------|
-| Tray app (Menu Bar / System Tray) | Done |
-| Pointer file creation (3 fields) | Done |
-| AppState machine (no_config -> path_lost -> ready) | Done |
-| Deploy AI instructions + backend | Done |
-| AI client detection + configuration | Done |
-| InstallPage UI (folders + deploy + log) | Done |
-| Deploy channel toggle (DEV / PROD) | Done |
-| Backend lifecycle (start, stop, health) | Done |
-| Apps UI (sidebar sections, AppPage, process cards) | Done |
-| AgentsPage UI (detect + configure) | Done |
-| Single instance lock | Done |
-| Autostart (auto-launch) | Done |
-| macOS Dock hide/show | Done |
-
 ## Layers
 
 | Layer | Responsibility | Files |
@@ -301,8 +283,3 @@ npm run typecheck    # tsc
 | Agents page | `renderer/src/pages/AgentsPage.tsx` |
 | Layout (sidebar) | `renderer/src/components/layout/` |
 
-## Future
-
-| Feature | Status |
-|---------|--------|
-| Auto-deploy on startup (if ready) | TODO |

@@ -161,7 +161,7 @@ class TestProjectsEndpoint:
 class TestMcpProjectsTool:
     """Tests for MCP projects tool validation."""
 
-    def test_invalid_stream_id_raises_mcp_error(self, db) -> None:
+    def test_invalid_stream_id_raises_mcp_error(self, db_with_services) -> None:
         """MCP projects() raises McpError for non-integer stream_id."""
         import mcp_handler
         from mcp.shared.exceptions import McpError
@@ -174,10 +174,11 @@ class TestMcpProjectsTool:
         assert error.code == INVALID_PARAMS
         assert "Invalid stream_id" in error.message
 
-    def test_valid_stream_id_returns_list(self, db) -> None:
+    def test_valid_stream_id_returns_list(self, db_with_services) -> None:
         """MCP projects() returns list for valid stream_id."""
         import mcp_handler
 
+        db = db_with_services
         parent_id = EntityFactory.insert_business(db, "Business", "/business")
         result = mcp_handler.projects(str(parent_id))
 

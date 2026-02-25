@@ -150,8 +150,7 @@ Business
 - `DATA_MODEL.md` — data model, constraints (if applicable)
 - `UI.md` — view purposes, behavioral contracts (if applicable)
 
-**Working with a component?** → Read `spec/COMPONENT.md` FIRST.
-It contains commands, structure, and "how things work here".
+**Spec gate:** Before reading, modifying, or reviewing code in `packages/<name>/` — first read `packages/<name>/spec/COMPONENT.md`. No exceptions.
 
 **Before changes:** Read spec/ to understand current state
 **After changes:** Update spec/ if architecture changed

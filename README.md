@@ -122,9 +122,9 @@ cd packages/extension && npm run vsix         # bump + build → dist/duet-{ver}
 cd packages/backend && ../../.venv/bin/pytest  # тесты
 
 # Тесты всех компонентов
-cd packages/host && npm run test:run              # Host: 15 тестов
-cd packages/extension && npm test             # Extension: 112 тестов
-cd packages/backend && ../../.venv/bin/pytest  # Backend: 157 тестов
+cd packages/host && npm run test:run
+cd packages/extension && npm test
+cd packages/backend && ../../.venv/bin/pytest
 ```
 
 ### CI/CD
