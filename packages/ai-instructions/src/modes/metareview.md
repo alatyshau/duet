@@ -28,6 +28,8 @@ Compare: are there parts of the intent not covered by the diff? Missing implemen
 
 Each changed file belongs to a domain. Domain with ≥1 changed file → gets a reviewer.
 
+**Reviewer = identity (WHO), not task label (WHAT).** Each reviewer is a professional with expertise and perspective, not a checklist runner. "Python Engineer" — yes. "Import Checker" — no.
+
 | Domain | Files | Role |
 |--------|-------|------|
 | Python code | `*.py` (not `test_*`, not build scripts) | Python Engineer |
@@ -43,15 +45,38 @@ Each changed file belongs to a domain. Domain with ≥1 changed file → gets a 
 
 One file can trigger multiple reviewers (endpoint → Python + API + Security).
 
+**Custom reviewers** — when scope doesn't match standard domains (e.g. cross-document architecture review), define reviewers by expertise area. Same rule: identity first, focus second.
+
 ### Step 3. Present roster
 
-Show user table: role + 1-sentence scope. Wait for confirmation.
+Show user table: role + WHO (1-sentence identity) + scope. Wait for confirmation.
+
+User may challenge roles — listen. "Entity Tracer" is a task, not a person. "Domain Architect — мыслит сущностями и отношениями" is a person.
 
 ### Step 4. Launch all sub-agents in parallel
 
-### Step 5. Report
+### Step 5. Review of Reviews
 
-After all complete → summary table → DIALOGUE.
+Sub-agents find issues. Orchestrator **challenges** them:
+- Read primary sources to verify claims
+- Dismiss false positives (reviewer misunderstood, or behavior is by-design / explicitly deferred)
+- Deduplicate across reviewers (same issue found by 3 reviewers = 1 issue, not 3)
+- Group confirmed issues into action clusters
+
+Write `metareview.md` with:
+1. **Summary table** — per reviewer: submitted / confirmed / dismissed
+2. **Action clusters** — deduplicated groups of confirmed issues. Mark **dependency chains** (A→B→C = sequential) vs **independent** clusters (any order). No artificial priority levels — if everything will be done, order only matters where there are dependencies
+3. **Dismissed issues table** — with reason. This protects executor from "fixing" things that aren't broken
+4. **Reduced priority table** (optional) — issues that are real but low-impact
+
+### Step 6. Report
+
+metareview.md → DIALOGUE. User decides what to fix.
+
+**Metareview = strict spec for executor.** When user hands metareview.md to another agent:
+- Confirmed clusters = do
+- Dismissed = don't touch
+- Nothing beyond metareview without asking
 
 ---
 
@@ -140,24 +165,9 @@ Naming: `review_<lowercase_role>.md`
 
 ## Orchestrator Boundaries
 
-**Does:** analyze scope, select roles, compose prompts, launch agents, report summary table.
+**Does:** analyze scope, select roles, compose prompts, launch agents, challenge findings against primary sources, deduplicate, group into clusters, dismiss false positives, write metareview.md.
 
-**Does NOT:** re-interpret issues, filter, prioritize, write verdict.
-
----
-
-## Summary Table
-
-```markdown
-## Metareview Summary
-
-| Reviewer | Issues | File |
-|----------|--------|------|
-| Python Engineer | 9 | review_python.md |
-| Test Engineer | 5 | review_tests.md |
-| ... | ... | ... |
-| **Total** | **N** | |
-```
+**Does NOT:** write verdict (user decides), fix issues (executor does).
 
 ---
 

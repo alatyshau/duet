@@ -119,6 +119,8 @@ Business
 | SECRETARY | СЕКРЕТАРЬ | Archive chat to files | `modes/secretary.md` |
 | REVIEW | РЕВЬЮ | Review agent's work | `modes/review.md` |
 | REVISION | РЕВИЗИЯ | Audit project folder | `modes/revision.md` |
+| METAREVIEW | МЕТАРЕВЬЮ | Cross-domain review (2+ domains) | `modes/metareview.md` |
+| COMMENTARY | КОММЕНТАРИЙ | Explicit user request for commentary | `modes/commentary.md` |
 
 ### Stances
 

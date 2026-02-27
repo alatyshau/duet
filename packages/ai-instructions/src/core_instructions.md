@@ -165,6 +165,7 @@ Agent **infers mode from context**. No exact keywords required.
 | **COMMENTARY** | КОММЕНТАРИЙ | комм | User wants comments on specific file |
 | **REVIEW** | РЕВЬЮ | ревью | User wants review of agent's work |
 | **REVISION** | РЕВИЗИЯ | ревиз | Audit project folder: topics, mission, roadmap |
+| **METAREVIEW** | МЕТАРЕВЬЮ | метаревью | Cross-domain review: change touches 2+ domains |
 
 Proprietary: KEEPER (Hermes), TRICKSTER (Loki)
 
