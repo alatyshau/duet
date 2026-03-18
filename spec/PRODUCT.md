@@ -41,7 +41,7 @@ packages/ai-instructions/
 │   └── COMPONENT.md        # package structure, concepts, deploy chain
 └── src/                    # deliverable — deployed to DuetData/ai-instructions/
     ├── core_instructions.md
-    ├── core_instructions_short.md
+    ├── old/core_instructions_long.md
     ├── modes/              # DIALOGUE, EXECUTE, PLANNING, etc.
     ├── stances/            # dialectic, pragmatic, critical, etc.
     ├── skills/             # python, typescript, spec-architect, etc.

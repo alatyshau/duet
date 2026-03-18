@@ -39,7 +39,6 @@ function setupDuetData(ctx: TestContext): string {
   const instructionsDir = join(ctx.duetDataDir, 'ai-instructions')
   mkdirSync(instructionsDir, { recursive: true })
   writeFileSync(join(instructionsDir, 'core_instructions.md'), '# Test Instructions')
-  writeFileSync(join(instructionsDir, 'core_instructions_short.md'), '# Short Instructions')
   return ctx.duetDataDir
 }
 
@@ -109,7 +108,7 @@ describe('core/ai-clients', () => {
 
       // Write output-style with correct content (frontmatter + source)
       const sourceContent = readFileSync(
-        join(duetDataPath, 'ai-instructions', 'core_instructions_short.md'),
+        join(duetDataPath, 'ai-instructions', 'core_instructions.md'),
         'utf-8'
       )
       const frontmatter =
@@ -189,7 +188,7 @@ describe('core/ai-clients', () => {
           model_instructions_file: join(
             ctx.duetDataDir,
             'ai-instructions',
-            'core_instructions_short.md'
+            'core_instructions.md'
           ),
           mcp_servers: {
             duet: { url: MCP_URL }
@@ -278,7 +277,7 @@ describe('core/ai-clients', () => {
       const styleContent = readFileSync(stylePath, 'utf-8')
       expect(styleContent).toMatch(/^---\nname: Duet\n/)
       expect(styleContent).toContain('keep-coding-instructions: true')
-      expect(styleContent).toContain('# Short Instructions')
+      expect(styleContent).toContain('# Test Instructions')
     })
 
     it('writes outputStyle to ~/.claude/settings.json', () => {
@@ -418,7 +417,7 @@ describe('core/ai-clients', () => {
 
       const content = readFileSync(configPath, 'utf-8')
       expect(content).toContain('model_instructions_file')
-      expect(content).toContain('core_instructions_short.md')
+      expect(content).toContain('core_instructions.md')
     })
 
     it('adds HTTP MCP section to config.toml', () => {
@@ -458,7 +457,7 @@ describe('core/ai-clients', () => {
       // Should not contain old path
       expect(content).not.toContain('/old/path')
       // Should contain new path
-      expect(content).toContain('core_instructions_short.md')
+      expect(content).toContain('core_instructions.md')
     })
 
     it('updates existing [mcp_servers.duet] section', () => {
@@ -547,7 +546,7 @@ describe('core/ai-clients', () => {
       const parsed = parse(content)
       expect(parsed.mcp_servers).toBeDefined()
       expect(parsed.mcp_servers.duet.url).toBe(MCP_URL)
-      expect(parsed.model_instructions_file).toContain('core_instructions_short.md')
+      expect(parsed.model_instructions_file).toContain('core_instructions.md')
     })
 
     it('respects CODEX_HOME env variable', () => {

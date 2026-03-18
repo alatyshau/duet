@@ -57,7 +57,7 @@ export const configureClaudeCode = (duetDataPath: string, port: number): AgentIn
     const stylesDir = join(claudeDir, 'output-styles')
     mkdirSync(stylesDir, { recursive: true })
 
-    const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
+    const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
     const styleDest = join(stylesDir, 'duet.md')
 
     // 2. MCP server config in ~/.claude.json
@@ -153,7 +153,7 @@ export const configureCodex = (duetDataPath: string, port: number): AgentInfo =>
 
   try {
     const configPath = join(codexDir, 'config.toml')
-    const instructionsPath = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
+    const instructionsPath = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
     const hasInstructions = existsSync(instructionsPath)
 
     // Parse existing config or start fresh
@@ -229,7 +229,7 @@ function detectClaudeCode(duetDataPath: string, port: number): AgentInfo {
   const stylePath = join(claudeDir, 'output-styles', 'duet.md')
   const settingsPath = join(claudeDir, 'settings.json')
   const claudeJsonPath = join(homedir(), '.claude.json')
-  const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
+  const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
 
   const hasOutputStyle = existsSync(stylePath)
   const hasMcp = claudeJsonHasDuetMcp(claudeJsonPath, port)
@@ -292,7 +292,7 @@ function detectCodex(duetDataPath: string, port: number): AgentInfo {
   }
 
   const configPath = join(codexDir, 'config.toml')
-  const instructionsPath = join(duetDataPath, 'ai-instructions', 'core_instructions_short.md')
+  const instructionsPath = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
 
   if (!existsSync(configPath)) {
     return {

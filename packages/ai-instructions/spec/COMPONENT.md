@@ -57,7 +57,7 @@ Session
 |--------|-------------------|---------|
 | `modes/` | WHAT is agent doing? | DIALOGUE, EXECUTE, PLANNING |
 | `stances/` | HOW is agent thinking? | dialectic, pragmatic, critical |
-| `skills/` | WHAT does agent know? | python, typescript, spec-architect |
+| `skills/` | WHAT does agent know? | python, typescript, spec-architect, checkpoint |
 | `personas/` | WHO is agent? | Socrates, Hephaestus, Ariadna |
 | `workflows/` | WITH WHOM? | solo, pair, sddg |
 | `schemas/` | File format specs | topic_file, index, skill_file |
@@ -66,10 +66,10 @@ Session
 
 | File | Purpose | Who uses |
 |------|---------|----------|
-| `core_instructions.md` | Full instructions (~320 lines) | Claude Code (`~/.claude/output-styles/ai-kit.md`) |
-| `core_instructions_short.md` | Compact version (~130 lines) | Codex (`model_instructions_file`), testing |
+| `core_instructions.md` | Compact instructions (~130 lines) | Claude Code (`output-styles/duet.md`), Codex (`model_instructions_file`) |
+| `old/core_instructions_long.md` | Full version (~320 lines), archived | Reference only |
 
-**Why two?** Instruction adherence. Agents follow rules more reliably with shorter instructions — long instructions get "lost" in context. Short version is the active experiment; full version is the reference.
+**Why compact?** Instruction adherence. Agents follow rules more reliably with shorter instructions — long instructions get "lost" in context.
 
 **Claude Code specifics:** `output-styles/` loads instructions as system-level (not user-level). This significantly improves adherence vs. injecting via CLAUDE.md or conversation.
 
@@ -97,7 +97,7 @@ packages/ai-instructions/src/  ->  DuetData/ai-instructions/
 | `src/` not `templates/` | No templating — files deploy as-is. `src/` consistent with monorepo convention |
 | Separate package from ai-kit | Decouple content from infrastructure (MCP, install.py). Enables Host to bundle content independently |
 | Separate deploy target | `ai-instructions/` for content, `ai-kit/` for legacy MCP + settings.json |
-| Short version as primary | Agents adhere to rules better with compact instructions. Full version kept as reference |
+| Single entrypoint | Compact version is the only entrypoint. Full version archived to `old/` |
 | Claude: output-styles | `~/.claude/output-styles/` injects as system prompt, not user context. Better adherence than CLAUDE.md |
 
 ## Legacy Relationship
@@ -113,8 +113,8 @@ This package extracts content. Install logic moved to Host.
 
 | Concept | File |
 |---------|------|
-| Full instructions | `src/core_instructions.md` |
-| Short instructions | `src/core_instructions_short.md` |
+| Core instructions | `src/core_instructions.md` |
+| Archived full version | `src/old/core_instructions_long.md` |
 | Modes | `src/modes/` |
 | Stances | `src/stances/` |
 | Skills | `src/skills/` |
