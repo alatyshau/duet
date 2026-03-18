@@ -30,12 +30,18 @@
  * ДОКУМЕНТАЦИЯ: https://electron-vite.org/config/
  */
 import { resolve } from 'path'
-import { defineConfig } from 'electron-vite'
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   // Main process — собираем как CommonJS для совместимости с Electron
   main: {
+    plugins: [
+      // electron-vite по умолчанию externalizes все dependencies (оставляет require()).
+      // В монорепо hoisted-зависимости не попадают в packaged app.
+      // Чистые JS-модули (без нативного кода) безопасно бандлить в output.
+      externalizeDepsPlugin({ exclude: ['smol-toml'] })
+    ],
     build: {
       rollupOptions: {
         output: {
