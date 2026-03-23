@@ -19,6 +19,8 @@ Save conversation context so a new chat can continue the work without loss.
 
 ## Procedure
 
+> ⚠️ **This is a thorough workflow.** "Without loss" means without loss. Walk every message, check every point. Do not skim.
+
 ### Step 1: Walk through the conversation + assess structure
 
 **1.1. Ground yourself.** Identify all projects and areas the conversation touched. There may be more than one — e.g., research work + a tool or prompt created along the way. For each project: what project, which step, what are we doing.
@@ -29,9 +31,11 @@ Save conversation context so a new chat can continue the work without loss.
 
 **1.3. Read relevant files** to understand what's already saved. Without this, you can't filter new from already-captured. Which files are relevant depends on the project — determine each time from the actual structure. These are project artifacts, relevant documentation, and existing target artifacts — not source code.
 
-**1.4. Walk through the conversation** and identify what needs saving.
+**1.4. Walk through the conversation message by message** and identify what needs saving. This walk produces the **conversation pass table** (shown to the user in step 1.7). Per-message granularity is what prevents items from slipping through — don't walk "in general."
+- For each user message and each substantive agent response: what's the key point? Is it already in files? Ephemeral exchanges (greetings, confirmations, tool outputs) are checked but don't produce rows in the pass table — only substantive points do.
 - The only criterion: **"Without this, will a new chat work blind or repeat already-covered ground?"** If yes — take it. If no — skip.
 - Intermediate reasoning, rejected hypotheses, ephemeral replies — usually not needed. But if a rejected hypothesis is important (so new chat doesn't repeat the mistake) — take it.
+- **Open items are the highest-risk category.** Generated candidates, proposed alternatives, questions raised but not answered — anything the user hasn't explicitly closed is in their backlog. "No explicit decision" is NOT "rejected" — it's "pending." These are the easiest to lose and the most damaging when lost, because the user assumes they're tracked.
 - Don't limit yourself to pre-known types. Any conversation can produce anything.
 - Only take what's not already in files.
 
@@ -39,7 +43,21 @@ Save conversation context so a new chat can continue the work without loss.
 
 **1.6. Assess structure.** Does the current folder/file structure fit what we've produced, or has the conversation outgrown it?
 
-**1.7. Stop and present the packing plan** to the user. Format for each project:
+**1.7. Stop and present the conversation pass table + packing plan** to the user.
+
+First, the **conversation pass table** — the result of step 1.4. Each row = a block of related thoughts that can be checked as one item: either it's captured or it's not. Not bound to a single message — may span several or be a subset of one. Only substantive points — ephemeral exchanges are not listed. Statuses: ✅ already in files, 🔲 needs saving (step 2 will write these). This table is the primary defense against losing content — the user can spot gaps before saving begins.
+
+```
+Проход по чату:
+
+| # | Суть | Статус |
+|---|------|--------|
+| 1 | <блок мыслей> | ✅ в <файл> |
+| 2 | <блок мыслей> | 🔲 → <файл> |
+| ... | | |
+```
+
+Then, the **packing plan** for each project:
 
 ```
 ## Проект: <название> (<продолжается / завершается в этой сессии / завершён>)
@@ -60,13 +78,6 @@ Save conversation context so a new chat can continue the work without loss.
 в три основных — например: внешние ресурсы, зависимости от других
 проектов, контекст из другого воркспейса, и т.д.>)
 
-Сохранить из чата (краткие указатели, не сам контент — контент
-вычитывается из чата заново на шаге 2):
-- <что сохранить и куда>
-- <что сохранить и куда>
-- ...или «Ничего — <почему>» (например: вся работа шла непосредственно в файл,
-  или: всё уже сохранено по ходу беседы)
-
 ```
 
 After all projects:
@@ -80,13 +91,13 @@ After all projects:
 Риск сжатия начала беседы: <не выявлен / есть подозрение — что именно могло быть потеряно>
 ```
 
-Each item on a separate line, don't compress. Statuses and "none" always with explanation. This is the plan for step 2 — anything not in this list won't be saved.
+Each item on a separate line, don't compress. Statuses and "none" always with explanation. Items marked 🔲 in the pass table are what step 2 will save — anything not marked 🔲 won't be saved.
 
 Wait for user confirmation. If user makes edits — adjust the plan and re-present. Proceed to step 2 only after explicit "ok".
 
 ### Step 2: Save — execute the plan
 
-After user confirmation — go through the plan from step 1 and write everything to files. Decisions about "what" and "where" are already made — this is execution only.
+After user confirmation — save all items marked 🔲 in the conversation pass table from step 1.7. Decisions about "what" and "where" are already made — this is execution only.
 
 **How to write:**
 - Capture the substance, not the process. Not "we discussed X and arrived at Y" → but Y itself.
@@ -98,7 +109,13 @@ After user confirmation — go through the plan from step 1 and write everything
 
 Immediately after step 2, no pause.
 
-**3.1. Test.** Re-read the updated files (the actual files, not from memory) and imagine yourself as a new chat:
+**3.1. Test.** Re-read the updated files (the actual files, not from memory). Two tests, in this order:
+
+**Completeness test (primary).** Verify against the conversation pass table from step 1.7: every item marked 🔲 must now be in files. Re-read the actual files and check each item. If something is missing — fix before proceeding.
+
+**Verification pass.** After the first check, do a second pass focusing on the highest-risk items: open questions, generated-but-not-resolved candidates, and items from early in the conversation (most likely to be forgotten). If anything was missed in the pass table itself — add it and save.
+
+**Coherence test (secondary).** Then, from a new chat's perspective:
 
 - Do I understand what we're doing and why?
 - Do I know where we stopped and what to do next?

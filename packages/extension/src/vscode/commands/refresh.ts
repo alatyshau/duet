@@ -28,7 +28,8 @@ export async function refreshFromBackend(
         const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
         await workspaceManager.writeAllBusinessesWorkspace(
             businessFolders,
-            paths.allBusinessesWorkspacePath
+            paths.allBusinessesWorkspacePath,
+            paths.root
         );
     }
 

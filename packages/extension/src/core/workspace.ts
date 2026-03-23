@@ -29,14 +29,17 @@ export function generateProductWorkspace(repoPath: string, drivePath: string): W
 
 /**
  * Generates all-businesses.code-workspace content.
- * Lists all business folders from config.
+ * Lists all business folders from config, plus DuetData folder.
  *
  * @param businessFolders - Absolute paths to business folders
+ * @param duetDataPath - Absolute path to DuetData directory (added as named folder)
  */
-export function generateAllBusinessesWorkspace(businessFolders: string[]): WorkspaceFile {
-    return {
-        folders: businessFolders.map(p => ({ path: p }))
-    };
+export function generateAllBusinessesWorkspace(businessFolders: string[], duetDataPath?: string): WorkspaceFile {
+    const folders: WorkspaceFolder[] = businessFolders.map(p => ({ path: p }));
+    if (duetDataPath) {
+        folders.push({ path: duetDataPath, name: 'DuetData' });
+    }
+    return { folders };
 }
 
 export class WorkspaceManager {
@@ -106,8 +109,9 @@ export class WorkspaceManager {
      *
      * @param businessFolders - Array of absolute paths to business folders
      * @param outputPath - Path to write workspace file
+     * @param duetDataPath - Absolute path to DuetData directory
      */
-    async writeAllBusinessesWorkspace(businessFolders: string[], outputPath: string): Promise<void> {
+    async writeAllBusinessesWorkspace(businessFolders: string[], outputPath: string, duetDataPath?: string): Promise<void> {
         const dir = path.dirname(outputPath);
         try {
             await this.fs.access(dir);
@@ -115,7 +119,7 @@ export class WorkspaceManager {
             await this.fs.mkdir(dir, { recursive: true });
         }
 
-        const workspace = generateAllBusinessesWorkspace(businessFolders);
+        const workspace = generateAllBusinessesWorkspace(businessFolders, duetDataPath);
         await this.fs.writeFile(outputPath, JSON.stringify(workspace, null, 2), 'utf8');
     }
 }

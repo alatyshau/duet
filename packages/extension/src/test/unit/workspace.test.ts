@@ -46,9 +46,24 @@ describe('workspace', () => {
             expect(result.folders[2].path).toBe('/Users/test/Drive/База');
         });
 
+        it('should include DuetData folder when duetDataPath provided', () => {
+            const folders = ['/Users/test/Drive/МетаЛаб'];
+            const result = generateAllBusinessesWorkspace(folders, '/Users/test/DuetData');
+
+            expect(result.folders).toHaveLength(2);
+            expect(result.folders[0].path).toBe('/Users/test/Drive/МетаЛаб');
+            expect(result.folders[1]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
+        });
+
         it('should handle empty array', () => {
             const result = generateAllBusinessesWorkspace([]);
             expect(result.folders).toHaveLength(0);
+        });
+
+        it('should handle empty array with duetDataPath', () => {
+            const result = generateAllBusinessesWorkspace([], '/Users/test/DuetData');
+            expect(result.folders).toHaveLength(1);
+            expect(result.folders[0]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
         });
     });
 
@@ -164,6 +179,21 @@ describe('workspace', () => {
                 expect(parsed.folders).toHaveLength(2);
                 expect(parsed.folders[0].path).toBe('/drive/МетаЛаб');
                 expect(parsed.folders[1].path).toBe('/drive/Семья');
+            });
+
+            it('should include DuetData folder when duetDataPath provided', async () => {
+                const outputPath = '/Users/test/DuetData/all-businesses.code-workspace';
+                const folders = ['/drive/МетаЛаб'];
+
+                await manager.writeAllBusinessesWorkspace(folders, outputPath, '/Users/test/DuetData');
+
+                const content = writtenFiles.get(outputPath);
+                expect(content).toBeDefined();
+
+                const parsed = JSON.parse(content!);
+                expect(parsed.folders).toHaveLength(2);
+                expect(parsed.folders[0].path).toBe('/drive/МетаЛаб');
+                expect(parsed.folders[1]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
             });
         });
     });
