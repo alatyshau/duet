@@ -38,6 +38,7 @@ Save conversation context so a new chat can continue the work without loss.
 - **Open items are the highest-risk category.** Generated candidates, proposed alternatives, questions raised but not answered — anything the user hasn't explicitly closed is in their backlog. "No explicit decision" is NOT "rejected" — it's "pending." These are the easiest to lose and the most damaging when lost, because the user assumes they're tracked.
 - Don't limit yourself to pre-known types. Any conversation can produce anything.
 - Only take what's not already in files.
+- **Instructions signal.** While walking, also note: rule violations by the agent, user feedback on how the agent should work, and recurring patterns. These don't go into the pass table — they feed step 3.2.4 (Instructions review).
 
 **1.5. Long conversation risk.** In long conversations the beginning may be compressed and inaccessible. If you suspect important decisions were at the start and weren't saved along the way — note this in the output (section "Риск сжатия начала беседы").
 
@@ -89,6 +90,14 @@ After all projects:
 пока пользователь не подтвердит.>
 
 Риск сжатия начала беседы: <не выявлен / есть подозрение — что именно могло быть потеряно>
+
+Сигналы по инструкциям:
+
+| # | Что произошло | Тип | Что можно улучшить |
+|---|--------------|-----|-------------------|
+| 1 | <описание> | <нарушение / feedback / паттерн> | <предложение или "исправлено в сессии"> |
+
+...или «не выявлено»
 ```
 
 Each item on a separate line, don't compress. Statuses and "none" always with explanation. Items marked 🔲 in the pass table are what step 2 will save — anything not marked 🔲 won't be saved.
@@ -131,3 +140,11 @@ If any answer is "no" — add what's missing and re-read.
 2. **Structure assessment** — confirm the assessment from step 1 ("unchanged") or adjust if something new was discovered during saving.
 
 3. **Initiating phrase for new chat** — only for continuing projects: `Привет, <persona>, работаем над <entry-point file>`. Substitute the persona from the current conversation and the path to the entry-point file at packing time.
+
+4. **Instructions signals** — if step 1.4 collected any signals (rule violations, feedback, patterns), remind: "В сессии были сигналы по инструкциям: <краткое перечисление>. Хочешь вызову ИА для улучшения?"
+
+### Step 4: Instructions improvement (optional)
+
+Only if user says "yes" to step 3.2.4.
+
+Load skill `instructions-architect`. IA analyzes the signals, proposes specific edits to instruction files, user confirms each change.

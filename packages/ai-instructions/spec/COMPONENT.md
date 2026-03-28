@@ -53,13 +53,14 @@ Session
 
 ## Categories
 
-| Folder | Question it answers | Example |
-|--------|-------------------|---------|
-| `modes/` | WHAT is agent doing? | DIALOGUE, EXECUTE, PLANNING |
-| `stances/` | HOW is agent thinking? | dialectic, pragmatic, critical |
-| `skills/` | WHAT does agent know? | python, typescript, spec-architect, checkpoint |
+| Folder | What | Example |
+|--------|------|---------|
 | `personas/` | WHO is agent? | Socrates, Hephaestus, Ariadna |
-| `workflows/` | WITH WHOM? | solo, pair, sddg |
+| `skills/coding/` | Programming languages | python, typescript |
+| `skills/modes/` | Activity modes | planning, execute, review |
+| `skills/stances/` | Thinking approaches | dialectic, pragmatic, critical |
+| `skills/tools/` | Domain tools | spec-architect, scriptor, checkpoint |
+| `skills/workflows/` | Collaboration patterns | solo, pair, sddg |
 | `schemas/` | File format specs | topic_file, index, skill_file |
 
 ## Entrypoints
@@ -113,12 +114,10 @@ This package extracts content. Install logic moved to Host.
 
 | Concept | File |
 |---------|------|
-| Core instructions | `src/core_instructions.md` |
+| Core instructions (bootstrapper) | `src/core_instructions.md` |
+| User instructions index | `src/index.md` |
 | Archived full version | `src/old/core_instructions_long.md` |
-| Modes | `src/modes/` |
-| Stances | `src/stances/` |
-| Skills | `src/skills/` |
 | Personas | `src/personas/` |
-| Workflows | `src/workflows/` |
+| Skills (all categories) | `src/skills/` |
 | Schemas | `src/schemas/` |
 | Deploy target | `DuetData/ai-instructions/` (via Host) |

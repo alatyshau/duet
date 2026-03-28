@@ -157,8 +157,10 @@ export const deployInstructions = (paths: DeployPaths): number => {
     throw new Error(`AI instructions source not found: ${src}`)
   }
 
-  mkdirSync(dest, { recursive: true })
-  cpSync(src, dest, { recursive: true, force: true, filter: deployFilter })
+  if (existsSync(dest)) {
+    rmSync(dest, { recursive: true })
+  }
+  cpSync(src, dest, { recursive: true, filter: deployFilter })
 
   return countFiles(dest)
 }

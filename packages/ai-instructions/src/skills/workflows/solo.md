@@ -80,5 +80,5 @@
 
 ## Related
 
-- [sddg.md](sddg.md) — multi-agent workflow for complex tasks
-- [core_instructions.md](../core_instructions.md) — base rules
+- `skills/workflows/sddg.md` — multi-agent workflow for complex tasks
+- `core_instructions.md` — base rules

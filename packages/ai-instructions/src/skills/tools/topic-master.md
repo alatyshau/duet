@@ -104,5 +104,5 @@ After project completion, topic can be deleted — spec/ has everything.
 | Command | Action |
 |---------|--------|
 | `!сохрани-в-топик` | Parse chat history → distribute to topic sections |
-| `!по-одному` | Load `modes/briefing.md` → iterate open questions one by one |
-| `!архивируй-топик` | Load `modes/revision.md` → execute archiving procedure |
+| `!по-одному` | Load `skills/modes/briefing.md` → iterate open questions one by one |
+| `!архивируй-топик` | Load `skills/modes/revision.md` → execute archiving procedure |

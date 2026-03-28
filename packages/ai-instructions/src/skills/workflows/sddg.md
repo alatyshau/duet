@@ -81,6 +81,6 @@
 
 ## Related
 
-- [CurrentReview.md schema](../schemas/current_review.md) — review file format
-- [topic_file.md schema](../schemas/topic_file.md) — topic structure
-- [core_instructions.md](../core_instructions.md) — spec-driven development rules
+- `schemas/current_review.md` — review file format
+- `schemas/topic_file.md` — topic structure
+- `core_instructions.md` — spec-driven development rules

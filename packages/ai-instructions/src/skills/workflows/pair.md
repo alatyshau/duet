@@ -114,6 +114,6 @@ No "Синтез" section — only one reviewer, no need to compile.
 
 ## Related
 
-- [sddg.md](sddg.md) — full multi-agent workflow
-- [solo.md](solo.md) — single agent (no external review)
-- [current_review.md](../schemas/current_review.md) — review file schema
+- `skills/workflows/sddg.md` — full multi-agent workflow
+- `skills/workflows/solo.md` — single agent (no external review)
+- `schemas/current_review.md` — review file schema
