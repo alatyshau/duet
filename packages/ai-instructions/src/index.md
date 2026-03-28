@@ -59,6 +59,7 @@
 | spec-architect | SA, СА | Specifications | `skills/tools/spec-architect.md` |
 | topic-master | TM, ТМ | Topic files, planning | `skills/tools/topic-master.md` |
 | checkpoint | !упакуй | Save context for new chat | `skills/tools/checkpoint.md` |
+| commit | !коммит | Generate commit message | `skills/tools/commit.md` |
 | digestor | дайджест, перевари | Process meeting transcripts | `skills/tools/digestor.md` |
 | scriptor | транскрибируй | Audio/video transcription pipeline | `skills/tools/scriptor.md` |
 | meetings-digitizer | оцифруй встречу | Digitize meeting recordings | `skills/tools/meetings-digitizer.md` |
