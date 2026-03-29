@@ -3,6 +3,8 @@
 Provides workspace context for AI agents and extension.
 """
 
+import json
+import logging
 import re
 from pathlib import Path
 
@@ -15,8 +17,11 @@ from config import (
 )
 from db import DatabaseManager, Entity
 from description import extract_description, find_spec_file
+from instructions import scan_instructions
 from normalization import normalize_path
 from scanner import scan_components
+
+logger = logging.getLogger(__name__)
 
 
 class WorkspaceService:
@@ -228,27 +233,81 @@ class WorkspaceService:
 
         return Path(entity.drive_path)
 
-    # === workspace_info v2 ===
+    # === Multi-path entity resolution ===
 
-    def get_workspace_info(self, workspace_path: str | None = None) -> dict:
+    def _classify_path(self, path_str: str) -> tuple[str, Entity | None]:
+        """Classify a workspace path and resolve to entity.
+
+        Returns:
+            Tuple of (classification, entity_or_none).
+            classification: "git" | "stream" | "ignored"
+        """
+        normalized = normalize_path(path_str)
+        path = Path(normalized).resolve()
+        path_s = str(path)
+
+        # Check if path is in repos/
+        repos_path = get_repos_path()
+        if repos_path:
+            repos_str = str(repos_path.resolve())
+            if path_s == repos_str or path_s.startswith(repos_str + "/"):
+                entity = self._resolve_from_repos(path, repos_path)
+                return ("git", entity)
+
+        # Check if path contains a manifest (streamFolder)
+        manifest_names = [
+            "business.json", "stream.json", "product.json", "project.json"
+        ]
+        for manifest_name in manifest_names:
+            if (path / manifest_name).exists():
+                entity = self._resolve_from_drive(path_s)
+                return ("stream", entity)
+
+        return ("ignored", None)
+
+    def _resolve_multi_path(self, workspace_paths: list[str]) -> Entity | None:
+        """Resolve best entity from multiple workspace paths.
+
+        Algorithm:
+        1. Classify each path → git/stream/ignored
+        2. Collect resolved entities
+        3. Prioritize: root business > business > stream > product > project
+        """
+        entities: list[Entity] = []
+        for path_str in workspace_paths:
+            _, entity = self._classify_path(path_str)
+            if entity and entity.id:
+                entities.append(entity)
+
+        if not entities:
+            return None
+
+        # Check for root business first
+        root_business = self.db.find_root_business()
+        if root_business and root_business.id:
+            for e in entities:
+                if e.id == root_business.id:
+                    return e
+
+        # Priority: business(1) > stream(2) > product(3) > project(4)
+        type_priority = {"business": 1, "stream": 2, "product": 3, "project": 4}
+        entities.sort(key=lambda e: type_priority.get(e.type, 99))
+        return entities[0]
+
+    # === workspace_info v3 ===
+
+    def get_workspace_info(
+        self, workspace_path: str | None = None, workspace_paths: list[str] | None = None
+    ) -> dict:
         """Get full workspace information for AI agents.
 
         Args:
-            workspace_path: Optional path to workspace. If not provided,
-                           returns duet_paths only with status "unknown".
+            workspace_path: Single path (legacy, used if workspace_paths not provided).
+            workspace_paths: List of all workspace paths. First is primary.
 
         Returns:
-            Dict with:
-            - status: "found" | "unknown"
-            - duet_paths: {duetDataPath, machineConfig, instructionsPath}
-            - workspace_paths: {workspace_type, main_folder, projects_folder?}
-            - context: {breadcrumb, chain: [{type, name, description?}]}
-            - key_files: {spec?, readme?}
-            - components: [{name, path, spec?, description?}]
-            - reason (only when status="unknown"):
-                - "no_workspace_path"
-                - "path_not_in_hierarchy"
-                - "entity_not_in_db"
+            Dict with status, duet_paths, context, workspace_paths, key_files,
+            components, instructions.
         """
         duet_data = get_duet_data_path()
 
@@ -258,25 +317,34 @@ class WorkspaceService:
             "duet_paths": {
                 "duetDataPath": str(duet_data.resolve()),
                 "machineConfig": str(get_machine_config_path().resolve()),
-                "instructionsPath": str(get_instructions_path().resolve()),
             },
         }
 
-        if not workspace_path:
+        # Instructions catalog (always present — backend validates at startup)
+        instructions_path = get_instructions_path()
+        result["instructions"] = scan_instructions(instructions_path)
+
+        # Determine paths to use
+        paths = workspace_paths or ([workspace_path] if workspace_path else [])
+
+        if not paths:
             result["reason"] = "no_workspace_path"
             return result
 
-        # Check if path is in a known location
-        path_in_hierarchy = self._is_path_in_hierarchy(workspace_path)
-
-        # Resolve entity
-        entity = self._resolve_entity(workspace_path)
+        # Resolve entity — multi-path or single-path
+        if len(paths) > 1:
+            entity = self._resolve_multi_path(paths)
+        else:
+            entity = self._resolve_entity(paths[0])
 
         if not (entity and entity.id):
-            if path_in_hierarchy:
-                result["reason"] = "entity_not_in_db"
-            else:
-                result["reason"] = "path_not_in_hierarchy"
+            # Determine reason
+            any_in_hierarchy = any(
+                self._is_path_in_hierarchy(p) for p in paths
+            )
+            result["reason"] = (
+                "entity_not_in_db" if any_in_hierarchy else "path_not_in_hierarchy"
+            )
             return result
 
         # --- Status: found ---

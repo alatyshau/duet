@@ -6,3 +6,6 @@ uvicorn>=0.30.0
 
 # MCP SDK with FastMCP
 mcp>=1.2.0
+
+# YAML frontmatter parsing
+PyYAML>=6.0

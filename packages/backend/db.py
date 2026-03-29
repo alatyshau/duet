@@ -25,6 +25,7 @@ class Entity:
     parent_id: int | None = None
     git_url: str | None = None
     status: str | None = None
+    root: bool = False
 
 
 class DatabaseManager:
@@ -71,6 +72,7 @@ class DatabaseManager:
 
         # Migrations: add columns that may be missing in older databases
         self._migrate_add_column("entities", "status", "TEXT")
+        self._migrate_add_column("entities", "root", "INTEGER DEFAULT 0")
 
         self.conn.commit()
 
@@ -110,8 +112,8 @@ class DatabaseManager:
 
         self.conn.execute(
             """INSERT OR IGNORE INTO entities
-               (type, name, icon, drive_path, parent_id, git_url, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (type, name, icon, drive_path, parent_id, git_url, status, root)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 entity.type,
                 entity.name,
@@ -120,6 +122,7 @@ class DatabaseManager:
                 entity.parent_id,
                 entity.git_url,
                 entity.status,
+                1 if entity.root else 0,
             ),
         )
         self.conn.commit()
@@ -306,6 +309,21 @@ class DatabaseManager:
         )
         return [self._row_to_entity(row) for row in cursor.fetchall()]
 
+    def find_root_business(self) -> Entity | None:
+        """Find the root business entity (root=true in business.json).
+
+        Used by multi-path resolution to determine primary business
+        when multiple businesses are in workspace_paths.
+        """
+        if not self.conn:
+            raise RuntimeError("Database not initialized")
+
+        cursor = self.conn.execute(
+            "SELECT * FROM entities WHERE type = 'business' AND root = 1 LIMIT 1"
+        )
+        row = cursor.fetchone()
+        return self._row_to_entity(row) if row else None
+
     def _row_to_entity(self, row: sqlite3.Row) -> Entity:
         """Convert database row to Entity."""
         return Entity(
@@ -317,4 +335,5 @@ class DatabaseManager:
             parent_id=row["parent_id"],
             git_url=row["git_url"],
             status=row["status"],
+            root=bool(row["root"]) if row["root"] else False,
         )

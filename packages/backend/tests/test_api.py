@@ -198,7 +198,6 @@ class TestWorkspaceInfoEndpoint:
         assert data["status"] == "unknown"
         assert data["reason"] == "no_workspace_path"
         assert data["duet_paths"]["duetDataPath"] == str(duet_data)
-        assert data["duet_paths"]["instructionsPath"] == str(duet_data / "ai-instructions")
 
     async def test_returns_chain(
         self, client: AsyncClient, db, duet_data_builder, monkeypatch
@@ -237,7 +236,7 @@ class TestWorkspaceInfoEndpoint:
 
         # Test: request workspace_info for repos path
         repo_path = str(builder.get_repo_path("Product") / "packages" / "extension")
-        response = await client.get(f"/workspace-info?workspace_path={repo_path}")
+        response = await client.get(f"/workspace-info?workspace_paths={repo_path}")
         assert response.status_code == 200
 
         data = response.json()

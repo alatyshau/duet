@@ -1,123 +1,87 @@
 # AI Instructions
 
-Pure content package — source of truth for all AI agent instructions deployed to DuetData.
+Transitional package — bootstrapper (core_instructions.md) lives here until it moves to Host (Phase 2). User instructions have moved to a separate git repo owned by the user.
 
-## Domain
+## Architecture: Two Layers
 
-### Core Concepts
+| Layer | Where | What | Who owns |
+|-------|-------|------|----------|
+| **Bootstrapper** | This package → Host (Phase 2) | Platform rules (L7+, glossary, spec-driven, observable rules), orientation (workspace_info call) | Duet |
+| **User instructions** | Separate git repo (e.g. Duet-Instructions.git) | Personas, skills (modes, stances, tools, workflows), schemas | User |
+
+## Core Concepts
+
+Only two concepts:
 
 | Concept | Question | Duration | Example |
 |---------|----------|----------|---------|
-| **Mode** | WHAT is happening? | Switches per task | DIALOGUE, EXECUTE, BRIEFING |
-| **Stance** | HOW to think? | Switches per phase | dialectic, pragmatic, critical |
-| **Skill** | WHAT expertise? | Loaded on demand | python, instructions-architect |
-| **Workflow** | WITH WHOM? | Entire session | solo, pair, sddg |
 | **Persona** | WHO am I? | Entire session | Socrates, Hephaestus, Ariadna |
+| **Skill** | WHAT do I know / do? | Loaded on demand | python, planning, dialectic |
 
-### Concept Relationships
+Modes, stances, workflows — categories of skills, not separate concepts.
 
+## User Instructions Workspace
+
+User-owned git repo with `index.json` at root declaring structure:
+
+```json
+{
+  "personas": { "path": "personas" },
+  "skill_folders": [
+    { "name": "Coding", "path": "skills/coding" },
+    { "name": "Tools", "path": "skills/tools" }
+  ]
+}
 ```
-Session
-+-- Persona (1, fixed)
-+-- Workflow (1, fixed)
-+-- Conversation
-    +-- Mode (switches)
-    +-- Stance (switches)
-    +-- Skills (accumulate)
-```
 
-### Key Distinctions
+Each .md file has YAML frontmatter:
+- **Required:** `name`, `description`
+- **Optional:** `shortcuts` (list), `trigger`, `noTrigger` (skills only)
 
-**Mode vs Stance:**
-- Mode controls what agent DOES (EXECUTE = write code)
-- Stance controls how agent THINKS (pragmatic = minimal ceremony)
-- Both mutually exclusive (one at a time)
+Backend scans `index.json` + frontmatter → builds dynamic catalog in workspace_info response (`instructions` block).
 
-**Skill vs Stance:**
-- Skill = domain knowledge, multiple active (python + testing)
-- Stance = thinking approach, one active (dialectic OR pragmatic)
+Path to workspace: `instructionsPath` in `DuetConfig/{machine}.json`.
 
-**Persona vs Mode:**
-- Persona = identity for entire session (Hephaestus)
-- Mode = current activity, switches (EXECUTE -> DIALOGUE)
+## Bootstrapper (core_instructions.md)
 
-### core_instructions.md Structure
+Compact instructions loaded as system prompt. Contains platform rules, not user content.
 
-| Section | What | Why |
-|---------|------|-----|
-| **Glossary** | Terms, hierarchy, personas, homonyms | Agent needs shared vocabulary before algorithms |
-| **Axioms** | 3 universal principles | Foundational rules that override everything else |
-| **Session Start** | 4-step initialization | Runs before Main Algorithm, same after compaction |
-| **Main Algorithm** | Mode/Stance/Skill selection, Spec Workflow, DIALOGUE mode | Core decision loop — what agent does each turn |
-| **Response Format** | @turn(), @topic() | Output structure for parsing and traceability |
+| Section | What |
+|---------|------|
+| **Core Rules** | L7+, observable rules, propose responsibly, spec-driven |
+| **Glossary** | Entity hierarchy, terms |
+| **Orientation** | `workspace_info(workspace_paths=[...])` call at session start |
 
-## Categories
-
-| Folder | What | Example |
-|--------|------|---------|
-| `personas/` | WHO is agent? | Socrates, Hephaestus, Ariadna |
-| `skills/coding/` | Programming languages | python, typescript |
-| `skills/modes/` | Activity modes | planning, execute, review |
-| `skills/stances/` | Thinking approaches | dialectic, pragmatic, critical |
-| `skills/tools/` | Domain tools | spec-architect, scriptor, checkpoint |
-| `skills/workflows/` | Collaboration patterns | solo, pair, sddg |
-| `schemas/` | File format specs | topic_file, index, skill_file |
-
-## Entrypoints
-
-| File | Purpose | Who uses |
-|------|---------|----------|
-| `core_instructions.md` | Compact instructions (~130 lines) | Claude Code (`output-styles/duet.md`), Codex (`model_instructions_file`) |
-| `old/core_instructions_long.md` | Full version (~320 lines), archived | Reference only |
-
-**Why compact?** Instruction adherence. Agents follow rules more reliably with shorter instructions — long instructions get "lost" in context.
-
-**Claude Code specifics:** `output-styles/` loads instructions as system-level (not user-level). This significantly improves adherence vs. injecting via CLAUDE.md or conversation.
+**Claude Code:** Loaded via `output-styles/duet.md` (system-level, better adherence).
 
 ## Contracts
 
-**File naming:** `<category>/<kebab-name>.md` (e.g. `skills/spec-architect.md`)
+**Edit rule:** Edit `packages/ai-instructions/src/`, never `DuetData/ai-instructions/` directly.
 
-**Adding new files:** Create md in the right category folder. Update `core_instructions.md` tables if the new entity needs to be discoverable by agents (e.g. new skill -> add row to Skills table).
-
-**Edit rule:** Always edit `packages/ai-instructions/src/`. Never edit `DuetData/ai-instructions/` directly — changes are lost on next deploy.
-
-**Deploy target:** `src/` -> `DuetData/ai-instructions/`. Note: `DuetData/ai-kit/settings.json` lives separately in `ai-kit/` — it's a runtime config, not part of this package.
+**Adding skills/personas:** Add to user instructions workspace (separate repo), not this package. Ensure YAML frontmatter for catalog discovery.
 
 ## Deploy Chain
 
 ```
-packages/ai-instructions/src/  ->  DuetData/ai-instructions/
-                               (deployer: Host app)
+packages/ai-instructions/src/  →  DuetData/ai-instructions/  (deployer: Host)
 ```
+
+Phase 2: bootstrapper moves into Host directly. This package shrinks and eventually disappears.
 
 ## Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| `src/` not `templates/` | No templating — files deploy as-is. `src/` consistent with monorepo convention |
-| Separate package from ai-kit | Decouple content from infrastructure (MCP, install.py). Enables Host to bundle content independently |
-| Separate deploy target | `ai-instructions/` for content, `ai-kit/` for legacy MCP + settings.json |
-| Single entrypoint | Compact version is the only entrypoint. Full version archived to `old/` |
-| Claude: output-styles | `~/.claude/output-styles/` injects as system prompt, not user context. Better adherence than CLAUDE.md |
-
-## Legacy Relationship
-
-`packages/ai-kit/` contained both content and infrastructure:
-- `templates/` — frozen copy of these same files
-- `install.py` — legacy manual installer (replaced by Host deploy)
-- `mcp-server/` — legacy Python MCP (timestamp + get_instruction_location)
-
-This package extracts content. Install logic moved to Host.
+| User-owned instructions repo | Users customize their own personas/skills. No starter repo — clone author's or create own |
+| `index.json` not `index.md` | Declarative structure, machine-readable. Catalog built dynamically from frontmatter |
+| Persona + Skill only | Simpler model. Modes/stances/workflows are skill categories, not separate concepts |
+| PyYAML for frontmatter | Standard, reliable. Not python-frontmatter (overkill) or manual parsing (bugs) |
+| No fallback for instructionsPath | Missing config → error. No silent degradation |
 
 ## Navigation
 
 | Concept | File |
 |---------|------|
-| Core instructions (bootstrapper) | `src/core_instructions.md` |
-| User instructions index | `src/index.md` |
+| Bootstrapper | `src/core_instructions.md` |
 | Archived full version | `src/old/core_instructions_long.md` |
-| Personas | `src/personas/` |
-| Skills (all categories) | `src/skills/` |
-| Schemas | `src/schemas/` |
-| Deploy target | `DuetData/ai-instructions/` (via Host) |
+| Output style (Claude Code) | `src/core_instructions.md` → deployed as `output-styles/duet.md` |

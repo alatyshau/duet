@@ -119,10 +119,11 @@ class DuetDataBuilder:
         self._settings = self.DEFAULT_SETTINGS.copy()
         self._machine_config = self.DEFAULT_MACHINE_CONFIG.copy()
         self._version: str | None = "test"
-        self._hierarchies: list[tuple[str, str]] = []  # (name, folder_name)
+        self._hierarchies: list[tuple[str, str, dict]] = []  # (name, folder_name, extra)
         self._business_folders: list[Path] = []
         self._repos: list[tuple[str, list[str]]] = []  # (name, components)
         self._aliases: dict[str, str] = {}
+        self._instructions_path: Path | None = root / "instructions"  # always created by default
 
     @property
     def duet_data_path(self) -> Path:
@@ -169,14 +170,29 @@ class DuetDataBuilder:
         self._aliases[alias] = path
         return self
 
-    def add_business(self, name: str, folder_name: str | None = None) -> "DuetDataBuilder":
+    def with_instructions(self) -> "DuetDataBuilder":
+        """Create instructions workspace with index.json and sample files.
+
+        This is the default — called implicitly. Explicit call is a no-op.
+        """
+        self._instructions_path = self.root / "instructions"
+        return self
+
+    def without_instructions(self) -> "DuetDataBuilder":
+        """Disable instructions workspace creation (for testing missing config)."""
+        self._instructions_path = None
+        return self
+
+    def add_business(self, name: str, folder_name: str | None = None, root: bool = False) -> "DuetDataBuilder":
         """Add a business folder to be created.
 
         Args:
             name: Business name (for manifest)
             folder_name: Folder name (defaults to name)
+            root: Whether this is the root business (meta-business)
         """
-        self._hierarchies.append((name, folder_name or name))
+        extra = {"root": True} if root else {}
+        self._hierarchies.append((name, folder_name or name, extra))
         return self
 
     def add_repo(
@@ -208,11 +224,44 @@ class DuetDataBuilder:
             version_path.parent.mkdir(parents=True, exist_ok=True)
             version_path.write_text(self._version)
 
+        # Create instructions workspace if requested
+        if self._instructions_path:
+            self._instructions_path.mkdir(parents=True, exist_ok=True)
+            # Create index.json
+            index_data = {
+                "personas": {"path": "personas"},
+                "skill_folders": [
+                    {"name": "Tools", "path": "skills/tools"}
+                ]
+            }
+            (self._instructions_path / "index.json").write_text(
+                json.dumps(index_data, indent=2), encoding="utf-8"
+            )
+            # Create personas dir with sample
+            personas_dir = self._instructions_path / "personas"
+            personas_dir.mkdir(parents=True, exist_ok=True)
+            (personas_dir / "test-persona.md").write_text(
+                "---\nname: test-persona\ndescription: A test persona\n"
+                "shortcuts: [\"тест\"]\n---\n\n# Test Persona\n",
+                encoding="utf-8",
+            )
+            # Create skills dir with sample
+            skills_dir = self._instructions_path / "skills" / "tools"
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            (skills_dir / "test-skill.md").write_text(
+                "---\nname: test-skill\ndescription: A test skill\n"
+                "shortcuts: [\"!тест\"]\ntrigger: \"User asks for test\"\n"
+                "noTrigger: \"Not a test\"\n---\n\n# Test Skill\n",
+                encoding="utf-8",
+            )
+            # Add to machine config
+            self._machine_config["instructionsPath"] = str(self._instructions_path)
+
         # Create business folders if any
-        for name, folder_name in self._hierarchies:
+        for name, folder_name, extra in self._hierarchies:
             biz_path = self.root / folder_name
             biz_path.mkdir(parents=True, exist_ok=True)
-            ManifestBuilder.business(biz_path, name)
+            ManifestBuilder.business(biz_path, name, **extra)
             self._business_folders.append(biz_path)
 
             # Auto-create alias for business folder

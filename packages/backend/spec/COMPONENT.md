@@ -49,6 +49,7 @@ server.py (entry point, lifecycle)
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan, self-healing, scan_components | HTTP, config writes |
+| `instructions.py` | Scan instructions workspace, parse YAML frontmatter | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file fallback chains | DB, HTTP |
 | `db.py` | SQLite CRUD | Business rules |
 | `pointer.py` | Read pointer file | Write pointer |
@@ -74,7 +75,7 @@ server.py (entry point, lifecycle)
 | POST | `/stop` | Returns `{ status: "stopping" }`, triggers shutdown |
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
-| GET | `/workspace-info` | Query: `workspace_path`. Returns duet_paths, context, workspace_paths, key_files, components |
+| GET | `/workspace-info` | Query: `workspace_paths` (repeated). Returns duet_paths, instructions, context, workspace_paths, key_files, components |
 | GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
 | GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms }` |
@@ -106,19 +107,36 @@ server.py (entry point, lifecycle)
 - Errors: `McpError` with JSON-RPC codes (`INVALID_PARAMS` -32602, `INTERNAL_ERROR` -32603)
 - Empty result returns `[]`, not exception
 
-### workspace_info v2
+### workspace_info v3
 
-`GET /workspace-info?workspace_path=...` — primary orientation endpoint for AI agents.
+`GET /workspace-info?workspace_paths=...&workspace_paths=...` — primary orientation endpoint for AI agents.
+
+MCP tool: `workspace_info(workspace_paths: list[str])` — accepts all workspace paths available to the agent.
+
+**Multi-path entity resolution:**
+
+1. Classify each path: `gitFolders` (under DuetData/repos/) or `streamFolders` (contains manifest) or ignored
+2. Resolve entities from classified paths
+3. Prioritize: root business (`root: true`) > business > stream > product > project
+
+`root: true` — field in `business.json`. Identifies the meta-business (e.g. БАЗА) in all-businesses workspace.
 
 **Response (status=found):**
 
 | Block | Fields | When |
 |-------|--------|------|
-| `duet_paths` | duetDataPath, machineConfig, instructionsPath | Always |
+| `duet_paths` | duetDataPath, machineConfig | Always |
+| `instructions` | basePath, personas[], skills[] | When instructionsPath configured |
 | `context` | breadcrumb, chain[{type, name, description?}] | When entity resolved |
 | `workspace_paths` | workspace_type, main_folder, projects_folder? | When entity resolved |
 | `key_files` | spec?, readme? | When files exist |
 | `components` | [{name, path, spec?, description?}] | When product in chain |
+
+**instructions block:** Dynamic catalog built from YAML frontmatter.
+- `basePath`: absolute path to instructions workspace (from machine.json `instructionsPath`)
+- `personas[]`: `{name, description, shortcuts?, path}` — relative to basePath
+- `skills[]`: `{category, name, description, shortcuts?, trigger?, noTrigger?, path}` — relative to basePath
+- Scanned from `index.json` in instructions workspace (declares persona path + skill_folders)
 
 **workspace_type values:** `product_folder_with_git_repo` | `product_folder` | `stream_folder` | `business_folder` | `project_folder` | `unknown` (fallback for unexpected entity types)
 
@@ -284,6 +302,8 @@ tests/
 | Component scan | `scanner.py:scan_components()` |
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback | `description.py:find_spec_file()` |
+| Instructions scanning | `instructions.py:scan_instructions()` |
+| Frontmatter parsing | `instructions.py:parse_frontmatter()` |
 | SQLite schema | `db.py:_init_schema()` |
 | Config reading | `config.py` |
 | Pointer reading | `pointer.py` |

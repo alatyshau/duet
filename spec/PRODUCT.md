@@ -249,7 +249,8 @@ CREATE TABLE entities (
     drive_path TEXT UNIQUE,
     parent_id INTEGER REFERENCES entities(id),
     git_url TEXT,
-    status TEXT       -- project status: 'active', 'postponed', 'archived', NULL
+    status TEXT,      -- project status: 'active', 'postponed', 'archived', NULL
+    root INTEGER DEFAULT 0  -- business only: 1 = meta-business (root entity)
 );
 CREATE UNIQUE INDEX idx_name ON entities(name);
 ```
@@ -286,21 +287,24 @@ Extension → checks /health → detects when backend is up
 
 ### workspace_info (AI Agent Orientation)
 
-AI agents call `workspace_info(workspace_path=<cwd>)` at session start. Backend resolves workspace path to entity and returns structured context.
+AI agents call `workspace_info(workspace_paths=[<all working dirs>])` at session start. Backend resolves workspace paths to entity via multi-path resolution and returns structured context.
 
 **Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint)
+
+**Multi-path resolution:** Classifies each path (gitFolder / streamFolder / ignored), resolves entities, picks highest priority: root business > business > stream > product > project.
 
 **Response blocks:**
 
 | Block | Purpose | Always present? |
 |-------|---------|----------------|
-| `duet_paths` | duetDataPath, machineConfig, instructionsPath | Yes |
+| `duet_paths` | duetDataPath, machineConfig | Yes |
+| `instructions` | basePath, personas[], skills[] (dynamic catalog from YAML frontmatter) | When instructionsPath configured |
 | `context` | breadcrumb + chain (type, name, description) | When entity resolved |
 | `workspace_paths` | workspace_type, main_folder, projects_folder | When entity resolved |
 | `key_files` | Absolute paths to spec and readme | When files exist |
 | `components` | Product's packages with spec path and description | When product in chain |
 
-**Contract:** Detailed format in `packages/backend/spec/COMPONENT.md` → workspace_info v2.
+**Contract:** Detailed format in `packages/backend/spec/COMPONENT.md` → workspace_info v3.
 
 ### Spec File Naming Convention
 

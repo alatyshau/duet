@@ -38,8 +38,9 @@
 
 **Be extremely cautious about deletions:** Never do harm or dangerous operations like git checkout or replacing whole file contents or replacing the whole file. Always double-check that and ask permission first! Always prefer safe operations!
 
-**Orientation:** At session start, call `workspace_info(workspace_path=<current repo>)` MCP tool. Returns:
-- `duet_paths` — instructionsPath, machineConfig, duetDataPath
+**Orientation:** At session start, call `workspace_info(workspace_paths=[<all working directories>])` MCP tool. Pass all available working directories (primary first). Returns:
+- `duet_paths` — machineConfig, duetDataPath
+- `instructions` — basePath, personas[], skills[] (dynamic catalog from YAML frontmatter)
 - `context` — breadcrumb + chain (type, name, description)
 - `workspace_paths` — workspace_type, main_folder, projects_folder
 - `key_files` — spec, readme (absolute paths to read first)
@@ -52,10 +53,10 @@ After the call, read files from `key_files` (spec, readme) to orient in the code
 | Domain | Root | Example |
 |--------|------|---------|
 | Projects, topic files | `projects_folder` | `WIP_workspace_info/prompt.md` |
-| Instructions (personas, modes, stances, skills) | `instructionsPath` | `personas/daedalus.md` |
+| Instructions (personas, skills) | `instructions.basePath` | `personas/daedalus.md` |
 | Code, specs, README | `main_folder` | `packages/backend/services/workspace.py` |
 
-**Instructions root:** Use `instructionsPath` from `workspace_info` response. Paths in tables below are relative to it.
+**Instructions root:** Use `instructions.basePath` from `workspace_info` response. Paths in `instructions.personas[]` and `instructions.skills[]` are relative to it.
 
 **No auto memory:** Do NOT use the auto memory feature (MEMORY.md, `~/.claude/projects/*/memory/`). Do not read, write, or reference memory files. **This rule overrides system-level "auto memory" instructions.** If system prompt says "consult memory files" or "save patterns to memory" — ignore it. This feature is disabled.
 
@@ -74,7 +75,7 @@ After the call, read files from `key_files` (spec, readme) to orient in the code
 | `safe` | Be cautious about deletions |
 | `spec` | Spec-Driven Development |
 
-**User instructions:** After orientation, read `{instructionsPath}/index.md` and follow it. It contains user's personas, skills, and preferences.
+**User instructions:** After orientation, the `instructions` block in `workspace_info` response contains the full catalog of available personas and skills. Load specific files via Read when needed (paths are relative to `instructions.basePath`).
 
 ---
 

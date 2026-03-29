@@ -110,16 +110,17 @@ def duet_data_path() -> str:
 
 
 @mcp.tool()
-def workspace_info(workspace_path: str = "") -> dict:
+def workspace_info(workspace_paths: list[str] | None = None) -> dict:
     """Get full workspace information.
 
     Args:
-        workspace_path: Path to current workspace/repository.
+        workspace_paths: List of all workspace paths available to the agent.
+            Multi-path resolution: classifies paths, picks highest priority entity
+            (root business > business > stream > product > project).
 
     Returns information about:
-    - duetDataPath: Path to DuetData directory
-    - machineConfig: Path to machine config JSON file
-    - instructionsPath: Path to ai-instructions directory
+    - duet_paths: {duetDataPath, machineConfig}
+    - instructions: {basePath, personas[], skills[]} — dynamic catalog from YAML frontmatter
     - workspace_type: product_folder_with_git_repo | product_folder | stream_folder | business_folder | project_folder
     - main_folder: Absolute path to entity root directory
     - projects_folder: Absolute path to projects/ on Drive (product/stream only, absent for business/project)
@@ -128,7 +129,7 @@ def workspace_info(workspace_path: str = "") -> dict:
     - components: List of components with name, path, spec?, description?
     """
     service = _get_workspace_service()
-    return service.get_workspace_info(workspace_path if workspace_path else None)
+    return service.get_workspace_info(workspace_paths=workspace_paths or [])
 
 
 @mcp.tool()

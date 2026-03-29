@@ -28,6 +28,7 @@ class Manifest:
     icon: str | None = None
     git_url: str | None = None
     status: str | None = None
+    root: bool = False
 
 
 # Type priorities: lower number = higher priority
@@ -253,6 +254,7 @@ class Scanner:
                 name=unique_name,
                 icon=icon,
                 drive_path=relative_path,
+                root=manifest.root,
             )
         )
 
@@ -419,6 +421,7 @@ class Scanner:
                     icon=data.get("icon"),
                     git_url=data.get("git_url"),
                     status=data.get("status"),
+                    root=bool(data.get("root", False)),
                 )
         except FileNotFoundError:
             return None

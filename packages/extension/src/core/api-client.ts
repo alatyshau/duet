@@ -133,8 +133,10 @@ export class DuetApiClient {
         return this.get('/duet-data-path');
     }
 
-    async workspaceInfo(workspacePath?: string): Promise<WorkspaceInfoResponse> {
-        const params = workspacePath ? `?workspace_path=${encodeURIComponent(workspacePath)}` : '';
+    async workspaceInfo(workspacePaths?: string[]): Promise<WorkspaceInfoResponse> {
+        const params = workspacePaths?.length
+            ? '?' + workspacePaths.map(p => `workspace_paths=${encodeURIComponent(p)}`).join('&')
+            : '';
         return this.get(`/workspace-info${params}`);
     }
 

@@ -140,8 +140,8 @@ async def duet_data_path_handler(request: Request) -> JSONResponse:
 
 async def workspace_info_handler(request: Request) -> JSONResponse:
     """GET /workspace-info - Full workspace information."""
-    workspace_path = request.query_params.get("workspace_path")
-    result = get_workspace_service().get_workspace_info(workspace_path)
+    workspace_paths = request.query_params.getlist("workspace_paths")
+    result = get_workspace_service().get_workspace_info(workspace_paths=workspace_paths)
     return JSONResponse(result)
 
 
@@ -336,13 +336,14 @@ def main() -> None:
 
     # Validate configuration before starting (fail fast)
     try:
-        from config import get_duet_data_path, ConfigError
+        from config import get_duet_data_path, get_instructions_path, ConfigError
 
         duet_data = get_duet_data_path()
         get_version()
         get_port()
         get_timezone()
         get_business_folders()
+        get_instructions_path()
     except ConfigError as e:
         logger.error(f"Config error: {e}")
         logger.error(

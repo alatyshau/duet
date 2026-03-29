@@ -229,7 +229,6 @@ class TestGetWorkspaceInfo:
         assert "duet_paths" in result
         assert "duetDataPath" in result["duet_paths"]
         assert "machineConfig" in result["duet_paths"]
-        assert "instructionsPath" in result["duet_paths"]
         # No workspace-specific fields
         assert "context" not in result
         assert "workspace_paths" not in result

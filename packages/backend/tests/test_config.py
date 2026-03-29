@@ -43,9 +43,22 @@ class TestPathGetters:
         """get_db_path() returns correct path."""
         assert config.get_db_path() == duet_data / "data" / "entities.db"
 
-    def test_get_instructions_path(self, duet_data: Path) -> None:
-        """get_instructions_path() returns correct path."""
-        assert config.get_instructions_path() == duet_data / "ai-instructions"
+    def test_get_instructions_path(self, tmp_path: Path, monkeypatch) -> None:
+        """get_instructions_path() reads from machine.json."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.with_instructions()
+        builder.build(monkeypatch)
+        result = config.get_instructions_path()
+        assert result == tmp_path / "instructions"
+        assert result.exists()
+
+    def test_get_instructions_path_missing(self, tmp_path: Path, monkeypatch) -> None:
+        """get_instructions_path() raises ConfigError when not configured."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.without_instructions()
+        builder.build(monkeypatch)
+        with pytest.raises(config.ConfigError, match="instructionsPath not set"):
+            config.get_instructions_path()
 
     def test_get_log_path(self, duet_data: Path) -> None:
         """get_log_path() returns correct path."""
