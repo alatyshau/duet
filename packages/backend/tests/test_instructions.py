@@ -1,4 +1,4 @@
-"""Tests for instructions workspace scanning and multi-path resolution."""
+"""Tests for instructions workspace scanning, multi-path resolution, and bootstrapper merge."""
 
 import json
 import time
@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 import config
 from db import DatabaseManager
-from instructions import parse_frontmatter, scan_instructions
+from instructions import parse_frontmatter, scan_instructions, merge_bootstrapper, _extract_user_content
 from mcp_handler import init_services, reset_services
 from scanner import Scanner
 from server import create_app
@@ -346,3 +346,100 @@ class TestRootBusiness:
         assert root_from_db.name == "RootBiz"
 
         db.close()
+
+
+# === Tests for bootstrapper merge ===
+
+
+class TestExtractUserContent:
+    """Tests for _extract_user_content."""
+
+    def test_extracts_from_first_h2(self):
+        text = "# Title\n\n## Section 1\nContent 1\n\n## Section 2\nContent 2\n"
+        result = _extract_user_content(text)
+        assert result.startswith("## Section 1")
+        assert "Content 1" in result
+        assert "## Section 2" in result
+        assert "# Title" not in result
+
+    def test_no_h1_still_works(self):
+        text = "## Section 1\nContent\n"
+        result = _extract_user_content(text)
+        assert result == "## Section 1\nContent\n"
+
+    def test_content_between_h1_and_h2_raises(self):
+        text = "# Title\nSome rogue content\n## Section\n"
+        with pytest.raises(ValueError, match="Content found between H1 and first H2"):
+            _extract_user_content(text)
+
+    def test_no_h2_raises(self):
+        text = "# Title\nJust content no sections\n"
+        with pytest.raises(ValueError, match="No H2"):
+            _extract_user_content(text)
+
+    def test_empty_lines_between_h1_h2_ok(self):
+        """Empty lines between H1 and H2 are not content."""
+        text = "# Title\n\n\n## Section\nContent\n"
+        result = _extract_user_content(text)
+        assert result.startswith("## Section")
+
+
+class TestMergeBootstrapper:
+    """Tests for merge_bootstrapper."""
+
+    def test_merge_produces_valid_output(self, tmp_path):
+        """Bootstrapper + core_instructions merge correctly."""
+        bootstrapper = tmp_path / "bootstrapper.md"
+        bootstrapper.write_text(
+            "# Platform\n\n## Orientation\nDuet stuff\n\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
+            encoding="utf-8",
+        )
+
+        instr_path = tmp_path / "instructions"
+        instr_path.mkdir()
+        (instr_path / "index.json").write_text(
+            json.dumps({"core_instructions": "core_instructions.md", "personas": {"path": "p"}, "skill_folders": []}),
+            encoding="utf-8",
+        )
+        (instr_path / "core_instructions.md").write_text(
+            "# My Rules\n\n## L7+\nBe excellent\n\n## SDD\nSpecs first\n",
+            encoding="utf-8",
+        )
+
+        result = merge_bootstrapper(bootstrapper, instr_path)
+
+        assert "# Platform" in result
+        assert "## Orientation" in result
+        assert "## L7+" in result
+        assert "Be excellent" in result
+        assert "## SDD" in result
+        assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in result
+        assert "# My Rules" not in result  # H1 stripped
+
+    def test_missing_core_instructions_raises(self, tmp_path):
+        bootstrapper = tmp_path / "bootstrapper.md"
+        bootstrapper.write_text("<!-- INSERT USER CORE INSTRUCTIONS -->\n", encoding="utf-8")
+
+        instr_path = tmp_path / "instructions"
+        instr_path.mkdir()
+        (instr_path / "index.json").write_text(
+            json.dumps({"core_instructions": "missing.md"}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(FileNotFoundError, match="core_instructions not found"):
+            merge_bootstrapper(bootstrapper, instr_path)
+
+    def test_missing_marker_raises(self, tmp_path):
+        bootstrapper = tmp_path / "bootstrapper.md"
+        bootstrapper.write_text("# No marker here\n", encoding="utf-8")
+
+        instr_path = tmp_path / "instructions"
+        instr_path.mkdir()
+        (instr_path / "index.json").write_text(
+            json.dumps({"core_instructions": "core.md"}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="Marker"):
+            merge_bootstrapper(bootstrapper, instr_path)

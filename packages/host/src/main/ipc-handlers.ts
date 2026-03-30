@@ -199,10 +199,6 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     // Dev overrides: only when deployChannel === 'dev'
     const machineConfig = readMachineConfig()
     const isDev = machineConfig?.deployChannel === 'dev'
-    const instructionsSourcePath =
-      isDev && typeof machineConfig?.devInstructionsPath === 'string'
-        ? machineConfig.devInstructionsPath
-        : undefined
     const backendSourcePath =
       isDev && typeof machineConfig?.devBackendPath === 'string'
         ? machineConfig.devBackendPath
@@ -227,7 +223,6 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
           resourcesPath,
           duetDataPath: state.duetDataPath,
           appVersion,
-          instructionsSourcePath,
           backendSourcePath
         },
         port,

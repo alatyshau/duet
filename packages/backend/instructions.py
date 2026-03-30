@@ -1,7 +1,10 @@
-"""Instructions workspace scanner.
+"""Instructions workspace scanner and bootstrapper merge.
 
 Reads index.json and YAML frontmatter from persona/skill files
 to build a dynamic catalog for workspace_info response.
+
+Also provides merge_bootstrapper() for combining platform bootstrapper
+with user core_instructions into a final output-style.
 """
 
 import json
@@ -173,3 +176,102 @@ def scan_instructions(instructions_path: Path) -> dict:
             result["skills"].extend(skills)
 
     return result
+
+
+# =============================================================================
+# BOOTSTRAPPER MERGE
+# =============================================================================
+
+INSERT_MARKER = "<!-- INSERT USER CORE INSTRUCTIONS -->"
+
+
+def _extract_user_content(core_instructions_text: str) -> str:
+    """Extract user content from core_instructions.md.
+
+    Strategy: take everything starting from the first H2 (##).
+    H1 is the file's "cover" for GitHub/editor — not part of instructions.
+    Content between H1 and first H2 is an error (should not exist).
+
+    Args:
+        core_instructions_text: Full text of user's core_instructions.md.
+
+    Returns:
+        Content from first ## onwards.
+
+    Raises:
+        ValueError: If content exists between H1 and first H2,
+                    or if no H2 found.
+    """
+    lines = core_instructions_text.split("\n")
+
+    h1_line = None
+    first_h2_line = None
+
+    for i, line in enumerate(lines):
+        if line.startswith("# ") and h1_line is None:
+            h1_line = i
+        elif line.startswith("## ") and first_h2_line is None:
+            first_h2_line = i
+            break
+
+    if first_h2_line is None:
+        raise ValueError("No H2 (##) found in core_instructions.md")
+
+    # Check for content between H1 and first H2
+    if h1_line is not None:
+        between = lines[h1_line + 1 : first_h2_line]
+        if any(line.strip() for line in between):
+            raise ValueError(
+                "Content found between H1 and first H2 in core_instructions.md. "
+                "Move it into an H2 section or remove it."
+            )
+
+    return "\n".join(lines[first_h2_line:])
+
+
+def merge_bootstrapper(
+    bootstrapper_path: Path, instructions_path: Path
+) -> str:
+    """Merge platform bootstrapper with user core_instructions.
+
+    Reads bootstrapper.md, finds INSERT_MARKER, replaces it with
+    user content extracted from core_instructions.md (everything from
+    first H2 onwards).
+
+    Args:
+        bootstrapper_path: Path to bootstrapper.md (in backend package).
+        instructions_path: Path to instructions workspace root.
+
+    Returns:
+        Merged content ready to be written as output-style.
+
+    Raises:
+        FileNotFoundError: If bootstrapper.md or core_instructions not found.
+        ValueError: If INSERT_MARKER not found in bootstrapper,
+                    or core_instructions has invalid structure.
+    """
+    # Read bootstrapper
+    bootstrapper_text = bootstrapper_path.read_text(encoding="utf-8")
+    if INSERT_MARKER not in bootstrapper_text:
+        raise ValueError(
+            f"Marker {INSERT_MARKER!r} not found in {bootstrapper_path}"
+        )
+
+    # Find core_instructions path from index.json
+    index_path = instructions_path / "index.json"
+    if not index_path.exists():
+        raise FileNotFoundError(f"index.json not found at {instructions_path}")
+
+    index_data = json.loads(index_path.read_text(encoding="utf-8"))
+    core_file = index_data.get("core_instructions")
+    if not core_file:
+        raise ValueError("'core_instructions' not specified in index.json")
+
+    core_path = instructions_path / core_file
+    if not core_path.exists():
+        raise FileNotFoundError(f"core_instructions not found: {core_path}")
+
+    core_text = core_path.read_text(encoding="utf-8")
+    user_content = _extract_user_content(core_text)
+
+    return bootstrapper_text.replace(INSERT_MARKER, user_content)

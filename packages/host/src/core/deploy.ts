@@ -1,14 +1,14 @@
 /*
- * ЧТО: Сервис деплоя AI instructions и backend в DuetData.
+ * ЧТО: Сервис деплоя backend в DuetData.
  * ЗАЧЕМ: Host — единая точка установки. VERSION check → deploy если изменилось.
  * КТО ИСПОЛЬЗУЕТ: main process при запуске и по кнопке "Установить".
  *
  * АРХИТЕКТУРА:
  * - Bundled resources в process.resourcesPath (extraResources в electron-builder)
- * - AI instructions: простой copy → DuetData/ai-instructions/
  * - Backend: atomic swap (.new → rename) → DuetData/backend/
  * - Post-deploy: Python check, venv, pip install (async)
  * - VERSION file: app version → DuetData/backend/VERSION
+ * - AI instructions: user-owned repo (configured via instructionsPath in machine.json)
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
@@ -58,8 +58,6 @@ export interface DeployPaths {
   duetDataPath: string
   /** App version (from package.json via app.getVersion()) */
   appVersion: string
-  /** Dev override: direct path to ai-instructions source dir (bypasses resourcesPath) */
-  instructionsSourcePath?: string
   /** Dev override: direct path to backend source dir (bypasses resourcesPath) */
   backendSourcePath?: string
 }
@@ -142,28 +140,6 @@ export const isDeployWarning = (appState: AppState, appVersion: string): boolean
 // =============================================================================
 // DEPLOY AI INSTRUCTIONS
 // =============================================================================
-
-/**
- * Деплоит AI instructions в DuetData/ai-instructions/.
- * Source: instructionsSourcePath (dev override) или resourcesPath/ai-instructions (default).
- * Простой recursive copy (не atomic — инструкции read-only для AI агентов).
- * Возвращает количество скопированных файлов.
- */
-export const deployInstructions = (paths: DeployPaths): number => {
-  const src = paths.instructionsSourcePath || join(paths.resourcesPath, 'ai-instructions')
-  const dest = join(paths.duetDataPath, 'ai-instructions')
-
-  if (!existsSync(src)) {
-    throw new Error(`AI instructions source not found: ${src}`)
-  }
-
-  if (existsSync(dest)) {
-    rmSync(dest, { recursive: true })
-  }
-  cpSync(src, dest, { recursive: true, filter: deployFilter })
-
-  return countFiles(dest)
-}
 
 // =============================================================================
 // DEPLOY BACKEND
@@ -357,26 +333,21 @@ export const runDeploy = async (
   log('Остановка backend...')
   await stopBackend(port, null, opts)
 
-  // 1. Deploy AI instructions (always)
-  log('Копирование AI инструкций...')
-  const instrCount = deployInstructions(paths)
-  log(`AI инструкции: ${instrCount} файлов`)
-
-  // 2. Deploy backend files (always, atomic swap)
+  // 1. Deploy backend files (always, atomic swap)
   log('Копирование backend...')
   const backendCount = deployBackend(paths)
   log(`Backend: ${backendCount} файлов`)
 
-  // 3. Setup venv + pip install
+  // 2. Setup venv + pip install
   log(`Python: ${pythonCmd}`)
   log('Настройка Python venv и зависимостей...')
   await setupVenv(paths, pythonCmd)
 
-  // 4. Write VERSION only after full success
+  // 3. Write VERSION only after full success
   writeVersion(paths)
   log(`VERSION: ${paths.appVersion}`)
 
-  // 5. Start backend after successful deploy
+  // 4. Start backend after successful deploy
   let proc: ChildProcess | null = null
   try {
     log('Запуск backend...')

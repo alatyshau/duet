@@ -1,1 +1,0 @@
-"""AI Kit MCP tools."""

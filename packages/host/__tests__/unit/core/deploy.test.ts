@@ -17,7 +17,6 @@ import {
   resolveDeployStatus,
   isDeployWarning,
   compareSemver,
-  deployInstructions,
   deployBackend,
   writeVersion,
   findPython,
@@ -375,103 +374,6 @@ describe('core/deploy', () => {
   })
 
   // ===========================================================================
-  // deployInstructions
-  // ===========================================================================
-
-  describe('deployInstructions', () => {
-    it('copies ai-instructions to DuetData', () => {
-      const { paths } = createDeployContext(ctx)
-
-      deployInstructions(paths)
-
-      const dest = join(ctx.duetDataDir, 'ai-instructions')
-      expect(existsSync(join(dest, 'core_instructions.md'))).toBe(true)
-      expect(existsSync(join(dest, 'extra.md'))).toBe(true)
-      expect(readFileSync(join(dest, 'core_instructions.md'), 'utf-8')).toBe(
-        '# AI Kit Instructions'
-      )
-    })
-
-    it('returns file count', () => {
-      const { paths } = createDeployContext(ctx)
-
-      const count = deployInstructions(paths)
-
-      expect(count).toBe(2) // core_instructions.md + extra.md
-    })
-
-    it('overwrites existing files on re-deploy', () => {
-      const { paths } = createDeployContext(ctx)
-
-      deployInstructions(paths)
-
-      // Modify source
-      writeFileSync(
-        join(paths.resourcesPath, 'ai-instructions', 'core_instructions.md'),
-        '# Updated'
-      )
-
-      deployInstructions(paths)
-
-      const content = readFileSync(
-        join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'),
-        'utf-8'
-      )
-      expect(content).toBe('# Updated')
-    })
-
-    it('throws when source not found', () => {
-      const paths: DeployPaths = {
-        resourcesPath: join(ctx.tmpDir, 'nonexistent'),
-        duetDataPath: ctx.duetDataDir,
-        appVersion: '1.0.0'
-      }
-
-      expect(() => deployInstructions(paths)).toThrow('AI instructions source not found')
-    })
-
-    it('excludes dev artifacts (node_modules, .git)', () => {
-      const { paths, resourcesPath } = createDeployContext(ctx)
-      const aiSrc = join(resourcesPath, 'ai-instructions')
-
-      // Create dev artifacts in source
-      mkdirSync(join(aiSrc, 'node_modules', 'dep'), { recursive: true })
-      writeFileSync(join(aiSrc, 'node_modules', 'dep', 'index.js'), '')
-      mkdirSync(join(aiSrc, '.git'), { recursive: true })
-      writeFileSync(join(aiSrc, '.git', 'HEAD'), '')
-
-      deployInstructions(paths)
-
-      const dest = join(ctx.duetDataDir, 'ai-instructions')
-      // Production files are copied
-      expect(existsSync(join(dest, 'core_instructions.md'))).toBe(true)
-      // Dev artifacts are excluded
-      expect(existsSync(join(dest, 'node_modules'))).toBe(false)
-      expect(existsSync(join(dest, '.git'))).toBe(false)
-    })
-
-    it('uses instructionsSourcePath override when provided', () => {
-      const devInstructions = join(ctx.tmpDir, 'dev-instructions')
-      mkdirSync(devInstructions, { recursive: true })
-      writeFileSync(join(devInstructions, 'dev_file.md'), '# Dev Instructions')
-
-      const paths: DeployPaths = {
-        resourcesPath: join(ctx.tmpDir, 'nonexistent'), // would fail without override
-        duetDataPath: ctx.duetDataDir,
-        appVersion: '1.0.0',
-        instructionsSourcePath: devInstructions
-      }
-
-      deployInstructions(paths)
-
-      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'))).toBe(true)
-      expect(readFileSync(join(ctx.duetDataDir, 'ai-instructions', 'dev_file.md'), 'utf-8')).toBe(
-        '# Dev Instructions'
-      )
-    })
-  })
-
-  // ===========================================================================
   // deployBackend
   // ===========================================================================
 
@@ -751,11 +653,6 @@ describe('core/deploy', () => {
       mockPythonFound()
 
       await runDeploy(paths, TEST_PORT, 'python3', log, noSleep)
-
-      // AI instructions deployed
-      expect(existsSync(join(ctx.duetDataDir, 'ai-instructions', 'core_instructions.md'))).toBe(
-        true
-      )
 
       // Backend deployed
       expect(existsSync(join(ctx.duetDataDir, 'backend', 'main.py'))).toBe(true)
