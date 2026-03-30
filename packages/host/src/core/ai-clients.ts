@@ -20,6 +20,27 @@ import type { AgentInfo, AgentCheckedFile } from '../shared/types'
 export type { AgentStatus, AgentCheckedFile, AgentInfo } from '../shared/types'
 
 // =============================================================================
+// BOOTSTRAPPER CONTENT
+// =============================================================================
+
+/**
+ * Получает скомпонованный bootstrapper от backend (GET /bootstrapper).
+ * Возвращает null если backend недоступен или merge невозможен.
+ */
+async function fetchBootstrapperContent(port: number): Promise<string | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/bootstrapper`, {
+      signal: AbortSignal.timeout(5000)
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { content?: string }
+    return data.content || null
+  } catch {
+    return null
+  }
+}
+
+// =============================================================================
 // CLAUDE CODE
 // =============================================================================
 
@@ -37,7 +58,11 @@ keep-coding-instructions: true
  * - output-style: ~/.claude/output-styles/duet.md (инструкции как system prompt)
  * - MCP: ~/.claude.json → mcpServers.duet (HTTP MCP: http://127.0.0.1:<port>/mcp)
  */
-export const configureClaudeCode = (duetDataPath: string, port: number): AgentInfo => {
+export const configureClaudeCode = (
+  mergedContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo => {
   const claudeDir = join(homedir(), '.claude')
   const claudeJson = join(homedir(), '.claude.json')
 
@@ -53,11 +78,9 @@ export const configureClaudeCode = (duetDataPath: string, port: number): AgentIn
   }
 
   try {
-    // 1. Output style
+    // 1. Output style directory
     const stylesDir = join(claudeDir, 'output-styles')
     mkdirSync(stylesDir, { recursive: true })
-
-    const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
     const styleDest = join(stylesDir, 'duet.md')
 
     // 2. MCP server config in ~/.claude.json
@@ -66,18 +89,17 @@ export const configureClaudeCode = (duetDataPath: string, port: number): AgentIn
     // 3. outputStyle in ~/.claude/settings.json
     configureClaudeSettings(claudeDir)
 
-    // 4. Output style (requires deployed ai-instructions)
-    if (!existsSync(instructionsSource)) {
+    // 4. Output style (requires merged bootstrapper content from backend)
+    if (!mergedContent) {
       return {
         id: 'claude-code',
         name: 'Claude Code',
         status: 'needs_setup',
-        details: 'MCP настроен. Output style не записан: ai-instructions не задеплоены'
+        details: 'MCP настроен. Output style не записан: backend недоступен'
       }
     }
 
-    const content = readFileSync(instructionsSource, 'utf-8')
-    writeFileSync(styleDest, CLAUDE_OUTPUT_STYLE_FRONTMATTER + content, 'utf-8')
+    writeFileSync(styleDest, CLAUDE_OUTPUT_STYLE_FRONTMATTER + mergedContent, 'utf-8')
 
     const version = readDeployedVersion(duetDataPath)
     return {
@@ -138,7 +160,11 @@ function configureClaudeJsonMcp(claudeJsonPath: string, port: number): void {
  * - Instructions: ~/.codex/config.toml → model_instructions_file
  * - MCP: ~/.codex/config.toml → [mcp_servers.duet] url (HTTP MCP)
  */
-export const configureCodex = (duetDataPath: string, port: number): AgentInfo => {
+export const configureCodex = (
+  mergedContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo => {
   const codexDir = getCodexDir()
 
   // Detect
@@ -153,8 +179,7 @@ export const configureCodex = (duetDataPath: string, port: number): AgentInfo =>
 
   try {
     const configPath = join(codexDir, 'config.toml')
-    const instructionsPath = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
-    const hasInstructions = existsSync(instructionsPath)
+    const instructionsPath = join(codexDir, 'duet_instructions.md')
 
     // Parse existing config or start fresh
     const raw = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : ''
@@ -174,19 +199,20 @@ export const configureCodex = (duetDataPath: string, port: number): AgentInfo =>
       if (Object.keys(config.mcp as object).length === 0) delete config.mcp
     }
 
-    // 2. Instructions (requires deployed ai-instructions)
-    if (hasInstructions) {
+    // 2. Instructions (requires merged bootstrapper content from backend)
+    if (mergedContent) {
+      writeFileSync(instructionsPath, mergedContent, 'utf-8')
       config.model_instructions_file = instructionsPath
     }
 
     writeFileSync(configPath, stringifyToml(config) + '\n', 'utf-8')
 
-    if (!hasInstructions) {
+    if (!mergedContent) {
       return {
         id: 'codex',
         name: 'Codex',
         status: 'needs_setup',
-        details: 'MCP настроен. Instructions не записаны: ai-instructions не задеплоены'
+        details: 'MCP настроен. Instructions не записаны: backend недоступен'
       }
     }
 
@@ -216,11 +242,15 @@ export const configureCodex = (duetDataPath: string, port: number): AgentInfo =>
  * Обнаружить все AI клиенты (без конфигурации).
  * Проверяет реальные файлы конфигурации, а не только директории.
  */
-export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] => {
-  return [detectClaudeCode(duetDataPath, port), detectCodex(duetDataPath, port)]
+export const detectAgents = async (duetDataPath: string, port: number): Promise<AgentInfo[]> => {
+  const mergedContent = await fetchBootstrapperContent(port)
+  return [
+    detectClaudeCode(mergedContent, duetDataPath, port),
+    detectCodex(mergedContent, duetDataPath, port)
+  ]
 }
 
-function detectClaudeCode(duetDataPath: string, port: number): AgentInfo {
+function detectClaudeCode(mergedContent: string | null, duetDataPath: string, port: number): AgentInfo {
   const claudeDir = join(homedir(), '.claude')
   if (!existsSync(claudeDir)) {
     return { id: 'claude-code', name: 'Claude Code', status: 'not_found', details: 'Не установлен' }
@@ -229,16 +259,15 @@ function detectClaudeCode(duetDataPath: string, port: number): AgentInfo {
   const stylePath = join(claudeDir, 'output-styles', 'duet.md')
   const settingsPath = join(claudeDir, 'settings.json')
   const claudeJsonPath = join(homedir(), '.claude.json')
-  const instructionsSource = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
 
   const hasOutputStyle = existsSync(stylePath)
   const hasMcp = claudeJsonHasDuetMcp(claudeJsonPath, port)
   const hasOutputStyleSetting = claudeSettingsHasOutputStyle(settingsPath)
 
-  // Check content freshness (only when both files exist)
+  // Check content freshness (only when merged content available)
   let contentFresh = false
-  if (hasOutputStyle && existsSync(instructionsSource)) {
-    const expected = CLAUDE_OUTPUT_STYLE_FRONTMATTER + readFileSync(instructionsSource, 'utf-8')
+  if (hasOutputStyle && mergedContent) {
+    const expected = CLAUDE_OUTPUT_STYLE_FRONTMATTER + mergedContent
     const actual = readFileSync(stylePath, 'utf-8')
     contentFresh = actual === expected
   }
@@ -285,14 +314,14 @@ function detectClaudeCode(duetDataPath: string, port: number): AgentInfo {
   }
 }
 
-function detectCodex(duetDataPath: string, port: number): AgentInfo {
+function detectCodex(mergedContent: string | null, duetDataPath: string, port: number): AgentInfo {
   const codexDir = getCodexDir()
   if (!existsSync(codexDir)) {
     return { id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' }
   }
 
   const configPath = join(codexDir, 'config.toml')
-  const instructionsPath = join(duetDataPath, 'ai-instructions', 'core_instructions.md')
+  const instructionsPath = join(codexDir, 'duet_instructions.md')
 
   if (!existsSync(configPath)) {
     return {
@@ -311,17 +340,23 @@ function detectCodex(duetDataPath: string, port: number): AgentInfo {
     const hasMcp = !!(duetMcp && duetMcp.url === `http://127.0.0.1:${port}/mcp`)
     const hasInstructions =
       typeof config.model_instructions_file === 'string' &&
-      config.model_instructions_file.includes(duetDataPath)
+      config.model_instructions_file === instructionsPath
 
-    // Codex reads instructions directly from DuetData — check file exists
     const instructionsExist = existsSync(instructionsPath)
+
+    // Check content freshness
+    let contentFresh = false
+    if (instructionsExist && mergedContent) {
+      const actual = readFileSync(instructionsPath, 'utf-8')
+      contentFresh = actual === mergedContent
+    }
 
     const checkedFiles: AgentCheckedFile[] = [
       { path: configPath, ok: hasMcp && hasInstructions },
-      { path: instructionsPath, ok: instructionsExist }
+      { path: instructionsPath, ok: instructionsExist && contentFresh }
     ]
 
-    if (hasMcp && hasInstructions) {
+    if (hasMcp && hasInstructions && contentFresh) {
       const version = readDeployedVersion(duetDataPath)
       return {
         id: 'codex',
@@ -335,7 +370,7 @@ function detectCodex(duetDataPath: string, port: number): AgentInfo {
 
     const parts: string[] = []
     if (hasMcp) parts.push('MCP настроен')
-    if (hasInstructions) parts.push('Instructions настроены')
+    if (hasInstructions && contentFresh) parts.push('Instructions настроены')
     const detail = parts.length > 0 ? parts.join(', ') : '~/.codex найдена'
 
     return { id: 'codex', name: 'Codex', status: 'needs_setup', details: detail, checkedFiles }
@@ -394,8 +429,15 @@ function claudeJsonHasDuetMcp(claudeJsonPath: string, port: number): boolean {
 /**
  * Конфигурировать все найденные AI клиенты.
  */
-export const configureAllAgents = (duetDataPath: string, port: number): AgentInfo[] => {
-  return [configureClaudeCode(duetDataPath, port), configureCodex(duetDataPath, port)]
+export const configureAllAgents = async (
+  duetDataPath: string,
+  port: number
+): Promise<AgentInfo[]> => {
+  const mergedContent = await fetchBootstrapperContent(port)
+  return [
+    configureClaudeCode(mergedContent, duetDataPath, port),
+    configureCodex(mergedContent, duetDataPath, port)
+  ]
 }
 
 // =============================================================================

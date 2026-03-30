@@ -79,6 +79,7 @@ server.py (entry point, lifecycle)
 | GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
 | GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms }` |
+| GET | `/bootstrapper` | Returns `{ content: "..." }` — merged bootstrapper + user core_instructions |
 
 #### `/scan` Behavior
 
@@ -147,6 +148,21 @@ MCP tool: `workspace_info(workspace_paths: list[str])` — accepts all workspace
 **Path conventions:** `key_files` contains absolute paths (for direct agent use). `components[].path` and `components[].spec` are relative to `main_folder` (compact, resolved by consumer).
 
 **REST exception:** `/workspace-info` returns result directly (not wrapped in `{ workspace_info: {...} }`), because the response is already a structured object with extensible top-level keys (`status`, `duet_paths`, etc.).
+
+### `/bootstrapper` — Merged Instructions
+
+`GET /bootstrapper` — returns merged platform bootstrapper + user core_instructions for AI client configuration.
+
+**Composition:** `merge_bootstrapper(bootstrapper_path, instructions_path)` in `instructions.py`:
+1. Reads `bootstrapper.md` (bundled with backend)
+2. Finds marker `<!-- INSERT USER CORE INSTRUCTIONS -->`
+3. Reads `core_instructions` path from `index.json` in instructions workspace
+4. Extracts user content (everything from first H2 onwards, H1 stripped)
+5. Replaces marker with user content → returns merged string
+
+**Consumer:** Host (`core/ai-clients.ts`) fetches merged content and writes to AI client config files.
+
+**Errors:** Returns 500 with `{ error, code: "BOOTSTRAPPER_MERGE_FAILED" }` if instructions workspace not configured, `core_instructions.md` missing, or marker not found.
 
 ## Description Extraction (`description.py`)
 

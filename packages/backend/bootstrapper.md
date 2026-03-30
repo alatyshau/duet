@@ -1,18 +1,10 @@
-# Strictly follow these rules without excuses
+# Core Instructions for AI Agents
 
 ## Orientation
 
 **Chat language:** RU
 
-**At session start:** call `workspace_info(workspace_paths=[<all working directories>])` MCP tool. Pass all available working directories (primary first). Returns:
-- `duet_paths` — machineConfig, duetDataPath
-- `instructions` — basePath, personas[], skills[] (dynamic catalog from YAML frontmatter)
-- `context` — breadcrumb + chain (type, name, description)
-- `workspace_paths` — workspace_type, main_folder, projects_folder
-- `key_files` — spec, readme (absolute paths to read first)
-- `components` — product packages with spec path and description
-
-After the call, read files from `key_files` (spec, readme) to orient in the codebase.
+**At session start:** call `workspace_info(workspace_paths=[<all working directories>])` MCP tool — pass all available working directories. This is the only way to learn the user's project context, file locations, and available instructions. After the call, read files from `key_files` (spec, readme) to orient in the codebase.
 
 **Three roots:** All local paths are relative to three roots from `workspace_info`:
 
@@ -24,7 +16,15 @@ After the call, read files from `key_files` (spec, readme) to orient in the code
 
 **Instructions root:** Use `instructions.basePath` from `workspace_info` response. Paths in `instructions.personas[]` and `instructions.skills[]` are relative to it.
 
-**User instructions:** After orientation, the `instructions` block in `workspace_info` response contains the full catalog of available personas and skills. Load specific files via Read when needed (paths are relative to `instructions.basePath`).
+## User instructions
+
+After orientation, the `instructions` block in `workspace_info` response contains the full catalog of available personas and skills. Paths are relative to `instructions.basePath`. Load specific files via Read.
+
+**Skill activation rules:**
+- `shortcuts` — explicit user invocation → always load
+- `trigger` — describes WHEN to auto-load this skill. If the current task matches → load the skill via Read without asking
+- `noTrigger` — describes WHEN NOT to load (disambiguation with similar skills)
+- `description` — general purpose summary. If no `trigger` field, use description to decide
 
 ## Glossary
 

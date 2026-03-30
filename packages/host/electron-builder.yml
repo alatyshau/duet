@@ -42,17 +42,13 @@ extraResources:
     to: resources/
     filter:
       - "**/*"
-  # AI instructions — deployed to DuetData/ai-instructions/ at runtime
-  - from: ../../packages/ai-instructions/src/
-    to: ai-instructions/
-    filter:
-      - "**/*"
   # Backend — deployed to DuetData/backend/ at runtime (atomic swap)
   - from: ../../packages/backend/
     to: backend/
     filter:
       - "**/*.py"
       - "**/requirements.txt"
+      - "bootstrapper.md"
       - "!**/tests/**"
       - "!**/__pycache__/**"
       - "!**/.pytest_cache/**"

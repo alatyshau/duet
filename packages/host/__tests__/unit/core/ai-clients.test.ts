@@ -30,17 +30,15 @@ import {
 const TEST_PORT = 19680
 const MCP_URL = `http://127.0.0.1:${TEST_PORT}/mcp`
 
-// =============================================================================
-// HELPERS
-// =============================================================================
+// Merged bootstrapper content returned by mocked fetch
+const TEST_INSTRUCTIONS = '# Test Instructions'
 
-function setupDuetData(ctx: TestContext): string {
-  // Create ai-instructions with test content
-  const instructionsDir = join(ctx.duetDataDir, 'ai-instructions')
-  mkdirSync(instructionsDir, { recursive: true })
-  writeFileSync(join(instructionsDir, 'core_instructions.md'), '# Test Instructions')
-  return ctx.duetDataDir
-}
+// Mock fetch for bootstrapper endpoint (GET /bootstrapper)
+const mockFetch = vi.fn().mockResolvedValue({
+  ok: true,
+  json: () => Promise.resolve({ content: TEST_INSTRUCTIONS })
+})
+vi.stubGlobal('fetch', mockFetch)
 
 // =============================================================================
 // TESTS
@@ -69,54 +67,48 @@ describe('core/ai-clients', () => {
   // ===========================================================================
 
   describe('detectAgents', () => {
-    it('returns not_found when no agents installed', () => {
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+    it('returns not_found when no agents installed', async () => {
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents).toHaveLength(2)
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'not_found' })
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'not_found' })
     })
 
-    it('returns needs_setup when ~/.claude exists but not configured', () => {
+    it('returns needs_setup when ~/.claude exists but not configured', async () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
 
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
     })
 
-    it('returns needs_setup when ~/.codex exists but not configured', () => {
+    it('returns needs_setup when ~/.codex exists but not configured', async () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
 
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
     })
 
-    it('respects CODEX_HOME env variable', () => {
+    it('respects CODEX_HOME env variable', async () => {
       const customCodexDir = join(ctx.tmpDir, 'custom-codex')
       mkdirSync(customCodexDir, { recursive: true })
       process.env.CODEX_HOME = customCodexDir
 
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
     })
 
-    it('returns configured for Claude Code when output-style + settings + MCP exist and content matches', () => {
-      const duetDataPath = setupDuetData(ctx)
-
-      // Write output-style with correct content (frontmatter + source)
-      const sourceContent = readFileSync(
-        join(duetDataPath, 'ai-instructions', 'core_instructions.md'),
-        'utf-8'
-      )
+    it('returns configured for Claude Code when output-style + settings + MCP exist and content matches', async () => {
+      // Write output-style with correct content (frontmatter + merged content from mock)
       const frontmatter =
         '---\nname: Duet\ndescription: Core instructions for AI agents working in Duet ecosystem\nkeep-coding-instructions: true\n---\n\n'
       mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
       writeFileSync(
         join(homeDir, '.claude', 'output-styles', 'duet.md'),
-        frontmatter + sourceContent
+        frontmatter + TEST_INSTRUCTIONS
       )
       writeFileSync(
         join(homeDir, '.claude', 'settings.json'),
@@ -131,16 +123,14 @@ describe('core/ai-clients', () => {
         })
       )
 
-      const agents = detectAgents(duetDataPath, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'configured' })
       expect(agents[0].checkedFiles).toBeDefined()
       expect(agents[0].checkedFiles!.every((f) => f.ok)).toBe(true)
     })
 
-    it('returns needs_setup for Claude Code when output-style content is stale', () => {
-      const duetDataPath = setupDuetData(ctx)
-
+    it('returns needs_setup for Claude Code when output-style content is stale', async () => {
       mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
       writeFileSync(join(homeDir, '.claude', 'output-styles', 'duet.md'), '# Old content')
       writeFileSync(
@@ -156,13 +146,13 @@ describe('core/ai-clients', () => {
         })
       )
 
-      const agents = detectAgents(duetDataPath, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
       expect(agents[0].details).toContain('устарели')
     })
 
-    it('returns needs_setup for Claude Code when only MCP exists', () => {
+    it('returns needs_setup for Claude Code when only MCP exists', async () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       writeFileSync(
         join(homeDir, '.claude.json'),
@@ -173,35 +163,34 @@ describe('core/ai-clients', () => {
         })
       )
 
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
       expect(agents[0].details).toContain('MCP настроен')
     })
 
-    it('returns configured for Codex when config.toml has MCP + instructions', () => {
+    it('returns configured for Codex when config.toml has MCP + instructions and content matches', async () => {
       const codexDir = join(homeDir, '.codex')
+      const instructionsPath = join(codexDir, 'duet_instructions.md')
       mkdirSync(codexDir, { recursive: true })
+      // Write instructions file with matching content
+      writeFileSync(instructionsPath, TEST_INSTRUCTIONS)
       writeFileSync(
         join(codexDir, 'config.toml'),
         stringifyToml({
-          model_instructions_file: join(
-            ctx.duetDataDir,
-            'ai-instructions',
-            'core_instructions.md'
-          ),
+          model_instructions_file: instructionsPath,
           mcp_servers: {
             duet: { url: MCP_URL }
           }
         }) + '\n'
       )
 
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'configured' })
     })
 
-    it('returns needs_setup for Codex when only MCP configured', () => {
+    it('returns needs_setup for Codex when only MCP configured', async () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
       writeFileSync(
@@ -213,24 +202,23 @@ describe('core/ai-clients', () => {
         }) + '\n'
       )
 
-      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
       expect(agents[1].details).toContain('MCP настроен')
     })
 
-    it('detect after configure returns configured (round-trip)', () => {
+    it('detect after configure returns configured (round-trip)', async () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
       // Configure
-      const configResult = configureAllAgents(duetDataPath, TEST_PORT)
+      const configResult = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
       expect(configResult[0].status).toBe('configured')
       expect(configResult[1].status).toBe('configured')
 
       // Detect should also return configured
-      const detectResult = detectAgents(duetDataPath, TEST_PORT)
+      const detectResult = await detectAgents(ctx.duetDataDir, TEST_PORT)
       expect(detectResult[0]).toMatchObject({ id: 'claude-code', status: 'configured' })
       expect(detectResult[1]).toMatchObject({ id: 'codex', status: 'configured' })
     })
@@ -242,19 +230,19 @@ describe('core/ai-clients', () => {
 
   describe('configureClaudeCode', () => {
     it('returns not_found when ~/.claude does not exist', () => {
-      const result = configureClaudeCode(ctx.duetDataDir, TEST_PORT)
+      const result = configureClaudeCode(null, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('not_found')
       expect(result.id).toBe('claude-code')
     })
 
-    it('returns found when ai-instructions not deployed', () => {
+    it('returns needs_setup when mergedContent is null', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
 
-      const result = configureClaudeCode(ctx.duetDataDir, TEST_PORT)
+      const result = configureClaudeCode(null, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('needs_setup')
-      expect(result.details).toContain('ai-instructions не задеплоены')
+      expect(result.details).toContain('backend недоступен')
 
       // MCP should still be written
       const claudeJsonPath = join(homeDir, '.claude.json')
@@ -265,9 +253,8 @@ describe('core/ai-clients', () => {
 
     it('configures output style and MCP when ~/.claude exists', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      const result = configureClaudeCode(duetDataPath, TEST_PORT)
+      const result = configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('configured')
 
@@ -282,9 +269,8 @@ describe('core/ai-clients', () => {
 
     it('writes outputStyle to ~/.claude/settings.json', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      configureClaudeCode(duetDataPath, TEST_PORT)
+      configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const settingsPath = join(homeDir, '.claude', 'settings.json')
       expect(existsSync(settingsPath)).toBe(true)
@@ -298,9 +284,8 @@ describe('core/ai-clients', () => {
         join(homeDir, '.claude', 'settings.json'),
         JSON.stringify({ permissions: { allow: ['Edit'] } })
       )
-      const duetDataPath = setupDuetData(ctx)
 
-      configureClaudeCode(duetDataPath, TEST_PORT)
+      configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const config = JSON.parse(readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf-8'))
       expect(config.outputStyle).toBe('Duet')
@@ -309,9 +294,8 @@ describe('core/ai-clients', () => {
 
     it('writes HTTP MCP config to ~/.claude.json', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      configureClaudeCode(duetDataPath, TEST_PORT)
+      configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const claudeJsonPath = join(homeDir, '.claude.json')
       expect(existsSync(claudeJsonPath)).toBe(true)
@@ -332,9 +316,8 @@ describe('core/ai-clients', () => {
           mcpServers: { 'ai-kit': { command: 'python', args: ['server.py'] } }
         })
       )
-      const duetDataPath = setupDuetData(ctx)
 
-      configureClaudeCode(duetDataPath, TEST_PORT)
+      configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'))
       // Legacy entries are preserved (user may remove manually)
@@ -352,9 +335,8 @@ describe('core/ai-clients', () => {
           mcpServers: { other: { command: 'other-cmd' } }
         })
       )
-      const duetDataPath = setupDuetData(ctx)
 
-      configureClaudeCode(duetDataPath, TEST_PORT)
+      configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'))
       expect(config.existingKey).toBe('keep-me')
@@ -365,9 +347,8 @@ describe('core/ai-clients', () => {
     it('handles invalid JSON in ~/.claude.json gracefully', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       writeFileSync(join(homeDir, '.claude.json'), 'not json {{{')
-      const duetDataPath = setupDuetData(ctx)
 
-      const result = configureClaudeCode(duetDataPath, TEST_PORT)
+      const result = configureClaudeCode(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('configured')
       // Should have overwritten with valid JSON
@@ -382,19 +363,19 @@ describe('core/ai-clients', () => {
 
   describe('configureCodex', () => {
     it('returns not_found when ~/.codex does not exist', () => {
-      const result = configureCodex(ctx.duetDataDir, TEST_PORT)
+      const result = configureCodex(null, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('not_found')
       expect(result.id).toBe('codex')
     })
 
-    it('returns found when ai-instructions not deployed', () => {
+    it('returns needs_setup when mergedContent is null', () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
 
-      const result = configureCodex(ctx.duetDataDir, TEST_PORT)
+      const result = configureCodex(null, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('needs_setup')
-      expect(result.details).toContain('ai-instructions не задеплоены')
+      expect(result.details).toContain('backend недоступен')
 
       // MCP should still be written in config.toml
       const configPath = join(homeDir, '.codex', 'config.toml')
@@ -404,11 +385,10 @@ describe('core/ai-clients', () => {
       expect(content).not.toContain('model_instructions_file')
     })
 
-    it('configures config.toml when ~/.codex exists', () => {
+    it('configures config.toml and writes instructions when ~/.codex exists', () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      const result = configureCodex(duetDataPath, TEST_PORT)
+      const result = configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('configured')
 
@@ -417,14 +397,18 @@ describe('core/ai-clients', () => {
 
       const content = readFileSync(configPath, 'utf-8')
       expect(content).toContain('model_instructions_file')
-      expect(content).toContain('core_instructions.md')
+      expect(content).toContain('duet_instructions.md')
+
+      // Instructions file written
+      const instructionsPath = join(homeDir, '.codex', 'duet_instructions.md')
+      expect(existsSync(instructionsPath)).toBe(true)
+      expect(readFileSync(instructionsPath, 'utf-8')).toBe(TEST_INSTRUCTIONS)
     })
 
     it('adds HTTP MCP section to config.toml', () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(homeDir, '.codex', 'config.toml'), 'utf-8')
       expect(content).toContain('[mcp_servers.duet]')
@@ -435,9 +419,8 @@ describe('core/ai-clients', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
       writeFileSync(join(codexDir, 'config.toml'), 'model = "o3"\n')
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       expect(content).toContain('model = "o3"')
@@ -449,15 +432,14 @@ describe('core/ai-clients', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
       writeFileSync(join(codexDir, 'config.toml'), 'model_instructions_file = "/old/path"\n')
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       // Should not contain old path
       expect(content).not.toContain('/old/path')
       // Should contain new path
-      expect(content).toContain('core_instructions.md')
+      expect(content).toContain('duet_instructions.md')
     })
 
     it('updates existing [mcp_servers.duet] section', () => {
@@ -467,9 +449,8 @@ describe('core/ai-clients', () => {
         join(codexDir, 'config.toml'),
         '[mcp_servers.duet]\ncommand = "old-command"\nargs = ["old"]\n'
       )
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       expect(content).not.toContain('old-command')
@@ -483,9 +464,8 @@ describe('core/ai-clients', () => {
         join(codexDir, 'config.toml'),
         'model = "o3"\n\n[mcp.duet]\ncommand = "old-command"\nargs = ["old"]\n'
       )
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       // Legacy section removed
@@ -501,9 +481,8 @@ describe('core/ai-clients', () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
       writeFileSync(join(codexDir, 'config.toml'), '[mcp_servers.other]\ncommand = "other-cmd"\n')
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       // Both sections present
@@ -521,9 +500,8 @@ describe('core/ai-clients', () => {
         join(codexDir, 'config.toml'),
         '[mcp_servers.duet]\ncommand = "old"\nargs = ["old-server.js", "--data-dir", "/old/path"]\n\n[mcp_servers.other]\ncommand = "keep-me"\n'
       )
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       expect(content).not.toContain('old-server.js')
@@ -536,9 +514,8 @@ describe('core/ai-clients', () => {
     it('produces valid TOML parseable by smol-toml', async () => {
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      configureCodex(duetDataPath, TEST_PORT)
+      configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       const content = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       // Must parse without errors
@@ -546,16 +523,15 @@ describe('core/ai-clients', () => {
       const parsed = parse(content)
       expect(parsed.mcp_servers).toBeDefined()
       expect(parsed.mcp_servers.duet.url).toBe(MCP_URL)
-      expect(parsed.model_instructions_file).toContain('core_instructions.md')
+      expect(parsed.model_instructions_file).toContain('duet_instructions.md')
     })
 
     it('respects CODEX_HOME env variable', () => {
       const customCodexDir = join(ctx.tmpDir, 'custom-codex')
       mkdirSync(customCodexDir, { recursive: true })
       process.env.CODEX_HOME = customCodexDir
-      const duetDataPath = setupDuetData(ctx)
 
-      const result = configureCodex(duetDataPath, TEST_PORT)
+      const result = configureCodex(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('configured')
       expect(existsSync(join(customCodexDir, 'config.toml'))).toBe(true)
@@ -567,22 +543,19 @@ describe('core/ai-clients', () => {
   // ===========================================================================
 
   describe('configureAllAgents', () => {
-    it('returns results for all agents', () => {
-      const duetDataPath = setupDuetData(ctx)
-
-      const results = configureAllAgents(duetDataPath, TEST_PORT)
+    it('returns results for all agents', async () => {
+      const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(results).toHaveLength(2)
       expect(results[0].id).toBe('claude-code')
       expect(results[1].id).toBe('codex')
     })
 
-    it('configures all found agents', () => {
+    it('configures all found agents', async () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
-      const duetDataPath = setupDuetData(ctx)
 
-      const results = configureAllAgents(duetDataPath, TEST_PORT)
+      const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(results[0].status).toBe('configured')
       expect(results[1].status).toBe('configured')

@@ -307,18 +307,18 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
   // === AI Agents ===
 
-  ipcMain.handle('agents:detect', () => {
+  ipcMain.handle('agents:detect', async () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    return detectAgents(state.duetDataPath, port)
+    return await detectAgents(state.duetDataPath, port)
   })
 
-  ipcMain.handle('agents:configure', () => {
+  ipcMain.handle('agents:configure', async () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    return configureAllAgents(state.duetDataPath, port)
+    return await configureAllAgents(state.duetDataPath, port)
   })
 }
 

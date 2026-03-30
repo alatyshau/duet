@@ -29,13 +29,16 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 from config import (
+    ConfigError,
     get_business_folders,
     get_db_path,
+    get_instructions_path,
     get_log_path,
     get_port,
     get_timezone,
     get_version,
 )
+from instructions import merge_bootstrapper
 from db import DatabaseManager
 from mcp_handler import (
     get_duet_data_path_str,
@@ -205,6 +208,20 @@ async def add_business_handler(request: Request) -> JSONResponse:
         )
 
 
+async def bootstrapper_handler(request: Request) -> JSONResponse:
+    """GET /bootstrapper - Merged bootstrapper + user core instructions."""
+    bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
+    try:
+        instructions_path = get_instructions_path()
+        content = merge_bootstrapper(bootstrapper_path, instructions_path)
+        return JSONResponse({"content": content})
+    except (ConfigError, FileNotFoundError, ValueError) as e:
+        return JSONResponse(
+            {"error": str(e), "code": "BOOTSTRAPPER_MERGE_FAILED"},
+            status_code=500,
+        )
+
+
 # === Application Setup ===
 
 
@@ -264,6 +281,7 @@ def create_app() -> Starlette:
         Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/add-business", add_business_handler, methods=["POST"]),
+        Route("/bootstrapper", bootstrapper_handler, methods=["GET"]),
         # Mount MCP at /mcp (streamable HTTP transport)
         Mount("/mcp", app=mcp_app),
     ]

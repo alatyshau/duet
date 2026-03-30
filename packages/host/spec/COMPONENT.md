@@ -89,20 +89,21 @@ Implementation: `core/app-state.ts:checkAppState()`
 
 ## Deploy Service
 
-Deploys AI instructions and backend from bundled resources to DuetData.
+Deploys backend from bundled resources to DuetData.
 
 | Component | Source (extraResources) | Target | Method |
 |-----------|------------------------|--------|--------|
-| AI instructions | `ai-instructions/` | `DuetData/ai-instructions/` | Recursive copy (filtered) |
 | Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered) (.new -> rename -> .old -> delete) |
 
-**Deploy filter:** Both copy operations exclude dev artifact directories: `.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`. This prevents copying dev environment into DuetData when deploying from source (`devBackendPath`).
+AI instructions are user-owned (separate git repo, configured via `instructionsPath` in machine.json). Host does not deploy them.
 
-**Deploy channel:** When `deployChannel === 'dev'` in `{machine}.json`, deploy uses `devInstructionsPath` and `devBackendPath` from machine config instead of bundled resources. Toggle via IPC `config:set-deploy-channel`.
+**Deploy filter:** Copy operations exclude dev artifact directories: `.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`. This prevents copying dev environment into DuetData when deploying from source (`devBackendPath`).
+
+**Deploy channel:** When `deployChannel === 'dev'` in `{machine}.json`, deploy uses `devBackendPath` from machine config instead of bundled resources. Toggle via IPC `config:set-deploy-channel`.
 
 **Version comparison:** Uses `compareSemver(appVersion, deployed)` — deploy only when app version is newer (not on downgrade or same version).
 
-**Flow:** VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop + kill by PID) -> deploy instructions -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
+**Flow:** VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop + kill by PID) -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
 
 **VERSION file:** `DuetData/backend/VERSION` contains `app.getVersion()`. Newer app version triggers deploy. VERSION is NOT written if any step fails (Python not found, pip failed, etc.).
 
@@ -142,15 +143,19 @@ Implementation: `core/backend.ts`
 
 ## AI Clients
 
-Detects and configures AI clients via direct file writes (no CLI).
+Detects and configures AI clients via direct file writes (no CLI). Instructions are fetched from backend (`GET /bootstrapper`) as merged content (platform bootstrapper + user core_instructions).
 
-| Client | Config file | What |
+| Client | Config files | What |
 |--------|-------------|------|
-| Claude Code | `~/.claude/output-styles/ai-kit.md` | Output style (instructions as system prompt) |
-| Claude Code | `~/.claude.json` | MCP server (mcpServers.duet) |
-| Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp.duet]` |
+| Claude Code | `~/.claude/output-styles/duet.md` | Merged instructions as output style (system prompt) |
+| Claude Code | `~/.claude/settings.json` | `outputStyle: "Duet"` |
+| Claude Code | `~/.claude.json` | MCP server (mcpServers.duet, HTTP) |
+| Codex | `~/.codex/duet_instructions.md` | Merged instructions file |
+| Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp_servers.duet]` |
 
-**Pattern:** detect (config dir exists?) -> configure (write files) -> show result. Not found = info, not error.
+**Pattern:** fetch merged content from backend -> detect (config dir exists?) -> configure (write files) -> show result. Not found = info, not error. Backend unavailable = MCP configured, instructions skipped (needs_setup).
+
+**Content freshness:** detect checks if installed content matches current merged content from backend. Stale content -> needs_setup.
 
 Implementation: `core/ai-clients.ts`
 
