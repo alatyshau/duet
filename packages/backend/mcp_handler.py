@@ -134,11 +134,13 @@ def workspace_info(workspace_paths: list[str] | None = None) -> dict:
 
 @mcp.tool()
 def streams() -> list[dict]:
-    """Get all streams (business, stream, product) without projects.
+    """Find any entity in the user's hierarchy: businesses, streams, and products.
 
-    Returns flat list for sidebar tree view.
+    Use this to locate a product by name, discover what exists, or navigate
+    the GPD tree. Returns all entities except projects (use `projects` tool
+    for those).
+
     Each entity has: id, type, name, icon, path, parent_id.
-    Client computes hasChildren from parent_id relations.
     """
     service = _get_entities_service()
     return service.get_streams()
@@ -146,10 +148,12 @@ def streams() -> list[dict]:
 
 @mcp.tool()
 def projects(stream_id: str) -> list[dict]:
-    """Get projects for a stream.
+    """Get projects under a specific entity (business, stream, or product).
+
+    Use this after `streams` to drill into a specific entity's projects.
 
     Args:
-        stream_id: Parent entity ID (business, stream, or product)
+        stream_id: Parent entity ID from `streams` response.
 
     Returns list of project entities with id, type, name, icon, path, parent_id.
 
@@ -171,10 +175,10 @@ def projects(stream_id: str) -> list[dict]:
 
 @mcp.tool()
 def scan() -> dict:
-    """Rescan the entity hierarchy.
+    """Rescan configured business folders and rebuild the entity hierarchy.
 
-    Scans all business folders configured in settings.json
-    and rebuilds the entities database.
+    Use when the file structure has changed (new folders, moved products)
+    and `streams`/`projects` return stale data.
 
     Returns scan statistics including entities_count.
     """

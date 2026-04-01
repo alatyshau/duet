@@ -26,6 +26,8 @@ After orientation, the `instructions` block in `workspace_info` response contain
 - `noTrigger` — describes WHEN NOT to load (disambiguation with similar skills)
 - `description` — general purpose summary. If no `trigger` field, use description to decide
 
+**`!` prefix convention:** Any word in user text starting with `!` (e.g. `!чек`, `!коммит`) is most likely a Duet skill shortcut. Treat it as an explicit invocation — look it up in the skills catalog and load the matching skill.
+
 ## Glossary
 
 **Entity Hierarchy:**
