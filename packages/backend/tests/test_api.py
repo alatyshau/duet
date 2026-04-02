@@ -186,30 +186,28 @@ class TestMcpProjectsTool:
 
 
 @pytest.mark.asyncio
-class TestWorkspaceInfoEndpoint:
-    """Tests for /workspace-info endpoint."""
+class TestOrientationEndpoint:
+    """Tests for /orientation endpoint."""
 
     async def test_returns_base_info(self, client: AsyncClient, duet_data: Path) -> None:
-        """Returns base workspace info without path."""
-        response = await client.get("/workspace-info")
+        """Returns base orientation without path."""
+        response = await client.post("/orientation", json={"workspace_paths": []})
         assert response.status_code == 200
 
         data = response.json()
-        assert data["status"] == "unknown"
-        assert data["reason"] == "no_workspace_path"
+        assert data["workspace"]["type"] == "unknown"
+        assert data["workspace"]["reason"] == "no_workspace_path"
         assert data["duet_paths"]["duetDataPath"] == str(duet_data)
 
     async def test_returns_chain(
         self, client: AsyncClient, db, duet_data_builder, monkeypatch
     ) -> None:
         """Returns entity chain for workspace path (via repos)."""
-        # Create DuetData with repos and business hierarchy
         builder = duet_data_builder
         builder.add_business("Business")
         builder.add_repo("Product", components=["extension"])
         duet_data = builder.build(monkeypatch)
 
-        # Create stream and product in business folder
         biz_path = builder.get_business_path(0)
         stream_path = biz_path / "Stream"
         stream_path.mkdir()
@@ -218,14 +216,12 @@ class TestWorkspaceInfoEndpoint:
 
         product_path = stream_path / "Product"
         product_path.mkdir()
-        ManifestBuilder.product(product_path, "Product")
+        ManifestBuilder.product(product_path, "Product", git_url="https://...")
 
-        # Scan with new config
         from scanner import Scanner
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
-        # Re-init services with scanned data
         import time
         from services.workspace import WorkspaceService
         from services.entities import EntitiesService
@@ -234,13 +230,12 @@ class TestWorkspaceInfoEndpoint:
         entities_service = EntitiesService(db)
         init_services(workspace_service, entities_service, time.time())
 
-        # Test: request workspace_info for repos path
         repo_path = str(builder.get_repo_path("Product") / "packages" / "extension")
-        response = await client.get(f"/workspace-info?workspace_paths={repo_path}")
+        response = await client.post("/orientation", json={"workspace_paths": [repo_path]})
         assert response.status_code == 200
 
         data = response.json()
-        assert data["status"] == "found"
+        assert data["workspace"]["type"] != "unknown"
         chain = data["context"]["chain"]
         assert len(chain) == 3
         assert chain[0]["name"] == "Business"

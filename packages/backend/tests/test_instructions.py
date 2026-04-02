@@ -167,15 +167,15 @@ class TestScanInstructions:
         assert result["skills"] == []
 
 
-# === Integration tests: workspace_info with instructions ===
+# === Integration tests: orientation with instructions ===
 
 
 @pytest.mark.asyncio
-class TestWorkspaceInfoInstructions:
-    """Tests for instructions block in workspace_info response."""
+class TestOrientationInstructions:
+    """Tests for instructions block in orientation response."""
 
-    async def test_workspace_info_includes_instructions(self, tmp_path, monkeypatch):
-        """workspace_info response includes instructions catalog."""
+    async def test_orientation_includes_instructions(self, tmp_path, monkeypatch):
+        """Orientation response includes instructions catalog."""
         builder = DuetDataBuilder(tmp_path)
         builder.with_instructions()
         builder.add_business("Business")
@@ -196,7 +196,7 @@ class TestWorkspaceInfoInstructions:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             repo_path = str(builder.get_repo_path("Product"))
-            response = await client.get(f"/workspace-info?workspace_paths={repo_path}")
+            response = await client.post("/orientation", json={"workspace_paths": [repo_path]})
 
         reset_services()
         db.close()
@@ -250,20 +250,16 @@ class TestMultiPathResolution:
         app = create_app()
         transport = ASGITransport(app=app)
 
-        # Send both business paths
         regular_path = str(builder.get_business_path(0))
         root_path = str(builder.get_business_path(1))
-        url = f"/workspace-info?workspace_paths={regular_path}&workspace_paths={root_path}"
-
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(url)
+            response = await client.post("/orientation", json={"workspace_paths": [regular_path, root_path]})
 
         reset_services()
         db.close()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "found"
         # Root business should win
         assert data["context"]["chain"][0]["name"] == "RootBiz"
 
@@ -275,7 +271,6 @@ class TestMultiPathResolution:
         builder.add_repo("Product")
         duet_data = builder.build(monkeypatch)
 
-        # Create product inside business
         biz_path = builder.get_business_path(0)
         product_path = biz_path / "Product"
         product_path.mkdir()
@@ -294,20 +289,16 @@ class TestMultiPathResolution:
         app = create_app()
         transport = ASGITransport(app=app)
 
-        # Send business path and product repo path
         biz_path_str = str(biz_path)
         repo_path = str(builder.get_repo_path("Product"))
-        url = f"/workspace-info?workspace_paths={repo_path}&workspace_paths={biz_path_str}"
-
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(url)
+            response = await client.post("/orientation", json={"workspace_paths": [repo_path, biz_path_str]})
 
         reset_services()
         db.close()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "found"
         # Business should win over product (higher priority)
         assert data["context"]["chain"][0]["name"] == "Business"
         assert data["context"]["chain"][0]["type"] == "business"

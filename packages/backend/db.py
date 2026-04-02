@@ -12,7 +12,7 @@ from typing import Literal
 from config import get_db_path
 
 
-EntityType = Literal["business", "stream", "product", "project"]
+EntityType = Literal["business", "stream", "product", "project", "product_repo", "reference_repo"]
 
 
 @dataclass

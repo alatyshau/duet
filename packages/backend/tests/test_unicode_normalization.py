@@ -199,10 +199,10 @@ class TestWorkspaceServiceNormalization:
 
         # Query with NFD path
         nfd_path = unicodedata.normalize("NFD", str(product_path))
-        result = service.get_workspace_info(nfd_path)
+        result = service.get_orientation(nfd_path)
 
         # Should return chain: СЕМЬЯ -> ЗОЖ -> Андрей
-        assert result["status"] == "found"
+        assert result["workspace"]["type"] != "unknown"
         chain = result["context"]["chain"]
         assert len(chain) == 3
         assert chain[0]["name"] == "СЕМЬЯ"

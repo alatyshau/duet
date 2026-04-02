@@ -239,7 +239,7 @@ Config: `electron-builder.yml`
 - appId: `org.ve68.duet`
 - macOS: DMG, no code signing, no notarize
 - Windows: NSIS installer
-- extraResources: `resources/` (tray icons), `ai-instructions/`, `backend/`
+- extraResources: `resources/` (tray icons), `backend/`
 
 CI: `build-host.yml` builds all 3 platforms on push to main (if `packages/host/` changed).
 

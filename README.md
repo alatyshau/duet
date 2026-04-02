@@ -6,7 +6,7 @@
 
 1. **Данные принадлежат человеку** — всё хранится в Google Drive в вечных форматах (MD, CSV, PY), не в проприетарной базе данных
 2. **Дуэт с ИИ** — глубокая интеграция с LLM через MCP (Model Context Protocol)
-3. **GPD-онтология** — иерархия Предприятие → Дело → Продукт для организации всей жизни
+3. **Entity Hierarchy** — иерархия Business → Stream → Product для организации всей жизни
 
 ## Проблема
 
@@ -28,7 +28,7 @@ Google Drive (твои данные)          Duet (семантика)
 └── ...
 
         ↓
-    Claude / GPT / Cursor
+    Claude Code / Codex / Antigravity
     "Какие у меня Big Rocks в ТехноЛаб?"
     → Знает ответ через MCP
 ```
@@ -58,12 +58,13 @@ Duet/
 ├── packages/
 │   ├── host/                ← Electron tray app (Menu Bar)
 │   ├── extension/           ← VS Code расширение
-│   ├── backend/             ← Python HTTP API + MCP
-│   └── ai-kit/              ← AI инструкции (modes, stances, skills, personas)
+│   └── backend/             ← Python HTTP API + MCP
 ├── spec/
 │   └── PRODUCT.md           ← Спека продукта (читай ПЕРВЫМ)
 └── projects/                ← GTD-проекты
 ```
+
+AI-инструкции живут в отдельном репозитории **Duet-Instructions** (принадлежит пользователю, не продукту). Duet предоставляет платформенный bootstrapper и инструменты для работы с ними.
 
 Подробнее о каждом компоненте — см. `spec/` внутри пакета.
 
@@ -91,22 +92,23 @@ npm install
 
 ## Ключевые концепции
 
-### GPD-онтология
+### Entity Hierarchy
 
-- **Предприятие** — большая область жизни (Работа, Семья, OpenSource)
-- **Дело** — ongoing concern внутри предприятия
-- **Продукт** — конкретный результат
+- **Business** — большая область жизни (МетаЛаб, Семья)
+- **Stream** — ongoing concern внутри business (может вкладываться)
+- **Product** — конкретный результат с git-репозиторием
 
-Подробнее позже будет тут: [docs/gpd-ontology.md](docs/gpd-ontology.md)
+### MCP + Orientation
 
-### MCP интеграция
+Backend запускает MCP Server. AI-агенты вызывают `orientation()` при старте сессии — получают полный контекст: иерархию сущностей, каталог инструкций (персоны, скиллы), ключевые файлы, компоненты продукта.
 
-Duet запускает MCP Server, который позволяет Claude и другим LLM:
-- Искать по вашей базе знаний
-- Понимать контекст текущего дела
-- Создавать задачи и заметки
+### AI-инструкции
 
-Подробнее позже будет тут: [docs/mcp-integration.md](docs/mcp-integration.md)
+Инструкции для AI-агентов живут в отдельном репо **Duet-Instructions**, которым владеет пользователь. Duet компонует платформенный bootstrapper с пользовательскими инструкциями и конфигурирует три AI-клиента: Claude Code, Codex, Antigravity (Gemini).
+
+### Reference Repos
+
+Любая сущность может объявить `reference_repos` в манифесте — read-only клоны вспомогательных репозиториев (cookbook, документация и т.д.).
 
 ## Разработка
 

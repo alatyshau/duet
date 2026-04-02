@@ -75,7 +75,7 @@ server.py (entry point, lifecycle)
 | POST | `/stop` | Returns `{ status: "stopping" }`, triggers shutdown |
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
-| GET | `/workspace-info` | Query: `workspace_paths` (repeated). Returns duet_paths, instructions, context, workspace_paths, key_files, components |
+| POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
 | GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
 | GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms }` |
@@ -95,7 +95,7 @@ server.py (entry point, lifecycle)
 |------|-------|
 | `timestamp` | Returns string directly |
 | `duet_data_path` | Returns string directly |
-| `workspace_info` | Returns dict directly |
+| `orientation` | Returns dict directly |
 | `streams` | Returns list directly |
 | `projects` | Takes `stream_id`, returns list directly |
 | `scan` | Returns dict directly |
@@ -108,11 +108,11 @@ server.py (entry point, lifecycle)
 - Errors: `McpError` with JSON-RPC codes (`INVALID_PARAMS` -32602, `INTERNAL_ERROR` -32603)
 - Empty result returns `[]`, not exception
 
-### workspace_info v3
+### Orientation
 
-`GET /workspace-info?workspace_paths=...&workspace_paths=...` — primary orientation endpoint for AI agents.
+`POST /orientation` with body `{"workspace_paths": [...]}` — primary orientation endpoint for AI agents.
 
-MCP tool: `workspace_info(workspace_paths: list[str])` — accepts all workspace paths available to the agent.
+MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace paths available to the agent.
 
 **Multi-path entity resolution:**
 
@@ -122,14 +122,14 @@ MCP tool: `workspace_info(workspace_paths: list[str])` — accepts all workspace
 
 `root: true` — field in `business.json`. Identifies the meta-business (e.g. БАЗА) in all-businesses workspace.
 
-**Response (status=found):**
+**Response (entity resolved):**
 
 | Block | Fields | When |
 |-------|--------|------|
 | `duet_paths` | duetDataPath, machineConfig | Always |
-| `instructions` | basePath, personas[], skills[] | When instructionsPath configured |
+| `instructions` | basePath, personas[], skills[] | Always (instructionsPath required at startup) |
+| `workspace` | type, topology, typed attributes, reference_repos? | Always |
 | `context` | breadcrumb, chain[{type, name, description?}] | When entity resolved |
-| `workspace_paths` | workspace_type, main_folder, projects_folder? | When entity resolved |
 | `key_files` | spec?, readme? | When files exist |
 | `components` | [{name, path, spec?, description?}] | When product in chain |
 
@@ -139,15 +139,27 @@ MCP tool: `workspace_info(workspace_paths: list[str])` — accepts all workspace
 - `skills[]`: `{category, name, description, shortcuts?, trigger?, noTrigger?, path}` — relative to basePath
 - Scanned from `index.json` in instructions workspace (declares persona path + skill_folders)
 
-**workspace_type values:** `product_folder_with_git_repo` | `product_folder` | `stream_folder` | `business_folder` | `project_folder` | `unknown` (fallback for unexpected entity types)
+**workspace.type values:** `product_in_git` | `product_on_drive` | `stream` | `business` | `root_business` | `project` | `unknown`
 
-**status=unknown reasons:** `no_workspace_path` | `path_not_in_hierarchy` | `entity_not_in_db`
+**workspace.type-specific attributes:**
 
-**projects_folder:** Created on demand (mkdir) for product/stream. Absent for business/project.
+| Type | Attributes |
+|------|------------|
+| `product_in_git` | `git_folder`, `drive_folder` |
+| `product_on_drive` | `drive_folder` |
+| `stream` | `drive_folder` |
+| `business` | `drive_folder` |
+| `root_business` | `root_business_folder`, `business_folders` (map name→path), `duet_data_folder` |
+| `project` | `drive_folder` |
+| `unknown` | `reason` (`no_workspace_path` \| `path_not_in_hierarchy` \| `entity_not_in_db`) |
 
-**Path conventions:** `key_files` contains absolute paths (for direct agent use). `components[].path` and `components[].spec` are relative to `main_folder` (compact, resolved by consumer).
+**workspace.topology:** Human-readable description of workspace layout. Appended with reference repos addon when applicable.
 
-**REST exception:** `/workspace-info` returns result directly (not wrapped in `{ workspace_info: {...} }`), because the response is already a structured object with extensible top-level keys (`status`, `duet_paths`, etc.).
+**workspace.reference_repos:** Map `{name.git: absolute_path}` of existing reference repo clones. Read from entity's manifest on disk (fresh data, no DB).
+
+**Path conventions:** `key_files` contains absolute paths (for direct agent use). `components[].path` and `components[].spec` are relative to product git_folder/drive_folder (compact, resolved by consumer).
+
+**REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII characters). Returns result directly (not wrapped).
 
 ### `/bootstrapper` — Merged Instructions
 
@@ -252,7 +264,7 @@ entities_service = EntitiesService(db)
 init_services(workspace_service, entities_service, _start_time)
 
 # Usage (anywhere)
-get_workspace_service().get_workspace_info(...)
+get_workspace_service().get_orientation(...)
 ```
 
 **Contract:** Services initialized once in lifespan. Never create new instances elsewhere.

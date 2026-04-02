@@ -29,6 +29,7 @@ class Manifest:
     git_url: str | None = None
     status: str | None = None
     root: bool = False
+    reference_repos: dict[str, str] | None = None  # name -> URL
 
 
 # Type priorities: lower number = higher priority
@@ -37,7 +38,9 @@ TYPE_PRIORITIES = {
     "business": 1,
     "stream": 2,
     "product": 3,
+    "product_repo": 3,
     "project": 4,
+    "reference_repo": 5,
 }
 
 
@@ -258,6 +261,9 @@ class Scanner:
             )
         )
 
+        # Register reference_repo entities
+        self._register_reference_repos(manifest, business_id)
+
         # Scan for projects at business level
         self._scan_projects(path, business_id)
 
@@ -302,6 +308,9 @@ class Scanner:
                 )
             )
 
+            # Register reference_repo entities
+            self._register_reference_repos(stream_manifest, stream_id)
+
             # Scan for projects at stream level
             self._scan_projects(folder_path, stream_id)
 
@@ -324,6 +333,32 @@ class Scanner:
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
             self._scan_stream_or_product(Path(entry.path), parent_id)
+
+    def _register_reference_repos(
+        self, manifest: Manifest, parent_id: int
+    ) -> None:
+        """Register reference_repo entities from manifest's reference_repos field.
+
+        Creates reference_repo entity for each entry in manifest.reference_repos.
+        Entity name includes .git suffix (e.g. "anthropic-cookbook.git").
+        """
+        if not manifest.reference_repos:
+            return
+
+        for ref_name, ref_url in manifest.reference_repos.items():
+            ref_entity_name = f"{ref_name}.git"
+            resolved_name = self._resolve_unique_name(ref_entity_name, "reference_repo")
+            self.db.insert_entity(
+                Entity(
+                    id=None,
+                    type="reference_repo",
+                    name=resolved_name,
+                    icon="📚",
+                    drive_path=resolved_name,
+                    parent_id=parent_id,
+                    git_url=ref_url,
+                )
+            )
 
     def _save_product(
         self, folder_path: Path, parent_id: int, manifest: Manifest
@@ -350,6 +385,25 @@ class Scanner:
                 git_url=manifest.git_url,
             )
         )
+
+        # Register product_repo entity if product has git_url
+        if manifest.git_url:
+            repo_entity_name = f"{unique_name}.git"
+            resolved_repo_name = self._resolve_unique_name(repo_entity_name, "product_repo")
+            self.db.insert_entity(
+                Entity(
+                    id=None,
+                    type="product_repo",
+                    name=resolved_repo_name,
+                    icon="📂",
+                    drive_path=resolved_repo_name,
+                    parent_id=product_id,
+                    git_url=manifest.git_url,
+                )
+            )
+
+        # Register reference_repo entities
+        self._register_reference_repos(manifest, product_id)
 
         # Scan projects from drive path
         self._scan_projects(folder_path, product_id, is_repos=False)
@@ -398,7 +452,7 @@ class Scanner:
                     # For drive projects: relative to business_folder
                     relative_path = self._to_relative_path(Path(entry.path))
 
-                self.db.insert_entity(
+                project_id = self.db.insert_entity(
                     Entity(
                         id=None,
                         type="project",
@@ -410,18 +464,24 @@ class Scanner:
                     )
                 )
 
+                # Register reference_repo entities from project manifest
+                if manifest:
+                    self._register_reference_repos(manifest, project_id)
+
     def _read_manifest(self, folder_path: Path, filename: str) -> Manifest | None:
         """Read and parse a manifest file."""
         file_path = folder_path / filename
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                ref_repos = data.get("reference_repos")
                 return Manifest(
                     name=data.get("name", ""),
                     icon=data.get("icon"),
                     git_url=data.get("git_url"),
                     status=data.get("status"),
                     root=bool(data.get("root", False)),
+                    reference_repos=ref_repos if isinstance(ref_repos, dict) else None,
                 )
         except FileNotFoundError:
             return None

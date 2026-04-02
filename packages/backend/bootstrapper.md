@@ -4,21 +4,18 @@
 
 **Chat language:** RU
 
-**At session start:** call `workspace_info(workspace_paths=[<all working directories>])` MCP tool — pass all available working directories. This is the only way to learn the user's project context, file locations, and available instructions. After the call, read files from `key_files` (spec, readme) to orient in the codebase.
+**At session start:** call `orientation(workspace_paths=[<all working directories>])` MCP tool. This is a blocking gate — do not proceed with any work until you receive and process the response.
 
-**Three roots:** All local paths are relative to three roots from `workspace_info`:
-
-| Domain | Root | Example |
-|--------|------|---------|
-| Projects, topic files | `projects_folder` | `WIP_workspace_info/prompt.md` |
-| Instructions (personas, skills) | `instructions.basePath` | `personas/daedalus.md` |
-| Code, specs, README | `main_folder` | `packages/backend/services/workspace.py` |
-
-**Instructions root:** Use `instructions.basePath` from `workspace_info` response. Paths in `instructions.personas[]` and `instructions.skills[]` are relative to it.
+**From the response, extract and use for the entire session:**
+- **`workspace.topology`** — your map of the workspace: what each folder is for, which paths are read-only, how the workspace is organized. Read carefully.
+- **`context`** — breadcrumb and chain: which business, stream, product you're working in
+- **`key_files`** — read these first (spec, readme) to orient in the codebase
+- **`components`** — packages in the product, their specs and descriptions
+- **`instructions`** — full catalog of personas and skills. Paths relative to `instructions.basePath`
 
 ## User instructions
 
-After orientation, the `instructions` block in `workspace_info` response contains the full catalog of available personas and skills. Paths are relative to `instructions.basePath`. Load specific files via Read.
+After orientation, the `instructions` block in the response contains the full catalog of available personas and skills. Paths are relative to `instructions.basePath`. Load specific files via Read.
 
 **Skill activation rules:**
 - `shortcuts` — explicit user invocation → always load

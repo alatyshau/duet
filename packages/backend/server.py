@@ -141,10 +141,27 @@ async def duet_data_path_handler(request: Request) -> JSONResponse:
     return JSONResponse({"path": get_duet_data_path_str()})
 
 
-async def workspace_info_handler(request: Request) -> JSONResponse:
-    """GET /workspace-info - Full workspace information."""
-    workspace_paths = request.query_params.getlist("workspace_paths")
-    result = get_workspace_service().get_workspace_info(workspace_paths=workspace_paths)
+async def orientation_handler(request: Request) -> JSONResponse:
+    """POST /orientation - Full workspace orientation.
+
+    Request body: {"workspace_paths": ["/path1", "/path2"]}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "Invalid JSON body", "code": "BAD_REQUEST"},
+            status_code=400,
+        )
+
+    workspace_paths = body.get("workspace_paths", [])
+    if not isinstance(workspace_paths, list):
+        return JSONResponse(
+            {"error": "'workspace_paths' must be a list", "code": "BAD_REQUEST"},
+            status_code=400,
+        )
+
+    result = get_workspace_service().get_orientation(workspace_paths=workspace_paths)
     return JSONResponse(result)
 
 
@@ -276,7 +293,7 @@ def create_app() -> Starlette:
         Route("/stop", stop_handler, methods=["POST"]),
         Route("/timestamp", timestamp_handler, methods=["GET"]),
         Route("/duet-data-path", duet_data_path_handler, methods=["GET"]),
-        Route("/workspace-info", workspace_info_handler, methods=["GET"]),
+        Route("/orientation", orientation_handler, methods=["POST"]),
         Route("/streams", streams_handler, methods=["GET"]),
         Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),

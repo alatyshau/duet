@@ -110,7 +110,7 @@ def duet_data_path() -> str:
 
 
 @mcp.tool()
-def workspace_info(workspace_paths: list[str] | None = None) -> dict:
+def orientation(workspace_paths: list[str] | None = None) -> dict:
     """Get full workspace information.
 
     Args:
@@ -121,15 +121,13 @@ def workspace_info(workspace_paths: list[str] | None = None) -> dict:
     Returns information about:
     - duet_paths: {duetDataPath, machineConfig}
     - instructions: {basePath, personas[], skills[]} — dynamic catalog from YAML frontmatter
-    - workspace_type: product_folder_with_git_repo | product_folder | stream_folder | business_folder | project_folder
-    - main_folder: Absolute path to entity root directory
-    - projects_folder: Absolute path to projects/ on Drive (product/stream only, absent for business/project)
+    - workspace: {type, topology, typed attributes, reference_repos?}
     - context: {breadcrumb, chain with type/name/description?}
     - key_files: {spec?, readme?} — absolute paths to read first (absent if no files found)
     - components: List of components with name, path, spec?, description?
     """
     service = _get_workspace_service()
-    return service.get_workspace_info(workspace_paths=workspace_paths or [])
+    return service.get_orientation(workspace_paths=workspace_paths or [])
 
 
 @mcp.tool()

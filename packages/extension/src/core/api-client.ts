@@ -56,23 +56,50 @@ export interface ProjectsResponse {
 }
 
 export interface ChainItem {
-    id: string;
     type: string;
     name: string;
-    path: string;
+    description?: string;
 }
 
 export interface ComponentInfo {
     name: string;
     path: string;
-    hasSpec: boolean;
+    spec?: string;
+    description?: string;
 }
 
-export interface WorkspaceInfoResponse {
-    duetDataPath: string;
-    instructionsPath: string;
-    chain: ChainItem[];
-    components: ComponentInfo[];
+export interface OrientationWorkspace {
+    type: string;
+    topology: string;
+    reason?: string;
+    git_folder?: string;
+    drive_folder?: string;
+    root_business_folder?: string;
+    business_folders?: Record<string, string>;
+    duet_data_folder?: string;
+    reference_repos?: Record<string, string>;
+}
+
+export interface OrientationResponse {
+    duet_paths: {
+        duetDataPath: string;
+        machineConfig: string;
+    };
+    instructions: {
+        basePath: string;
+        personas: unknown[];
+        skills: unknown[];
+    };
+    workspace: OrientationWorkspace;
+    context?: {
+        breadcrumb: string;
+        chain: ChainItem[];
+    };
+    key_files?: {
+        spec?: string;
+        readme?: string;
+    };
+    components?: ComponentInfo[];
 }
 
 export interface ScanResponse {
@@ -133,11 +160,8 @@ export class DuetApiClient {
         return this.get('/duet-data-path');
     }
 
-    async workspaceInfo(workspacePaths?: string[]): Promise<WorkspaceInfoResponse> {
-        const params = workspacePaths?.length
-            ? '?' + workspacePaths.map(p => `workspace_paths=${encodeURIComponent(p)}`).join('&')
-            : '';
-        return this.get(`/workspace-info${params}`);
+    async orientation(workspacePaths?: string[]): Promise<OrientationResponse> {
+        return this.postJson('/orientation', { workspace_paths: workspacePaths ?? [] });
     }
 
     async streams(): Promise<StreamsResponse> {

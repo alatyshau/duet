@@ -25,48 +25,31 @@
 
 | Component | Package | Language | Role |
 |-----------|---------|----------|------|
-| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend + AI instructions. Configures AI clients |
+| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend. Configures AI clients |
 | **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Thin client — all data from Backend HTTP API. Reads pointer for port |
 | **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
-| **AI Instructions** | `packages/ai-instructions` | Markdown | Pure content: modes, stances, skills, personas, workflows, schemas |
-| **AI Kit** | `packages/ai-kit` | Markdown + Python | Legacy: install.py, MCP server, legacy templates. Being replaced by AI Instructions + Host |
 
-## AI Instructions
+## AI Instructions (Duet-Instructions)
 
-Pure content package — source of truth for all AI agent instructions.
+AI-инструкции вынесены из Duet в отдельный git-репозиторий **Duet-Instructions**, которым владеет пользователь. Duet не деплоит и не бандлит инструкции — только предоставляет платформенный bootstrapper и инструменты для работы с ними.
 
-```
-packages/ai-instructions/
-├── spec/
-│   └── COMPONENT.md        # package structure, concepts, deploy chain
-└── src/                    # deliverable — deployed to DuetData/ai-instructions/
-    ├── core_instructions.md
-    ├── old/core_instructions_long.md
-    ├── modes/              # DIALOGUE, EXECUTE, PLANNING, etc.
-    ├── stances/            # dialectic, pragmatic, critical, etc.
-    ├── skills/             # python, typescript, spec-architect, etc.
-    ├── personas/           # Socrates, Hephaestus, Ariadna, etc.
-    ├── workflows/          # solo, pair, sddg
-    └── schemas/            # topic_file, index format specs
-```
+**Структура Duet-Instructions:**
+- `index.json` — объявляет пути к персонам и skill-каталогам
+- `core_instructions.md` — пользовательские инструкции (L7, spec-driven, project management)
+- `personas/` — персоны (Socrates, Hephaestus, Ariadna, etc.)
+- `skills/` — скиллы по категориям (coding, modes, stances, tools, workflows)
 
-**Edit rule:** Always edit `packages/ai-instructions/src/`, never `DuetData/ai-instructions/` directly. Changes are lost on next deploy.
+**Подключение:** `instructionsPath` в `{machine}.json` указывает абсолютный путь к Duet-Instructions.
 
-**Deploy chain:** Host deploys `src/` to `DuetData/ai-instructions/`.
+**Bootstrapper:** Backend компонует `bootstrapper.md` (платформенный, в packages/backend) с `core_instructions.md` (пользовательский) через маркер `<!-- INSERT USER CORE INSTRUCTIONS -->`. Host забирает merged content через `GET /bootstrapper` и записывает в конфиги AI-клиентов.
 
-## AI Kit (Legacy)
+**AI-клиенты (конфигурируемые Host):**
 
-Transitional package. Being replaced by AI Instructions (content) + Host (deploy logic).
-
-```
-packages/ai-kit/
-├── templates/              # LEGACY — source of truth moved to packages/ai-instructions/
-├── install.py              # LEGACY manual installer — moving to Host
-├── mcp-server/             # LEGACY Python MCP (2 tools) — replaced by Extension MCP
-└── spec/                   # AI Kit's own specs
-```
-
-**MCP server:** Legacy Python MCP (timestamp + get_instruction_location). Replaced by Backend HTTP MCP (7 tools). Folder deleted from DuetData.
+| Client | Config | Content |
+|--------|--------|---------|
+| Claude Code | `~/.claude/output-styles/duet.md` | Merged bootstrapper+core_instructions |
+| Codex | `~/.codex/duet_instructions.md` | Merged bootstrapper+core_instructions |
+| Antigravity | `~/.gemini/GEMINI.md` | Merged bootstrapper+core_instructions |
 
 ## Pointer File
 
@@ -110,8 +93,7 @@ DuetData/
 ├── .venv/                          # Python virtual environment
 ├── .pid                            # backend PID lockfile
 ├── backend.log                     # backend log (RotatingFileHandler)
-├── all-businesses.code-workspace   # multi-root for all businesses
-└── ai-instructions/                # AI instructions (modes, stances, skills, personas, etc.)
+└── all-businesses.code-workspace   # multi-root for all businesses
 ```
 
 ## DuetConfig Directory
@@ -143,6 +125,7 @@ DuetConfig/
 ```json
 {
   "port": 19680,
+  "instructionsPath": "/Users/.../Duet-Instructions.git",
   "@БАЗА": "/Users/.../!БАЗА",
   "@МетаЛаб": "/Users/.../!МетаЛаб"
 }
@@ -151,6 +134,7 @@ DuetConfig/
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
 | `port` | Extension, Backend | HTTP port for backend |
+| `instructionsPath` | Backend | Absolute path to Duet-Instructions repo |
 | `@alias` keys | Backend | Machine-specific path resolution |
 
 ## @Alias Resolution
@@ -198,9 +182,14 @@ Business (root)
 { "name": "Name", "icon": "📁" }
 { "name": "Name", "icon": "📦", "git_url": "https://..." }
 { "name": "Name", "icon": "📋", "status": "active" }
+{ "name": "Name", "icon": "📦", "git_url": "https://...", "reference_repos": {"cookbook": "https://..."} }
 ```
 
-**Contract:** Keys are `snake_case`. `name` globally unique.
+**Contract:** Keys are `snake_case`. `name` globally unique. `reference_repos` is optional map (name → URL) in all manifests.
+
+### Reference Repos
+
+`reference_repos` field in any manifest (product.json, stream.json, business.json, project.json) declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git` by Extension. Entity name includes `.git` suffix (enters global uniqueness space).
 
 ### Project Status
 
@@ -224,7 +213,9 @@ All entity names globally unique. Conflict resolution by priority:
 | business | 1 (highest — keeps name) |
 | stream | 2 |
 | product | 3 |
-| project | 4 (lowest — gets `Name (1)`) |
+| product_repo | 3 (same as product) |
+| project | 4 |
+| reference_repo | 5 (lowest — gets `Name (1)`) |
 
 ### Self-Healing
 
@@ -243,7 +234,7 @@ Backend's SQLite schema (`entities.db`, native sqlite3):
 ```sql
 CREATE TABLE entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT,        -- 'business' | 'stream' | 'product' | 'project'
+    type TEXT,        -- 'business' | 'stream' | 'product' | 'project' | 'product_repo' | 'reference_repo'
     name TEXT,        -- globally unique
     icon TEXT,
     drive_path TEXT UNIQUE,
@@ -285,9 +276,9 @@ Extension → checks /health → detects when backend is up
 - Extension checks `/health` once on activation (no polling)
 - Port read from `DuetConfig/{machine}.json` (default: 19680)
 
-### workspace_info (AI Agent Orientation)
+### Orientation (AI Agent Orientation)
 
-AI agents call `workspace_info(workspace_paths=[<all working dirs>])` at session start. Backend resolves workspace paths to entity via multi-path resolution and returns structured context.
+AI agents call `orientation(workspace_paths=[<all working dirs>])` at session start. Backend resolves workspace paths to entity via multi-path resolution and returns structured context.
 
 **Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint)
 
@@ -298,13 +289,13 @@ AI agents call `workspace_info(workspace_paths=[<all working dirs>])` at session
 | Block | Purpose | Always present? |
 |-------|---------|----------------|
 | `duet_paths` | duetDataPath, machineConfig | Yes |
-| `instructions` | basePath, personas[], skills[] (dynamic catalog from YAML frontmatter) | When instructionsPath configured |
+| `instructions` | basePath, personas[], skills[] (dynamic catalog from YAML frontmatter) | Yes |
+| `workspace` | type, topology, typed attributes, reference_repos | Yes |
 | `context` | breadcrumb + chain (type, name, description) | When entity resolved |
-| `workspace_paths` | workspace_type, main_folder, projects_folder | When entity resolved |
 | `key_files` | Absolute paths to spec and readme | When files exist |
 | `components` | Product's packages with spec path and description | When product in chain |
 
-**Contract:** Detailed format in `packages/backend/spec/COMPONENT.md` → workspace_info v3.
+**Contract:** Detailed format in `packages/backend/spec/COMPONENT.md` → Orientation.
 
 ### Spec File Naming Convention
 
@@ -316,9 +307,9 @@ AI agents call `workspace_info(workspace_paths=[<all working dirs>])` at session
 | business | `spec/BUSINESS.md` |
 | project | `spec/PROJECT.md` |
 
-Fallback: if standard file absent, workspace_info searches next in chain per entity type (e.g. product: PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md). Full chains in `packages/backend/spec/COMPONENT.md` → Spec File Fallback.
+Fallback: if standard file absent, orientation searches next in chain per entity type (e.g. product: PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md). Full chains in `packages/backend/spec/COMPONENT.md` → Spec File Fallback.
 
-**COMPONENT.md** merges what was previously ARCHITECTURE.md + DOMAIN.md. First sentence of COMPONENT.md becomes component `description` in workspace_info response.
+**COMPONENT.md** merges what was previously ARCHITECTURE.md + DOMAIN.md. First sentence of COMPONENT.md becomes component `description` in orientation response.
 
 ### Who Reads What
 
@@ -328,7 +319,6 @@ Fallback: if standard file absent, workspace_info searches next in chain per ent
 | `DuetConfig/settings.json` | creates defaults | — | reads | — |
 | `DuetConfig/{machine}.json` | reads+writes (port, defaults) | reads (port) | reads (port, @aliases) | — |
 | `DuetData/backend/VERSION` | writes | — | reads | — |
-| `DuetData/ai-instructions/` | deploys | — | — | reads (instructions) |
 | `DuetData/backend.log` | — | — | writes | — |
 | `DuetData/.pid` | reads | — | writes | — |
 
@@ -355,7 +345,6 @@ npm run release [-- --mac|--win|--linux]   # default: --mac
 Tools: electron-vite (bundle), electron-builder (installer).
 
 **extraResources** (bundled alongside app, deployed to DuetData at runtime via `deploy.ts`):
-- `packages/ai-instructions/src/` → `ai-instructions/`
 - `packages/backend/` → `backend/` (excludes tests, `__pycache__`)
 
 ### Extension Release (`packages/extension/build-vsix.js`)
