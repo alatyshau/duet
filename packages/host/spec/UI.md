@@ -1,64 +1,111 @@
 # UI
 
-## Pages
+## Navigation
 
-| Page | Purpose | Provider |
-|------|---------|----------|
-| Setup (Установка) | Pointer file creation/editing (3 fields) | `SetupPage.tsx` |
-| Settings (Настройки) | Placeholder — future settings | — |
+Two-level navigation: **tabs** select a category, **sidebar list** selects a page within that category.
+
+```
+┌──────────────────┬─────────────────────────────┐
+│ Duet             │                             │
+│ [Open DuetData]  │                             │
+│ ──────────────── │                             │
+│  [⚙]  [▶]       │                             │
+│ ──────────────── │  Content (current page)     │
+│ ○ DuetData       │                             │
+│ ○ DuetConfig..   │                             │
+│ ○ Python         │                             │
+│ ○ Backend        │                             │
+│ ○ Biz Folders    │                             │
+│ ○ Инструкции     │                             │
+│ ○ AI Агенты      │                             │
+└──────────────────┴─────────────────────────────┘
+```
+
+### Tabs
+
+| Tab | Icon | Content |
+|-----|------|---------|
+| Settings (Настройки) | ⚙ | Wizard — 7-step setup |
+| Apps (Приложения) | ▶ | Running processes |
+
+Switching tab navigates to the first item in that tab's list.
+
+### Typed Routing
+
+All navigation types defined in `renderer/src/navigation.ts`:
+
+| Type | Values |
+|------|--------|
+| `Tab` | `'settings'` \| `'apps'` |
+| `WizardPage` | `'duet-data'` \| `'duet-config'` \| `'python'` \| `'backend'` \| `'business-folders'` \| `'instructions'` \| `'agents'` |
+| `AppPage` | `'app:duet-backend'` |
+| `Page` | `WizardPage` \| `AppPage` |
+
+`tabForPage(page)` derives tab from page. `DEFAULT_PAGE` = `'duet-data'`.
+
+## Settings Tab — Wizard
+
+7-step configuration wizard. Each step is a sidebar item with a status icon.
+
+### Steps
+
+| # | Page | Label | Required | Depends on |
+|---|------|-------|----------|------------|
+| 1 | `duet-data` | DuetData | yes | — |
+| 2 | `duet-config` | DuetConfig + машина | yes | — |
+| 3 | `python` | Python 3.10+ | yes | — |
+| 4 | `backend` | Backend | yes | 1, 3 |
+| 5 | `business-folders` | Business Folders | yes | 1, 2, 4 |
+| 6 | `instructions` | Инструкции | yes | 1, 2 |
+| 7 | `agents` | AI Агенты | yes | 4, 6 |
+
+Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforcement in Phase 6.
+
+### Step Status Icons
+
+| Status | Icon | Meaning |
+|--------|------|---------|
+| `'done'` | Green circle + checkmark | Step completed |
+| `'error'` | Red circle + X | Needs attention |
+| `'skipped'` | Gray circle + arrows | Not relevant (e.g. agent not installed) |
+| `null` | Hollow circle | Not yet determined |
+
+Status computed from `stepStatuses: Partial<Record<WizardPage, StepStatus>>` passed to Sidebar. Computation logic in Phase 6.
+
+## Apps Tab
+
+| Page | Label | Indicator |
+|------|-------|-----------|
+| `app:duet-backend` | Duet Backend | `StatusDot` showing `ProcessState` |
+
+## Shared UI Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `StatusDot` | `components/ui/status-dot.tsx` | Process state indicator (colored dot or spinner). Props: `state: ProcessState`, `size: 'sm' \| 'md'` |
+| `ProcessStateLabel` | `components/ui/process-state-label.tsx` | Text badge with process state. Props: `state: ProcessState` |
+| `Button` | `components/ui/button.tsx` | shadcn/ui button with CVA variants |
+| `StepStatusIcon` | Inline in `Sidebar.tsx` | Wizard step status icon (done/error/skipped/null) |
 
 ## Layout
 
-```
-┌────────────┬───────────────────────────────┐
-│  Sidebar   │                               │
-│            │        Content Area            │
-│  Logo      │        (current page)          │
-│  [Open]    │                                │
-│  Settings  │                                │
-│  Setup     │                                │
-│            │                                │
-└────────────┴───────────────────────────────┘
-```
+| Component | File | Responsibility |
+|-----------|------|----------------|
+| `App.tsx` | `renderer/src/App.tsx` | Root: AppState subscription, backend controls, page routing |
+| `Layout` | `components/layout/Layout.tsx` | Two-column: sidebar + content |
+| `Sidebar` | `components/layout/Sidebar.tsx` | Tabs, wizard/apps list, status icons |
 
-| Component | File |
-|-----------|------|
-| Layout (sidebar + content) | `components/layout/Layout.tsx` |
-| Sidebar (nav + open button) | `components/layout/Sidebar.tsx` |
-| SetupPage | `pages/SetupPage.tsx` |
+## Pages
 
-## SetupPage Fields
+| Directory | Contains |
+|-----------|----------|
+| `pages/wizard/` | 7 wizard step pages (stubs in Phase 5, filled in Phase 6) |
+| `pages/apps/` | App process pages (`BackendAppPage.tsx`) |
+| `pages/` | Legacy pages (`InstallPage.tsx`, `AgentsPage.tsx`) — used temporarily until Phase 6 |
 
-| # | Field | Widget | Validation |
-|---|-------|--------|------------|
-| 1 | DuetData path | Folder picker (system dialog) | Required, path must exist for `ready` |
-| 2 | DuetConfig path | Folder picker (system dialog) | Required, path must exist for `ready` |
-| 3 | Machine name | Text input | Required, non-empty |
+### Transitional State (Phase 5)
 
-### Save Behavior
-
-| Trigger | When |
-|---------|------|
-| Auto-save on folder select | If all 3 fields are filled |
-| Manual Save button | When user clicks (validates machine name) |
-| Button hidden | When status = `ready` |
-
-### Visual States
-
-| State | Indicator |
-|-------|-----------|
-| Field empty | Warning triangle (amber) |
-| Field set | Green checkmark |
-| Machine name empty on save | Red border + error text |
-
-## Sidebar Behavioral Contracts
-
-| Behavior | Contract |
-|----------|----------|
-| "Открыть DuetData" button | Disabled until status = `ready` |
-| Settings nav item | Disabled until status = `ready` |
-| Setup nav item | Always enabled |
-| Active page | Highlighted with primary color |
+Wizard routes 1-6 temporarily render `InstallPage` (monolithic setup page). Route "agents" temporarily renders `AgentsPage`. Phase 6 replaces each with its dedicated page from `pages/wizard/`, then deletes the legacy pages.
 
 ## Tray
 
@@ -89,24 +136,13 @@ Location: `resources/tray/{mac,win}/`
 | New window | `show: false`, waits for `ready-to-show` (avoids flash) |
 | External links | Opened in system browser (not in-app) |
 
-## Draft State Pattern
+## Styling
 
-App.tsx maintains **draft values** separate from saved AppState:
-- `draftDuetDataPath`, `draftDuetConfigPath`, `draftMachine`
-- Populated from AppState on load and on state change
-- SetupPage sees display state (draft merged with AppState)
-- Save writes draft → pointer file → triggers AppState re-check
+Tailwind CSS v4 with `@theme` tokens in `main.css`. Light-only theme (Google Drive-inspired). No dark mode.
 
-This allows editing fields without immediately writing to disk.
+| Token category | Examples |
+|----------------|----------|
+| Colors | `--color-primary`, `--color-background`, `--color-sidebar` |
+| Radius | `--radius-lg`, `--radius-md`, `--radius-sm` |
 
-## Implementation
-
-| Concept | File |
-|---------|------|
-| Root component + draft state | `App.tsx` |
-| Setup page | `pages/SetupPage.tsx` |
-| Layout wrapper | `components/layout/Layout.tsx` |
-| Sidebar navigation | `components/layout/Sidebar.tsx` |
-| Button component | `components/ui/button.tsx` |
-| Tray icon + menu | `platform/tray.ts` |
-| Window management | `main/window.ts` |
+shadcn/ui patterns via CVA (Class Variance Authority). Utility merging via `cn()` (`clsx` + `tailwind-merge`).

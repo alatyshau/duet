@@ -22,11 +22,7 @@ import {
 import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
 import { triggerMerge, readCachedErrors } from '../core/instructions'
-import {
-  getBusinessFolders,
-  saveBusinessFolders,
-  triggerScan
-} from '../core/business-folders'
+import { getBusinessFolders, saveBusinessFolders, triggerScan } from '../core/business-folders'
 import type {
   AppState,
   DeployStatus,
@@ -335,12 +331,9 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     return configureAllAgents(state.duetDataPath, port)
   })
 
-  ipcMain.handle(
-    'agents:fix-issue',
-    (_event, agentId: string, reasonCode: string): boolean => {
-      return fixAgentIssue(agentId, reasonCode)
-    }
-  )
+  ipcMain.handle('agents:fix-issue', (_event, agentId: string, reasonCode: string): boolean => {
+    return fixAgentIssue(agentId, reasonCode)
+  })
 
   // === Instructions ===
 

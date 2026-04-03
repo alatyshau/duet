@@ -4,8 +4,10 @@
  * КТО ИСПОЛЬЗУЕТ: App.tsx при навигации на app:*.
  */
 import { Button } from '@renderer/components/ui/button'
+import { StatusDot } from '@renderer/components/ui/status-dot'
+import { ProcessStateLabel } from '@renderer/components/ui/process-state-label'
 import { Loader2, Play, Square, RefreshCw, AlertTriangle } from 'lucide-react'
-import type { AppInfo, ProcessStatus } from '../../../preload/index.d'
+import type { AppInfo, ProcessStatus } from '../../../../preload/index.d'
 
 // =============================================================================
 // HELPERS
@@ -73,7 +75,7 @@ export function AppPage({
 
             {/* Детали */}
             <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-background">
-              <ProcessDot state={status.state} />
+              <StatusDot state={status.state} size="md" />
               <div className="flex-1 min-w-0">
                 {status.state === 'running' && (
                   <div>
@@ -157,40 +159,5 @@ export function AppPage({
         </div>
       </div>
     </div>
-  )
-}
-
-// =============================================================================
-// Sub-components
-// =============================================================================
-
-function ProcessDot({ state }: { state: string }): React.ReactElement {
-  if (state === 'starting' || state === 'stopping') {
-    return <Loader2 className="w-4 h-4 text-blue-500 animate-spin flex-shrink-0" />
-  }
-  const color =
-    state === 'running' ? 'bg-green-500' : state === 'error' ? 'bg-red-500' : 'bg-muted-foreground'
-  return <div className={`w-2.5 h-2.5 rounded-full ${color} flex-shrink-0`} />
-}
-
-function ProcessStateLabel({ state }: { state: string }): React.ReactElement {
-  const config: Record<string, { text: string; className: string }> = {
-    running: { text: 'Запущен', className: 'text-green-600 bg-green-500/10 border-green-500/20' },
-    starting: { text: 'Запуск...', className: 'text-blue-500 bg-blue-500/10 border-blue-500/20' },
-    stopping: {
-      text: 'Остановка...',
-      className: 'text-blue-500 bg-blue-500/10 border-blue-500/20'
-    },
-    error: { text: 'Ошибка', className: 'text-red-500 bg-red-500/10 border-red-500/20' },
-    stopped: {
-      text: 'Остановлен',
-      className: 'text-muted-foreground bg-muted/50 border-border'
-    }
-  }
-  const c = config[state] ?? config.stopped
-  return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${c.className}`}>
-      {c.text}
-    </span>
   )
 }

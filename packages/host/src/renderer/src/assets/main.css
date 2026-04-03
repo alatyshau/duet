@@ -52,15 +52,20 @@
  * БАЗОВЫЕ СТИЛИ: Применяем дефолты к элементам.
  */
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
     border-color: var(--color-border);
   }
   body {
+    margin: 0;
     background-color: var(--color-background);
     color: var(--color-foreground);
     min-height: 100vh;
     font-family: ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   #root {
     min-height: 100vh;

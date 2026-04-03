@@ -1,15 +1,15 @@
 /*
- * ЧТО: Главный layout приложения.
- * ЗАЧЕМ: Объединяет сайдбар и контентную область.
- * КТО ИСПОЛЬЗУЕТ: App.tsx как обёртка для страниц.
+ * Главный layout приложения.
+ * Объединяет сайдбар и контентную область.
  */
 import { Sidebar } from './Sidebar'
+import type { Page } from '../../navigation'
 import type { ProcessState } from '../../../../shared/types'
 
 interface LayoutProps {
   children: React.ReactNode
-  currentPage: string
-  onNavigate: (page: string) => void
+  currentPage: Page
+  onNavigate: (page: Page) => void
   onOpenFolder: () => void
   folderConfigured: boolean
   backendProcessState?: ProcessState

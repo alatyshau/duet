@@ -1,36 +1,37 @@
 /*
- * ЧТО: Корневой React-компонент приложения.
- * ЗАЧЕМ: Управляет навигацией и получает AppState от main process.
- * КТО ИСПОЛЬЗУЕТ: main.tsx монтирует в DOM.
+ * Корневой React-компонент приложения.
+ * Управляет навигацией и получает AppState от main process.
+ *
+ * Фаза 5: wizard routes 1-6 рендерят InstallPage (монолитная страница),
+ * route "agents" рендерит AgentsPage. В фазе 6 каждый route получит
+ * свою страницу из pages/wizard/.
  */
 import { useState, useEffect } from 'react'
 import { Layout } from './components/layout/Layout'
 import { InstallPage } from './pages/InstallPage'
 import { AgentsPage } from './pages/AgentsPage'
-import { AppPage } from './pages/AppPage'
+import { AppPage } from './pages/apps/BackendAppPage'
 import { backendStatusToProcessStatus } from '../../shared/mappers'
 import { BUILTIN_APPS } from '../../core/apps'
+import { DEFAULT_PAGE } from './navigation'
+import type { Page } from './navigation'
 import type { AppState, BackendStatus, ProcessStatus } from '../../preload/index.d'
 
 function App(): React.JSX.Element {
-  const [currentPage, setCurrentPage] = useState('install')
+  const [currentPage, setCurrentPage] = useState<Page>(DEFAULT_PAGE)
   const [appState, setAppState] = useState<AppState | null>(null)
   const [backendStatus, setBackendStatus] = useState<BackendStatus>({ state: 'stopped' })
 
-  // Draft state for pointer fields (before saving)
+  // Draft state for pointer fields (before saving).
+  // Moves to individual wizard pages in Phase 6.
   const [draftDuetDataPath, setDraftDuetDataPath] = useState<string | null>(null)
   const [draftDuetConfigPath, setDraftDuetConfigPath] = useState<string | null>(null)
   const [draftMachine, setDraftMachine] = useState('')
 
-  // Derived: process status for UI
   const backendProcessStatus: ProcessStatus = backendStatusToProcessStatus(backendStatus)
 
-  // При загрузке получаем AppState и подписываемся на изменения
   useEffect(() => {
-    if (!window.api) {
-      console.error('window.api не определён — preload не загрузился')
-      return
-    }
+    if (!window.api) return
 
     window.api
       .getAppState()
@@ -54,7 +55,6 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  // Подписка на backend status
   useEffect(() => {
     if (!window.api) return
 
@@ -93,7 +93,6 @@ function App(): React.JSX.Element {
     }
   }
 
-  // Сохранить pointer файл
   const handleSave = async (): Promise<void> => {
     if (!draftDuetDataPath || !draftDuetConfigPath || !draftMachine.trim()) return
 
@@ -105,7 +104,6 @@ function App(): React.JSX.Element {
     setAppState(newState)
   }
 
-  // Открыть папку в Finder/Explorer
   const handleOpenPath = (path: string): void => {
     window.api.openPath(path)
   }
@@ -145,8 +143,6 @@ function App(): React.JSX.Element {
     }
   }
 
-  const isReady = appState?.status === 'ready'
-
   if (!window.api) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -173,7 +169,14 @@ function App(): React.JSX.Element {
 
   const renderPage = (): React.ReactNode => {
     switch (currentPage) {
-      case 'install':
+      // Wizard pages 1-6: temporarily render InstallPage (monolithic).
+      // Phase 6 will replace each with its own page from pages/wizard/.
+      case 'duet-data':
+      case 'duet-config':
+      case 'python':
+      case 'backend':
+      case 'business-folders':
+      case 'instructions':
         return (
           <InstallPage
             appState={displayState}
@@ -184,6 +187,7 @@ function App(): React.JSX.Element {
             onMachineChange={setDraftMachine}
           />
         )
+      // Wizard page 7: temporarily render AgentsPage.
       case 'agents':
         return <AgentsPage />
       case 'app:duet-backend': {
@@ -199,8 +203,6 @@ function App(): React.JSX.Element {
           />
         )
       }
-      default:
-        return null
     }
   }
 
@@ -209,7 +211,7 @@ function App(): React.JSX.Element {
       currentPage={currentPage}
       onNavigate={setCurrentPage}
       onOpenFolder={() => appState.duetDataPath && handleOpenPath(appState.duetDataPath)}
-      folderConfigured={isReady}
+      folderConfigured={appState.status === 'ready'}
       backendProcessState={backendProcessStatus.state}
     >
       {renderPage()}

@@ -53,11 +53,7 @@ describe('core/instructions', () => {
       const errors = [
         { path: 'test.md', reason_code: 'no_frontmatter', description: 'No frontmatter' }
       ]
-      writeFileSync(
-        join(dataDir, 'duet-instructions-errors.json'),
-        JSON.stringify(errors),
-        'utf-8'
-      )
+      writeFileSync(join(dataDir, 'duet-instructions-errors.json'), JSON.stringify(errors), 'utf-8')
 
       const result = readCachedErrors(ctx.duetDataDir)
       expect(result).toEqual(errors)

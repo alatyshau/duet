@@ -433,11 +433,7 @@ function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
   return issues
 }
 
-function detectCodex(
-  mergedContent: string | null,
-  duetDataPath: string,
-  port: number
-): AgentInfo {
+function detectCodex(mergedContent: string | null, duetDataPath: string, port: number): AgentInfo {
   const codexDir = getCodexDir()
   if (!existsSync(codexDir)) {
     return { id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' }

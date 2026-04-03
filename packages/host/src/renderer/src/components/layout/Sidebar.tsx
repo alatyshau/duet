@@ -1,58 +1,32 @@
 /*
- * ЧТО: Компонент боковой панели навигации.
- * ЗАЧЕМ: Отображает логотип, навигационные ссылки и секции с вложенными элементами.
- * КТО ИСПОЛЬЗУЕТ: Layout компонент.
+ * Сайдбар: горизонтальные табы (Settings / Apps) + список шагов или приложений.
+ *
+ * Таб "Settings" показывает визард — 7 шагов с иконками статуса.
+ * Таб "Apps" показывает список запущенных приложений с ProcessState индикатором.
  */
-import { useState } from 'react'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, Package, Bot, ChevronRight, Loader2, AppWindow } from 'lucide-react'
+import { StatusDot } from '@renderer/components/ui/status-dot'
+import { FolderOpen, Settings, Play } from 'lucide-react'
+import { WIZARD_STEPS, APP_ITEMS, tabForPage } from '../../navigation'
+import type { Page, Tab, WizardPage } from '../../navigation'
 import type { ProcessState } from '../../../../shared/types'
-
-// =============================================================================
-// STATUS DOT
-// =============================================================================
-
-function StatusDot({ state }: { state: ProcessState }): React.ReactElement {
-  if (state === 'starting' || state === 'stopping') {
-    return <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
-  }
-
-  const color =
-    state === 'running' ? 'bg-green-500' : state === 'error' ? 'bg-red-500' : 'bg-muted-foreground'
-
-  return <div className={cn('w-2 h-2 rounded-full flex-shrink-0', color)} />
-}
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-interface NavItem {
-  id: string
-  label: string
-  icon: React.ReactNode
-}
-
-interface NavSection {
-  id: string
-  label: string
-  icon: React.ReactNode
-  children: NavSectionChild[]
-}
-
-interface NavSectionChild {
-  id: string
-  label: string
-  processState?: ProcessState
-}
+/** Статус шага визарда: done, error, skipped, или null (не определён). */
+export type StepStatus = 'done' | 'error' | 'skipped' | null
 
 interface SidebarProps {
-  currentPage: string
-  onNavigate: (page: string) => void
+  currentPage: Page
+  onNavigate: (page: Page) => void
   onOpenFolder: () => void
   folderConfigured: boolean
   backendProcessState?: ProcessState
+  /** Статусы шагов визарда. Ключ — WizardPage id. */
+  stepStatuses?: Partial<Record<WizardPage, StepStatus>>
 }
 
 // =============================================================================
@@ -64,105 +38,19 @@ export function Sidebar({
   onNavigate,
   onOpenFolder,
   folderConfigured,
-  backendProcessState
+  backendProcessState,
+  stepStatuses = {}
 }: SidebarProps): React.ReactElement {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['apps']))
+  const activeTab = tabForPage(currentPage)
 
-  const toggleSection = (id: string): void => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }
-
-  const topItems: NavItem[] = [{ id: 'install', label: 'Установка', icon: <Package size={20} /> }]
-
-  const sections: NavSection[] = [
-    {
-      id: 'apps',
-      label: 'Приложения',
-      icon: <AppWindow size={20} />,
-      children: [
-        { id: 'app:duet-backend', label: 'Duet Backend', processState: backendProcessState }
-      ]
+  const handleTabClick = (tab: Tab): void => {
+    if (tab === activeTab) return
+    // При переключении таба — переходим на первый элемент
+    if (tab === 'settings') {
+      onNavigate(WIZARD_STEPS[0].page)
+    } else {
+      onNavigate(APP_ITEMS[0].page)
     }
-  ]
-
-  const bottomItems: NavItem[] = [{ id: 'agents', label: 'AI Агенты', icon: <Bot size={20} /> }]
-
-  const isDisabled = (id: string): boolean => !folderConfigured && id !== 'install'
-
-  const renderNavButton = (item: NavItem): React.ReactElement => {
-    const disabled = isDisabled(item.id)
-    const isActive = currentPage === item.id
-    return (
-      <button
-        key={item.id}
-        onClick={() => !disabled && onNavigate(item.id)}
-        disabled={disabled}
-        className={cn(
-          'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-          isActive ? 'bg-primary/10 text-primary font-medium' : 'text-foreground hover:bg-accent',
-          disabled && 'opacity-40 cursor-not-allowed hover:bg-transparent'
-        )}
-      >
-        {item.icon}
-        {item.label}
-      </button>
-    )
-  }
-
-  const renderSection = (section: NavSection): React.ReactElement => {
-    const disabled = isDisabled(section.id)
-    const isExpanded = expandedSections.has(section.id)
-
-    return (
-      <div key={section.id}>
-        <button
-          onClick={() => !disabled && toggleSection(section.id)}
-          disabled={disabled}
-          className={cn(
-            'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-            'text-foreground hover:bg-accent',
-            disabled && 'opacity-40 cursor-not-allowed hover:bg-transparent'
-          )}
-        >
-          <ChevronRight
-            size={14}
-            className={cn('transition-transform', isExpanded && 'rotate-90')}
-          />
-          {section.icon}
-          {section.label}
-        </button>
-        {isExpanded && !disabled && (
-          <div className="ml-5">
-            {section.children.map((child) => {
-              const isActive = currentPage === child.id
-              return (
-                <button
-                  key={child.id}
-                  onClick={() => onNavigate(child.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors',
-                    isActive
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-foreground hover:bg-accent'
-                  )}
-                >
-                  {child.processState !== undefined && <StatusDot state={child.processState} />}
-                  {child.label}
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    )
   }
 
   return (
@@ -172,8 +60,8 @@ export function Sidebar({
         <h1 className="text-xl font-semibold text-foreground">Duet</h1>
       </div>
 
-      {/* Кнопка открыть папку */}
-      <div className="p-4">
+      {/* Кнопка открыть DuetData */}
+      <div className="p-4 pb-2">
         <Button
           variant="outline"
           className="w-full justify-start gap-2"
@@ -185,12 +73,203 @@ export function Sidebar({
         </Button>
       </div>
 
-      {/* Навигация */}
-      <nav className="flex-1 p-2">
-        {topItems.map(renderNavButton)}
-        {sections.map(renderSection)}
-        {bottomItems.map(renderNavButton)}
+      {/* Табы */}
+      <div className="px-4 py-2 flex gap-1">
+        <TabButton
+          icon={<Settings size={16} />}
+          label="Настройки"
+          active={activeTab === 'settings'}
+          onClick={() => handleTabClick('settings')}
+        />
+        <TabButton
+          icon={<Play size={16} />}
+          label="Приложения"
+          active={activeTab === 'apps'}
+          onClick={() => handleTabClick('apps')}
+        />
+      </div>
+
+      <div className="border-b border-border mx-4" />
+
+      {/* Список элементов таба */}
+      <nav className="flex-1 overflow-y-auto p-2">
+        {activeTab === 'settings' && (
+          <WizardNav
+            currentPage={currentPage}
+            onNavigate={onNavigate}
+            stepStatuses={stepStatuses}
+          />
+        )}
+        {activeTab === 'apps' && (
+          <AppsNav
+            currentPage={currentPage}
+            onNavigate={onNavigate}
+            backendProcessState={backendProcessState}
+          />
+        )}
       </nav>
     </aside>
   )
+}
+
+// =============================================================================
+// TAB BUTTON
+// =============================================================================
+
+function TabButton({
+  icon,
+  label,
+  active,
+  onClick
+}: {
+  icon: React.ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+}): React.ReactElement {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+        active
+          ? 'bg-primary/10 text-primary'
+          : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+// =============================================================================
+// WIZARD NAV (Settings tab)
+// =============================================================================
+
+function WizardNav({
+  currentPage,
+  onNavigate,
+  stepStatuses
+}: {
+  currentPage: Page
+  onNavigate: (page: Page) => void
+  stepStatuses: Partial<Record<WizardPage, StepStatus>>
+}): React.ReactElement {
+  return (
+    <div className="space-y-0.5">
+      {WIZARD_STEPS.map((step) => {
+        const isActive = currentPage === step.page
+        const status = stepStatuses[step.page] ?? null
+
+        return (
+          <button
+            key={step.page}
+            onClick={() => onNavigate(step.page)}
+            className={cn(
+              'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+              isActive
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-foreground hover:bg-accent'
+            )}
+          >
+            <StepStatusIcon status={status} />
+            {step.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// =============================================================================
+// APPS NAV (Apps tab)
+// =============================================================================
+
+function AppsNav({
+  currentPage,
+  onNavigate,
+  backendProcessState
+}: {
+  currentPage: Page
+  onNavigate: (page: Page) => void
+  backendProcessState?: ProcessState
+}): React.ReactElement {
+  return (
+    <div className="space-y-0.5">
+      {APP_ITEMS.map((item) => {
+        const isActive = currentPage === item.page
+        // TODO: Generalize process state lookup when more apps are added
+        const processState = item.page === 'app:duet-backend' ? backendProcessState : undefined
+
+        return (
+          <button
+            key={item.page}
+            onClick={() => onNavigate(item.page)}
+            className={cn(
+              'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+              isActive
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-foreground hover:bg-accent'
+            )}
+          >
+            {processState !== undefined && <StatusDot state={processState} />}
+            {item.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// =============================================================================
+// STEP STATUS ICON
+// =============================================================================
+
+function StepStatusIcon({ status }: { status: StepStatus }): React.ReactElement {
+  if (status === 'done') {
+    return (
+      <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path
+            d="M2 5L4.5 7.5L8 3"
+            stroke="white"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+    )
+  }
+
+  if (status === 'error') {
+    return (
+      <div className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M3 3L7 7M7 3L3 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+    )
+  }
+
+  if (status === 'skipped') {
+    return (
+      <div className="w-4 h-4 rounded-full bg-muted-foreground/30 flex items-center justify-center flex-shrink-0">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path
+            d="M3 5L5 3L7 5M3 5L5 7L7 5"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-muted-foreground"
+          />
+        </svg>
+      </div>
+    )
+  }
+
+  // null — не определён
+  return <div className="w-4 h-4 rounded-full border-2 border-border flex-shrink-0" />
 }

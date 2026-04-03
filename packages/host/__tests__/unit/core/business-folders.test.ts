@@ -86,9 +86,7 @@ describe('core/business-folders', () => {
       const folders = ['/path/to/business1']
       saveBusinessFolders(folders)
 
-      const settings = JSON.parse(
-        readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8')
-      )
+      const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
       expect(settings.business_folders).toEqual(folders)
       // Other keys preserved
       expect(settings.timestampTZ).toEqual({ id: 'Z', value: 'UTC' })
@@ -98,9 +96,7 @@ describe('core/business-folders', () => {
       const folders = ['/new/path']
       saveBusinessFolders(folders)
 
-      const settings = JSON.parse(
-        readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8')
-      )
+      const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
       expect(settings.business_folders).toEqual(folders)
     })
 
@@ -113,9 +109,7 @@ describe('core/business-folders', () => {
 
       saveBusinessFolders(['/new/path1', '/new/path2'])
 
-      const settings = JSON.parse(
-        readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8')
-      )
+      const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
       expect(settings.business_folders).toEqual(['/new/path1', '/new/path2'])
     })
   })
