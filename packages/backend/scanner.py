@@ -59,6 +59,8 @@ class Scanner:
         self._scan_in_progress = False
         # Current business_folder being scanned (for relative path calculation)
         self._current_business_folder: Path | None = None
+        # Structured errors collected during scan
+        self.errors: list[dict] = []
 
     def _to_relative_path(self, absolute_path: Path) -> str:
         """Convert absolute path to relative path from current business_folder's parent.
@@ -94,13 +96,14 @@ class Scanner:
     def scan(self) -> dict:
         """Run full scan of business folders.
 
-        Returns scan statistics.
+        Returns scan statistics and errors.
         """
         if self._scan_in_progress:
             return {"status": "skipped", "reason": "scan already in progress"}
 
         try:
             self._scan_in_progress = True
+            self.errors = []
             self.db.init()
             self.db.clear()
 
@@ -112,6 +115,7 @@ class Scanner:
             return {
                 "status": "completed",
                 "entities_count": len(entities),
+                "errors": self.errors,
             }
         finally:
             self._scan_in_progress = False
@@ -125,7 +129,9 @@ class Scanner:
             name = f"{base_name} ({counter})"
         return name
 
-    def _resolve_unique_name(self, base_name: str, new_type: str) -> str:
+    def _resolve_unique_name(
+        self, base_name: str, new_type: str, folder_path: Path | None = None
+    ) -> str:
         """Resolve name for a new entity using priority-based algorithm.
 
         If name exists:
@@ -141,19 +147,38 @@ class Scanner:
         new_priority = TYPE_PRIORITIES.get(new_type, 99)
         existing_priority = TYPE_PRIORITIES.get(existing.type, 99)
 
+        # Determine reason code based on types involved
+        repo_types = {"product_repo", "reference_repo"}
+        if new_type in repo_types or existing.type in repo_types:
+            reason_code = "repo_collision"
+        else:
+            reason_code = "name_collision"
+
+        path_str = str(folder_path) if folder_path else base_name
+
         if new_priority < existing_priority:
             # New entity has higher priority → rename existing, claim original name
             suffixed_name = self._find_available_name(base_name)
             self.db.update_entity_name(existing.id, suffixed_name)
-            print(
-                f'Name conflict: "{base_name}" - {new_type} claims name, '
-                f'{existing.type} renamed to "{suffixed_name}"'
-            )
+            self.errors.append({
+                "path": path_str,
+                "reason_code": reason_code,
+                "description": (
+                    f'Name collision: "{base_name}" — {new_type} claims name, '
+                    f'{existing.type} renamed to "{suffixed_name}"'
+                ),
+            })
             return base_name
         else:
             # New entity has lower/equal priority → get suffixed name
             suffixed_name = self._find_available_name(base_name)
-            print(f'Name conflict: "{base_name}" - {new_type} gets "{suffixed_name}"')
+            self.errors.append({
+                "path": path_str,
+                "reason_code": reason_code,
+                "description": (
+                    f'Name collision: "{base_name}" — {new_type} renamed to "{suffixed_name}"'
+                ),
+            })
             return suffixed_name
 
     def _create_business_manifest(self, folder_path: Path) -> bool:
@@ -237,6 +262,11 @@ class Scanner:
                     manifest = stream_manifest
             else:
                 # No manifest at all - create business.json
+                self.errors.append({
+                    "path": str(path),
+                    "reason_code": "missing_manifest",
+                    "description": f"Missing business.json in {path.name} (auto-created)",
+                })
                 self._create_business_manifest(path)
 
             # Use fallback manifest if self-healing failed or no manifest read
@@ -244,7 +274,7 @@ class Scanner:
                 manifest = Manifest(name=path.name, icon="📁")
 
         base_name = manifest.name or path.name
-        unique_name = self._resolve_unique_name(base_name, "business")
+        unique_name = self._resolve_unique_name(base_name, "business", path / "business.json")
         icon = manifest.icon or "📁"
 
         # Use relative path (empty string for root = business folder itself)
@@ -262,7 +292,7 @@ class Scanner:
         )
 
         # Register reference_repo entities
-        self._register_reference_repos(manifest, business_id)
+        self._register_reference_repos(manifest, business_id, path / "business.json")
 
         # Scan for projects at business level
         self._scan_projects(path, business_id)
@@ -292,7 +322,7 @@ class Scanner:
 
         if stream_manifest:
             base_name = stream_manifest.name or folder_path.name
-            unique_name = self._resolve_unique_name(base_name, "stream")
+            unique_name = self._resolve_unique_name(base_name, "stream", folder_path / "stream.json")
 
             # Use relative path from business_folder
             relative_path = self._to_relative_path(folder_path)
@@ -309,7 +339,7 @@ class Scanner:
             )
 
             # Register reference_repo entities
-            self._register_reference_repos(stream_manifest, stream_id)
+            self._register_reference_repos(stream_manifest, stream_id, folder_path / "stream.json")
 
             # Scan for projects at stream level
             self._scan_projects(folder_path, stream_id)
@@ -335,19 +365,25 @@ class Scanner:
             self._scan_stream_or_product(Path(entry.path), parent_id)
 
     def _register_reference_repos(
-        self, manifest: Manifest, parent_id: int
+        self, manifest: Manifest, parent_id: int, manifest_path: Path | None = None
     ) -> None:
         """Register reference_repo entities from manifest's reference_repos field.
 
         Creates reference_repo entity for each entry in manifest.reference_repos.
         Entity name includes .git suffix (e.g. "anthropic-cookbook.git").
+
+        Args:
+            manifest: Parsed manifest with reference_repos.
+            parent_id: Parent entity ID.
+            manifest_path: Path to the manifest file declaring reference_repos
+                          (used for error reporting).
         """
         if not manifest.reference_repos:
             return
 
         for ref_name, ref_url in manifest.reference_repos.items():
             ref_entity_name = f"{ref_name}.git"
-            resolved_name = self._resolve_unique_name(ref_entity_name, "reference_repo")
+            resolved_name = self._resolve_unique_name(ref_entity_name, "reference_repo", manifest_path)
             self.db.insert_entity(
                 Entity(
                     id=None,
@@ -369,7 +405,7 @@ class Scanner:
         Scans projects from both drive path and git repo (if repos_path configured).
         """
         base_name = manifest.name or folder_path.name
-        unique_name = self._resolve_unique_name(base_name, "product")
+        unique_name = self._resolve_unique_name(base_name, "product", folder_path / "product.json")
 
         # Use relative path from business_folder
         relative_path = self._to_relative_path(folder_path)
@@ -389,7 +425,7 @@ class Scanner:
         # Register product_repo entity if product has git_url
         if manifest.git_url:
             repo_entity_name = f"{unique_name}.git"
-            resolved_repo_name = self._resolve_unique_name(repo_entity_name, "product_repo")
+            resolved_repo_name = self._resolve_unique_name(repo_entity_name, "product_repo", folder_path / "product.json")
             self.db.insert_entity(
                 Entity(
                     id=None,
@@ -403,7 +439,7 @@ class Scanner:
             )
 
         # Register reference_repo entities
-        self._register_reference_repos(manifest, product_id)
+        self._register_reference_repos(manifest, product_id, folder_path / "product.json")
 
         # Scan projects from drive path
         self._scan_projects(folder_path, product_id, is_repos=False)
@@ -434,7 +470,7 @@ class Scanner:
 
                 project_base_name = manifest.name if manifest and manifest.name else entry.name
                 project_unique_name = self._resolve_unique_name(
-                    project_base_name, "project"
+                    project_base_name, "project", Path(entry.path) / "project.json"
                 )
 
                 # Calculate relative path
@@ -466,7 +502,7 @@ class Scanner:
 
                 # Register reference_repo entities from project manifest
                 if manifest:
-                    self._register_reference_repos(manifest, project_id)
+                    self._register_reference_repos(manifest, project_id, Path(entry.path) / "project.json")
 
     def _read_manifest(self, folder_path: Path, filename: str) -> Manifest | None:
         """Read and parse a manifest file."""
@@ -486,7 +522,12 @@ class Scanner:
         except FileNotFoundError:
             return None
         except (json.JSONDecodeError, OSError) as e:
-            msg = f"Failed to parse {filename} at {folder_path}: {e}"
+            msg = f"Invalid manifest {filename} at {folder_path}: {e}"
+            self.errors.append({
+                "path": str(file_path),
+                "reason_code": "invalid_manifest",
+                "description": msg,
+            })
             if self.on_error:
                 self.on_error(msg)
             else:

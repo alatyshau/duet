@@ -380,7 +380,7 @@ class TestScannerEdgeCases:
         scanner.scan()
 
         assert len(errors) == 1
-        assert "Failed to parse" in errors[0]
+        assert "Invalid manifest" in errors[0]
         # Self-healing should have created a fallback
         entities = db.get_all_entities()
         assert len(entities) == 1
@@ -428,6 +428,103 @@ class TestScannerEdgeCases:
         product = db.find_by_name("DeepProduct")
         assert product is not None
         assert product.type == "product"
+
+
+class TestScanErrors:
+    """Tests for structured error collection during scan."""
+
+    def test_name_collision_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Name collision produces error with reason_code."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        # Two streams with same name
+        s1 = biz_path / "StreamA"
+        s1.mkdir()
+        ManifestBuilder.stream(s1, "Conflict", "🌊")
+        s2 = biz_path / "StreamB"
+        s2.mkdir()
+        ManifestBuilder.stream(s2, "Conflict", "🌊")
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["reason_code"] == "name_collision"
+        assert "Conflict" in result["errors"][0]["description"]
+
+    def test_invalid_manifest_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Corrupt JSON manifest produces error with reason_code."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        stream_path = biz_path / "BadStream"
+        stream_path.mkdir()
+        (stream_path / "stream.json").write_text("{not valid json!!!", encoding="utf-8")
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        invalid_errors = [e for e in result["errors"] if e["reason_code"] == "invalid_manifest"]
+        assert len(invalid_errors) == 1
+        assert "stream.json" in invalid_errors[0]["description"]
+
+    def test_missing_manifest_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Business folder without manifest produces missing_manifest error."""
+        biz_path = tmp_path / "NoBizJson"
+        biz_path.mkdir()
+        # No business.json, no stream.json — scanner will self-heal
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        missing_errors = [e for e in result["errors"] if e["reason_code"] == "missing_manifest"]
+        assert len(missing_errors) == 1
+        assert "NoBizJson" in missing_errors[0]["description"]
+
+    def test_repo_collision_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Product repo vs reference_repo name collision produces repo_collision."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        # Business has reference_repo "Lib" → creates "Lib.git" reference_repo
+        ManifestBuilder.business(biz_path, "Business", "🏢", reference_repos={"Lib": "https://github.com/test/lib-ref"})
+
+        # Product named "Lib" with git_url → tries to create "Lib.git" product_repo
+        p1 = biz_path / "Lib"
+        p1.mkdir()
+        ManifestBuilder.product(p1, "Lib", "📦", git_url="https://github.com/test/lib")
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        repo_errors = [e for e in result["errors"] if e["reason_code"] == "repo_collision"]
+        assert len(repo_errors) >= 1
+        assert "Lib.git" in repo_errors[0]["description"]
+        # Error path points to the manifest for Fix button
+        assert "product.json" in repo_errors[0]["path"]
+
+    def test_errors_empty_on_clean_scan(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Clean scan produces no errors."""
+        biz_path = tmp_path / "Business"
+        biz_path.mkdir()
+        ManifestBuilder.business(biz_path, "Business", "🏢")
+
+        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+
+        scanner = Scanner(db)
+        result = scanner.scan()
+
+        assert result["errors"] == []
 
 
 class TestScanComponents:

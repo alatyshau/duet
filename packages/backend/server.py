@@ -32,13 +32,15 @@ from config import (
     ConfigError,
     get_business_folders,
     get_db_path,
+    get_duet_data_path,
     get_instructions_path,
     get_log_path,
     get_port,
     get_timezone,
     get_version,
 )
-from instructions import merge_bootstrapper
+from fileio import atomic_write_json
+from instructions import merge_bootstrapper, merge_duet_instructions
 from db import DatabaseManager
 from mcp_handler import (
     get_duet_data_path_str,
@@ -168,7 +170,16 @@ async def orientation_handler(request: Request) -> JSONResponse:
 async def streams_handler(request: Request) -> JSONResponse:
     """GET /streams - Get all streams (business/stream/product) without projects."""
     result = get_entities_service().get_streams()
-    return JSONResponse({"streams": result})
+    response = {"streams": result}
+
+    # JSON cache: write for file watcher consumers (Host, Extension)
+    try:
+        cache_path = get_duet_data_path() / "data" / "streams.json"
+        atomic_write_json(cache_path, response)
+    except Exception as e:
+        logger.warning(f"Failed to write streams cache: {e}")
+
+    return JSONResponse(response)
 
 
 async def projects_handler(request: Request) -> JSONResponse:
@@ -191,6 +202,17 @@ async def scan_handler(request: Request) -> JSONResponse:
     start = time.time()
     result = get_entities_service().run_scan()
     result["duration_ms"] = int((time.time() - start) * 1000)
+
+    # JSON cache: write scan result + fresh streams for file watcher consumers
+    if result.get("status") == "completed":
+        try:
+            data_dir = get_duet_data_path() / "data"
+            atomic_write_json(data_dir / "scan.json", result)
+            streams = get_entities_service().get_streams()
+            atomic_write_json(data_dir / "streams.json", {"streams": streams})
+        except Exception as e:
+            logger.warning(f"Failed to write scan cache: {e}")
+
     return JSONResponse(result)
 
 
@@ -225,8 +247,38 @@ async def add_business_handler(request: Request) -> JSONResponse:
         )
 
 
+async def merge_instructions_handler(request: Request) -> JSONResponse:
+    """POST /merge-duet-instructions - Merge bootstrapper + user instructions to file.
+
+    Merges bootstrapper.md + core_instructions.md + skills table.
+    Writes result to DuetData/duet-instructions.md.
+    Writes errors to DuetData/data/duet-instructions-errors.json.
+    """
+    bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
+    try:
+        instructions_path = get_instructions_path()
+        duet_data = get_duet_data_path()
+        output_path = duet_data / "duet-instructions.md"
+        errors_path = duet_data / "data" / "duet-instructions-errors.json"
+
+        result = merge_duet_instructions(
+            bootstrapper_path, instructions_path, output_path, errors_path
+        )
+        return JSONResponse(result)
+    except ConfigError as e:
+        return JSONResponse(
+            {"error": str(e), "code": "CONFIG_ERROR"},
+            status_code=500,
+        )
+
+
 async def bootstrapper_handler(request: Request) -> JSONResponse:
-    """GET /bootstrapper - Merged bootstrapper + user core instructions."""
+    """GET /bootstrapper - Legacy shim for current Host compatibility.
+
+    Returns merged content directly (same as old endpoint).
+    Host ai-clients.ts still calls this. Remove in Phase 4 when Host
+    migrates to POST /merge-duet-instructions.
+    """
     bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
     try:
         instructions_path = get_instructions_path()
@@ -298,7 +350,8 @@ def create_app() -> Starlette:
         Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/add-business", add_business_handler, methods=["POST"]),
-        Route("/bootstrapper", bootstrapper_handler, methods=["GET"]),
+        Route("/merge-duet-instructions", merge_instructions_handler, methods=["POST"]),
+        Route("/bootstrapper", bootstrapper_handler, methods=["GET"]),  # Legacy shim, remove in Phase 4
         # Mount MCP at /mcp (streamable HTTP transport)
         Mount("/mcp", app=mcp_app),
     ]

@@ -25,6 +25,10 @@ After orientation, the `instructions` block in the response contains the full ca
 
 **`!` prefix convention:** Any word in user text starting with `!` (e.g. `!чек`, `!коммит`) is most likely a Duet skill shortcut. Treat it as an explicit invocation — look it up in the skills catalog and load the matching skill.
 
+**Never use the system `Skill` tool for Duet skills.** The `Skill` tool is for harness-level commands only (e.g. `update-config`, `keybindings-help`). Duet skills are always loaded via Read from `instructions.basePath`. If a Duet skill shortcut collides with a system skill name — the Duet skill wins.
+
+<!-- INSERT SKILLS TABLE -->
+
 ## Glossary
 
 **Entity Hierarchy:**
