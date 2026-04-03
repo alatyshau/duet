@@ -1,4 +1,4 @@
-"""Tests for instructions workspace scanning, multi-path resolution, and bootstrapper merge."""
+"""Tests for instructions workspace scanning and merge pipeline."""
 
 import json
 import time
@@ -12,7 +12,6 @@ from db import DatabaseManager
 from instructions import (
     parse_frontmatter,
     scan_instructions,
-    merge_bootstrapper,
     merge_duet_instructions,
     _extract_user_content,
     _parse_frontmatter_with_error,
@@ -380,67 +379,6 @@ class TestExtractUserContent:
         text = "# Title\n\n\n## Section\nContent\n"
         result = _extract_user_content(text)
         assert result.startswith("## Section")
-
-
-class TestMergeBootstrapper:
-    """Tests for merge_bootstrapper."""
-
-    def test_merge_produces_valid_output(self, tmp_path):
-        """Bootstrapper + core_instructions merge correctly."""
-        bootstrapper = tmp_path / "bootstrapper.md"
-        bootstrapper.write_text(
-            "# Platform\n\n## Orientation\nDuet stuff\n\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
-            encoding="utf-8",
-        )
-
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        (instr_path / "index.json").write_text(
-            json.dumps({"core_instructions": "core_instructions.md", "personas": {"path": "p"}, "skill_folders": []}),
-            encoding="utf-8",
-        )
-        (instr_path / "core_instructions.md").write_text(
-            "# My Rules\n\n## L7+\nBe excellent\n\n## SDD\nSpecs first\n",
-            encoding="utf-8",
-        )
-
-        result = merge_bootstrapper(bootstrapper, instr_path)
-
-        assert "# Platform" in result
-        assert "## Orientation" in result
-        assert "## L7+" in result
-        assert "Be excellent" in result
-        assert "## SDD" in result
-        assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in result
-        assert "# My Rules" not in result  # H1 stripped
-
-    def test_missing_core_instructions_raises(self, tmp_path):
-        bootstrapper = tmp_path / "bootstrapper.md"
-        bootstrapper.write_text("<!-- INSERT USER CORE INSTRUCTIONS -->\n", encoding="utf-8")
-
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        (instr_path / "index.json").write_text(
-            json.dumps({"core_instructions": "missing.md"}),
-            encoding="utf-8",
-        )
-
-        with pytest.raises(FileNotFoundError, match="core_instructions not found"):
-            merge_bootstrapper(bootstrapper, instr_path)
-
-    def test_missing_marker_raises(self, tmp_path):
-        bootstrapper = tmp_path / "bootstrapper.md"
-        bootstrapper.write_text("# No marker here\n", encoding="utf-8")
-
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        (instr_path / "index.json").write_text(
-            json.dumps({"core_instructions": "core.md"}),
-            encoding="utf-8",
-        )
-
-        with pytest.raises(ValueError, match="Marker"):
-            merge_bootstrapper(bootstrapper, instr_path)
 
 
 # === Tests for frontmatter error reporting ===

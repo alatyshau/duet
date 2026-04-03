@@ -41,7 +41,7 @@ AI-инструкции вынесены из Duet в отдельный git-р�
 
 **Подключение:** `instructionsPath` в `{machine}.json` указывает абсолютный путь к Duet-Instructions.
 
-**Bootstrapper:** Backend компонует `bootstrapper.md` (платформенный, в packages/backend) с `core_instructions.md` (пользовательский) через маркер `<!-- INSERT USER CORE INSTRUCTIONS -->`. Host забирает merged content через `GET /bootstrapper` и записывает в конфиги AI-клиентов.
+**Merge pipeline:** Backend компонует `bootstrapper.md` (платформенный, в packages/backend) с `core_instructions.md` (пользовательский) + таблицу скиллов через `POST /merge-duet-instructions`. Результат записывается в `DuetData/duet-instructions.md` (atomic write). Host читает файл с диска и записывает в конфиги AI-клиентов.
 
 **AI-клиенты (конфигурируемые Host):**
 

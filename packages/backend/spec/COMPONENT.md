@@ -78,8 +78,8 @@ server.py (entry point, lifecycle)
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
 | GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
 | GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
-| POST | `/scan` | Returns `{ status, entities_count, duration_ms }` |
-| GET | `/bootstrapper` | Returns `{ content: "..." }` — merged bootstrapper + user core_instructions |
+| POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
+| POST | `/merge-duet-instructions` | Merges bootstrapper + core_instructions + skills table → file. Returns `{ status, path, errors[] }` |
 
 #### `/scan` Behavior
 
@@ -88,6 +88,21 @@ server.py (entry point, lifecycle)
 **Blocking:** Scan runs synchronously. During scan, backend does NOT respond to other requests. Typical duration: 1-5 seconds.
 
 **Why this is OK:** Single-user local app. One person, one machine, predictable behavior.
+
+**Scan errors:** `errors[]` in response contains `{path, reason_code, description, manifest_path?}`. Reason codes: `name_collision`, `repo_collision`, `missing_manifest`, `invalid_manifest`. Each error includes `manifest_path` for Host UI Fix button.
+
+#### JSON Cache Pattern
+
+Backend writes operation results to `DuetData/data/` as JSON files (atomic write). Consumers (Host, Extension) use file watchers instead of polling HTTP.
+
+| File | Source | Consumers |
+|------|--------|-----------|
+| `DuetData/duet-instructions.md` | `POST /merge-duet-instructions` | Host → writes to AI client configs |
+| `DuetData/data/duet-instructions-errors.json` | `POST /merge-duet-instructions` | Host wizard (step 6) |
+| `DuetData/data/scan.json` | `POST /scan` | Host wizard (step 5), Extension (tree) |
+| `DuetData/data/streams.json` | `GET /streams` | Extension (tree without HTTP) |
+
+**Atomic write:** All files written via `.new` → rename → `.old` → delete. File watcher never sees half-written file. Implementation: `fileio.py:atomic_write()`.
 
 ### MCP Tools
 
@@ -161,20 +176,25 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 
 **REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII characters). Returns result directly (not wrapped).
 
-### `/bootstrapper` — Merged Instructions
+### `/merge-duet-instructions` — Merged Instructions
 
-`GET /bootstrapper` — returns merged platform bootstrapper + user core_instructions for AI client configuration.
+`POST /merge-duet-instructions` — merges platform bootstrapper + user core_instructions + skills table into a single file. Writes result to `DuetData/duet-instructions.md`.
 
-**Composition:** `merge_bootstrapper(bootstrapper_path, instructions_path)` in `instructions.py`:
-1. Reads `bootstrapper.md` (bundled with backend)
-2. Finds marker `<!-- INSERT USER CORE INSTRUCTIONS -->`
-3. Reads `core_instructions` path from `index.json` in instructions workspace
-4. Extracts user content (everything from first H2 onwards, H1 stripped)
-5. Replaces marker with user content → returns merged string
+**Pipeline:** `merge_duet_instructions()` in `instructions.py`:
+1. Reads `bootstrapper.md` (bundled with backend), finds marker `<!-- INSERT USER CORE INSTRUCTIONS -->`
+2. Reads `core_instructions` from `index.json`, extracts user content (first H2 onwards, H1 stripped)
+3. Replaces marker with user content
+4. Builds skills table (name, shortcuts, trigger), inserts at `<!-- INSERT SKILLS TABLE -->` marker
+5. Writes merged result to `DuetData/duet-instructions.md` (atomic write)
+6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic write)
 
-**Consumer:** Host (`core/ai-clients.ts`) fetches merged content and writes to AI client config files.
+**Response:** `{ status: "ok"|"error", path: "/absolute/path" | null, errors: [{path, reason_code, description}] }`
 
-**Errors:** Returns 500 with `{ error, code: "BOOTSTRAPPER_MERGE_FAILED" }` if instructions workspace not configured, `core_instructions.md` missing, or marker not found.
+**Error reason codes:** `no_frontmatter`, `invalid_yaml`, `missing_fields`, `frontmatter_too_large`, `content_between_h1_h2`, `no_h2_found`, `bootstrapper_not_found`, `bootstrapper_missing_marker`, `index_not_found`, `index_invalid`, `index_missing_field`, `core_instructions_not_found`
+
+**Consumer:** Host reads `DuetData/duet-instructions.md` from disk and writes to AI client config files. No HTTP fetch for content — file-based delivery via JSON cache pattern.
+
+**Behavior:** If merge fails fatally → `status: "error"`, `path: null`. If merge succeeds with validation warnings → `status: "ok"`, `path` set, `errors` may be non-empty.
 
 ## Description Extraction (`description.py`)
 
@@ -331,7 +351,9 @@ tests/
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback | `description.py:find_spec_file()` |
 | Instructions scanning | `instructions.py:scan_instructions()` |
+| Merge pipeline | `instructions.py:merge_duet_instructions()` |
 | Frontmatter parsing | `instructions.py:parse_frontmatter()` |
+| Atomic file write | `fileio.py:atomic_write()` |
 | SQLite schema | `db.py:_init_schema()` |
 | Config reading | `config.py` |
 | Pointer reading | `pointer.py` |

@@ -20,8 +20,22 @@ import {
   pythonInstallHint
 } from '../core/deploy'
 import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
-import { detectAgents, configureAllAgents } from '../core/ai-clients'
-import type { AppState, DeployStatus, BackendStatus, PythonStatus } from '../shared/types'
+import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
+import { triggerMerge, readCachedErrors } from '../core/instructions'
+import {
+  getBusinessFolders,
+  saveBusinessFolders,
+  triggerScan
+} from '../core/business-folders'
+import type {
+  AppState,
+  DeployStatus,
+  BackendStatus,
+  PythonStatus,
+  InstructionsMergeResult,
+  InstructionsError,
+  ScanResult
+} from '../shared/types'
 import type { ChildProcess } from 'child_process'
 
 // =============================================================================
@@ -307,18 +321,53 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
   // === AI Agents ===
 
-  ipcMain.handle('agents:detect', async () => {
+  ipcMain.handle('agents:detect', () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    return await detectAgents(state.duetDataPath, port)
+    return detectAgents(state.duetDataPath, port)
   })
 
-  ipcMain.handle('agents:configure', async () => {
+  ipcMain.handle('agents:configure', () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    return await configureAllAgents(state.duetDataPath, port)
+    return configureAllAgents(state.duetDataPath, port)
+  })
+
+  ipcMain.handle(
+    'agents:fix-issue',
+    (_event, agentId: string, reasonCode: string): boolean => {
+      return fixAgentIssue(agentId, reasonCode)
+    }
+  )
+
+  // === Instructions ===
+
+  ipcMain.handle('instructions:merge', async (): Promise<InstructionsMergeResult> => {
+    const port = readPort()
+    return triggerMerge(port)
+  })
+
+  ipcMain.handle('instructions:get-errors', (): InstructionsError[] => {
+    const state = context.getAppState()
+    if (!state.duetDataPath) return []
+    return readCachedErrors(state.duetDataPath)
+  })
+
+  // === Business Folders ===
+
+  ipcMain.handle('business-folders:get', (): string[] => {
+    return getBusinessFolders()
+  })
+
+  ipcMain.handle('business-folders:save', (_event, folders: string[]): void => {
+    saveBusinessFolders(folders)
+  })
+
+  ipcMain.handle('business-folders:scan', async (): Promise<ScanResult> => {
+    const port = readPort()
+    return triggerScan(port)
   })
 }
 

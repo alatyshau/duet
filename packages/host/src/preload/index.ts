@@ -14,7 +14,10 @@ import type {
   DeployStatus,
   BackendStatus,
   PythonStatus,
-  AgentInfo
+  AgentInfo,
+  InstructionsMergeResult,
+  InstructionsError,
+  ScanResult
 } from '../shared/types'
 
 // Custom APIs for renderer
@@ -112,7 +115,27 @@ const api = {
 
   getAgents: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:detect'),
 
-  configureAgents: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:configure')
+  configureAgents: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:configure'),
+
+  fixAgentIssue: (agentId: string, reasonCode: string): Promise<boolean> =>
+    ipcRenderer.invoke('agents:fix-issue', agentId, reasonCode),
+
+  // === Instructions ===
+
+  mergeInstructions: (): Promise<InstructionsMergeResult> =>
+    ipcRenderer.invoke('instructions:merge'),
+
+  getInstructionsErrors: (): Promise<InstructionsError[]> =>
+    ipcRenderer.invoke('instructions:get-errors'),
+
+  // === Business Folders ===
+
+  getBusinessFolders: (): Promise<string[]> => ipcRenderer.invoke('business-folders:get'),
+
+  saveBusinessFolders: (folders: string[]): Promise<void> =>
+    ipcRenderer.invoke('business-folders:save', folders),
+
+  scanBusinessFolders: (): Promise<ScanResult> => ipcRenderer.invoke('business-folders:scan')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

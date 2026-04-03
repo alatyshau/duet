@@ -1,5 +1,8 @@
 /*
  * Unit тесты для src/core/ai-clients.ts
+ *
+ * Merged instructions читаются с диска (DuetData/duet-instructions.md),
+ * а не по HTTP. Тесты создают этот файл в tmp.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs'
@@ -22,23 +25,27 @@ const mockedHomedir = vi.mocked(homedir)
 import {
   configureClaudeCode,
   configureCodex,
+  configureAntigravity,
   detectAgents,
-  configureAllAgents
+  configureAllAgents,
+  fixAgentIssue
 } from '../../../src/core/ai-clients'
 
 // Test port for MCP URL
 const TEST_PORT = 19680
 const MCP_URL = `http://127.0.0.1:${TEST_PORT}/mcp`
 
-// Merged bootstrapper content returned by mocked fetch
+// Merged instructions content (written to DuetData/duet-instructions.md)
 const TEST_INSTRUCTIONS = '# Test Instructions'
 
-// Mock fetch for bootstrapper endpoint (GET /bootstrapper)
-const mockFetch = vi.fn().mockResolvedValue({
-  ok: true,
-  json: () => Promise.resolve({ content: TEST_INSTRUCTIONS })
-})
-vi.stubGlobal('fetch', mockFetch)
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+/** Writes merged instructions file to DuetData. */
+function writeMergedInstructions(duetDataDir: string, content: string = TEST_INSTRUCTIONS): void {
+  writeFileSync(join(duetDataDir, 'duet-instructions.md'), content, 'utf-8')
+}
 
 // =============================================================================
 // TESTS
@@ -53,12 +60,14 @@ describe('core/ai-clients', () => {
     homeDir = join(ctx.tmpDir, 'home')
     mkdirSync(homeDir, { recursive: true })
     mockedHomedir.mockReturnValue(homeDir)
-    // Reset CODEX_HOME to use default ~/.codex
+    // Reset env overrides
     delete process.env.CODEX_HOME
+    delete process.env.GEMINI_HOME
   })
 
   afterEach(() => {
     delete process.env.CODEX_HOME
+    delete process.env.GEMINI_HOME
     ctx.cleanup()
   })
 
@@ -67,42 +76,63 @@ describe('core/ai-clients', () => {
   // ===========================================================================
 
   describe('detectAgents', () => {
-    it('returns not_found when no agents installed', async () => {
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+    it('returns not_found when no agents installed', () => {
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
-      expect(agents).toHaveLength(2)
+      expect(agents).toHaveLength(3)
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'not_found' })
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'not_found' })
+      expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'not_found' })
     })
 
-    it('returns needs_setup when ~/.claude exists but not configured', async () => {
+    it('returns needs_setup when ~/.claude exists but not configured', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
     })
 
-    it('returns needs_setup when ~/.codex exists but not configured', async () => {
+    it('returns needs_setup when ~/.codex exists but not configured', () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
     })
 
-    it('respects CODEX_HOME env variable', async () => {
+    it('returns needs_setup when ~/.gemini exists but not configured', () => {
+      mkdirSync(join(homeDir, '.gemini'), { recursive: true })
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+
+      expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'needs_setup' })
+    })
+
+    it('respects CODEX_HOME env variable', () => {
       const customCodexDir = join(ctx.tmpDir, 'custom-codex')
       mkdirSync(customCodexDir, { recursive: true })
       process.env.CODEX_HOME = customCodexDir
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
     })
 
-    it('returns configured for Claude Code when output-style + settings + MCP exist and content matches', async () => {
-      // Write output-style with correct content (frontmatter + merged content from mock)
+    it('respects GEMINI_HOME env variable', () => {
+      const customGeminiDir = join(ctx.tmpDir, 'custom-gemini')
+      mkdirSync(customGeminiDir, { recursive: true })
+      process.env.GEMINI_HOME = customGeminiDir
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+
+      expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'needs_setup' })
+    })
+
+    it('returns configured for Claude Code when output-style + settings + MCP exist and content matches', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
+      // Write output-style with correct content (frontmatter + merged content)
       const frontmatter =
         '---\nname: Duet\ndescription: Core instructions for AI agents working in Duet ecosystem\nkeep-coding-instructions: true\n---\n\n'
       mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
@@ -123,14 +153,16 @@ describe('core/ai-clients', () => {
         })
       )
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'configured' })
       expect(agents[0].checkedFiles).toBeDefined()
       expect(agents[0].checkedFiles!.every((f) => f.ok)).toBe(true)
     })
 
-    it('returns needs_setup for Claude Code when output-style content is stale', async () => {
+    it('returns needs_setup for Claude Code when output-style content is stale', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
       mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
       writeFileSync(join(homeDir, '.claude', 'output-styles', 'duet.md'), '# Old content')
       writeFileSync(
@@ -146,13 +178,15 @@ describe('core/ai-clients', () => {
         })
       )
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
       expect(agents[0].details).toContain('устарели')
     })
 
-    it('returns needs_setup for Claude Code when only MCP exists', async () => {
+    it('returns needs_setup for Claude Code when only MCP exists', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       writeFileSync(
         join(homeDir, '.claude.json'),
@@ -163,13 +197,15 @@ describe('core/ai-clients', () => {
         })
       )
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'needs_setup' })
       expect(agents[0].details).toContain('MCP настроен')
     })
 
-    it('returns configured for Codex when config.toml has MCP + instructions and content matches', async () => {
+    it('returns configured for Codex when config.toml has MCP + instructions and content matches', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
       const codexDir = join(homeDir, '.codex')
       const instructionsPath = join(codexDir, 'duet_instructions.md')
       mkdirSync(codexDir, { recursive: true })
@@ -185,12 +221,14 @@ describe('core/ai-clients', () => {
         }) + '\n'
       )
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'configured' })
     })
 
-    it('returns needs_setup for Codex when only MCP configured', async () => {
+    it('returns needs_setup for Codex when only MCP configured', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
       const codexDir = join(homeDir, '.codex')
       mkdirSync(codexDir, { recursive: true })
       writeFileSync(
@@ -202,25 +240,52 @@ describe('core/ai-clients', () => {
         }) + '\n'
       )
 
-      const agents = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'needs_setup' })
       expect(agents[1].details).toContain('MCP настроен')
     })
 
-    it('detect after configure returns configured (round-trip)', async () => {
+    it('returns configured for Antigravity when GEMINI.md + MCP exist and content matches', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
+      const geminiDir = join(homeDir, '.gemini')
+      mkdirSync(join(geminiDir, 'antigravity'), { recursive: true })
+      writeFileSync(join(geminiDir, 'GEMINI.md'), TEST_INSTRUCTIONS)
+      writeFileSync(
+        join(geminiDir, 'antigravity', 'mcp_config.json'),
+        JSON.stringify({
+          mcpServers: {
+            duet: { type: 'http', url: MCP_URL }
+          }
+        })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+
+      expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'configured' })
+      expect(agents[2].checkedFiles).toBeDefined()
+      expect(agents[2].checkedFiles!.every((f) => f.ok)).toBe(true)
+    })
+
+    it('detect after configure returns configured (round-trip)', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
+      mkdirSync(join(homeDir, '.gemini'), { recursive: true })
 
       // Configure
-      const configResult = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
+      const configResult = configureAllAgents(ctx.duetDataDir, TEST_PORT)
       expect(configResult[0].status).toBe('configured')
       expect(configResult[1].status).toBe('configured')
+      expect(configResult[2].status).toBe('configured')
 
       // Detect should also return configured
-      const detectResult = await detectAgents(ctx.duetDataDir, TEST_PORT)
+      const detectResult = detectAgents(ctx.duetDataDir, TEST_PORT)
       expect(detectResult[0]).toMatchObject({ id: 'claude-code', status: 'configured' })
       expect(detectResult[1]).toMatchObject({ id: 'codex', status: 'configured' })
+      expect(detectResult[2]).toMatchObject({ id: 'antigravity', status: 'configured' })
     })
   })
 
@@ -242,7 +307,7 @@ describe('core/ai-clients', () => {
       const result = configureClaudeCode(null, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('needs_setup')
-      expect(result.details).toContain('backend недоступен')
+      expect(result.details).toContain('не сгенерированы')
 
       // MCP should still be written
       const claudeJsonPath = join(homeDir, '.claude.json')
@@ -375,7 +440,7 @@ describe('core/ai-clients', () => {
       const result = configureCodex(null, ctx.duetDataDir, TEST_PORT)
 
       expect(result.status).toBe('needs_setup')
-      expect(result.details).toContain('backend недоступен')
+      expect(result.details).toContain('не сгенерированы')
 
       // MCP should still be written in config.toml
       const configPath = join(homeDir, '.codex', 'config.toml')
@@ -539,26 +604,226 @@ describe('core/ai-clients', () => {
   })
 
   // ===========================================================================
+  // configureAntigravity
+  // ===========================================================================
+
+  describe('configureAntigravity', () => {
+    it('returns not_found when ~/.gemini does not exist', () => {
+      const result = configureAntigravity(null, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('not_found')
+      expect(result.id).toBe('antigravity')
+    })
+
+    it('returns needs_setup when mergedContent is null', () => {
+      mkdirSync(join(homeDir, '.gemini'), { recursive: true })
+
+      const result = configureAntigravity(null, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('needs_setup')
+      expect(result.details).toContain('не сгенерированы')
+
+      // MCP should still be written
+      const mcpPath = join(homeDir, '.gemini', 'antigravity', 'mcp_config.json')
+      expect(existsSync(mcpPath)).toBe(true)
+      const config = JSON.parse(readFileSync(mcpPath, 'utf-8'))
+      expect(config.mcpServers.duet).toBeDefined()
+    })
+
+    it('configures GEMINI.md and MCP when ~/.gemini exists', () => {
+      mkdirSync(join(homeDir, '.gemini'), { recursive: true })
+
+      const result = configureAntigravity(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+
+      // GEMINI.md written
+      const instructionsPath = join(homeDir, '.gemini', 'GEMINI.md')
+      expect(existsSync(instructionsPath)).toBe(true)
+      expect(readFileSync(instructionsPath, 'utf-8')).toBe(TEST_INSTRUCTIONS)
+
+      // MCP config written
+      const mcpPath = join(homeDir, '.gemini', 'antigravity', 'mcp_config.json')
+      expect(existsSync(mcpPath)).toBe(true)
+      const mcpConfig = JSON.parse(readFileSync(mcpPath, 'utf-8'))
+      expect(mcpConfig.mcpServers.duet.type).toBe('http')
+      expect(mcpConfig.mcpServers.duet.url).toBe(MCP_URL)
+    })
+
+    it('preserves existing keys in mcp_config.json', () => {
+      const geminiDir = join(homeDir, '.gemini')
+      mkdirSync(join(geminiDir, 'antigravity'), { recursive: true })
+      writeFileSync(
+        join(geminiDir, 'antigravity', 'mcp_config.json'),
+        JSON.stringify({
+          existingKey: 'keep',
+          mcpServers: { other: { command: 'other' } }
+        })
+      )
+
+      configureAntigravity(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
+
+      const config = JSON.parse(
+        readFileSync(join(geminiDir, 'antigravity', 'mcp_config.json'), 'utf-8')
+      )
+      expect(config.existingKey).toBe('keep')
+      expect(config.mcpServers.other).toBeDefined()
+      expect(config.mcpServers.duet).toBeDefined()
+    })
+
+    it('respects GEMINI_HOME env variable', () => {
+      const customGeminiDir = join(ctx.tmpDir, 'custom-gemini')
+      mkdirSync(customGeminiDir, { recursive: true })
+      process.env.GEMINI_HOME = customGeminiDir
+
+      const result = configureAntigravity(TEST_INSTRUCTIONS, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+      expect(existsSync(join(customGeminiDir, 'GEMINI.md'))).toBe(true)
+    })
+  })
+
+  // ===========================================================================
+  // additionalDirectories check
+  // ===========================================================================
+
+  describe('additionalDirectories detection', () => {
+    it('detects additionalDirectories in Claude Code settings', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({
+          outputStyle: 'Duet',
+          additionalDirectories: ['/tmp', '/some/path']
+        })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+
+      expect(agents[0].issues).toBeDefined()
+      expect(agents[0].issues).toHaveLength(1)
+      expect(agents[0].issues![0].reason_code).toBe('additional_directories')
+      expect(agents[0].issues![0].fixable).toBe(true)
+      expect(agents[0].status).toBe('needs_setup')
+    })
+
+    it('no issue when additionalDirectories is absent', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
+      // Fully configure Claude Code
+      const frontmatter =
+        '---\nname: Duet\ndescription: Core instructions for AI agents working in Duet ecosystem\nkeep-coding-instructions: true\n---\n\n'
+      mkdirSync(join(homeDir, '.claude', 'output-styles'), { recursive: true })
+      writeFileSync(
+        join(homeDir, '.claude', 'output-styles', 'duet.md'),
+        frontmatter + TEST_INSTRUCTIONS
+      )
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({ outputStyle: 'Duet' })
+      )
+      writeFileSync(
+        join(homeDir, '.claude.json'),
+        JSON.stringify({ mcpServers: { duet: { type: 'http', url: MCP_URL } } })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+
+      expect(agents[0].status).toBe('configured')
+      expect(agents[0].issues).toBeUndefined()
+    })
+
+    it('no issue when additionalDirectories is empty array', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({ outputStyle: 'Duet', additionalDirectories: [] })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+
+      // No issue for empty array
+      expect(agents[0].issues).toBeUndefined()
+    })
+  })
+
+  // ===========================================================================
+  // fixAgentIssue
+  // ===========================================================================
+
+  describe('fixAgentIssue', () => {
+    it('removes additionalDirectories from Claude Code settings', () => {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      const settingsPath = join(homeDir, '.claude', 'settings.json')
+      writeFileSync(
+        settingsPath,
+        JSON.stringify({
+          outputStyle: 'Duet',
+          additionalDirectories: ['/tmp'],
+          permissions: { allow: ['Edit'] }
+        })
+      )
+
+      const result = fixAgentIssue('claude-code', 'additional_directories')
+
+      expect(result).toBe(true)
+
+      const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+      expect(config.additionalDirectories).toBeUndefined()
+      // Other keys preserved
+      expect(config.outputStyle).toBe('Duet')
+      expect(config.permissions).toEqual({ allow: ['Edit'] })
+    })
+
+    it('returns true when additionalDirectories already absent', () => {
+      mkdirSync(join(homeDir, '.claude'), { recursive: true })
+      writeFileSync(
+        join(homeDir, '.claude', 'settings.json'),
+        JSON.stringify({ outputStyle: 'Duet' })
+      )
+
+      const result = fixAgentIssue('claude-code', 'additional_directories')
+
+      expect(result).toBe(true)
+    })
+
+    it('returns false for unknown agent/reason combination', () => {
+      const result = fixAgentIssue('unknown', 'unknown_code')
+
+      expect(result).toBe(false)
+    })
+  })
+
+  // ===========================================================================
   // configureAllAgents
   // ===========================================================================
 
   describe('configureAllAgents', () => {
-    it('returns results for all agents', async () => {
-      const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
+    it('returns results for all agents', () => {
+      const results = configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
-      expect(results).toHaveLength(2)
+      expect(results).toHaveLength(3)
       expect(results[0].id).toBe('claude-code')
       expect(results[1].id).toBe('codex')
+      expect(results[2].id).toBe('antigravity')
     })
 
-    it('configures all found agents', async () => {
+    it('configures all found agents', () => {
+      writeMergedInstructions(ctx.duetDataDir)
+
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
+      mkdirSync(join(homeDir, '.gemini'), { recursive: true })
 
-      const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
+      const results = configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(results[0].status).toBe('configured')
       expect(results[1].status).toBe('configured')
+      expect(results[2].status).toBe('configured')
     })
   })
 })

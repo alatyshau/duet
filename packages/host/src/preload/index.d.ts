@@ -17,12 +17,17 @@ export type {
   PythonStatus,
   AgentStatus,
   AgentCheckedFile,
+  AgentIssue,
   AgentInfo,
   ProcessType,
   ProcessState,
   ProcessStatus,
   ProcessInfo,
-  AppInfo
+  AppInfo,
+  InstructionsError,
+  InstructionsMergeResult,
+  ScanError,
+  ScanResult
 } from '../shared/types'
 
 // Import for use in DuetAPI interface
@@ -31,7 +36,10 @@ import type {
   DeployStatus,
   BackendStatus,
   PythonStatus,
-  AgentInfo
+  AgentInfo,
+  InstructionsMergeResult,
+  InstructionsError,
+  ScanResult
 } from '../shared/types'
 
 // Типы для Duet API
@@ -70,6 +78,16 @@ export interface DuetAPI {
   // AI Agents
   getAgents: () => Promise<AgentInfo[]>
   configureAgents: () => Promise<AgentInfo[]>
+  fixAgentIssue: (agentId: string, reasonCode: string) => Promise<boolean>
+
+  // Instructions
+  mergeInstructions: () => Promise<InstructionsMergeResult>
+  getInstructionsErrors: () => Promise<InstructionsError[]>
+
+  // Business Folders
+  getBusinessFolders: () => Promise<string[]>
+  saveBusinessFolders: (folders: string[]) => Promise<void>
+  scanBusinessFolders: () => Promise<ScanResult>
 }
 
 declare global {

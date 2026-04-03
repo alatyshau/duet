@@ -7,7 +7,9 @@ import {
   writeConfig,
   getConfigFile,
   ensureConfigDefaults,
-  isValidMachineName
+  isValidMachineName,
+  readSettingsConfig,
+  setSettingsConfigKey
 } from '../../../src/core/config'
 import { createTestContext, writeTestConfig, type TestContext } from '../../helpers'
 import { existsSync, writeFileSync, readFileSync } from 'fs'
@@ -148,6 +150,98 @@ describe('core/config', () => {
       expect(() => ensureConfigDefaults(ctx.duetConfigDir, 'foo/bar')).toThrow(
         'Invalid machine name'
       )
+    })
+  })
+
+  // ===========================================================================
+  // readSettingsConfig
+  // ===========================================================================
+
+  describe('readSettingsConfig', () => {
+    it('returns null when pointer is not configured', () => {
+      const result = readSettingsConfig()
+      expect(result).toBeNull()
+    })
+
+    it('returns null when settings.json does not exist', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+
+      const result = readSettingsConfig()
+      expect(result).toBeNull()
+    })
+
+    it('returns parsed settings when file exists', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      writeFileSync(
+        join(ctx.duetConfigDir, 'settings.json'),
+        JSON.stringify({ business_folders: ['/path'] })
+      )
+
+      const result = readSettingsConfig()
+      expect(result).toEqual({ business_folders: ['/path'] })
+    })
+
+    it('returns null on invalid JSON', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      writeFileSync(join(ctx.duetConfigDir, 'settings.json'), 'not json')
+
+      const result = readSettingsConfig()
+      expect(result).toBeNull()
+    })
+  })
+
+  // ===========================================================================
+  // setSettingsConfigKey
+  // ===========================================================================
+
+  describe('setSettingsConfigKey', () => {
+    it('updates key in existing settings.json', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      writeFileSync(
+        join(ctx.duetConfigDir, 'settings.json'),
+        JSON.stringify({ business_folders: [], timestampTZ: { id: 'Z', value: 'UTC' } })
+      )
+
+      setSettingsConfigKey('business_folders', ['/new/path'])
+
+      const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
+      expect(settings.business_folders).toEqual(['/new/path'])
+      expect(settings.timestampTZ).toEqual({ id: 'Z', value: 'UTC' })
+    })
+
+    it('creates settings.json if missing', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+
+      setSettingsConfigKey('business_folders', ['/path'])
+
+      const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
+      expect(settings.business_folders).toEqual(['/path'])
+    })
+
+    it('does nothing when pointer is not configured', () => {
+      // No writeTestConfig — pointer not set
+      setSettingsConfigKey('business_folders', ['/path'])
+      // Should not throw, just no-op
     })
   })
 

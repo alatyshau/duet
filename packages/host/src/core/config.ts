@@ -112,6 +112,44 @@ export const setMachineConfigKey = (key: string, value: unknown): void => {
 }
 
 // =============================================================================
+// SETTINGS CONFIG (DuetConfig/settings.json)
+// =============================================================================
+
+/**
+ * Читает settings.json из DuetConfig.
+ * Возвращает null если pointer неполный или файла нет.
+ */
+export const readSettingsConfig = (): Record<string, unknown> | null => {
+  const config = readConfig()
+  if (!config.duetConfigPath) return null
+  const settingsPath = join(config.duetConfigPath, 'settings.json')
+  if (!existsSync(settingsPath)) return null
+  try {
+    return JSON.parse(readFileSync(settingsPath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Обновляет одно поле в settings.json (read-modify-write).
+ * Ничего не делает если pointer неполный или settings.json не найден.
+ */
+export const setSettingsConfigKey = (key: string, value: unknown): void => {
+  const config = readConfig()
+  if (!config.duetConfigPath) return
+  const settingsPath = join(config.duetConfigPath, 'settings.json')
+  let existing: Record<string, unknown> = {}
+  try {
+    existing = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+  } catch {
+    /* file missing or invalid — start fresh */
+  }
+  existing[key] = value
+  writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n')
+}
+
+// =============================================================================
 // DEFAULTS
 // =============================================================================
 

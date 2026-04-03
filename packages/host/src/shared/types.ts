@@ -87,7 +87,7 @@ export interface AppInfo {
 }
 
 // =============================================================================
-// AI AGENTS (IPC: agents:detect, agents:configure)
+// AI AGENTS (IPC: agents:detect, agents:configure, agents:fix-issue)
 // =============================================================================
 
 export type AgentStatus = 'not_found' | 'needs_setup' | 'configured'
@@ -97,6 +97,14 @@ export interface AgentCheckedFile {
   ok: boolean
 }
 
+/** Actionable issue on an AI agent (e.g. additionalDirectories in Claude Code settings). */
+export interface AgentIssue {
+  reason_code: string
+  description: string
+  /** Whether the issue can be auto-fixed via agents:fix-issue IPC. */
+  fixable: boolean
+}
+
 export interface AgentInfo {
   id: string
   name: string
@@ -104,4 +112,39 @@ export interface AgentInfo {
   details: string
   version?: string
   checkedFiles?: AgentCheckedFile[]
+  issues?: AgentIssue[]
+}
+
+// =============================================================================
+// INSTRUCTIONS (IPC: instructions:merge, instructions:get-errors)
+// =============================================================================
+
+export interface InstructionsError {
+  path: string
+  reason_code: string
+  description: string
+}
+
+export interface InstructionsMergeResult {
+  status: 'ok' | 'error'
+  path: string | null
+  errors: InstructionsError[]
+}
+
+// =============================================================================
+// BUSINESS FOLDERS (IPC: business-folders:get, business-folders:save, business-folders:scan)
+// =============================================================================
+
+export interface ScanError {
+  path: string
+  reason_code: string
+  description: string
+  manifest_path?: string
+}
+
+export interface ScanResult {
+  status: string
+  entities_count: number
+  duration_ms?: number
+  errors: ScanError[]
 }

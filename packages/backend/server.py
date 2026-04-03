@@ -40,7 +40,7 @@ from config import (
     get_version,
 )
 from fileio import atomic_write_json
-from instructions import merge_bootstrapper, merge_duet_instructions
+from instructions import merge_duet_instructions
 from db import DatabaseManager
 from mcp_handler import (
     get_duet_data_path_str,
@@ -272,25 +272,6 @@ async def merge_instructions_handler(request: Request) -> JSONResponse:
         )
 
 
-async def bootstrapper_handler(request: Request) -> JSONResponse:
-    """GET /bootstrapper - Legacy shim for current Host compatibility.
-
-    Returns merged content directly (same as old endpoint).
-    Host ai-clients.ts still calls this. Remove in Phase 4 when Host
-    migrates to POST /merge-duet-instructions.
-    """
-    bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
-    try:
-        instructions_path = get_instructions_path()
-        content = merge_bootstrapper(bootstrapper_path, instructions_path)
-        return JSONResponse({"content": content})
-    except (ConfigError, FileNotFoundError, ValueError) as e:
-        return JSONResponse(
-            {"error": str(e), "code": "BOOTSTRAPPER_MERGE_FAILED"},
-            status_code=500,
-        )
-
-
 # === Application Setup ===
 
 
@@ -351,7 +332,6 @@ def create_app() -> Starlette:
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/add-business", add_business_handler, methods=["POST"]),
         Route("/merge-duet-instructions", merge_instructions_handler, methods=["POST"]),
-        Route("/bootstrapper", bootstrapper_handler, methods=["GET"]),  # Legacy shim, remove in Phase 4
         # Mount MCP at /mcp (streamable HTTP transport)
         Mount("/mcp", app=mcp_app),
     ]

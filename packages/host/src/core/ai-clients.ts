@@ -1,11 +1,14 @@
 /*
- * ЧТО: Обнаружение и конфигурация AI клиентов (Claude Code, Codex).
+ * ЧТО: Обнаружение и конфигурация AI клиентов (Claude Code, Codex, Antigravity).
  * ЗАЧЕМ: Host конфигурирует AI клиенты прямой записью файлов (не CLI).
  * КТО ИСПОЛЬЗУЕТ: main process, страница "AI Агенты".
  *
  * ПАТТЕРН: detect (проверить реальные файлы конфигурации) → configure (write files) → show result.
  * detect и configure должны возвращать одинаковый status — это проверяется round-trip тестом.
  * Ненайденный AI клиент — не ошибка, просто информация.
+ *
+ * КОНТЕНТ: Merged instructions читаются с диска (DuetData/duet-instructions.md),
+ * а не запрашиваются по HTTP. Файл генерируется Backend через POST /merge-duet-instructions.
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
@@ -14,31 +17,11 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readDeployedVersion } from './deploy'
-import type { AgentInfo, AgentCheckedFile } from '../shared/types'
+import { readMergedInstructions } from './instructions'
+import type { AgentInfo, AgentCheckedFile, AgentIssue } from '../shared/types'
 
 // Re-export IPC types (source of truth: shared/types.ts)
-export type { AgentStatus, AgentCheckedFile, AgentInfo } from '../shared/types'
-
-// =============================================================================
-// BOOTSTRAPPER CONTENT
-// =============================================================================
-
-/**
- * Получает скомпонованный bootstrapper от backend (GET /bootstrapper).
- * Возвращает null если backend недоступен или merge невозможен.
- */
-async function fetchBootstrapperContent(port: number): Promise<string | null> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/bootstrapper`, {
-      signal: AbortSignal.timeout(5000)
-    })
-    if (!res.ok) return null
-    const data = (await res.json()) as { content?: string }
-    return data.content || null
-  } catch {
-    return null
-  }
-}
+export type { AgentStatus, AgentCheckedFile, AgentIssue, AgentInfo } from '../shared/types'
 
 // =============================================================================
 // CLAUDE CODE
@@ -89,13 +72,13 @@ export const configureClaudeCode = (
     // 3. outputStyle in ~/.claude/settings.json
     configureClaudeSettings(claudeDir)
 
-    // 4. Output style (requires merged bootstrapper content from backend)
+    // 4. Output style (requires merged instructions from DuetData)
     if (!mergedContent) {
       return {
         id: 'claude-code',
         name: 'Claude Code',
         status: 'needs_setup',
-        details: 'MCP настроен. Output style не записан: backend недоступен'
+        details: 'MCP настроен. Output style не записан: инструкции не сгенерированы'
       }
     }
 
@@ -199,7 +182,7 @@ export const configureCodex = (
       if (Object.keys(config.mcp as object).length === 0) delete config.mcp
     }
 
-    // 2. Instructions (requires merged bootstrapper content from backend)
+    // 2. Instructions (requires merged content from DuetData)
     if (mergedContent) {
       writeFileSync(instructionsPath, mergedContent, 'utf-8')
       config.model_instructions_file = instructionsPath
@@ -212,7 +195,7 @@ export const configureCodex = (
         id: 'codex',
         name: 'Codex',
         status: 'needs_setup',
-        details: 'MCP настроен. Instructions не записаны: backend недоступен'
+        details: 'MCP настроен. Instructions не записаны: инструкции не сгенерированы'
       }
     }
 
@@ -235,22 +218,109 @@ export const configureCodex = (
 }
 
 // =============================================================================
+// ANTIGRAVITY
+// =============================================================================
+
+/**
+ * Detect + configure Antigravity (Gemini).
+ *
+ * Контракты:
+ * - Instructions: ~/.gemini/GEMINI.md (копия merged instructions)
+ * - MCP: ~/.gemini/antigravity/mcp_config.json → mcpServers.duet (HTTP MCP)
+ */
+export const configureAntigravity = (
+  mergedContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo => {
+  const geminiDir = getGeminiDir()
+
+  // Detect
+  if (!existsSync(geminiDir)) {
+    return {
+      id: 'antigravity',
+      name: 'Antigravity',
+      status: 'not_found',
+      details: 'Папка ~/.gemini не найдена. Antigravity не установлен.'
+    }
+  }
+
+  try {
+    const instructionsPath = join(geminiDir, 'GEMINI.md')
+    const mcpDir = join(geminiDir, 'antigravity')
+    const mcpConfigPath = join(mcpDir, 'mcp_config.json')
+
+    // 1. MCP config
+    mkdirSync(mcpDir, { recursive: true })
+    let mcpConfig: Record<string, unknown> = {}
+    if (existsSync(mcpConfigPath)) {
+      try {
+        mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'))
+      } catch {
+        // Invalid JSON — overwrite
+      }
+    }
+    if (!mcpConfig.mcpServers || typeof mcpConfig.mcpServers !== 'object') {
+      mcpConfig.mcpServers = {}
+    }
+    ;(mcpConfig.mcpServers as Record<string, unknown>).duet = {
+      type: 'http',
+      url: `http://127.0.0.1:${port}/mcp`
+    }
+    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf-8')
+
+    // 2. Instructions (requires merged content from DuetData)
+    if (!mergedContent) {
+      return {
+        id: 'antigravity',
+        name: 'Antigravity',
+        status: 'needs_setup',
+        details: 'MCP настроен. GEMINI.md не записан: инструкции не сгенерированы'
+      }
+    }
+
+    writeFileSync(instructionsPath, mergedContent, 'utf-8')
+
+    const version = readDeployedVersion(duetDataPath)
+    return {
+      id: 'antigravity',
+      name: 'Antigravity',
+      status: 'configured',
+      details: 'GEMINI.md + MCP настроены',
+      version: version ?? undefined
+    }
+  } catch (e) {
+    return {
+      id: 'antigravity',
+      name: 'Antigravity',
+      status: 'needs_setup',
+      details: `Ошибка конфигурации: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+}
+
+// =============================================================================
 // DETECT ALL
 // =============================================================================
 
 /**
  * Обнаружить все AI клиенты (без конфигурации).
- * Проверяет реальные файлы конфигурации, а не только директории.
+ * Читает merged instructions с диска (DuetData/duet-instructions.md).
  */
-export const detectAgents = async (duetDataPath: string, port: number): Promise<AgentInfo[]> => {
-  const mergedContent = await fetchBootstrapperContent(port)
+export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] => {
+  const mergedContent = readMergedInstructions(duetDataPath)
   return [
     detectClaudeCode(mergedContent, duetDataPath, port),
-    detectCodex(mergedContent, duetDataPath, port)
+    detectCodex(mergedContent, duetDataPath, port),
+    detectAntigravity(mergedContent, duetDataPath, port)
   ]
 }
 
-function detectClaudeCode(mergedContent: string | null, duetDataPath: string, port: number): AgentInfo {
+function detectClaudeCode(
+  mergedContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo {
   const claudeDir = join(homedir(), '.claude')
   if (!existsSync(claudeDir)) {
     return { id: 'claude-code', name: 'Claude Code', status: 'not_found', details: 'Не установлен' }
@@ -278,6 +348,10 @@ function detectClaudeCode(mergedContent: string | null, duetDataPath: string, po
     { path: claudeJsonPath, ok: hasMcp }
   ]
 
+  // Check for additionalDirectories issue
+  const rawIssues = checkClaudeCodeIssues(settingsPath)
+  const issues = rawIssues.length > 0 ? rawIssues : undefined
+
   if (!hasOutputStyle || !hasMcp || !hasOutputStyleSetting) {
     const parts: string[] = []
     if (hasMcp) parts.push('MCP настроен')
@@ -289,7 +363,8 @@ function detectClaudeCode(mergedContent: string | null, duetDataPath: string, po
       name: 'Claude Code',
       status: 'needs_setup',
       details: detail,
-      checkedFiles
+      checkedFiles,
+      issues
     }
   }
 
@@ -299,7 +374,22 @@ function detectClaudeCode(mergedContent: string | null, duetDataPath: string, po
       name: 'Claude Code',
       status: 'needs_setup',
       details: 'Инструкции устарели — нажмите «Настроить все»',
-      checkedFiles
+      checkedFiles,
+      issues
+    }
+  }
+
+  // Issues alone trigger needs_setup (e.g. additionalDirectories present)
+  if (issues) {
+    const version = readDeployedVersion(duetDataPath)
+    return {
+      id: 'claude-code',
+      name: 'Claude Code',
+      status: 'needs_setup',
+      details: 'Конфигурация настроена, но есть проблемы',
+      version: version ?? undefined,
+      checkedFiles,
+      issues
     }
   }
 
@@ -314,7 +404,40 @@ function detectClaudeCode(mergedContent: string | null, duetDataPath: string, po
   }
 }
 
-function detectCodex(mergedContent: string | null, duetDataPath: string, port: number): AgentInfo {
+/**
+ * Проверяет проблемы конфигурации Claude Code.
+ * additionalDirectories в settings.json засоряет multi-root workspace VS Code,
+ * ломая orientation (лишние пути попадают в workspace_paths).
+ */
+function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
+  const issues: AgentIssue[] = []
+
+  if (!existsSync(settingsPath)) return issues
+
+  try {
+    const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    if (config?.additionalDirectories && Array.isArray(config.additionalDirectories)) {
+      if (config.additionalDirectories.length > 0) {
+        issues.push({
+          reason_code: 'additional_directories',
+          description:
+            'settings.json содержит additionalDirectories — этот параметр засоряет workspace в VS Code и ломает orientation. Удалите его.',
+          fixable: true
+        })
+      }
+    }
+  } catch {
+    // Invalid JSON — not our problem here
+  }
+
+  return issues
+}
+
+function detectCodex(
+  mergedContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo {
   const codexDir = getCodexDir()
   if (!existsSync(codexDir)) {
     return { id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' }
@@ -385,6 +508,65 @@ function detectCodex(mergedContent: string | null, duetDataPath: string, port: n
   }
 }
 
+function detectAntigravity(
+  mergedContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo {
+  const geminiDir = getGeminiDir()
+  if (!existsSync(geminiDir)) {
+    return {
+      id: 'antigravity',
+      name: 'Antigravity',
+      status: 'not_found',
+      details: 'Не установлен'
+    }
+  }
+
+  const instructionsPath = join(geminiDir, 'GEMINI.md')
+  const mcpConfigPath = join(geminiDir, 'antigravity', 'mcp_config.json')
+
+  const hasInstructions = existsSync(instructionsPath)
+  const hasMcp = geminiHasDuetMcp(mcpConfigPath, port)
+
+  // Check content freshness
+  let contentFresh = false
+  if (hasInstructions && mergedContent) {
+    const actual = readFileSync(instructionsPath, 'utf-8')
+    contentFresh = actual === mergedContent
+  }
+
+  const checkedFiles: AgentCheckedFile[] = [
+    { path: instructionsPath, ok: hasInstructions && contentFresh },
+    { path: mcpConfigPath, ok: hasMcp }
+  ]
+
+  if (hasMcp && hasInstructions && contentFresh) {
+    const version = readDeployedVersion(duetDataPath)
+    return {
+      id: 'antigravity',
+      name: 'Antigravity',
+      status: 'configured',
+      details: 'GEMINI.md + MCP настроены',
+      version: version ?? undefined,
+      checkedFiles
+    }
+  }
+
+  const parts: string[] = []
+  if (hasMcp) parts.push('MCP настроен')
+  if (hasInstructions && contentFresh) parts.push('GEMINI.md настроен')
+  const detail = parts.length > 0 ? parts.join(', ') : '~/.gemini найдена'
+
+  return {
+    id: 'antigravity',
+    name: 'Antigravity',
+    status: 'needs_setup',
+    details: detail,
+    checkedFiles
+  }
+}
+
 /** Устанавливает outputStyle: "Duet" в ~/.claude/settings.json */
 function configureClaudeSettings(claudeDir: string): void {
   const settingsPath = join(claudeDir, 'settings.json')
@@ -426,18 +608,57 @@ function claudeJsonHasDuetMcp(claudeJsonPath: string, port: number): boolean {
   }
 }
 
+/** Проверяет наличие mcpServers.duet (HTTP MCP) в Antigravity mcp_config.json */
+function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
+  if (!existsSync(mcpConfigPath)) return false
+  try {
+    const config = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'))
+    const mcp = config?.mcpServers?.duet
+    if (!mcp) return false
+    return mcp.type === 'http' && mcp.url === `http://127.0.0.1:${port}/mcp`
+  } catch {
+    return false
+  }
+}
+
 /**
  * Конфигурировать все найденные AI клиенты.
+ * Читает merged instructions с диска.
  */
-export const configureAllAgents = async (
-  duetDataPath: string,
-  port: number
-): Promise<AgentInfo[]> => {
-  const mergedContent = await fetchBootstrapperContent(port)
+export const configureAllAgents = (duetDataPath: string, port: number): AgentInfo[] => {
+  const mergedContent = readMergedInstructions(duetDataPath)
   return [
     configureClaudeCode(mergedContent, duetDataPath, port),
-    configureCodex(mergedContent, duetDataPath, port)
+    configureCodex(mergedContent, duetDataPath, port),
+    configureAntigravity(mergedContent, duetDataPath, port)
   ]
+}
+
+/**
+ * Исправляет конкретную проблему агента.
+ * Возвращает true если проблема исправлена.
+ */
+export function fixAgentIssue(agentId: string, reasonCode: string): boolean {
+  if (agentId === 'claude-code' && reasonCode === 'additional_directories') {
+    return fixClaudeAdditionalDirectories()
+  }
+  return false
+}
+
+/** Удаляет additionalDirectories из ~/.claude/settings.json */
+function fixClaudeAdditionalDirectories(): boolean {
+  const settingsPath = join(homedir(), '.claude', 'settings.json')
+  if (!existsSync(settingsPath)) return false
+
+  try {
+    const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    if (!config.additionalDirectories) return true // Already fixed
+    delete config.additionalDirectories
+    writeFileSync(settingsPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+    return true
+  } catch {
+    return false
+  }
 }
 
 // =============================================================================
@@ -446,4 +667,8 @@ export const configureAllAgents = async (
 
 function getCodexDir(): string {
   return process.env.CODEX_HOME || join(homedir(), '.codex')
+}
+
+function getGeminiDir(): string {
+  return process.env.GEMINI_HOME || join(homedir(), '.gemini')
 }
