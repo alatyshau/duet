@@ -27,7 +27,7 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
     const unsubStatus = window.api.onDeployStatusChanged((status) => {
       setDeployStatus(status)
       const deployed = status.state === 'deployed' || status.state === 'up_to_date'
-      const hasWarning = deployed && 'hasWarning' in status && status.hasWarning
+      const hasWarning = deployed && 'warningReason' in status && !!status.warningReason
       onStatusChange(deployed ? (hasWarning ? 'warning' : 'ok') : null)
     })
     const unsubLog = window.api.onDeployLog((message) => {
@@ -39,7 +39,7 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-fetch deploy status when channel changes (hasWarning depends on channel)
+  // Re-fetch deploy status when channel changes (warningReason depends on channel)
   useEffect(() => {
     if (!window.api) return
     window.api.getDeployStatus().then(setDeployStatus).catch(console.error)
@@ -49,7 +49,7 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
   useEffect(() => {
     const deployed = deployStatus.state === 'deployed' || deployStatus.state === 'up_to_date'
     if (deployed) {
-      const hasWarning = 'hasWarning' in deployStatus && deployStatus.hasWarning
+      const hasWarning = 'warningReason' in deployStatus && !!deployStatus.warningReason
       onStatusChange(hasWarning ? 'warning' : 'ok')
     }
   }, [deployStatus]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,6 +140,14 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
               isUpToDate={deployStatus.state === 'up_to_date'}
               currentChannel={appState.deployChannel}
             />
+          )}
+
+          {/* Deploy warning */}
+          {'warningReason' in deployStatus && deployStatus.warningReason && (
+            <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50">
+              <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-foreground">{deployStatus.warningReason}</p>
+            </div>
           )}
 
           {/* Deploy button */}

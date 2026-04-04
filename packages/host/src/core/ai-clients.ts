@@ -416,8 +416,9 @@ function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
 
   try {
     const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-    if (config?.additionalDirectories && Array.isArray(config.additionalDirectories)) {
-      if (config.additionalDirectories.length > 0) {
+    const additionalDirs = config?.permissions?.additionalDirectories ?? config?.additionalDirectories
+    if (Array.isArray(additionalDirs)) {
+      if (additionalDirs.length > 0) {
         issues.push({
           reason_code: 'additional_directories',
           description:
@@ -623,11 +624,11 @@ function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
  */
 export const configureAllAgents = (duetDataPath: string, port: number): AgentInfo[] => {
   const mergedContent = readMergedInstructions(duetDataPath)
-  return [
-    configureClaudeCode(mergedContent, duetDataPath, port),
-    configureCodex(mergedContent, duetDataPath, port),
-    configureAntigravity(mergedContent, duetDataPath, port)
-  ]
+  configureClaudeCode(mergedContent, duetDataPath, port)
+  configureCodex(mergedContent, duetDataPath, port)
+  configureAntigravity(mergedContent, duetDataPath, port)
+  // Re-detect after configure to return full AgentInfo with checkedFiles
+  return detectAgents(duetDataPath, port)
 }
 
 /**
@@ -648,8 +649,16 @@ function fixClaudeAdditionalDirectories(): boolean {
 
   try {
     const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-    if (!config.additionalDirectories) return true // Already fixed
-    delete config.additionalDirectories
+    let changed = false
+    if (config.additionalDirectories) {
+      delete config.additionalDirectories
+      changed = true
+    }
+    if (config.permissions?.additionalDirectories) {
+      delete config.permissions.additionalDirectories
+      changed = true
+    }
+    if (!changed) return true // Already fixed
     writeFileSync(settingsPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
     return true
   } catch {

@@ -51,7 +51,7 @@ export function InstructionsPage({
         if (cached !== null) {
           setErrors(cached)
           if (instructionsPath) {
-            onStatusChange(cached.length === 0 ? 'ok' : 'error')
+            onStatusChange(_errorsToPageStatus(cached))
           }
         }
         // cached === null → merge never ran, leave status as null
@@ -77,10 +77,11 @@ export function InstructionsPage({
       const result = await window.api.mergeInstructions()
       setMergeResult(result)
       setErrors(result.errors)
-      onStatusChange(result.errors.length === 0 ? 'ok' : 'error')
+      onStatusChange(_errorsToPageStatus(result.errors))
 
-      // Auto-configure agents when merge is clean — propagate to App.tsx for sidebar update
-      if (result.errors.length === 0) {
+      // Auto-configure agents when merge has no real errors — propagate to App.tsx for sidebar update
+      const hasRealError = result.errors.some((e: InstructionsError) => !WARNING_CODES.has(e.reason_code))
+      if (!hasRealError) {
         const agents = await window.api.configureAgents()
         onAgentsUpdated(agents)
       }
@@ -210,7 +211,9 @@ export function InstructionsPage({
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500" />
             <h3 className="text-lg font-medium text-foreground">
-              Ошибки валидации ({errors.length})
+              {errors.some((e) => !WARNING_CODES.has(e.reason_code))
+                ? `Ошибки валидации (${errors.length})`
+                : `Предупреждения (${errors.length})`}
             </h3>
           </div>
 
@@ -238,15 +241,39 @@ export function InstructionsPage({
 /** Reason codes that can be auto-fixed by Host. */
 const FIXABLE_CODES = new Set(['no_frontmatter', 'invalid_yaml', 'missing_fields'])
 
+/** Reason codes that are warnings, not errors. */
+const WARNING_CODES = new Set(['missing_description', 'version_suffix'])
+
+function _errorsToPageStatus(errors: InstructionsError[]): PageStatus {
+  if (errors.length === 0) return 'ok'
+  const hasRealError = errors.some((e) => !WARNING_CODES.has(e.reason_code))
+  return hasRealError ? 'error' : 'warning'
+}
+
+function _copyTextForReason(reasonCode: string, path: string): string | undefined {
+  switch (reasonCode) {
+    case 'missing_description':
+      return `Прочитай файл ${path} и добавь в frontmatter поле description — одну строку, описывающую назначение этого скилла/персоны.`
+    case 'version_suffix':
+      return `Найден файл ${path} с суффиксом версии. Сравни его с оригиналом (без суффикса), замени оригинал новой версией если она лучше, затем удали файл с суффиксом.`
+    default:
+      return undefined
+  }
+}
+
 function instructionErrorsToItems(
   errors: InstructionsError[],
   onFix: (error: InstructionsError) => void
 ): StatusTableItem[] {
-  return errors.map((e) => ({
-    severity: 'error' as const,
-    message: e.description,
-    detail: e.path || undefined,
-    fixable: FIXABLE_CODES.has(e.reason_code),
-    onFix: () => onFix(e)
-  }))
+  return errors.map((e) => {
+    const isWarning = WARNING_CODES.has(e.reason_code)
+    return {
+      severity: isWarning ? 'warning' as const : 'error' as const,
+      message: e.description,
+      detail: e.path || undefined,
+      fixable: FIXABLE_CODES.has(e.reason_code),
+      onFix: () => onFix(e),
+      copyText: e.path ? _copyTextForReason(e.reason_code, e.path) : undefined,
+    }
+  })
 }

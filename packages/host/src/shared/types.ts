@@ -45,9 +45,9 @@ export interface AppState {
 export type DeployStatus =
   | { state: 'idle' }
   | { state: 'checking' }
-  | { state: 'up_to_date'; version: string; hasWarning?: boolean }
+  | { state: 'up_to_date'; version: string; warningReason?: string }
   | { state: 'deploying'; message: string }
-  | { state: 'deployed'; version: string; hasWarning?: boolean }
+  | { state: 'deployed'; version: string; warningReason?: string }
   | { state: 'error'; error: string }
 
 // =============================================================================

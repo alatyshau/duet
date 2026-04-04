@@ -50,6 +50,16 @@ export interface PageStatusInput {
 }
 
 // =============================================================================
+// WARNING REASON CODES (not blocking — don't escalate to error)
+// =============================================================================
+
+/** Scan reason codes that are warnings, not errors. */
+const SCAN_WARNING_CODES = new Set(['name_collision', 'repo_collision', 'missing_manifest'])
+
+/** Instructions reason codes that are warnings, not errors. */
+const INSTRUCTIONS_WARNING_CODES = new Set(['missing_description', 'version_suffix'])
+
+// =============================================================================
 // COMPUTATION
 // =============================================================================
 
@@ -76,12 +86,22 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
 
   // Page 5: Business Folders — scanned with no errors
   if (cachedScan !== null) {
-    s['business-folders'] = cachedScan.errors.length === 0 ? 'ok' : 'error'
+    if (cachedScan.errors.length === 0) {
+      s['business-folders'] = 'ok'
+    } else {
+      const hasRealError = cachedScan.errors.some((e) => !SCAN_WARNING_CODES.has(e.reason_code))
+      s['business-folders'] = hasRealError ? 'error' : 'warning'
+    }
   }
 
   // Page 6: Instructions — merged with no errors
   if (cachedInstructionsErrors !== null) {
-    s['instructions'] = cachedInstructionsErrors.length === 0 ? 'ok' : 'error'
+    if (cachedInstructionsErrors.length === 0) {
+      s['instructions'] = 'ok'
+    } else {
+      const hasRealError = cachedInstructionsErrors.some((e) => !INSTRUCTIONS_WARNING_CODES.has(e.reason_code))
+      s['instructions'] = hasRealError ? 'error' : 'warning'
+    }
   }
 
   // Page 7: AI Agents — needs_setup is warning (works, just not configured), not error

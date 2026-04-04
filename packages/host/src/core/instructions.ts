@@ -117,31 +117,36 @@ export function fixInstructionsError(
 
   switch (reasonCode) {
     case 'no_frontmatter':
-      fixed = `---\nname: ${stem}\ndescription: \n---\n${content}`
+      fixed = `---\nname: ${stem}\n---\n${content}`
       break
 
     case 'invalid_yaml': {
       // Replace existing broken frontmatter with valid template
       const match = content.match(/^---\n[\s\S]*?\n---\n?/)
       if (match) {
-        fixed = `---\nname: ${stem}\ndescription: \n---\n${content.slice(match[0].length)}`
+        fixed = `---\nname: ${stem}\n---\n${content.slice(match[0].length)}`
       } else {
-        fixed = `---\nname: ${stem}\ndescription: \n---\n${content}`
+        fixed = `---\nname: ${stem}\n---\n${content}`
       }
       break
     }
 
     case 'missing_fields': {
-      // Parse existing frontmatter, add missing name/description
+      // missing_fields = missing name only (description is separate warning)
       const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/)
-      if (!fmMatch) return false
+      if (!fmMatch) {
+        fixed = `---\nname: ${stem}\n---\n${content}`
+        break
+      }
       const fmBody = fmMatch[1]
       const rest = content.slice(fmMatch[0].length)
       const lines = fmBody.split('\n')
-      const hasName = lines.some((l) => l.startsWith('name:'))
-      const hasDesc = lines.some((l) => l.startsWith('description:'))
-      if (!hasName) lines.push(`name: ${stem}`)
-      if (!hasDesc) lines.push('description: ')
+      const hasName = lines.some((l) => l.startsWith('name:') && l.slice(5).trim())
+      if (!hasName) {
+        const nameIdx = lines.findIndex((l) => l.startsWith('name:'))
+        if (nameIdx >= 0) lines[nameIdx] = `name: ${stem}`
+        else lines.push(`name: ${stem}`)
+      }
       fixed = `---\n${lines.join('\n')}\n---\n${rest}`
       break
     }

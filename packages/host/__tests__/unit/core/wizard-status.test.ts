@@ -119,13 +119,25 @@ describe('core/wizard-status', () => {
       expect(s['business-folders']).toBe('ok')
     })
 
-    it('marks page 5 as error when scan has errors', () => {
+    it('marks page 5 as warning when scan has only collisions', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: {
           status: 'ok',
           entities_count: 3,
           errors: [{ path: '/foo', reason_code: 'name_collision', description: 'collision' }]
+        }
+      })
+      expect(s['business-folders']).toBe('warning')
+    })
+
+    it('marks page 5 as error when scan has real errors', () => {
+      const s = computePageStatuses({
+        ...baseInput,
+        cachedScan: {
+          status: 'ok',
+          entities_count: 3,
+          errors: [{ path: '/foo', reason_code: 'invalid_manifest', description: 'broken' }]
         }
       })
       expect(s['business-folders']).toBe('error')

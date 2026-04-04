@@ -19,7 +19,7 @@ import {
   resolveDeployStatus,
   runDeploy,
   readDeployedVersion,
-  isDeployWarning,
+  getDeployWarning,
   readBuildSha,
   findPython,
   validatePython,
@@ -226,8 +226,8 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       const machineConfig = readMachineConfig()
       const devBackendPath =
         typeof machineConfig?.devBackendPath === 'string' ? machineConfig.devBackendPath : undefined
-      const hasWarning = isDeployWarning(appState, app.getVersion(), buildSha, devBackendPath)
-      return { ...resolved, hasWarning }
+      const warningReason = getDeployWarning(appState, app.getVersion(), buildSha, devBackendPath)
+      return { ...resolved, ...(warningReason ? { warningReason } : {}) }
     }
     return resolved
   })
@@ -297,13 +297,13 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       if (proc) monitorBackendProcess(proc)
       // Read actual VERSION (includes build metadata) instead of plain appVersion
       const deployedVersion = readDeployedVersion(state.duetDataPath) ?? appVersion
-      const postDeployWarning = isDeployWarning(
+      const postDeployReason = getDeployWarning(
         context.getAppState(),
         app.getVersion(),
         readBuildSha(resourcesPath),
         backendSourcePath
       )
-      setDeployStatus({ state: 'deployed', version: deployedVersion, hasWarning: postDeployWarning })
+      setDeployStatus({ state: 'deployed', version: deployedVersion, ...(postDeployReason ? { warningReason: postDeployReason } : {}) })
       context.updateAppState() // Refresh tray icon (clear deploy warning)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)

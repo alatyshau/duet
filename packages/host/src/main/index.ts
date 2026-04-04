@@ -13,7 +13,7 @@ import { existsSync, watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { checkAppState, createInitialState, type AppState } from '../core/app-state'
 import { getConfigFile, readPort, readMachineConfig } from '../core/config'
-import { isDeployWarning, readBuildSha, readDeployedVersion } from '../core/deploy'
+import { isDeployWarning, readBuildSha, readDeployedVersion, resolveDeployStatus } from '../core/deploy'
 import { readCachedScan, getBusinessFolders, triggerScan } from '../core/business-folders'
 import { readCachedErrors, triggerMerge } from '../core/instructions'
 import { detectAgents, configureAllAgents } from '../core/ai-clients'
@@ -199,6 +199,12 @@ if (gotTheLock) {
         app.quit()
       }
     })
+
+    // Resolve deploy status before first updateAppState (otherwise idle → null → error in tray)
+    if (appState.status === 'ready') {
+      const resolved = resolveDeployStatus(appState, app.getVersion(), currentDeployStatus)
+      setCurrentDeployStatus(resolved)
+    }
 
     // Обновляем tray с полным набором warnings (deploy + wizard)
     updateAppState()

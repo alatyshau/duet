@@ -9,6 +9,7 @@ bootstrapper with user core_instructions + skills table into a single file.
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import yaml
@@ -20,6 +21,36 @@ logger = logging.getLogger(__name__)
 
 # Max frontmatter size (bytes)
 _MAX_FRONTMATTER_BYTES = 4096
+
+# Pattern for version suffixes like _v2, _v3, _v10
+_VERSION_SUFFIX_RE = re.compile(r"_v\d+$")
+
+
+def _has_version_suffix(stem: str) -> bool:
+    """Check if filename stem ends with a version suffix (_v2, _v3, etc.)."""
+    return bool(_VERSION_SUFFIX_RE.search(stem))
+
+
+_SCAN_IGNORE_DIRS = {"old", ".git", "node_modules", "__pycache__"}
+
+
+def _scan_version_suffixes(base_path: Path) -> list[dict]:
+    """Scan entire instructions workspace for .md files with version suffixes."""
+    errors = []
+    for md_file in sorted(base_path.rglob("*.md")):
+        if not md_file.is_file():
+            continue
+        # Skip ignored directories
+        if _SCAN_IGNORE_DIRS & {p.name for p in md_file.relative_to(base_path).parents}:
+            continue
+        if _has_version_suffix(md_file.stem):
+            rel_path = str(md_file.relative_to(base_path)).replace("\\", "/")
+            errors.append({
+                "path": rel_path,
+                "reason_code": "version_suffix",
+                "description": _error_description("version_suffix", rel_path),
+            })
+    return errors
 
 
 def parse_frontmatter(text: str) -> dict:
@@ -124,18 +155,26 @@ def _scan_folder_with_errors(
             continue
 
         name = fm.get("name")
-        description = fm.get("description")
-        if not name or not description:
+        if not name:
             errors.append({
                 "path": rel_path,
                 "reason_code": "missing_fields",
-                "description": f"Missing required fields (name, description) in {rel_path}",
+                "description": _error_description("missing_fields", rel_path),
             })
             continue
 
+        description = fm.get("description")
+        if not description:
+            errors.append({
+                "path": rel_path,
+                "reason_code": "missing_description",
+                "description": _error_description("missing_description", rel_path),
+            })
+            # Don't continue — entry is still usable without description
+
         entry: dict = {
             "name": name,
-            "description": description,
+            "description": description or "",
             "path": rel_path,
         }
 
@@ -166,7 +205,9 @@ def _error_description(reason_code: str, path: str) -> str:
         # Frontmatter validation (instruction files)
         "no_frontmatter": f"No YAML frontmatter in {path}",
         "invalid_yaml": f"Invalid YAML frontmatter in {path}",
-        "missing_fields": f"Missing required fields (name, description) in {path}",
+        "missing_fields": f"Missing required field (name) in {path}",
+        "missing_description": f"Missing description in {path}",
+        "version_suffix": f'Найден файл инструкций с суффиксом "_v2": {path}',
         "frontmatter_too_large": f"Frontmatter exceeds {_MAX_FRONTMATTER_BYTES} bytes in {path}",
         # Merge pipeline
         "content_between_h1_h2": f"Content between H1 and first H2 in {path}",
@@ -341,18 +382,17 @@ def _build_skills_table(instructions_path: Path, index_data: dict) -> tuple[str,
         "",
         "**Available skills:**",
         "",
-        "| Name | Shortcuts | Trigger |",
-        "|------|-----------|---------|",
+        "| Name | Shortcuts | Description | Trigger | noTrigger |",
+        "|------|-----------|-------------|---------|-----------|",
     ]
 
     for skill in all_skills:
         name = skill["name"]
         shortcuts = ", ".join(skill.get("shortcuts", [])) or "—"
+        description = skill.get("description", "—")
         trigger = skill.get("trigger", "—")
-        # Truncate long triggers for table readability
-        if isinstance(trigger, str) and len(trigger) > 80:
-            trigger = trigger[:77] + "..."
-        lines.append(f"| {name} | {shortcuts} | {trigger} |")
+        no_trigger = skill.get("noTrigger", "—")
+        lines.append(f"| {name} | {shortcuts} | {description} | {trigger} | {no_trigger} |")
 
     lines.append("")
     return "\n".join(lines), all_errors
@@ -486,6 +526,9 @@ def merge_duet_instructions(
     # index_data is guaranteed non-None here (merge succeeded)
     skills_table, validation_errors = _build_skills_table(instructions_path, index_data)
     errors.extend(validation_errors)
+
+    # Step 2b: Scan entire workspace for version suffix files (_v2, _v3, etc.)
+    errors.extend(_scan_version_suffixes(instructions_path))
 
     # Step 3: Insert skills table if marker present
     if SKILLS_TABLE_MARKER in merged:

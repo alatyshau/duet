@@ -208,43 +208,57 @@ export const resolveDeployStatus = (
  * @param buildSha — SHA from BUILD_SHA (bundled at build time). Null in dev electron.
  * @param devBackendPath — path to dev backend source. Enables source freshness check.
  */
+/**
+ * Returns a human-readable warning reason, or null if no warning.
+ * Backward compat: `isDeployWarning(...)` is truthy when there's a warning.
+ */
+export const getDeployWarning = (
+  appState: AppState,
+  appVersion: string,
+  buildSha?: string | null,
+  devBackendPath?: string
+): string | null => {
+  if (appState.status !== 'ready' || !appState.duetDataPath) return null
+
+  const deployed = readDeployedVersion(appState.duetDataPath)
+  if (deployed === null) return 'Backend не установлен'
+
+  const meta = parseVersionMeta(deployed)
+
+  if (appState.deployChannel === 'prod') {
+    if (meta.channel === 'dev') return 'Установлена DEV-версия в режиме PROD'
+    if (meta.channel === 'prod' && buildSha && meta.identifier !== buildSha)
+      return 'Версия устарела (другой билд)'
+    if (!buildSha || !meta.channel) {
+      if (compareSemver(appVersion, meta.semver) > 0)
+        return `Версия устарела (${meta.semver} → ${appVersion})`
+    }
+    return null
+  }
+
+  // DEV mode
+  if (meta.channel === 'prod') return 'Установлена PROD-версия в режиме DEV'
+  if (compareSemver(appVersion, meta.semver) !== 0)
+    return `Версия не совпадает (${meta.semver} → ${appVersion})`
+  if (meta.channel === 'dev' && meta.identifier && devBackendPath) {
+    const deployTime = parseDeployTimestamp(meta.identifier)
+    if (deployTime && isSourceNewer(devBackendPath, deployTime)) {
+      const newest = new Date(newestPyMtime(devBackendPath))
+      const pad = (n: number): string => String(n).padStart(2, '0')
+      const ts = `${pad(newest.getDate())}.${pad(newest.getMonth() + 1)} ${pad(newest.getHours())}:${pad(newest.getMinutes())}`
+      return `Исходники изменились (${ts})`
+    }
+  }
+  return null
+}
+
+/** @deprecated Use getDeployWarning instead */
 export const isDeployWarning = (
   appState: AppState,
   appVersion: string,
   buildSha?: string | null,
   devBackendPath?: string
-): boolean => {
-  if (appState.status !== 'ready' || !appState.duetDataPath) return false
-
-  const deployed = readDeployedVersion(appState.duetDataPath)
-  if (deployed === null) return true
-
-  const meta = parseVersionMeta(deployed)
-
-  if (appState.deployChannel === 'prod') {
-    // Channel mismatch: dev version deployed in prod mode
-    if (meta.channel === 'dev') return true
-    // SHA mismatch: different build (covers semver changes too)
-    if (meta.channel === 'prod' && buildSha && meta.identifier !== buildSha) return true
-    // Fallback: semver comparison when no buildSha or no metadata
-    if (!buildSha || !meta.channel) {
-      return compareSemver(appVersion, meta.semver) > 0
-    }
-    return false
-  }
-
-  // DEV mode
-  // Channel mismatch: prod version deployed in dev mode
-  if (meta.channel === 'prod') return true
-  // Semver changed (version bumped since deploy)
-  if (compareSemver(appVersion, meta.semver) !== 0) return true
-  // Source freshness: .py files changed since deploy
-  if (meta.channel === 'dev' && meta.identifier && devBackendPath) {
-    const deployTime = parseDeployTimestamp(meta.identifier)
-    if (deployTime && isSourceNewer(devBackendPath, deployTime)) return true
-  }
-  return false
-}
+): boolean => getDeployWarning(appState, appVersion, buildSha, devBackendPath) !== null
 
 // =============================================================================
 // DEPLOY BACKEND
@@ -535,25 +549,33 @@ export function compareSemver(a: string, b: string): -1 | 0 | 1 {
  * Excludes dev artifact dirs (.venv, __pycache__, etc.).
  */
 export function isSourceNewer(dirPath: string, since: Date): boolean {
-  if (!existsSync(dirPath)) return false
+  return newestPyMtime(dirPath) > since.getTime()
+}
+
+/** Returns mtime (ms) of the newest .py file, or 0. */
+export function newestPyMtime(dirPath: string): number {
+  if (!existsSync(dirPath)) return 0
   try {
-    return hasNewerPyFiles(dirPath, since.getTime())
+    return _newestPyMtime(dirPath)
   } catch {
-    return false
+    return 0
   }
 }
 
-function hasNewerPyFiles(dir: string, sinceMs: number): boolean {
+function _newestPyMtime(dir: string): number {
+  let max = 0
   const entries = readdirSync(dir, { withFileTypes: true })
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (DEPLOY_EXCLUDE_DIRS.has(entry.name)) continue
-      if (hasNewerPyFiles(join(dir, entry.name), sinceMs)) return true
+      const sub = _newestPyMtime(join(dir, entry.name))
+      if (sub > max) max = sub
     } else if (entry.name.endsWith('.py')) {
-      if (statSync(join(dir, entry.name)).mtimeMs > sinceMs) return true
+      const mt = statSync(join(dir, entry.name)).mtimeMs
+      if (mt > max) max = mt
     }
   }
-  return false
+  return max
 }
 
 function countFiles(dir: string): number {

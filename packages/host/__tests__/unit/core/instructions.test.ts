@@ -128,7 +128,7 @@ describe('core/instructions', () => {
       expect(result).toBe(true)
 
       const fixed = readFileSync(join(instrDir, 'personas', 'test.md'), 'utf-8')
-      expect(fixed).toContain('---\nname: test\ndescription: \n---\n')
+      expect(fixed).toContain('---\nname: test\n---\n')
       expect(fixed).toContain('# Test\nContent here\n')
     })
 
@@ -146,12 +146,12 @@ describe('core/instructions', () => {
 
       const fixed = readFileSync(join(instrDir, 'broken.md'), 'utf-8')
       expect(fixed).toContain('name: broken')
-      expect(fixed).toContain('description: ')
       expect(fixed).toContain('# Content\n')
       expect(fixed).not.toContain('{invalid yaml')
+      expect(fixed).not.toContain('description:')
     })
 
-    it('adds missing fields for missing_fields', () => {
+    it('adds missing name for missing_fields', () => {
       const instrDir = join(ctx.duetDataDir, 'instructions')
       mkdirSync(instrDir, { recursive: true })
       writeFileSync(
@@ -166,10 +166,9 @@ describe('core/instructions', () => {
       const fixed = readFileSync(join(instrDir, 'partial.md'), 'utf-8')
       expect(fixed).toContain('category: tools')
       expect(fixed).toContain('name: partial')
-      expect(fixed).toContain('description: ')
     })
 
-    it('preserves existing name when adding missing description', () => {
+    it('preserves existing name when it already exists', () => {
       const instrDir = join(ctx.duetDataDir, 'instructions')
       mkdirSync(instrDir, { recursive: true })
       writeFileSync(
@@ -183,7 +182,6 @@ describe('core/instructions', () => {
 
       const fixed = readFileSync(join(instrDir, 'named.md'), 'utf-8')
       expect(fixed).toContain('name: my-skill')
-      expect(fixed).toContain('description: ')
       // Should NOT add a second name
       expect(fixed.match(/name:/g)?.length).toBe(1)
     })

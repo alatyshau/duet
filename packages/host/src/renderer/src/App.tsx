@@ -113,7 +113,7 @@ function App(): React.JSX.Element {
 
     // Compute base statuses from all available data
     const hasDeployWarning =
-      'hasWarning' in deployStatus ? (deployStatus.hasWarning ?? false) : false
+      'warningReason' in deployStatus ? !!deployStatus.warningReason : false
     const computed = computePageStatuses({
       appState,
       deployStatus,
