@@ -14,9 +14,9 @@ import { join } from 'path'
 import { checkAppState, createInitialState, type AppState } from '../core/app-state'
 import { getConfigFile, readPort, readMachineConfig } from '../core/config'
 import { isDeployWarning, readBuildSha } from '../core/deploy'
-import { readCachedScan } from '../core/business-folders'
-import { readCachedErrors } from '../core/instructions'
-import { detectAgents } from '../core/ai-clients'
+import { readCachedScan, getBusinessFolders, triggerScan } from '../core/business-folders'
+import { readCachedErrors, triggerMerge } from '../core/instructions'
+import { detectAgents, configureAllAgents } from '../core/ai-clients'
 import { computePageStatuses, getSettingsSeverity, maxSeverity } from '../core/wizard-status'
 import type { DeployStatus, Severity } from '../shared/types'
 import { createTray, updateTrayIcon } from '../platform/tray'
@@ -226,9 +226,37 @@ if (gotTheLock) {
       appState.duetDataPath &&
       !isDeployWarning(appState, app.getVersion(), startupBuildSha)
     ) {
-      ensureBackendRunning(appState.duetDataPath).catch((err) => {
-        console.error('Auto-start backend failed:', err)
-      })
+      const duetDataPath = appState.duetDataPath
+      ensureBackendRunning(duetDataPath)
+        .then(async () => {
+          const port = readPort()
+
+          // Auto-scan business folders if configured and scan never ran
+          if (getBusinessFolders().length > 0 && readCachedScan(duetDataPath) === null) {
+            try {
+              await triggerScan(port)
+            } catch (e) {
+              console.error('Auto-scan business folders failed:', e)
+            }
+          }
+
+          // Auto-merge instructions if path configured and merge never ran
+          if (appState.instructionsPath && readCachedErrors(duetDataPath) === null) {
+            try {
+              const result = await triggerMerge(port)
+              if (result.errors.length === 0) {
+                configureAllAgents(duetDataPath, port)
+              }
+            } catch (e) {
+              console.error('Auto-merge instructions failed:', e)
+            }
+          }
+
+          updateAppState()
+        })
+        .catch((err) => {
+          console.error('Auto-start backend failed:', err)
+        })
     }
 
     app.on('activate', () => {

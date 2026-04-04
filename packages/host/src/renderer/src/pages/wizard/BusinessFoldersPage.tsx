@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
+import { StatusTable, type StatusTableItem } from '@renderer/components/ui/status-table'
 import {
   FolderOpen,
   Plus,
@@ -12,8 +13,6 @@ import {
   Loader2,
   CheckCircle,
   AlertTriangle,
-  XCircle,
-  Info,
   ChevronRight
 } from 'lucide-react'
 import type {
@@ -218,9 +217,7 @@ export function BusinessFoldersPage({
               <h4 className="text-sm font-medium text-foreground">
                 Предупреждения ({scanResult.errors.length})
               </h4>
-              {scanResult.errors.map((error, i) => (
-                <ScanErrorRow key={i} error={error} />
-              ))}
+              <StatusTable items={scanErrorsToItems(scanResult.errors)} />
             </div>
           )}
         </div>
@@ -291,32 +288,18 @@ function TreeNode({
   )
 }
 
-/** Error descriptions by reason code — informational, scanner already auto-fixed where possible. */
-const SCAN_ERROR_INFO: Record<string, { icon: typeof XCircle; style: string }> = {
-  name_collision: { icon: AlertTriangle, style: 'border-amber-200 bg-amber-50' },
-  repo_collision: { icon: AlertTriangle, style: 'border-amber-200 bg-amber-50' },
-  missing_manifest: { icon: Info, style: 'border-blue-200 bg-blue-50' },
-  invalid_manifest: { icon: XCircle, style: 'border-red-200 bg-red-50' }
+/** Severity by scan error reason code. Collisions are warnings, invalid manifests are errors. */
+const SCAN_ERROR_SEVERITY: Record<string, 'error' | 'warning'> = {
+  name_collision: 'warning',
+  repo_collision: 'warning',
+  missing_manifest: 'warning',
+  invalid_manifest: 'error'
 }
 
-function ScanErrorRow({ error }: { error: ScanError }): React.ReactElement {
-  const info = SCAN_ERROR_INFO[error.reason_code] ?? {
-    icon: XCircle,
-    style: 'border-red-200 bg-red-50'
-  }
-  const Icon = info.icon
-
-  return (
-    <div className={`flex items-start gap-3 p-3 rounded-lg border ${info.style}`}>
-      <Icon className="w-4 h-4 flex-shrink-0 mt-0.5 text-current opacity-60" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-foreground">{error.description}</p>
-        {error.path && (
-          <p className="text-[11px] font-mono text-muted-foreground mt-1 break-all">
-            {error.path}
-          </p>
-        )}
-      </div>
-    </div>
-  )
+function scanErrorsToItems(errors: ScanError[]): StatusTableItem[] {
+  return errors.map((e) => ({
+    severity: SCAN_ERROR_SEVERITY[e.reason_code] ?? 'error',
+    message: e.description,
+    detail: e.path || undefined
+  }))
 }

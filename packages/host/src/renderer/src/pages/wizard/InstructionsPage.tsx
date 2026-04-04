@@ -4,15 +4,14 @@
  */
 import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
+import { StatusTable, type StatusTableItem } from '@renderer/components/ui/status-table'
 import {
   FileText,
   FolderOpen,
   RefreshCw,
   Loader2,
   CheckCircle,
-  AlertTriangle,
-  XCircle,
-  Wrench
+  AlertTriangle
 } from 'lucide-react'
 import type {
   AppState,
@@ -215,15 +214,7 @@ export function InstructionsPage({
             </h3>
           </div>
 
-          <div className="space-y-2">
-            {errors.map((error, i) => (
-              <InstructionsErrorRow
-                key={i}
-                error={error}
-                onFix={() => handleFixError(error)}
-              />
-            ))}
-          </div>
+          <StatusTable items={instructionErrorsToItems(errors, handleFixError)} />
         </div>
       )}
 
@@ -241,38 +232,21 @@ export function InstructionsPage({
 }
 
 // =============================================================================
-// Sub-components
+// Helpers
 // =============================================================================
 
 /** Reason codes that can be auto-fixed by Host. */
 const FIXABLE_CODES = new Set(['no_frontmatter', 'invalid_yaml', 'missing_fields'])
 
-function InstructionsErrorRow({
-  error,
-  onFix
-}: {
-  error: InstructionsError
-  onFix: () => void
-}): React.ReactElement {
-  const fixable = FIXABLE_CODES.has(error.reason_code)
-
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-lg border border-red-200 bg-red-50">
-      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-foreground">{error.description}</p>
-        {error.path && (
-          <p className="text-[11px] font-mono text-muted-foreground mt-1 break-all">
-            {error.path}
-          </p>
-        )}
-      </div>
-      {fixable && (
-        <Button variant="outline" size="sm" className="flex-shrink-0" onClick={onFix}>
-          <Wrench size={14} />
-          Fix
-        </Button>
-      )}
-    </div>
-  )
+function instructionErrorsToItems(
+  errors: InstructionsError[],
+  onFix: (error: InstructionsError) => void
+): StatusTableItem[] {
+  return errors.map((e) => ({
+    severity: 'error' as const,
+    message: e.description,
+    detail: e.path || undefined,
+    fixable: FIXABLE_CODES.has(e.reason_code),
+    onFix: () => onFix(e)
+  }))
 }

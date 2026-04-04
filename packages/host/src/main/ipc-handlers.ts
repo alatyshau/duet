@@ -4,6 +4,7 @@
  * КТО ИСПОЛЬЗУЕТ: main process при инициализации.
  */
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import {
   readConfig,
@@ -253,6 +254,16 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       isDev && typeof machineConfig?.devBackendPath === 'string'
         ? machineConfig.devBackendPath
         : undefined
+
+    // Guard: PROD deploy in dev Electron — bundled backend doesn't exist
+    if (!isDev && !app.isPackaged) {
+      const bundledBackend = join(resourcesPath, 'backend')
+      if (!existsSync(bundledBackend)) {
+        throw new Error(
+          'PROD-деплой недоступен в dev-режиме. Соберите приложение или переключитесь на DEV.'
+        )
+      }
+    }
 
     // Python path must be configured before deploy
     const pythonPath =

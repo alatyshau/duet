@@ -9,7 +9,7 @@ Two-level navigation: **tabs** select a category, **sidebar list** selects a pag
 │ Duet             │                             │
 │ [Open DuetData]  │                             │
 │ ──────────────── │                             │
-│  [⚙ 🔴] [▶]     │  ← severity dot on tab     │
+│  [⚙🔴] [▶]      │  ← icon-only tabs + severity│
 │ ──────────────── │                             │
 │ ✅ DuetData      │  Content (current page)     │
 │ ✅ DuetConfig..  │                             │
@@ -23,12 +23,12 @@ Two-level navigation: **tabs** select a category, **sidebar list** selects a pag
 
 ### Tabs
 
-| Tab | Icon | Content |
-|-----|------|---------|
-| Settings (Настройки) | ⚙ | Wizard — 7-step setup |
-| Apps (Приложения) | ▶ | Running processes |
+| Tab | Icon | Tooltip | Content |
+|-----|------|---------|---------|
+| Settings | ⚙ | Настройки | Wizard — 7-step setup |
+| Apps | ▶ | Приложения | Running processes |
 
-Switching tab navigates to the first item in that tab's list.
+Icon-only tab buttons (no labels) — label shown as tooltip on hover. Severity indicator next to icon when children have issues. Switching tab navigates to the first item in that tab's list.
 
 ### Typed Routing
 
@@ -124,7 +124,7 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 | Component | File | Purpose |
 |-----------|------|---------|
 | `SeverityIcon` | `components/ui/severity-icon.tsx` | **Unified severity icon** for all UI levels. Props: `severity: Severity`, `size?: 'sm' \| 'md'`. Error = XCircle red, Warning = AlertTriangle amber |
-| `StatusTable` | `components/ui/status-table.tsx` | Renders `StatusItem[]` on pages. Each row: `SeverityIcon` + message + optional Fix button. Border color from severity |
+| `StatusTable` | `components/ui/status-table.tsx` | Renders `StatusTableItem[]` on pages. Each row: `SeverityIcon` + message + optional detail (file path) + optional Fix button. Border color from severity (red/amber) |
 | `StatusDot` | `components/ui/status-dot.tsx` | Process state indicator (colored dot or spinner). Props: `state: ProcessState`, `size: 'sm' \| 'md'` |
 | `ProcessStateLabel` | `components/ui/process-state-label.tsx` | Text badge with process state. Props: `state: ProcessState` |
 | `Button` | `components/ui/button.tsx` | shadcn/ui button with CVA variants |

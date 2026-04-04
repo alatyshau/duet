@@ -144,6 +144,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
+      title={label}
       className={cn(
         'flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
         active
@@ -152,7 +153,6 @@ function TabButton({
       )}
     >
       {icon}
-      {label}
       {severity && <SeverityIcon severity={severity} size="sm" />}
     </button>
   )
