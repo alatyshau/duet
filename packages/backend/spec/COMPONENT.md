@@ -77,7 +77,6 @@ server.py (entry point, lifecycle)
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
 | GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
-| GET | `/projects/{stream_id}` | Returns `{ projects: [...] }` — projects of a stream. Each entity includes `absolute_path` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + core_instructions + skills table → file. Returns `{ status, path, errors[] }` |
 
@@ -112,7 +111,6 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic write
 | `duet_data_path` | Returns string directly |
 | `orientation` | Returns dict directly |
 | `streams` | Returns list directly |
-| `projects` | Takes `stream_id`, returns list directly |
 | `scan` | Returns dict directly |
 | `health` | Returns `{ status, version, uptime_seconds }` |
 

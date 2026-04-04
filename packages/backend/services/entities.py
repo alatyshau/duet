@@ -62,16 +62,6 @@ class EntitiesService:
         path_lookup = self._build_path_lookup()
         return [self._entity_to_dict(e, path_lookup) for e in entities]
 
-    def get_projects(self, stream_id: int) -> list[dict]:
-        """Get projects for a stream (any level: business, stream, or product).
-
-        Args:
-            stream_id: Parent entity ID
-        """
-        entities = self.db.get_projects(stream_id)
-        path_lookup = self._build_path_lookup()
-        return [self._entity_to_dict(e, path_lookup) for e in entities]
-
     def run_scan(self) -> dict:
         """Run full hierarchy scan.
 

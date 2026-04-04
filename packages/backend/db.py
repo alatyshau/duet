@@ -65,9 +65,9 @@ class DatabaseManager:
             )
         """)
 
-        # Global unique index on name
+        # Unique name index — excludes projects (they can share names across parents)
         self.conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name) WHERE type != 'project'"
         )
 
         # Migrations: add columns that may be missing in older databases
@@ -279,7 +279,7 @@ class DatabaseManager:
         """Get streams (business, stream, product) + active projects under business/stream.
 
         Used for sidebar tree view.
-        Active projects under products are excluded (they live in a separate panel).
+        Active projects under products are excluded (internal to the product).
         """
         if not self.conn:
             raise RuntimeError("Database not initialized")
@@ -292,21 +292,6 @@ class DatabaseManager:
             WHERE p.type = 'project' AND p.status = 'active'
               AND parent.type IN ('business', 'stream')
         """)
-        return [self._row_to_entity(row) for row in cursor.fetchall()]
-
-    def get_projects(self, stream_id: int) -> list[Entity]:
-        """Get projects for a stream (any level: business, stream, or product).
-
-        Args:
-            stream_id: Parent entity ID (business, stream, or product)
-        """
-        if not self.conn:
-            raise RuntimeError("Database not initialized")
-
-        cursor = self.conn.execute(
-            "SELECT * FROM entities WHERE parent_id = ? AND type = 'project'",
-            (stream_id,),
-        )
         return [self._row_to_entity(row) for row in cursor.fetchall()]
 
     def find_root_business(self) -> Entity | None:

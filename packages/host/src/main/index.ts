@@ -13,7 +13,7 @@ import { existsSync, watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { checkAppState, createInitialState, type AppState } from '../core/app-state'
 import { getConfigFile, readPort, readMachineConfig } from '../core/config'
-import { isDeployWarning, readBuildSha } from '../core/deploy'
+import { isDeployWarning, readBuildSha, readDeployedVersion } from '../core/deploy'
 import { readCachedScan, getBusinessFolders, triggerScan } from '../core/business-folders'
 import { readCachedErrors, triggerMerge } from '../core/instructions'
 import { detectAgents, configureAllAgents } from '../core/ai-clients'
@@ -216,15 +216,11 @@ if (gotTheLock) {
       showWindow(appState)
     }
 
-    // Auto-start backend if ready and deployed
-    const startupResourcesPath = app.isPackaged
-      ? process.resourcesPath
-      : join(__dirname, '../../resources-dev')
-    const startupBuildSha = readBuildSha(startupResourcesPath)
+    // Auto-start backend if ready and deployed (warning is OK — backend is functional)
     if (
       appState.status === 'ready' &&
       appState.duetDataPath &&
-      !isDeployWarning(appState, app.getVersion(), startupBuildSha)
+      readDeployedVersion(appState.duetDataPath) !== null
     ) {
       const duetDataPath = appState.duetDataPath
       ensureBackendRunning(duetDataPath)

@@ -3,8 +3,6 @@ import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { AccordionController } from './providers/AccordionController';
 import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
-import { ProjectsProvider } from './providers/ProjectsProvider';
-import { TreeNode } from '../core/tree/businessTree';
 import { readPointer, readPort } from '../core/pointer';
 import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
@@ -91,7 +89,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const businessProvider = new BusinessTreeProvider(streams, paths.reposPath);
             const contextProvider = new ContextProvider(streams, paths.reposPath);
-            const projectsProvider = new ProjectsProvider(apiClient);
             context.subscriptions.push(
                 vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
             );
@@ -106,17 +103,6 @@ export async function activate(context: vscode.ExtensionContext) {
             context.subscriptions.push(...accordion.registerListeners());
             accordion.autoExpandActive();
 
-            // Sync selection in ДЕЛА → ПРОЕКТЫ
-            businessTreeView.onDidChangeSelection(e => {
-                if (e.selection.length > 0) {
-                    const item = e.selection[0];
-                    // Filter out VisualRoot and PlaceholderItem (they don't have entityId)
-                    if ('entityId' in item) {
-                        projectsProvider.setContext((item as TreeNode).entityId);
-                    }
-                }
-            });
-
             // Track expand state for toggle
             let isExpanded = false;
 
@@ -124,7 +110,6 @@ export async function activate(context: vscode.ExtensionContext) {
             context.subscriptions.push(
                 businessTreeView,
                 vscode.window.registerTreeDataProvider('duet.context', contextProvider),
-                vscode.window.registerTreeDataProvider('duet.projects', projectsProvider),
                 { dispose: () => businessProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
                 vscode.commands.registerCommand('duet.refresh', async () => {
@@ -137,7 +122,6 @@ export async function activate(context: vscode.ExtensionContext) {
                             const newStreams = await refreshFromBackend(apiClient, paths);
                             businessProvider.updateStreams(newStreams);
                             contextProvider.updateStreams(newStreams);
-                            projectsProvider.refresh();
                         } catch (error) {
                             vscode.window.showErrorMessage(`Scan failed: ${error}`);
                         }

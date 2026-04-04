@@ -185,7 +185,7 @@ Business (root)
 { "name": "Name", "icon": "📦", "git_url": "https://...", "reference_repos": {"cookbook": "https://..."} }
 ```
 
-**Contract:** Keys are `snake_case`. `name` globally unique. `reference_repos` is optional map (name → URL) in all manifests.
+**Contract:** Keys are `snake_case`. `name` globally unique (except projects — see Name Uniqueness). `reference_repos` is optional map (name → URL) in all manifests.
 
 ### Reference Repos
 
@@ -206,16 +206,18 @@ No `project.json` → project exists in DB but not shown in sidebar.
 
 ### Name Uniqueness (CRITICAL)
 
-All entity names globally unique. Conflict resolution by priority:
+Entity names globally unique **except projects** (projects can share names across different parents). Conflict resolution by priority:
 
-| Type | Priority |
-|------|----------|
-| business | 1 (highest — keeps name) |
-| stream | 2 |
-| product | 3 |
-| product_repo | 3 (same as product) |
-| project | 4 |
-| reference_repo | 5 (lowest — gets `Name (1)`) |
+| Type | Priority | Unique? |
+|------|----------|---------|
+| business | 1 (highest — keeps name) | globally |
+| stream | 2 | globally |
+| product | 3 | globally |
+| product_repo | 3 (same as product) | globally |
+| reference_repo | 5 (lowest — gets `Name (1)`) | globally |
+| project | — | within parent only |
+
+Projects under **products** are not inserted into entities DB (internal to the product). Projects under **business/stream** are inserted (they appear in sidebar when `status = 'active'`).
 
 ### Self-Healing
 
@@ -235,7 +237,7 @@ Backend's SQLite schema (`entities.db`, native sqlite3):
 CREATE TABLE entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT,        -- 'business' | 'stream' | 'product' | 'project' | 'product_repo' | 'reference_repo'
-    name TEXT,        -- globally unique
+    name TEXT,        -- unique (partial index excludes projects)
     icon TEXT,
     drive_path TEXT UNIQUE,
     parent_id INTEGER REFERENCES entities(id),

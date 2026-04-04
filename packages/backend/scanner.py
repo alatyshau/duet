@@ -441,13 +441,8 @@ class Scanner:
         # Register reference_repo entities
         self._register_reference_repos(manifest, product_id, folder_path / "product.json")
 
-        # Scan projects from drive path
-        self._scan_projects(folder_path, product_id, is_repos=False)
-
-        # Also scan projects from git repo if repos_path is configured
-        if self.repos_path:
-            repo_path = self.repos_path / f"{unique_name}.git"
-            self._scan_projects(repo_path, product_id, is_repos=True)
+        # Projects under products are not inserted into entities —
+        # they are internal to the product and don't need global indexing
 
     def _scan_projects(
         self, folder_path: Path, parent_id: int, is_repos: bool = False
@@ -468,10 +463,7 @@ class Scanner:
                 # Read project.json manifest (optional)
                 manifest = self._read_manifest(Path(entry.path), "project.json")
 
-                project_base_name = manifest.name if manifest and manifest.name else entry.name
-                project_unique_name = self._resolve_unique_name(
-                    project_base_name, "project", Path(entry.path) / "project.json"
-                )
+                project_name = manifest.name if manifest and manifest.name else entry.name
 
                 # Calculate relative path
                 if is_repos and self.repos_path:
@@ -492,7 +484,7 @@ class Scanner:
                     Entity(
                         id=None,
                         type="project",
-                        name=project_unique_name,
+                        name=project_name,
                         icon=(manifest.icon or "📋") if manifest else "📋",
                         drive_path=relative_path,
                         parent_id=parent_id,

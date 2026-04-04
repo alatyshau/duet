@@ -160,7 +160,7 @@ Host is the single owner of backend process lifecycle (start, stop, health monit
 
 **File watcher:** `main/index.ts` watches `DuetData/data/` via `fs.watch` (debounce 500ms). Detects external changes (Backend CLI scan/merge) and triggers `updateAppState()` → tray icon refresh. Lifecycle managed by `updateAppState()`: starts when `duetDataPath` appears, restarts on path change, retries when `data/` directory appears after deploy. Stopped on quit. Non-critical: silently handles missing directory or watch errors.
 
-**Auto-start on startup:** When `status === 'ready'` and deployed (no VERSION mismatch) -> `ensureBackendRunning()`.
+**Auto-start on startup:** When `status === 'ready'` and VERSION file exists (`readDeployedVersion() !== null`) -> `ensureBackendRunning()`. Deploy warnings (channel mismatch, stale version) do NOT block auto-start — backend is functional with warnings.
 
 **Auto-scan on startup:** After backend auto-start succeeds, if `business_folders` is non-empty and `readCachedScan()` returns `null` (scan never ran) -> `triggerScan(port)`. Populates sidebar status for step 5 without manual visit.
 

@@ -776,10 +776,29 @@ class TestScannerRelativePaths:
         assert product is not None
         assert product.drive_path == "Business/Stream1/Stream2/Product"
 
-    def test_project_from_drive_has_relative_path_with_prefix(
+    def test_project_from_drive_under_business(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Project from drive has path: {business_folder_name}/Product/projects/MyProject."""
+        """Project under business has relative path with prefix."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Business")
+        duet_data = builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        projects_path = biz_path / "projects"
+        projects_path.mkdir()
+        (projects_path / "MyProject").mkdir()
+        scanner = Scanner(db)
+        scanner.scan()
+
+        project = db.find_by_name("MyProject")
+        assert project is not None
+        assert project.drive_path == "Business/projects/MyProject"
+
+    def test_product_projects_not_in_entities(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Projects under products are not inserted into entities."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_business("Business")
         duet_data = builder.build(monkeypatch)
@@ -791,38 +810,12 @@ class TestScannerRelativePaths:
 
         projects_path = product_path / "projects"
         projects_path.mkdir()
-        (projects_path / "MyProject").mkdir()
+        (projects_path / "SomeProject").mkdir()
         scanner = Scanner(db)
         scanner.scan()
 
-        project = db.find_by_name("MyProject")
-        assert project is not None
-        assert project.drive_path == "Business/Product/projects/MyProject"
-
-    def test_project_from_repos_has_relative_path(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Project from repos has path relative to repos_path."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_business("Business")
-        builder.add_repo("Duet", components=[])
-        duet_data = builder.build(monkeypatch)
-
-        biz_path = builder.get_business_path(0)
-        product_path = biz_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.product(product_path, "Duet")
-
-        repo_path = builder.get_repo_path("Duet")
-        projects_path = repo_path / "projects"
-        projects_path.mkdir()
-        (projects_path / "260117_design").mkdir()
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
-
-        project = db.find_by_name("260117_design")
-        assert project is not None
-        assert project.drive_path == "Duet.git/projects/260117_design"
+        projects = [e for e in db.get_all_entities() if e.type == "project"]
+        assert len(projects) == 0
 
     def test_multiple_business_folders_unique_paths(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch

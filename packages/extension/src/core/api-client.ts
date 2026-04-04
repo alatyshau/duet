@@ -35,24 +35,8 @@ export interface StreamEntity {
     status: string | null;
 }
 
-export interface ProjectEntity {
-    id: string;
-    type: 'project';
-    name: string;
-    icon: string | null;
-    path: string;
-    absolute_path: string | null;
-    parent_id: string;
-    git_url: string | null;
-    status: string | null;
-}
-
 export interface StreamsResponse {
     streams: StreamEntity[];
-}
-
-export interface ProjectsResponse {
-    projects: ProjectEntity[];
 }
 
 export interface ChainItem {
@@ -166,10 +150,6 @@ export class DuetApiClient {
 
     async streams(): Promise<StreamsResponse> {
         return this.get('/streams');
-    }
-
-    async projects(streamId: number): Promise<ProjectsResponse> {
-        return this.get(`/projects/${streamId}`);
     }
 
     async scan(): Promise<ScanResponse> {

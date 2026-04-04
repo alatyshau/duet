@@ -89,8 +89,8 @@ class TestScanner:
         assert stream.parent_id == business.id
         assert product.parent_id == stream.id
 
-    def test_scan_projects(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Scans projects folder inside product."""
+    def test_product_projects_not_in_entities(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Projects under products are NOT inserted into entities."""
         biz_path = tmp_path / "Business"
         biz_path.mkdir()
         ManifestBuilder.business(biz_path, "Business", "🏢")
@@ -112,13 +112,11 @@ class TestScanner:
         scanner = Scanner(db)
         result = scanner.scan()
 
-        # business + product + 2 projects = 4
-        assert result["entities_count"] == 4
+        # business + product only (projects under products excluded)
+        assert result["entities_count"] == 2
 
         projects = [e for e in db.get_all_entities() if e.type == "project"]
-        assert len(projects) == 2
-        names = {p.name for p in projects}
-        assert names == {"ProjectA", "ProjectB"}
+        assert len(projects) == 0
 
     def test_name_conflict_same_type(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
         """Same-type entities with same name get suffix."""

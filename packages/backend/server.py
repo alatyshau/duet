@@ -182,21 +182,6 @@ async def streams_handler(request: Request) -> JSONResponse:
     return JSONResponse(response)
 
 
-async def projects_handler(request: Request) -> JSONResponse:
-    """GET /projects/{stream_id} - Get projects for a stream."""
-    stream_id_str = request.path_params.get("stream_id", "")
-    try:
-        stream_id = int(stream_id_str)
-    except ValueError:
-        return JSONResponse(
-            {"error": "Invalid stream_id: must be an integer", "code": "BAD_REQUEST"},
-            status_code=400,
-        )
-
-    result = get_entities_service().get_projects(stream_id)
-    return JSONResponse({"projects": result})
-
-
 async def scan_handler(request: Request) -> JSONResponse:
     """POST /scan - Rescan hierarchy."""
     start = time.time()
@@ -328,7 +313,6 @@ def create_app() -> Starlette:
         Route("/duet-data-path", duet_data_path_handler, methods=["GET"]),
         Route("/orientation", orientation_handler, methods=["POST"]),
         Route("/streams", streams_handler, methods=["GET"]),
-        Route("/projects/{stream_id}", projects_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/add-business", add_business_handler, methods=["POST"]),
         Route("/merge-duet-instructions", merge_instructions_handler, methods=["POST"]),

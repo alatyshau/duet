@@ -17,8 +17,7 @@ Extension loads entities from Backend HTTP API, not from local storage.
 
 | Source | Method | Data |
 |--------|--------|------|
-| `GET /streams` | `apiClient.streams()` | All business/stream/product entities with `absolute_path` |
-| `GET /projects/{id}` | `apiClient.projects(id)` | Projects for a given stream |
+| `GET /streams` | `apiClient.streams()` | All business/stream/product + active projects with `absolute_path` |
 | `POST /scan` | `apiClient.scan()` | Trigger backend rescan |
 | `POST /add-business` | `apiClient.addBusiness(path)` | Add business folder to settings.json |
 

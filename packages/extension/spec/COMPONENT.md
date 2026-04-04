@@ -33,7 +33,7 @@ Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.m
 | Decision | Rationale |
 |----------|-----------|
 | Pointer-based config (`pointer.ts`) | Reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
-| Backend HTTP API as data source | `DuetApiClient` -> all entity data via `/streams`, `/projects`, `/scan` |
+| Backend HTTP API as data source | `DuetApiClient` -> all entity data via `/streams`, `/scan` |
 | `StreamEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
 | Deterministic scan order | Backend scanner: `readdir` sorted by name for reproducible results |
@@ -45,14 +45,12 @@ Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.m
 ```
 activation -> apiClient.streams() -> StreamEntity[]
            -> pass to BusinessTreeProvider, ContextProvider
-           -> ProjectsProvider gets apiClient for async /projects calls
 
 refresh    -> apiClient.scan() + apiClient.streams() -> new StreamEntity[]
            -> updateStreams() on all providers -> fire onDidChangeTreeData
 ```
 
 Tree providers work synchronously over `StreamEntity[]` (filter, find, sort).
-Only `ProjectsProvider.getChildren()` is async (calls `/projects/{id}`).
 
 ## Launcher (openFolder.ts)
 
@@ -146,11 +144,10 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 | Backend API client | `core/api-client.ts` |
 | Business tree logic | `core/tree/businessTree.ts` |
 | Context breadcrumb | `core/tree/contextBreadcrumb.ts` |
-| Projects list | `core/tree/projectsList.ts` |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` |
 | Entity types, markers | Backend `scanner.py` |
 | Name conflict resolution | Backend `scanner.py` |
 | DB schema (name unique) | Backend `db.py` |
 | Entity data in Extension | `api-client.ts` -> `StreamEntity` type |
-| Tree navigation | `core/tree/businessTree.ts`, `contextBreadcrumb.ts`, `projectsList.ts` |
+| Tree navigation | `core/tree/businessTree.ts`, `contextBreadcrumb.ts` |

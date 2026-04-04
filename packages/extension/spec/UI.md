@@ -7,14 +7,13 @@
 | DUET (status) | Shown when backend not ready — welcome message or spinner | Stub `TreeDataProvider` (empty array) |
 | КОНТЕКСТ | Current workspace position in hierarchy | `ContextProvider.ts` |
 | ДЕЛА | Full business tree for navigation | `BusinessTreeProvider.ts` |
-| ПРОЕКТЫ | Projects of selected entity | `ProjectsProvider.ts` |
 
 ## Visibility Contract
 
 | View | Condition (`when` in package.json) |
 |------|-----------------------------------|
 | DUET (status) | `!duet.ready` |
-| КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ | `duet.hasPointer && duet.ready` |
+| КОНТЕКСТ, ДЕЛА | `duet.hasPointer && duet.ready` |
 
 **Context keys:**
 
@@ -54,13 +53,10 @@ Things that are easy to accidentally break:
 | ДЕЛА | Business status: 🔹/🟦/🔸/🟧 (collapsed/expanded × inactive/active) | User sees state at a glance |
 | ДЕЛА | Toggle button (fold icon) | Single button to expand/collapse all |
 | ДЕЛА | Click = select, arrow = toggle | User can select without collapsing |
-| ДЕЛА | Excludes projects | Projects only in ПРОЕКТЫ section |
 | КОНТЕКСТ | Welcome view when no folder open | User knows how to open folder |
 | КОНТЕКСТ | Settings via submenu (not QuickPick) | Faster access, no intermediate dialog |
 | КОНТЕКСТ | Nodes always expanded | Breadcrumb should show full path |
 | КОНТЕКСТ | Error nodes clickable → show help | User needs guidance on how to fix |
-| ПРОЕКТЫ | Context source: ДЕЛА selection | Shows projects for selected entity |
-| ПРОЕКТЫ | Icons: ThemeIcon (not emoji) | Distinguishes from ДЕЛА style |
 
 ## Error Codes (КОНТЕКСТ)
 

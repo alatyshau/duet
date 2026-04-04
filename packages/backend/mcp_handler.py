@@ -132,43 +132,15 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
 
 @mcp.tool()
 def streams() -> list[dict]:
-    """Find any entity in the user's hierarchy: businesses, streams, and products.
+    """Find any entity in the user's hierarchy: businesses, streams, products, and active projects.
 
     Use this to locate a product by name, discover what exists, or navigate
-    the GPD tree. Returns all entities except projects (use `projects` tool
-    for those).
+    the hierarchy tree.
 
     Each entity has: id, type, name, icon, path, parent_id.
     """
     service = _get_entities_service()
     return service.get_streams()
-
-
-@mcp.tool()
-def projects(stream_id: str) -> list[dict]:
-    """Get projects under a specific entity (business, stream, or product).
-
-    Use this after `streams` to drill into a specific entity's projects.
-
-    Args:
-        stream_id: Parent entity ID from `streams` response.
-
-    Returns list of project entities with id, type, name, icon, path, parent_id.
-
-    Raises:
-        McpError: If stream_id is not a valid integer.
-    """
-    service = _get_entities_service()
-    try:
-        sid = int(stream_id) if stream_id else 0
-    except ValueError:
-        raise McpError(
-            ErrorData(
-                code=INVALID_PARAMS,
-                message=f"Invalid stream_id: '{stream_id}' is not a valid integer",
-            )
-        )
-    return service.get_projects(sid)
 
 
 @mcp.tool()

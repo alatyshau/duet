@@ -94,14 +94,15 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  // Load cached data for steps 5-7 on mount (so sidebar shows real status before pages visited)
+  // Load cached data for steps 5-7 whenever appState updates
+  // (covers both initial mount and post-auto-scan/merge refreshes via sendAppState)
   useEffect(() => {
     if (!window.api || !appState || appState.status !== 'ready') return
 
     window.api.getCachedScan().then(setCachedScan).catch(console.error)
     window.api.getInstructionsErrors().then(setCachedInstructionsErrors).catch(console.error)
     window.api.getAgents().then(setCachedAgents).catch(console.error)
-  }, [appState?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ==========================================================================
   // Step statuses
