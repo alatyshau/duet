@@ -113,6 +113,11 @@ const updateAppState = (): void => {
 
   const hasDeployWarning = isDeployWarning(appState, app.getVersion(), buildSha, devBackendPath)
 
+  // Always resolve deploy status from disk (currentDeployStatus may be stale 'idle')
+  if (appState.status === 'ready') {
+    currentDeployStatus = resolveDeployStatus(appState, app.getVersion(), currentDeployStatus)
+  }
+
   // Compute wizard severity from cached data (all fs reads, cheap)
   let settingsSeverity: Severity | null = null
   if (appState.status === 'ready' && appState.duetDataPath) {
@@ -188,7 +193,8 @@ if (gotTheLock) {
     // Настраиваем IPC handlers
     setupIpcHandlers({
       getAppState: () => appState,
-      updateAppState
+      updateAppState,
+      setDeployStatus: setCurrentDeployStatus
     })
 
     // Создаём tray
@@ -200,11 +206,7 @@ if (gotTheLock) {
       }
     })
 
-    // Resolve deploy status before first updateAppState (otherwise idle → null → error in tray)
-    if (appState.status === 'ready') {
-      const resolved = resolveDeployStatus(appState, app.getVersion(), currentDeployStatus)
-      setCurrentDeployStatus(resolved)
-    }
+
 
     // Обновляем tray с полным набором warnings (deploy + wizard)
     updateAppState()

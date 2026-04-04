@@ -54,12 +54,14 @@ import type { ChildProcess } from 'child_process'
 export interface IpcHandlersContext {
   getAppState: () => AppState
   updateAppState: () => void
+  setDeployStatus: (status: DeployStatus) => void
 }
 
 let deployStatus: DeployStatus = { state: 'idle' }
 
-function setDeployStatus(status: DeployStatus): void {
+function setDeployStatus(status: DeployStatus, context?: IpcHandlersContext): void {
   deployStatus = status
+  context?.setDeployStatus(status)
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('deploy:status-changed', status)
   }
@@ -272,7 +274,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       throw new Error('Укажите путь к Python в настройках')
     }
 
-    setDeployStatus({ state: 'deploying', message: 'Начинаю деплой...' })
+    setDeployStatus({ state: 'deploying', message: 'Начинаю деплой...' }, context)
 
     // Detach old monitor — deploy will stop and restart backend
     currentBackendProc = null
@@ -291,7 +293,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
         pythonPath,
         (message) => {
           sendDeployLog(message)
-          setDeployStatus({ state: 'deploying', message })
+          setDeployStatus({ state: 'deploying', message }, context)
         }
       )
       if (proc) monitorBackendProcess(proc)
@@ -303,12 +305,12 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
         readBuildSha(resourcesPath),
         backendSourcePath
       )
-      setDeployStatus({ state: 'deployed', version: deployedVersion, ...(postDeployReason ? { warningReason: postDeployReason } : {}) })
+      setDeployStatus({ state: 'deployed', version: deployedVersion, ...(postDeployReason ? { warningReason: postDeployReason } : {}) }, context)
       context.updateAppState() // Refresh tray icon (clear deploy warning)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
       sendDeployLog(`ОШИБКА: ${error}`)
-      setDeployStatus({ state: 'error', error })
+      setDeployStatus({ state: 'error', error }, context)
       context.updateAppState() // Refresh tray icon on error too
     }
   })
