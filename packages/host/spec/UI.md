@@ -60,39 +60,44 @@ All navigation types defined in `renderer/src/navigation.ts`:
 | 7 | `agents` | AI Агенты | yes | 4, 6 |
 
 Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforced at runtime:
-- **Sidebar:** unavailable steps (deps not `done`) rendered with dimmed text (`text-muted-foreground/50`). Navigation still allowed (user can read help text).
+- **Sidebar:** unavailable steps (deps not `ok` or `warning`) rendered with dimmed text (`text-muted-foreground/50`). Navigation still allowed (user can read help text). Warning deps are satisfied — warning means "works but not ideal".
 - **Pages:** action buttons disabled when dependencies unmet; dependency banner shown (e.g. InstructionsPage warns when DuetConfig/machine not configured).
 - **IPC:** `config:set-instructions-path` throws if machine config not writable (prevents silent data loss).
 - Helpers: `isStepAvailable(page, statuses)`, `getMissingDeps(page, statuses)` in `navigation.ts`.
 
-### Step Status Icons
+### Page Status Icons
 
-| Status | Icon | Meaning |
-|--------|------|---------|
-| `'done'` | Green circle + checkmark | Step completed |
-| `'error'` | Red circle + X | Broken, needs fix |
-| `'warning'` | Amber circle + ! | Works, but needs attention |
-| `'skipped'` | Gray circle + arrows | Not relevant (e.g. agent not installed) |
-| `null` | Hollow circle | Not yet determined |
+`PageStatusIcon` in `Sidebar.tsx` — renders sidebar icon per `PageStatus`:
 
-Status computed by `computeStepStatuses()` in `core/wizard-status.ts` (pure function) merged with dynamic page callbacks.
+| PageStatus | Icon | Meaning |
+|-----------|------|---------|
+| `'ok'` | Green circle + checkmark | Page completed correctly |
+| `'error'` | Red circle + X (via `SeverityIcon`) | Page has errors |
+| `null` | Hollow gray circle | Not yet configured (blocks user) |
+| `'warning'` | Amber triangle + ! (via `SeverityIcon`) | Page has warnings |
+| `'skipped'` | Gray circle + arrows | Not relevant |
 
-### Step Status Sources
+`error` and `warning` icons rendered via shared `SeverityIcon` component — same icons used in `StatusTable` rows and tab severity indicators.
 
-| Steps | Source | Status logic |
-|-------|--------|-------------|
-| 1-2 | AppState fields | `done` when path/machine set, `null` otherwise |
-| 3 | AppState.pythonPath | `done` when set, `null` otherwise. Page auto-detects on mount |
-| 4 | DeployStatus | `done` when deployed/up_to_date, `null` otherwise |
-| 5 | Scan result (cached or fresh) | `done` when 0 errors, `error` when errors exist |
-| 6 | Instructions merge result | `done` when 0 errors, `error` when errors exist |
-| 7 | Agent detection | `done` when all found agents configured, `warning` when any needs_setup |
+Status computed by `computePageStatuses()` in `core/wizard-status.ts` (pure function) merged with dynamic page callbacks.
+
+### Page Status Sources
+
+| Pages | Source | PageStatus |
+|-------|--------|-----------|
+| 1-2 | AppState fields | `ok` when path/machine set, `null` otherwise |
+| 3 | AppState.pythonPath | `ok` when set, `null` otherwise. Page auto-detects on mount |
+| 4 | DeployStatus + hasDeployWarning | `ok` when deployed, `warning` when channel mismatch/stale, `null` otherwise |
+| 5 | Scan result (cached or fresh) | `ok` when 0 errors, `error` when errors exist |
+| 6 | Instructions merge result | `ok` when 0 errors, `error` when errors exist |
+| 7 | Agent detection | `ok` when all found agents configured, `warning` when any needs_setup |
 
 ### Page Architecture
 
 Each wizard page:
+- Produces `StatusItem[]` — rendered via shared `<StatusTable />` component
 - Receives `appState: AppState` prop (for config values)
-- Receives `onStatusChange: (status: StepStatus) => void` callback
+- Receives `onStatusChange: (status: PageStatus) => void` callback
 - Calls `window.api.*` directly for its own IPC operations
 - Manages its own local state (no state lifting to App.tsx)
 
@@ -118,18 +123,19 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 | Component | File | Purpose |
 |-----------|------|---------|
+| `SeverityIcon` | `components/ui/severity-icon.tsx` | **Unified severity icon** for all UI levels. Props: `severity: Severity`, `size?: 'sm' \| 'md'`. Error = XCircle red, Warning = AlertTriangle amber |
+| `StatusTable` | `components/ui/status-table.tsx` | Renders `StatusItem[]` on pages. Each row: `SeverityIcon` + message + optional Fix button. Border color from severity |
 | `StatusDot` | `components/ui/status-dot.tsx` | Process state indicator (colored dot or spinner). Props: `state: ProcessState`, `size: 'sm' \| 'md'` |
 | `ProcessStateLabel` | `components/ui/process-state-label.tsx` | Text badge with process state. Props: `state: ProcessState` |
 | `Button` | `components/ui/button.tsx` | shadcn/ui button with CVA variants |
-| `StepStatusIcon` | Inline in `Sidebar.tsx` | Wizard step status icon (done/error/warning/skipped/null) |
-| `SeverityDot` | Inline in `Sidebar.tsx` | Severity indicator dot on tab buttons (red/amber) |
+| `PageStatusIcon` | Inline in `Sidebar.tsx` | Page status icon: `ok`/`null`/`skipped` own icons, `error`/`warning` via `SeverityIcon` |
 
 ## Layout
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| `App.tsx` | `renderer/src/App.tsx` | Root: AppState subscription, deploy subscription, step status computation, page routing |
-| `Layout` | `components/layout/Layout.tsx` | Two-column: sidebar + content. Passes stepStatuses to Sidebar |
+| `App.tsx` | `renderer/src/App.tsx` | Root: AppState subscription, deploy subscription, page status computation, page routing |
+| `Layout` | `components/layout/Layout.tsx` | Two-column: sidebar + content. Passes pageStatuses to Sidebar |
 | `Sidebar` | `components/layout/Sidebar.tsx` | Tabs, wizard/apps list, status icons |
 
 ## Pages
@@ -166,8 +172,8 @@ Location: `resources/tray/{mac,win}/`
 
 ### Tab Severity Indicators
 
-Each tab button shows a `SeverityDot` (small colored circle) when its children have issues:
-- Settings tab: `getSettingsSeverity(stepStatuses)` — max of all wizard steps
+Each tab button shows a `SeverityIcon size="sm"` when its children have issues:
+- Settings tab: `getSettingsSeverity(pageStatuses)` — max of all wizard pages
 - Apps tab: `processStateToSeverity(backendProcessState)` — from process state
 
 Tray aggregates all tabs + deploy severity via `maxSeverity()`.

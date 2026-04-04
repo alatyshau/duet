@@ -1,6 +1,6 @@
 /*
- * ЧТО: Pure-функции для вычисления статусов шагов визарда.
- * ЗАЧЕМ: Единственный источник правды для статусных иконок в Sidebar.
+ * ЧТО: Pure-функции для вычисления статусов страниц и severity aggregation.
+ * ЗАЧЕМ: Единственный источник правды для статусных иконок в Sidebar и tray.
  *        Используется renderer'ом для отображения и main process для tray.
  * КТО ИСПОЛЬЗУЕТ: renderer/App.tsx, main/index.ts.
  *
@@ -20,8 +20,8 @@ import type {
 // TYPES
 // =============================================================================
 
-/** Статус шага визарда: done, error, warning, skipped, или null (не определён). */
-export type StepStatus = 'done' | 'error' | 'warning' | 'skipped' | null
+/** Статус страницы: ok, error, warning, skipped, или null (не настроено). */
+export type PageStatus = 'ok' | 'error' | 'warning' | 'skipped' | null
 
 /** Все страницы визарда (должен совпадать с navigation.ts WizardPage). */
 export type WizardPage =
@@ -33,10 +33,10 @@ export type WizardPage =
   | 'instructions'
   | 'agents'
 
-export type StepStatuses = Partial<Record<WizardPage, StepStatus>>
+export type PageStatuses = Partial<Record<WizardPage, PageStatus>>
 
 /** Входные данные для вычисления статусов, собранные из разных источников. */
-export interface WizardStatusInput {
+export interface PageStatusInput {
   appState: AppState
   deployStatus: DeployStatus
   /** Cached scan result (null = no scan performed yet). */
@@ -45,6 +45,8 @@ export interface WizardStatusInput {
   cachedInstructionsErrors: InstructionsError[] | null
   /** Detected agents (null = not queried yet). */
   agents: AgentInfo[] | null
+  /** Deploy staleness flag from isDeployWarning() — channel mismatch, stale version, etc. */
+  hasDeployWarning?: boolean
 }
 
 // =============================================================================
@@ -52,45 +54,44 @@ export interface WizardStatusInput {
 // =============================================================================
 
 /**
- * Вычисляет статусы всех шагов визарда из входных данных.
+ * Вычисляет статусы всех страниц визарда из входных данных.
  * Чистая функция — никаких side effects.
  */
-export function computeStepStatuses(input: WizardStatusInput): StepStatuses {
+export function computePageStatuses(input: PageStatusInput): PageStatuses {
   const { appState, deployStatus, cachedScan, cachedInstructionsErrors, agents } = input
-  const s: StepStatuses = {}
+  const s: PageStatuses = {}
 
-  // Step 1: DuetData — path set and exists
-  s['duet-data'] = appState.duetDataPath ? 'done' : null
+  // Page 1: DuetData — path set and exists
+  s['duet-data'] = appState.duetDataPath ? 'ok' : null
 
-  // Step 2: DuetConfig + machine — both set
-  s['duet-config'] = appState.duetConfigPath && appState.machine ? 'done' : null
+  // Page 2: DuetConfig + machine — both set
+  s['duet-config'] = appState.duetConfigPath && appState.machine ? 'ok' : null
 
-  // Step 3: Python — path configured in machine.json
-  s['python'] = appState.pythonPath ? 'done' : null
+  // Page 3: Python — path configured in machine.json
+  s['python'] = appState.pythonPath ? 'ok' : null
 
-  // Step 4: Backend — deployed successfully
+  // Page 4: Backend — deployed, stale (warning), or not deployed (null)
   const isDeployed = deployStatus.state === 'deployed' || deployStatus.state === 'up_to_date'
-  s['backend'] = isDeployed ? 'done' : null
+  s['backend'] = isDeployed ? (input.hasDeployWarning ? 'warning' : 'ok') : null
 
-  // Step 5: Business Folders — scanned with no errors
+  // Page 5: Business Folders — scanned with no errors
   if (cachedScan !== null) {
-    s['business-folders'] = cachedScan.errors.length === 0 ? 'done' : 'error'
+    s['business-folders'] = cachedScan.errors.length === 0 ? 'ok' : 'error'
   }
 
-  // Step 6: Instructions — merged with no errors
+  // Page 6: Instructions — merged with no errors
   if (cachedInstructionsErrors !== null) {
-    s['instructions'] = cachedInstructionsErrors.length === 0 ? 'done' : 'error'
+    s['instructions'] = cachedInstructionsErrors.length === 0 ? 'ok' : 'error'
   }
 
-  // Step 7: AI Agents — needs_setup is warning (works, just not configured), not error
+  // Page 7: AI Agents — needs_setup is warning (works, just not configured), not error
   if (agents !== null) {
     const found = agents.filter((a) => a.status !== 'not_found')
     const needsSetup = found.some((a) => a.status === 'needs_setup')
     if (needsSetup) {
       s['agents'] = 'warning'
     } else {
-      // All found agents configured (or no agents found at all) = done
-      s['agents'] = 'done'
+      s['agents'] = 'ok'
     }
   }
 
@@ -116,9 +117,14 @@ export function maxSeverity(severities: (Severity | null | undefined)[]): Severi
   return max
 }
 
-/** Map StepStatus to Severity (error/warning → severity, done/skipped/null → null). */
-export function stepStatusToSeverity(status: StepStatus): Severity | null {
+/**
+ * Map PageStatus to Severity for aggregation.
+ * error AND null both → 'error' (null = not configured = blocks user).
+ * warning → 'warning'. ok/skipped → null (no severity).
+ */
+export function pageStatusToSeverity(status: PageStatus | undefined): Severity | null {
   if (status === 'error') return 'error'
+  if (status === null || status === undefined) return 'error'
   if (status === 'warning') return 'warning'
   return null
 }
@@ -128,12 +134,18 @@ export function processStateToSeverity(state: ProcessState): Severity | null {
   return state === 'error' ? 'error' : null
 }
 
-/** Aggregate severity of all wizard steps (Settings tab). */
-export function getSettingsSeverity(statuses: StepStatuses): Severity | null {
-  return maxSeverity(Object.values(statuses).map(stepStatusToSeverity))
-}
+const ALL_WIZARD_PAGES: WizardPage[] = [
+  'duet-data',
+  'duet-config',
+  'python',
+  'backend',
+  'business-folders',
+  'instructions',
+  'agents'
+]
 
-/** @deprecated Use getSettingsSeverity + maxSeverity instead. */
-export function hasWizardWarning(statuses: StepStatuses): boolean {
-  return getSettingsSeverity(statuses) !== null
+/** Aggregate severity of all wizard pages (Settings tab). */
+export function getSettingsSeverity(statuses: PageStatuses): Severity | null {
+  // Check ALL wizard pages — missing keys treated as undefined → error severity.
+  return maxSeverity(ALL_WIZARD_PAGES.map((page) => pageStatusToSeverity(statuses[page])))
 }

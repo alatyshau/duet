@@ -18,6 +18,8 @@ import {
   resolveDeployStatus,
   runDeploy,
   readDeployedVersion,
+  isDeployWarning,
+  readBuildSha,
   findPython,
   validatePython,
   pythonInstallHint
@@ -212,7 +214,21 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   // === Deploy ===
 
   ipcMain.handle('deploy:get-status', () => {
-    return resolveDeployStatus(context.getAppState(), app.getVersion(), deployStatus)
+    const appState = context.getAppState()
+    const resolved = resolveDeployStatus(appState, app.getVersion(), deployStatus)
+    // Enrich deployed/up_to_date with warning flag for renderer sidebar
+    if (resolved.state === 'deployed' || resolved.state === 'up_to_date') {
+      const resourcesPath = app.isPackaged
+        ? process.resourcesPath
+        : join(__dirname, '../../resources-dev')
+      const buildSha = readBuildSha(resourcesPath)
+      const machineConfig = readMachineConfig()
+      const devBackendPath =
+        typeof machineConfig?.devBackendPath === 'string' ? machineConfig.devBackendPath : undefined
+      const hasWarning = isDeployWarning(appState, app.getVersion(), buildSha, devBackendPath)
+      return { ...resolved, hasWarning }
+    }
+    return resolved
   })
 
   ipcMain.handle('deploy:start', async () => {
@@ -270,7 +286,13 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       if (proc) monitorBackendProcess(proc)
       // Read actual VERSION (includes build metadata) instead of plain appVersion
       const deployedVersion = readDeployedVersion(state.duetDataPath) ?? appVersion
-      setDeployStatus({ state: 'deployed', version: deployedVersion })
+      const postDeployWarning = isDeployWarning(
+        context.getAppState(),
+        app.getVersion(),
+        readBuildSha(resourcesPath),
+        backendSourcePath
+      )
+      setDeployStatus({ state: 'deployed', version: deployedVersion, hasWarning: postDeployWarning })
       context.updateAppState() // Refresh tray icon (clear deploy warning)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)

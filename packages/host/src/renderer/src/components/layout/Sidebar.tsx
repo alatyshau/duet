@@ -9,11 +9,12 @@
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { StatusDot } from '@renderer/components/ui/status-dot'
+import { SeverityIcon } from '@renderer/components/ui/severity-icon'
 import { FolderOpen, Settings, Play } from 'lucide-react'
 import { WIZARD_STEPS, APP_ITEMS, tabForPage, isStepAvailable } from '../../navigation'
 import type { Page, Tab, WizardPage } from '../../navigation'
 import type { ProcessState, Severity } from '../../../../shared/types'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 import {
   getSettingsSeverity,
   processStateToSeverity
@@ -29,8 +30,8 @@ interface SidebarProps {
   onOpenFolder: () => void
   folderConfigured: boolean
   backendProcessState?: ProcessState
-  /** Статусы шагов визарда. Ключ — WizardPage id. */
-  stepStatuses?: Partial<Record<WizardPage, StepStatus>>
+  /** Статусы страниц визарда. Ключ — WizardPage id. */
+  pageStatuses?: Partial<Record<WizardPage, PageStatus>>
 }
 
 // =============================================================================
@@ -43,13 +44,12 @@ export function Sidebar({
   onOpenFolder,
   folderConfigured,
   backendProcessState,
-  stepStatuses = {}
+  pageStatuses = {}
 }: SidebarProps): React.ReactElement {
   const activeTab = tabForPage(currentPage)
 
   const handleTabClick = (tab: Tab): void => {
     if (tab === activeTab) return
-    // При переключении таба — переходим на первый элемент
     if (tab === 'settings') {
       onNavigate(WIZARD_STEPS[0].page)
     } else {
@@ -58,7 +58,7 @@ export function Sidebar({
   }
 
   // Compute tab severities from children
-  const settingsSeverity = getSettingsSeverity(stepStatuses)
+  const settingsSeverity = getSettingsSeverity(pageStatuses)
   const appsSeverity = backendProcessState
     ? processStateToSeverity(backendProcessState)
     : null
@@ -109,7 +109,7 @@ export function Sidebar({
           <WizardNav
             currentPage={currentPage}
             onNavigate={onNavigate}
-            stepStatuses={stepStatuses}
+            pageStatuses={pageStatuses}
           />
         )}
         {activeTab === 'apps' && (
@@ -153,23 +153,8 @@ function TabButton({
     >
       {icon}
       {label}
-      {severity && <SeverityDot severity={severity} />}
+      {severity && <SeverityIcon severity={severity} size="sm" />}
     </button>
-  )
-}
-
-// =============================================================================
-// SEVERITY DOT (tab indicator)
-// =============================================================================
-
-function SeverityDot({ severity }: { severity: Severity }): React.ReactElement {
-  return (
-    <span
-      className={cn(
-        'w-1.5 h-1.5 rounded-full flex-shrink-0',
-        severity === 'error' ? 'bg-red-500' : 'bg-amber-500'
-      )}
-    />
   )
 }
 
@@ -180,18 +165,18 @@ function SeverityDot({ severity }: { severity: Severity }): React.ReactElement {
 function WizardNav({
   currentPage,
   onNavigate,
-  stepStatuses
+  pageStatuses
 }: {
   currentPage: Page
   onNavigate: (page: Page) => void
-  stepStatuses: Partial<Record<WizardPage, StepStatus>>
+  pageStatuses: Partial<Record<WizardPage, PageStatus>>
 }): React.ReactElement {
   return (
     <div className="space-y-0.5">
       {WIZARD_STEPS.map((step) => {
         const isActive = currentPage === step.page
-        const status = stepStatuses[step.page] ?? null
-        const available = isStepAvailable(step.page, stepStatuses)
+        const status = pageStatuses[step.page] ?? null
+        const available = isStepAvailable(step.page, pageStatuses)
 
         return (
           <button
@@ -206,7 +191,7 @@ function WizardNav({
                   : 'text-muted-foreground/50'
             )}
           >
-            <StepStatusIcon status={status} />
+            <PageStatusIcon status={status} />
             {step.label}
           </button>
         )
@@ -232,7 +217,6 @@ function AppsNav({
     <div className="space-y-0.5">
       {APP_ITEMS.map((item) => {
         const isActive = currentPage === item.page
-        // TODO: Generalize process state lookup when more apps are added
         const processState = item.page === 'app:duet-backend' ? backendProcessState : undefined
 
         return (
@@ -256,11 +240,11 @@ function AppsNav({
 }
 
 // =============================================================================
-// STEP STATUS ICON
+// PAGE STATUS ICON
 // =============================================================================
 
-function StepStatusIcon({ status }: { status: StepStatus }): React.ReactElement {
-  if (status === 'done') {
+function PageStatusIcon({ status }: { status: PageStatus }): React.ReactElement {
+  if (status === 'ok') {
     return (
       <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -277,24 +261,11 @@ function StepStatusIcon({ status }: { status: StepStatus }): React.ReactElement 
   }
 
   if (status === 'error') {
-    return (
-      <div className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M3 3L7 7M7 3L3 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </div>
-    )
+    return <SeverityIcon severity="error" />
   }
 
   if (status === 'warning') {
-    return (
-      <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M5 3V5.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-          <circle cx="5" cy="7.5" r="0.75" fill="white" />
-        </svg>
-      </div>
-    )
+    return <SeverityIcon severity="warning" />
   }
 
   if (status === 'skipped') {
@@ -314,6 +285,6 @@ function StepStatusIcon({ status }: { status: StepStatus }): React.ReactElement 
     )
   }
 
-  // null — не определён
+  // null — not configured
   return <div className="w-4 h-4 rounded-full border-2 border-border flex-shrink-0" />
 }

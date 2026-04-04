@@ -297,6 +297,14 @@ Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `A
 | Second instance | Shows window of first instance, second exits |
 | Production | Cmd/Ctrl+R reload disabled |
 
+## Development
+
+```bash
+npm run dev   # electron-vite dev — запускает Vite dev server + Electron
+```
+
+Electron GUI требует доступ к оконной системе macOS. AI-агенты: запускать с `dangerouslyDisableSandbox: true` (sandbox блокирует GUI-процессы).
+
 ## Build & Release
 
 > Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) -> Build & Release
@@ -341,62 +349,125 @@ npm run typecheck    # tsc
 | `platform/tray.ts` | No — requires Electron (manual testing) |
 | `main/window.ts` | No — requires Electron |
 
-## Wizard Status & Severity
+## Severity Framework
 
-### StepStatus
+Единая модель статусов на все 4 уровня UI: страница → sidebar → таб → tray.
 
-`StepStatus = 'done' | 'error' | 'warning' | 'skipped' | null`
-
-Pure function `computeStepStatuses()` in `core/wizard-status.ts` computes sidebar step icons from system state. Used by renderer (App.tsx) and main process (tray).
-
-**Input sources:**
-| Steps | Source | Severity mapping |
-|-------|--------|-----------------|
-| 1-2 | AppState (duetDataPath, duetConfigPath, machine) | null (not configured) or done |
-| 3 | AppState (pythonPath from machine.json) | null or done |
-| 4 | DeployStatus (deployed/up_to_date) | null or done |
-| 5 | Cached scan.json (errors count) | error (broken manifests) |
-| 6 | Cached instruction errors (errors count) | error (broken files) |
-| 7 | Agent detection (needs_setup vs configured) | **warning** (works but not configured) |
-
-Steps 5-7 also report status dynamically via `onStatusChange` callbacks from individual pages, which override computed values.
-
-### Severity Aggregation
+### Severity — два уровня серьёзности
 
 `Severity = 'error' | 'warning'` — first-class type in `shared/types.ts`.
 
-**Semantic distinction:**
-- `error` — something is broken, cannot function (backend crashed, broken manifests, corrupt config)
-- `warning` — works but needs attention (agent not configured, deploy needed, stale version)
+| Severity | Meaning | Examples |
+|----------|---------|---------|
+| `error` | Cannot function, needs action | Step not configured, backend crashed, broken manifests |
+| `warning` | Works, but not ideal | Deploy channel mismatch, agent not configured, stale version |
 
-**Aggregation model:** each UI level shows `maxSeverity()` of its children (error > warning > null):
+### StatusItem — единица проблемы на странице
+
+```typescript
+interface StatusItem {
+  severity: Severity        // error | warning
+  message: string           // "Python не найден", "Установлена DEV-версия"
+  fixable?: boolean         // есть автоматическое исправление?
+}
+```
+
+Each page produces `StatusItem[]` — single source of truth for all levels above. Rendered via shared `<StatusTable />` component.
+
+### PageStatus — статус страницы
+
+`PageStatus = 'ok' | 'error' | 'warning' | 'skipped' | null`
+
+General model for any page (wizard, apps, future). Derived from page's `StatusItem[]`.
+
+| PageStatus | Sidebar icon | Meaning | Severity at aggregation |
+|-----------|-------------|---------|------------------------|
+| `'ok'` | Green + checkmark | Page completed correctly | none |
+| `'error'` | Red + X | Page has errors | **error** |
+| `null` | Hollow gray circle | Not yet configured (blocks user) | **error** |
+| `'warning'` | Amber + ! | Page has warnings | **warning** |
+| `'skipped'` | Gray + arrows | Not relevant | none |
+
+**Key:** `null` and `error` are visually different in sidebar (gray vs red), but both aggregate as severity `error` to tab and tray.
+
+### Page StatusItem Sources
+
+| Page | Situation | Severity | Message |
+|------|-----------|----------|---------|
+| 1. DuetData | Path not selected | error | "Выберите папку DuetData" |
+| 2. DuetConfig | Path not selected | error | "Выберите папку DuetConfig" |
+| 2. DuetConfig | Machine not set | error | "Укажите имя машины" |
+| 2. DuetConfig | Invalid machine name | error | "Недопустимое имя: ..." |
+| 3. Python | Not found | error | "Python 3.10+ не найден" |
+| 3. Python | Version < 3.10 | error | "Python {version} — нужен 3.10+" |
+| 4. Backend | Not deployed | error | "Backend не установлен" |
+| 4. Backend | Deploy error | error | "{error message}" |
+| 4. Backend | Channel mismatch | warning | "Установлена DEV-версия — переустановите для PROD" |
+| 4. Backend | Stale version | warning | "Версия устарела — переустановите" |
+| 5. Biz Folders | Scan error | error | "{description}" (per scan error) |
+| 6. Instructions | Path not selected | error | "Выберите папку инструкций" |
+| 6. Instructions | Merge error | error | "{description}" (fixable for known types) |
+| 7. AI Agents | needs_setup | warning | "{agent}: не сконфигурирован" |
+| 7. AI Agents | Issue | warning | "{description}" (fixable issues) |
+
+### Four-Level Aggregation
 
 ```
-Step statuses  ──┐
-                  ├─→ Settings tab severity (getSettingsSeverity)  ──┐
-Process states ──┐                                                   │
-                  ├─→ Apps tab severity (processStateToSeverity)  ──┼─→ Tray severity
-Deploy check   ────────────────────────────────── (deploySeverity) ──┘
+Level 1: Page
+  StatusItem[] → rendered via <StatusTable />
+       ↓ maxSeverity(items) → PageStatus
+
+Level 2: Sidebar
+  PageStatus → page icon (5 variants)
+       ↓ pageStatusToSeverity() — null and error both → 'error'
+
+Level 3: Tab
+  maxSeverity(all pages) → dot on tab button
+  | Severity | Dot     |
+  |----------|---------|
+  | error    | Red     |
+  | warning  | Amber   |
+  | null     | Hidden  |
+
+Level 4: Tray
+  AppStatus != ready → warning (forced)
+  AppStatus == ready → maxSeverity(settingsSeverity, appsSeverity, deploySeverity)
+  | Severity | Icon            |
+  |----------|-----------------|
+  | error    | Red dot         |
+  | warning  | Warning template|
+  | null     | Normal          |
 ```
 
-Four UI levels (visual details in [UI.md](UI.md)):
+### computePageStatuses
 
-| Level | What | Severity source |
-|-------|------|-----------------|
-| 4. Page | Error/warning tables inside page | Individual problems |
-| 3. Sidebar item | Step icon or process dot | `StepStatus` / `ProcessState` |
-| 2. Tab button | Colored dot indicator | `maxSeverity` of children |
-| 1. Tray icon | System tray icon + tooltip | `maxSeverity` of all sources |
+Pure function in `core/wizard-status.ts`. Computes sidebar PageStatus from system state. Used by renderer (App.tsx) and main process (tray).
 
-**Key functions** (all pure, in `core/wizard-status.ts`):
+**Input sources:**
+| Pages | Source | PageStatus |
+|-------|--------|-----------|
+| 1-2 | AppState (duetDataPath, duetConfigPath, machine) | `null` (not configured) or `ok` |
+| 3 | AppState (pythonPath from machine.json) | `null` or `ok` |
+| 4 | DeployStatus + hasDeployWarning | `null` (not deployed), `warning` (channel mismatch/stale), or `ok` |
+| 5 | Cached scan.json (errors count) | `error` (broken manifests) or `ok` |
+| 6 | Cached instruction errors (errors count) | `error` (broken files) or `ok` |
+| 7 | Agent detection (needs_setup vs configured) | `warning` (works but not configured) or `ok` |
+
+Pages 5-7 also report status dynamically via `onStatusChange` callbacks, which override computed values.
+
+### Key Functions
+
+All pure, in `core/wizard-status.ts`:
 - `maxSeverity(severities[])` — pick highest (error > warning > null). Single aggregation primitive for all levels.
-- `stepStatusToSeverity(status)` — error→error, warning→warning, rest→null
+- `pageStatusToSeverity(status)` — error→error, **null→error**, warning→warning, ok/skipped→null
 - `processStateToSeverity(state)` — error→error, rest→null
-- `getSettingsSeverity(statuses)` — aggregate all wizard steps
+- `getSettingsSeverity(statuses)` — aggregate all wizard pages
 
-**Tray integration** (`main/index.ts`):
+### Tray Integration
+
+`main/index.ts`:
 - `deploySeverity` — from `isDeployWarning()` (VERSION mismatch → warning)
-- `settingsSeverity` — from `getSettingsSeverity(computeStepStatuses(...))`
+- `settingsSeverity` — from `getSettingsSeverity(computePageStatuses(...))`
 - `overallSeverity = maxSeverity([deploySeverity, settingsSeverity])`
 - `updateTrayIcon(appStatus, overallSeverity)` — AppStatus != ready forces warning; otherwise uses severity
 
@@ -409,14 +480,16 @@ Quick lookup for concepts not obvious from file names. For layer responsibilitie
 | When you need to find… | Look in |
 |------------------------|---------|
 | All IPC types (single source of truth) | `shared/types.ts` |
-| Severity type + aggregation functions | `shared/types.ts` (type), `core/wizard-status.ts` (functions) |
+| Severity type, StatusItem, PageStatus | `shared/types.ts` (types), `core/wizard-status.ts` (functions) |
 | VERSION metadata parsing + writing | `core/deploy.ts` (parseVersionMeta, writeVersion, readBuildSha) |
 | Deploy warning logic (channel-aware) | `core/deploy.ts:isDeployWarning()` |
 | Pointer file path / machine config | `core/config.ts` |
 | What triggers tray icon change | `main/index.ts:updateAppState()` |
 | How IPC channels are registered | `main/ipc-handlers.ts:setupIpcHandlers()` |
 | What renderer exposes to pages | `preload/index.ts` (window.api shape) |
-| Step status computation | `core/wizard-status.ts:computeStepStatuses()` |
+| Page status computation | `core/wizard-status.ts:computePageStatuses()` |
 | How pages override computed status | `renderer/src/App.tsx` (pageStatuses + createStatusCallback) |
+| Severity icons (unified) | `renderer/src/components/ui/severity-icon.tsx` |
+| Status table for pages | `renderer/src/components/ui/status-table.tsx` |
 | Tray icon file selection (per platform) | `platform/tray.ts:getTrayIconPath()` |
 

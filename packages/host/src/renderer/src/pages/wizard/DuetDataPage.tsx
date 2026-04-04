@@ -5,11 +5,11 @@
 import { Button } from '@renderer/components/ui/button'
 import { FolderOpen, CheckCircle, AlertTriangle } from 'lucide-react'
 import type { AppState } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface DuetDataPageProps {
   appState: AppState
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
 }
 
 export function DuetDataPage({ appState, onStatusChange }: DuetDataPageProps): React.ReactElement {
@@ -20,7 +20,7 @@ export function DuetDataPage({ appState, onStatusChange }: DuetDataPageProps): R
     const selected = await window.api.selectFolder(path ?? undefined)
     if (!selected) return
     const newState = await window.api.savePointer({ duetDataPath: selected })
-    onStatusChange(newState.duetDataPath ? 'done' : null)
+    onStatusChange(newState.duetDataPath ? 'ok' : null)
   }
 
   const handleOpen = (): void => {

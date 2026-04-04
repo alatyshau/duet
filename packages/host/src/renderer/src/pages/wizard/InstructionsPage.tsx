@@ -20,11 +20,11 @@ import type {
   InstructionsError,
   InstructionsMergeResult
 } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface InstructionsPageProps {
   appState: AppState
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
   onAgentsUpdated: (agents: AgentInfo[]) => void
 }
 
@@ -52,7 +52,7 @@ export function InstructionsPage({
         if (cached !== null) {
           setErrors(cached)
           if (instructionsPath) {
-            onStatusChange(cached.length === 0 ? 'done' : 'error')
+            onStatusChange(cached.length === 0 ? 'ok' : 'error')
           }
         }
         // cached === null → merge never ran, leave status as null
@@ -78,7 +78,7 @@ export function InstructionsPage({
       const result = await window.api.mergeInstructions()
       setMergeResult(result)
       setErrors(result.errors)
-      onStatusChange(result.errors.length === 0 ? 'done' : 'error')
+      onStatusChange(result.errors.length === 0 ? 'ok' : 'error')
 
       // Auto-configure agents when merge is clean — propagate to App.tsx for sidebar update
       if (result.errors.length === 0) {

@@ -23,11 +23,11 @@ import type {
   StreamEntity,
   StreamsCache
 } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface BusinessFoldersPageProps {
   appState: AppState
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
 }
 
 export function BusinessFoldersPage({
@@ -55,7 +55,7 @@ export function BusinessFoldersPage({
         if (streams) setStreamsCache(streams)
         if (cached) {
           setScanResult(cached)
-          onStatusChange(cached.errors.length === 0 ? 'done' : 'error')
+          onStatusChange(cached.errors.length === 0 ? 'ok' : 'error')
         }
       } catch (e) {
         console.error('Failed to load business folders:', e)
@@ -91,7 +91,7 @@ export function BusinessFoldersPage({
     try {
       const result = await window.api.scanBusinessFolders()
       setScanResult(result)
-      onStatusChange(result.errors.length === 0 ? 'done' : 'error')
+      onStatusChange(result.errors.length === 0 ? 'ok' : 'error')
       // Streams cache is updated by scan — read fresh
       const streams = await window.api.getCachedStreams()
       if (streams) setStreamsCache(streams)

@@ -10,8 +10,15 @@
 // APP STATE (IPC: app:get-state, app-state-changed)
 // =============================================================================
 
-/** Severity level for aggregation across UI layers (step → tab → tray). */
+/** Severity level for aggregation across UI layers (page → tab → tray). */
 export type Severity = 'error' | 'warning'
+
+/** Unit of problem on a page — rendered via StatusTable, aggregated to PageStatus. */
+export interface StatusItem {
+  severity: Severity
+  message: string
+  fixable?: boolean
+}
 
 export type AppStatus = 'no_config' | 'path_lost' | 'ready'
 export type DeployChannel = 'dev' | 'prod'
@@ -38,9 +45,9 @@ export interface AppState {
 export type DeployStatus =
   | { state: 'idle' }
   | { state: 'checking' }
-  | { state: 'up_to_date'; version: string }
+  | { state: 'up_to_date'; version: string; hasWarning?: boolean }
   | { state: 'deploying'; message: string }
-  | { state: 'deployed'; version: string }
+  | { state: 'deployed'; version: string; hasWarning?: boolean }
   | { state: 'error'; error: string }
 
 // =============================================================================

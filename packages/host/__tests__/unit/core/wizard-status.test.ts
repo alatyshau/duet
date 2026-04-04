@@ -3,13 +3,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  computeStepStatuses,
-  hasWizardWarning,
+  computePageStatuses,
   maxSeverity,
-  stepStatusToSeverity,
+  pageStatusToSeverity,
   processStateToSeverity,
   getSettingsSeverity,
-  type WizardStatusInput
+  type PageStatusInput
 } from '../../../src/core/wizard-status'
 import type { AppState, AgentInfo } from '../../../src/shared/types'
 
@@ -29,7 +28,7 @@ const baseAppState: AppState = {
   hasDevBackendPath: false
 }
 
-const baseInput: WizardStatusInput = {
+const baseInput: PageStatusInput = {
   appState: baseAppState,
   deployStatus: { state: 'up_to_date', version: '1.0.0' },
   cachedScan: null,
@@ -46,73 +45,82 @@ function makeAgent(id: string, status: 'configured' | 'needs_setup' | 'not_found
 // =============================================================================
 
 describe('core/wizard-status', () => {
-  describe('computeStepStatuses', () => {
-    it('marks steps 1-4 as done when all configured and deployed', () => {
-      const s = computeStepStatuses(baseInput)
-      expect(s['duet-data']).toBe('done')
-      expect(s['duet-config']).toBe('done')
-      expect(s['python']).toBe('done')
-      expect(s['backend']).toBe('done')
+  describe('computePageStatuses', () => {
+    it('marks pages 1-4 as ok when all configured and deployed', () => {
+      const s = computePageStatuses(baseInput)
+      expect(s['duet-data']).toBe('ok')
+      expect(s['duet-config']).toBe('ok')
+      expect(s['python']).toBe('ok')
+      expect(s['backend']).toBe('ok')
     })
 
-    it('marks step 1 as null when duetDataPath missing', () => {
-      const s = computeStepStatuses({
+    it('marks page 1 as null when duetDataPath missing', () => {
+      const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, duetDataPath: null }
       })
       expect(s['duet-data']).toBeNull()
     })
 
-    it('marks step 2 as null when machine missing', () => {
-      const s = computeStepStatuses({
+    it('marks page 2 as null when machine missing', () => {
+      const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, machine: null }
       })
       expect(s['duet-config']).toBeNull()
     })
 
-    it('marks step 2 as null when duetConfigPath missing', () => {
-      const s = computeStepStatuses({
+    it('marks page 2 as null when duetConfigPath missing', () => {
+      const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, duetConfigPath: null }
       })
       expect(s['duet-config']).toBeNull()
     })
 
-    it('marks step 3 as null when pythonPath missing', () => {
-      const s = computeStepStatuses({
+    it('marks page 3 as null when pythonPath missing', () => {
+      const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, pythonPath: null }
       })
       expect(s['python']).toBeNull()
     })
 
-    it('marks step 4 as null when not deployed', () => {
-      const s = computeStepStatuses({
+    it('marks page 4 as null when not deployed', () => {
+      const s = computePageStatuses({
         ...baseInput,
         deployStatus: { state: 'idle' }
       })
       expect(s['backend']).toBeNull()
     })
 
-    it('marks step 4 as done for deployed state', () => {
-      const s = computeStepStatuses({
+    it('marks page 4 as warning when deployed with deploy warning', () => {
+      const s = computePageStatuses({
+        ...baseInput,
+        deployStatus: { state: 'deployed', version: '1.0.0' },
+        hasDeployWarning: true
+      })
+      expect(s['backend']).toBe('warning')
+    })
+
+    it('marks page 4 as ok for deployed state', () => {
+      const s = computePageStatuses({
         ...baseInput,
         deployStatus: { state: 'deployed', version: '1.0.0' }
       })
-      expect(s['backend']).toBe('done')
+      expect(s['backend']).toBe('ok')
     })
 
-    it('marks step 5 as done when scan has no errors', () => {
-      const s = computeStepStatuses({
+    it('marks page 5 as ok when scan has no errors', () => {
+      const s = computePageStatuses({
         ...baseInput,
         cachedScan: { status: 'ok', entities_count: 5, errors: [] }
       })
-      expect(s['business-folders']).toBe('done')
+      expect(s['business-folders']).toBe('ok')
     })
 
-    it('marks step 5 as error when scan has errors', () => {
-      const s = computeStepStatuses({
+    it('marks page 5 as error when scan has errors', () => {
+      const s = computePageStatuses({
         ...baseInput,
         cachedScan: {
           status: 'ok',
@@ -123,21 +131,21 @@ describe('core/wizard-status', () => {
       expect(s['business-folders']).toBe('error')
     })
 
-    it('leaves step 5 undefined when no scan performed', () => {
-      const s = computeStepStatuses(baseInput)
+    it('leaves page 5 undefined when no scan performed', () => {
+      const s = computePageStatuses(baseInput)
       expect(s['business-folders']).toBeUndefined()
     })
 
-    it('marks step 6 as done when no instruction errors', () => {
-      const s = computeStepStatuses({
+    it('marks page 6 as ok when no instruction errors', () => {
+      const s = computePageStatuses({
         ...baseInput,
         cachedInstructionsErrors: []
       })
-      expect(s['instructions']).toBe('done')
+      expect(s['instructions']).toBe('ok')
     })
 
-    it('marks step 6 as error when instruction errors exist', () => {
-      const s = computeStepStatuses({
+    it('marks page 6 as error when instruction errors exist', () => {
+      const s = computePageStatuses({
         ...baseInput,
         cachedInstructionsErrors: [
           { path: 'test.md', reason_code: 'invalid_yaml', description: 'bad yaml' }
@@ -146,8 +154,8 @@ describe('core/wizard-status', () => {
       expect(s['instructions']).toBe('error')
     })
 
-    it('marks step 7 as done when all found agents configured', () => {
-      const s = computeStepStatuses({
+    it('marks page 7 as ok when all found agents configured', () => {
+      const s = computePageStatuses({
         ...baseInput,
         agents: [
           makeAgent('claude', 'configured'),
@@ -155,23 +163,23 @@ describe('core/wizard-status', () => {
           makeAgent('antigravity', 'not_found')
         ]
       })
-      expect(s['agents']).toBe('done')
+      expect(s['agents']).toBe('ok')
     })
 
-    it('marks step 7 as warning when any found agent needs setup', () => {
-      const s = computeStepStatuses({
+    it('marks page 7 as warning when any found agent needs setup', () => {
+      const s = computePageStatuses({
         ...baseInput,
         agents: [makeAgent('claude', 'configured'), makeAgent('codex', 'needs_setup')]
       })
       expect(s['agents']).toBe('warning')
     })
 
-    it('marks step 7 as done when no agents found at all', () => {
-      const s = computeStepStatuses({
+    it('marks page 7 as ok when no agents found at all', () => {
+      const s = computePageStatuses({
         ...baseInput,
         agents: [makeAgent('claude', 'not_found'), makeAgent('codex', 'not_found')]
       })
-      expect(s['agents']).toBe('done')
+      expect(s['agents']).toBe('ok')
     })
   })
 
@@ -197,25 +205,25 @@ describe('core/wizard-status', () => {
     })
   })
 
-  describe('stepStatusToSeverity', () => {
+  describe('pageStatusToSeverity', () => {
     it('maps error → error', () => {
-      expect(stepStatusToSeverity('error')).toBe('error')
+      expect(pageStatusToSeverity('error')).toBe('error')
     })
 
     it('maps warning → warning', () => {
-      expect(stepStatusToSeverity('warning')).toBe('warning')
+      expect(pageStatusToSeverity('warning')).toBe('warning')
     })
 
-    it('maps done → null', () => {
-      expect(stepStatusToSeverity('done')).toBeNull()
+    it('maps ok → null', () => {
+      expect(pageStatusToSeverity('ok')).toBeNull()
     })
 
     it('maps skipped → null', () => {
-      expect(stepStatusToSeverity('skipped')).toBeNull()
+      expect(pageStatusToSeverity('skipped')).toBeNull()
     })
 
-    it('maps null → null', () => {
-      expect(stepStatusToSeverity(null)).toBeNull()
+    it('maps null → error (not configured = blocks user)', () => {
+      expect(pageStatusToSeverity(null)).toBe('error')
     })
   })
 
@@ -242,56 +250,57 @@ describe('core/wizard-status', () => {
   })
 
   describe('getSettingsSeverity', () => {
-    it('returns null when all steps done', () => {
-      expect(getSettingsSeverity({ 'duet-data': 'done', 'duet-config': 'done' })).toBeNull()
+    const allOk = {
+      'duet-data': 'ok' as const,
+      'duet-config': 'ok' as const,
+      python: 'ok' as const,
+      backend: 'ok' as const,
+      'business-folders': 'ok' as const,
+      instructions: 'ok' as const,
+      agents: 'ok' as const
+    }
+
+    it('returns null when all pages ok', () => {
+      expect(getSettingsSeverity(allOk)).toBeNull()
     })
 
-    it('returns error when any step has error', () => {
+    it('returns error when any page has error', () => {
       expect(
-        getSettingsSeverity({ 'duet-data': 'done', 'business-folders': 'error' })
+        getSettingsSeverity({ ...allOk, 'business-folders': 'error' })
       ).toBe('error')
     })
 
-    it('returns warning when step has warning but no errors', () => {
+    it('returns warning when page has warning but no errors', () => {
       expect(
-        getSettingsSeverity({ 'duet-data': 'done', agents: 'warning' })
+        getSettingsSeverity({ ...allOk, agents: 'warning' })
       ).toBe('warning')
     })
 
     it('returns error when mixed error and warning', () => {
       expect(
-        getSettingsSeverity({ agents: 'warning', 'business-folders': 'error' })
+        getSettingsSeverity({ ...allOk, agents: 'warning', 'business-folders': 'error' })
       ).toBe('error')
     })
 
-    it('returns null for empty statuses', () => {
-      expect(getSettingsSeverity({})).toBeNull()
+    it('returns error for null status (not configured = error severity)', () => {
+      expect(getSettingsSeverity({ ...allOk, 'duet-data': null })).toBe('error')
     })
 
-    it('returns null for skipped steps', () => {
-      expect(getSettingsSeverity({ agents: 'skipped' })).toBeNull()
-    })
-  })
-
-  describe('hasWizardWarning (deprecated compat)', () => {
-    it('returns false when no issues', () => {
-      expect(hasWizardWarning({ 'duet-data': 'done', 'duet-config': 'done' })).toBe(false)
+    it('returns error for missing pages (undefined = error severity)', () => {
+      expect(getSettingsSeverity({})).toBe('error')
     })
 
-    it('returns true when any step has error', () => {
-      expect(hasWizardWarning({ 'duet-data': 'done', 'business-folders': 'error' })).toBe(true)
+    it('returns null for all skipped pages', () => {
+      expect(getSettingsSeverity({
+        ...allOk,
+        agents: 'skipped',
+        // all others ok — skipped alone doesn't produce severity
+      })).toBeNull()
     })
 
-    it('returns true when any step has warning', () => {
-      expect(hasWizardWarning({ agents: 'warning' })).toBe(true)
-    })
-
-    it('returns false for skipped steps', () => {
-      expect(hasWizardWarning({ agents: 'skipped' })).toBe(false)
-    })
-
-    it('returns false for empty statuses', () => {
-      expect(hasWizardWarning({})).toBe(false)
+    it('returns error when some pages missing from partial statuses', () => {
+      // Only 2 of 7 pages present — missing 5 are undefined → error
+      expect(getSettingsSeverity({ 'duet-data': 'ok', 'duet-config': 'ok' })).toBe('error')
     })
   })
 })

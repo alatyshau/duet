@@ -17,10 +17,10 @@ import {
   ExternalLink
 } from 'lucide-react'
 import type { AgentInfo, AgentIssue } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface WizardAgentsPageProps {
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
 }
 
 export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): React.ReactElement {
@@ -42,11 +42,11 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
 
   const updateStatus = (agentList: AgentInfo[]): void => {
     const found = agentList.filter((a) => a.status !== 'not_found')
-    const hasError = found.some((a) => a.status === 'needs_setup')
-    if (hasError) {
-      onStatusChange('error')
+    const needsSetup = found.some((a) => a.status === 'needs_setup')
+    if (needsSetup) {
+      onStatusChange('warning')
     } else {
-      onStatusChange('done')
+      onStatusChange('ok')
     }
   }
 

@@ -32,7 +32,7 @@ export type {
   StreamsCache
 } from '../shared/types'
 
-export type { StepStatus, StepStatuses, WizardPage } from '../core/wizard-status'
+export type { PageStatus, PageStatuses, WizardPage } from '../core/wizard-status'
 
 // Import for use in DuetAPI interface
 import type {

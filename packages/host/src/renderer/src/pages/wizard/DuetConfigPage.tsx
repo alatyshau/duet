@@ -6,11 +6,11 @@ import { useState } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { FolderOpen, CheckCircle, AlertTriangle, Monitor } from 'lucide-react'
 import type { AppState } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface DuetConfigPageProps {
   appState: AppState
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
 }
 
 export function DuetConfigPage({
@@ -27,7 +27,7 @@ export function DuetConfigPage({
     const selected = await window.api.selectFolder(configPath ?? undefined)
     if (!selected) return
     const newState = await window.api.savePointer({ duetConfigPath: selected })
-    onStatusChange(newState.duetConfigPath && newState.machine ? 'done' : null)
+    onStatusChange(newState.duetConfigPath && newState.machine ? 'ok' : null)
   }
 
   const handleMachineSave = async (): Promise<void> => {
@@ -43,7 +43,7 @@ export function DuetConfigPage({
     }
     setMachineError(false)
     const newState = await window.api.savePointer({ machine: trimmed })
-    onStatusChange(newState.duetConfigPath && newState.machine ? 'done' : null)
+    onStatusChange(newState.duetConfigPath && newState.machine ? 'ok' : null)
   }
 
   const handleMachineKeyDown = (e: React.KeyboardEvent): void => {

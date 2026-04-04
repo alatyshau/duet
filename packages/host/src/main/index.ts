@@ -17,7 +17,7 @@ import { isDeployWarning, readBuildSha } from '../core/deploy'
 import { readCachedScan } from '../core/business-folders'
 import { readCachedErrors } from '../core/instructions'
 import { detectAgents } from '../core/ai-clients'
-import { computeStepStatuses, getSettingsSeverity, maxSeverity } from '../core/wizard-status'
+import { computePageStatuses, getSettingsSeverity, maxSeverity } from '../core/wizard-status'
 import type { DeployStatus, Severity } from '../shared/types'
 import { createTray, updateTrayIcon } from '../platform/tray'
 import { showWindow, sendAppState, setQuitting } from './window'
@@ -111,32 +111,29 @@ const updateAppState = (): void => {
   const devBackendPath =
     typeof machineConfig?.devBackendPath === 'string' ? machineConfig.devBackendPath : undefined
 
-  const deploySeverity: Severity | null = isDeployWarning(
-    appState,
-    app.getVersion(),
-    buildSha,
-    devBackendPath
-  )
-    ? 'warning'
-    : null
+  const hasDeployWarning = isDeployWarning(appState, app.getVersion(), buildSha, devBackendPath)
 
   // Compute wizard severity from cached data (all fs reads, cheap)
   let settingsSeverity: Severity | null = null
   if (appState.status === 'ready' && appState.duetDataPath) {
     try {
       const port = readPort()
-      const statuses = computeStepStatuses({
+      const statuses = computePageStatuses({
         appState,
         deployStatus: currentDeployStatus,
         cachedScan: readCachedScan(appState.duetDataPath),
         cachedInstructionsErrors: readCachedErrors(appState.duetDataPath),
-        agents: detectAgents(appState.duetDataPath, port)
+        agents: detectAgents(appState.duetDataPath, port),
+        hasDeployWarning
       })
       settingsSeverity = getSettingsSeverity(statuses)
     } catch {
       // Port not configured yet, or other issue — don't fail updateAppState
     }
   }
+
+  // Deploy warning feeds into tray even when step statuses can't be computed
+  const deploySeverity: Severity | null = hasDeployWarning ? 'warning' : null
 
   const overallSeverity = maxSeverity([deploySeverity, settingsSeverity])
   updateTrayIcon(appState.status, overallSeverity)

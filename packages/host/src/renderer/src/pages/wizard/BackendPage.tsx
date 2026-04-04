@@ -6,11 +6,11 @@ import { useState, useEffect, useRef } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { Package, Download, Loader2, Code, CheckCircle, AlertTriangle } from 'lucide-react'
 import type { AppState, DeployStatus, DeployChannel } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface BackendPageProps {
   appState: AppState
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
 }
 
 export function BackendPage({ appState, onStatusChange }: BackendPageProps): React.ReactElement {
@@ -27,7 +27,8 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
     const unsubStatus = window.api.onDeployStatusChanged((status) => {
       setDeployStatus(status)
       const deployed = status.state === 'deployed' || status.state === 'up_to_date'
-      onStatusChange(deployed ? 'done' : null)
+      const hasWarning = deployed && 'hasWarning' in status && status.hasWarning
+      onStatusChange(deployed ? (hasWarning ? 'warning' : 'ok') : null)
     })
     const unsubLog = window.api.onDeployLog((message) => {
       setLogs((prev) => [...prev, message])
@@ -38,11 +39,20 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Set initial status
+  // Re-fetch deploy status when channel changes (hasWarning depends on channel)
+  useEffect(() => {
+    if (!window.api) return
+    window.api.getDeployStatus().then(setDeployStatus).catch(console.error)
+  }, [appState.deployChannel])
+
+  // Set initial status and update on deploy status change
   useEffect(() => {
     const deployed = deployStatus.state === 'deployed' || deployStatus.state === 'up_to_date'
-    if (deployed) onStatusChange('done')
-  }, [deployStatus.state]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (deployed) {
+      const hasWarning = 'hasWarning' in deployStatus && deployStatus.hasWarning
+      onStatusChange(hasWarning ? 'warning' : 'ok')
+    }
+  }, [deployStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll log
   useEffect(() => {

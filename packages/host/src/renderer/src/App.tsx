@@ -14,10 +14,10 @@ import { WizardAgentsPage } from './pages/wizard/AgentsPage'
 import { AppPage } from './pages/apps/BackendAppPage'
 import { backendStatusToProcessStatus } from '../../shared/mappers'
 import { BUILTIN_APPS } from '../../core/apps'
-import { computeStepStatuses } from '../../core/wizard-status'
+import { computePageStatuses } from '../../core/wizard-status'
 import { DEFAULT_PAGE } from './navigation'
 import type { Page, WizardPage } from './navigation'
-import type { StepStatus } from '../../core/wizard-status'
+import type { PageStatus } from '../../core/wizard-status'
 import type {
   AppState,
   BackendStatus,
@@ -41,14 +41,14 @@ function App(): React.JSX.Element {
   >(null)
   const [cachedAgents, setCachedAgents] = useState<AgentInfo[] | null>(null)
 
-  // Dynamic statuses reported by individual wizard pages (steps 3-7)
-  const [pageStatuses, setPageStatuses] = useState<Partial<Record<WizardPage, StepStatus>>>({})
+  // Dynamic statuses reported by individual wizard pages
+  const [pageStatuses, setPageStatuses] = useState<Partial<Record<WizardPage, PageStatus>>>({})
 
   const backendProcessStatus: ProcessStatus = backendStatusToProcessStatus(backendStatus)
 
-  // Step status update callback — passed to wizard pages
+  // Page status update callback — passed to wizard pages
   const createStatusCallback = useCallback(
-    (page: WizardPage) => (status: StepStatus) => {
+    (page: WizardPage) => (status: PageStatus) => {
       setPageStatuses((prev) => ({ ...prev, [page]: status }))
     },
     []
@@ -107,16 +107,19 @@ function App(): React.JSX.Element {
   // Step statuses
   // ==========================================================================
 
-  const stepStatuses = useMemo(() => {
+  const allPageStatuses = useMemo(() => {
     if (!appState) return {}
 
     // Compute base statuses from all available data
-    const computed = computeStepStatuses({
+    const hasDeployWarning =
+      'hasWarning' in deployStatus ? (deployStatus.hasWarning ?? false) : false
+    const computed = computePageStatuses({
       appState,
       deployStatus,
       cachedScan,
       cachedInstructionsErrors,
-      agents: cachedAgents
+      agents: cachedAgents,
+      hasDeployWarning
     })
 
     // Merge with dynamic page-reported statuses (pages override computed on visit)
@@ -238,7 +241,7 @@ function App(): React.JSX.Element {
       onOpenFolder={() => appState.duetDataPath && window.api.openPath(appState.duetDataPath)}
       folderConfigured={appState.status === 'ready'}
       backendProcessState={backendProcessStatus.state}
-      stepStatuses={stepStatuses}
+      pageStatuses={allPageStatuses}
     >
       {renderPage()}
     </Layout>

@@ -6,11 +6,11 @@ import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { Code, CheckCircle, AlertTriangle, Search, FolderOpen, RefreshCw } from 'lucide-react'
 import type { AppState, PythonStatus } from '../../../../preload/index.d'
-import type { StepStatus } from '../../../../core/wizard-status'
+import type { PageStatus } from '../../../../core/wizard-status'
 
 interface PythonPageProps {
   appState: AppState
-  onStatusChange: (status: StepStatus) => void
+  onStatusChange: (status: PageStatus) => void
 }
 
 export function PythonPage({ appState, onStatusChange }: PythonPageProps): React.ReactElement {
@@ -32,7 +32,7 @@ export function PythonPage({ appState, onStatusChange }: PythonPageProps): React
         setPythonStatus(result)
         if (result.state === 'found') {
           await window.api.savePythonPath(result.path)
-          onStatusChange('done')
+          onStatusChange('ok')
         } else {
           onStatusChange(null)
         }
@@ -51,7 +51,7 @@ export function PythonPage({ appState, onStatusChange }: PythonPageProps): React
       setPythonStatus(result)
       if (result.state === 'found') {
         await window.api.savePythonPath(result.path)
-        onStatusChange('done')
+        onStatusChange('ok')
       } else {
         onStatusChange(null)
       }
@@ -71,7 +71,7 @@ export function PythonPage({ appState, onStatusChange }: PythonPageProps): React
     setPythonStatus(result)
     if (result.state === 'found') {
       await window.api.savePythonPath(result.path)
-      onStatusChange('done')
+      onStatusChange('ok')
     } else {
       onStatusChange(null)
     }
