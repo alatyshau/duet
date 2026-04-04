@@ -111,17 +111,36 @@ AI instructions are user-owned (separate git repo, configured via `instructionsP
 
 **Deploy channel:** When `deployChannel === 'dev'` in `{machine}.json`, deploy uses `devBackendPath` from machine config instead of bundled resources. Toggle via IPC `config:set-deploy-channel`.
 
-**Version comparison:** Uses `compareSemver(appVersion, deployed)` — deploy only when app version is newer (not on downgrade or same version).
+**Version comparison:** Uses `compareSemver(appVersion, deployed)` — strips build metadata per semver spec before comparing. Deploy only when app version is newer (not on downgrade or same version).
 
 **Flow:** VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop -> SIGTERM -> SIGKILL) -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
 
-**VERSION file:** `DuetData/backend/VERSION` contains `app.getVersion()`. Newer app version triggers deploy. VERSION is NOT written if any step fails (Python not found, pip failed, etc.).
+**VERSION file:** `DuetData/backend/VERSION` contains version with build metadata:
+
+| Channel | Format | Example |
+|---------|--------|---------|
+| PROD | `{semver}+prod_{sha}` | `0.1.8+prod_abc1234` |
+| DEV | `{semver}+dev_{timestamp}` | `0.1.8+dev_2604041330` |
+| Fallback | `{semver}` | `0.1.8` (no BUILD_SHA, dev electron) |
+
+SHA (PROD): `git rev-parse --short HEAD` at build time → `resources/BUILD_SHA` → baked into bundle. Timestamp (DEV): `YYMMDDHHMM` at deploy time.
+
+VERSION is NOT written if any step fails (Python not found, pip failed, etc.).
+
+**Deploy warning** (`isDeployWarning`): channel-aware staleness check for tray icon.
+- PROD: warns on dev version deployed, SHA mismatch, or semver upgrade needed
+- DEV: warns on prod version deployed, semver change, or source .py files newer than deploy timestamp
+- Backward compatible: plain semver (no metadata) falls back to semver-only check
 
 **Backend stop before deploy:** `stopBackend(port, proc)` — POST `/stop` (2s timeout) -> SIGTERM -> SIGKILL fallback. Errors don't abort deploy (backend may not be running).
 
 **Pure functions (extracted from Electron shell):**
 - `resolveDeployStatus(appState, appVersion, activeStatus)` -> DeployStatus — used by IPC handler `deploy:get-status`
-- `isDeployWarning(appState, appVersion)` -> boolean — used by `main/index.ts` for tray icon
+- `isDeployWarning(appState, appVersion, buildSha?, devBackendPath?)` -> boolean — used by `main/index.ts` for tray icon
+- `parseVersionMeta(version)` -> VersionMeta — parse `semver+channel_identifier`
+- `readBuildSha(resourcesPath)` -> string | null — read bundled BUILD_SHA
+- `formatDeployTimestamp(date?)` / `parseDeployTimestamp(ts)` — YYMMDDHHMM format
+- `isSourceNewer(dirPath, since)` -> boolean — check if .py files changed after deploy (DEV mode)
 
 Implementation: `core/deploy.ts`
 
@@ -286,7 +305,7 @@ Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `A
 npm run release [-- --mac|--win|--linux]   # default: --mac
 ```
 
-`build-release.cjs`: bump patch -> `electron-vite build` -> `electron-builder` -> `dist/Duet-{version}.dmg`
+`build-release.cjs`: bump patch -> write `resources/BUILD_SHA` (git short SHA) -> `electron-vite build` -> `electron-builder` -> `dist/Duet-{version}.dmg`
 
 | Tool | Role |
 |------|------|
@@ -391,6 +410,8 @@ Quick lookup for concepts not obvious from file names. For layer responsibilitie
 |------------------------|---------|
 | All IPC types (single source of truth) | `shared/types.ts` |
 | Severity type + aggregation functions | `shared/types.ts` (type), `core/wizard-status.ts` (functions) |
+| VERSION metadata parsing + writing | `core/deploy.ts` (parseVersionMeta, writeVersion, readBuildSha) |
+| Deploy warning logic (channel-aware) | `core/deploy.ts:isDeployWarning()` |
 | Pointer file path / machine config | `core/config.ts` |
 | What triggers tray icon change | `main/index.ts:updateAppState()` |
 | How IPC channels are registered | `main/ipc-handlers.ts:setupIpcHandlers()` |

@@ -125,10 +125,11 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
 
           {/* Version */}
           {'version' in deployStatus && deployStatus.version && (
-            <p className="text-sm text-muted-foreground">
-              Версия: {deployStatus.version}
-              {deployStatus.state === 'up_to_date' && ' (актуальна)'}
-            </p>
+            <VersionInfo
+              version={deployStatus.version}
+              isUpToDate={deployStatus.state === 'up_to_date'}
+              currentChannel={appState.deployChannel}
+            />
           )}
 
           {/* Deploy button */}
@@ -178,6 +179,41 @@ export function BackendPage({ appState, onStatusChange }: BackendPageProps): Rea
 // =============================================================================
 // Sub-components
 // =============================================================================
+
+function VersionInfo({
+  version,
+  isUpToDate,
+  currentChannel
+}: {
+  version: string
+  isUpToDate: boolean
+  currentChannel: 'dev' | 'prod'
+}): React.ReactElement {
+  // Parse channel from version metadata: `0.1.8+dev_xxx` or `0.1.8+prod_xxx`
+  const versionChannel = version.includes('+dev_')
+    ? 'dev'
+    : version.includes('+prod_')
+      ? 'prod'
+      : null
+  const channelMismatch = versionChannel !== null && versionChannel !== currentChannel
+  const isActual = isUpToDate && !channelMismatch
+
+  return (
+    <div className="text-sm text-muted-foreground space-y-1">
+      <p>
+        Версия: {version}
+        {isActual && ' (актуальна)'}
+      </p>
+      {channelMismatch && (
+        <p className="text-amber-500 text-xs">
+          {currentChannel === 'prod'
+            ? 'Установлена DEV-версия — переустановите для PROD'
+            : 'Установлена PROD-версия — переустановите для DEV'}
+        </p>
+      )}
+    </div>
+  )
+}
 
 function ChannelToggle({
   channel,

@@ -23,6 +23,11 @@ import {
   validatePython,
   pythonInstallHint,
   runDeploy,
+  parseVersionMeta,
+  readBuildSha,
+  formatDeployTimestamp,
+  parseDeployTimestamp,
+  isSourceNewer,
   type DeployPaths
 } from '../../../src/core/deploy'
 import { stopBackend, venvPythonPath, type StopOptions } from '../../../src/core/backend'
@@ -30,7 +35,7 @@ import { stopBackend, venvPythonPath, type StopOptions } from '../../../src/core
 /** Instant sleep for tests — no real delay. */
 const noSleep: StopOptions = { sleep: async () => {} }
 
-import type { AppState, DeployStatus } from '../../../src/shared/types'
+import type { AppState, DeployChannel, DeployStatus } from '../../../src/shared/types'
 
 import { execFile } from 'child_process'
 
@@ -99,6 +104,159 @@ describe('core/deploy', () => {
   })
 
   // ===========================================================================
+  // parseVersionMeta
+  // ===========================================================================
+
+  describe('parseVersionMeta', () => {
+    it('parses plain semver', () => {
+      expect(parseVersionMeta('1.2.3')).toEqual({
+        semver: '1.2.3',
+        channel: null,
+        identifier: null
+      })
+    })
+
+    it('parses prod metadata', () => {
+      expect(parseVersionMeta('0.1.8+prod_abc1234')).toEqual({
+        semver: '0.1.8',
+        channel: 'prod',
+        identifier: 'abc1234'
+      })
+    })
+
+    it('parses dev metadata', () => {
+      expect(parseVersionMeta('0.1.8+dev_2604041330')).toEqual({
+        semver: '0.1.8',
+        channel: 'dev',
+        identifier: '2604041330'
+      })
+    })
+
+    it('returns null channel for unknown channel', () => {
+      expect(parseVersionMeta('1.0.0+test_foo')).toEqual({
+        semver: '1.0.0',
+        channel: null,
+        identifier: 'foo'
+      })
+    })
+
+    it('returns null for metadata without underscore', () => {
+      expect(parseVersionMeta('1.0.0+nounderscore')).toEqual({
+        semver: '1.0.0',
+        channel: null,
+        identifier: null
+      })
+    })
+  })
+
+  // ===========================================================================
+  // readBuildSha
+  // ===========================================================================
+
+  describe('readBuildSha', () => {
+    it('returns null when BUILD_SHA does not exist', () => {
+      expect(readBuildSha(ctx.tmpDir)).toBeNull()
+    })
+
+    it('returns SHA when BUILD_SHA exists', () => {
+      writeFileSync(join(ctx.tmpDir, 'BUILD_SHA'), 'abc1234\n', 'utf-8')
+      expect(readBuildSha(ctx.tmpDir)).toBe('abc1234')
+    })
+  })
+
+  // ===========================================================================
+  // formatDeployTimestamp / parseDeployTimestamp
+  // ===========================================================================
+
+  describe('deploy timestamps', () => {
+    it('formats date as YYMMDDHHMM', () => {
+      const date = new Date(2026, 3, 4, 13, 30) // April 4, 2026 13:30
+      expect(formatDeployTimestamp(date)).toBe('2604041330')
+    })
+
+    it('parses YYMMDDHHMM back to Date', () => {
+      const parsed = parseDeployTimestamp('2604041330')
+      expect(parsed).not.toBeNull()
+      expect(parsed!.getFullYear()).toBe(2026)
+      expect(parsed!.getMonth()).toBe(3) // April (0-indexed)
+      expect(parsed!.getDate()).toBe(4)
+      expect(parsed!.getHours()).toBe(13)
+      expect(parsed!.getMinutes()).toBe(30)
+    })
+
+    it('roundtrips correctly', () => {
+      const date = new Date(2025, 11, 25, 9, 5) // Dec 25, 2025 09:05
+      const ts = formatDeployTimestamp(date)
+      const parsed = parseDeployTimestamp(ts)
+      expect(parsed!.getTime()).toBe(date.getTime())
+    })
+
+    it('returns null for invalid timestamp', () => {
+      expect(parseDeployTimestamp('short')).toBeNull()
+      expect(parseDeployTimestamp('abcdefghij')).toBeNull()
+    })
+  })
+
+  // ===========================================================================
+  // isSourceNewer
+  // ===========================================================================
+
+  describe('isSourceNewer', () => {
+    it('returns false for nonexistent directory', () => {
+      expect(isSourceNewer(join(ctx.tmpDir, 'nonexistent'), new Date())).toBe(false)
+    })
+
+    it('returns false when no .py files are newer', () => {
+      const dir = join(ctx.tmpDir, 'backend')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'main.py'), 'print("hello")')
+
+      // Use a future date as "since" — file is definitely older
+      const future = new Date(Date.now() + 60_000)
+      expect(isSourceNewer(dir, future)).toBe(false)
+    })
+
+    it('returns true when .py file is newer than since', () => {
+      const dir = join(ctx.tmpDir, 'backend')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'main.py'), 'print("hello")')
+
+      // Use a past date as "since" — file is definitely newer
+      const past = new Date(Date.now() - 60_000)
+      expect(isSourceNewer(dir, past)).toBe(true)
+    })
+
+    it('ignores non-.py files', () => {
+      const dir = join(ctx.tmpDir, 'backend')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'readme.md'), '# Hello')
+
+      const past = new Date(Date.now() - 60_000)
+      expect(isSourceNewer(dir, past)).toBe(false)
+    })
+
+    it('skips dev artifact directories', () => {
+      const dir = join(ctx.tmpDir, 'backend')
+      mkdirSync(join(dir, '__pycache__'), { recursive: true })
+      writeFileSync(join(dir, '__pycache__', 'main.cpython-312.pyc'), '')
+      mkdirSync(join(dir, '.venv', 'lib'), { recursive: true })
+      writeFileSync(join(dir, '.venv', 'lib', 'site.py'), '')
+
+      const past = new Date(Date.now() - 60_000)
+      expect(isSourceNewer(dir, past)).toBe(false)
+    })
+
+    it('finds .py files in subdirectories', () => {
+      const dir = join(ctx.tmpDir, 'backend')
+      mkdirSync(join(dir, 'core'), { recursive: true })
+      writeFileSync(join(dir, 'core', 'api.py'), 'pass')
+
+      const past = new Date(Date.now() - 60_000)
+      expect(isSourceNewer(dir, past)).toBe(true)
+    })
+  })
+
+  // ===========================================================================
   // compareSemver
   // ===========================================================================
 
@@ -130,6 +288,13 @@ describe('core/deploy', () => {
     it('handles invalid input as 0.0.0', () => {
       expect(compareSemver('invalid', '0.0.0')).toBe(0)
       expect(compareSemver('invalid', '0.0.1')).toBe(-1)
+    })
+
+    it('strips build metadata before comparing', () => {
+      expect(compareSemver('1.2.3+prod_abc', '1.2.3')).toBe(0)
+      expect(compareSemver('1.2.3', '1.2.3+dev_123')).toBe(0)
+      expect(compareSemver('1.2.3+prod_abc', '1.2.3+dev_xyz')).toBe(0)
+      expect(compareSemver('1.2.4+prod_abc', '1.2.3+prod_def')).toBe(1)
     })
   })
 
@@ -207,7 +372,11 @@ describe('core/deploy', () => {
       duetDataPath: '', // will be set per test
       duetConfigPath: '/config',
       machine: 'test',
-      pathExists: true
+      pathExists: true,
+      deployChannel: 'prod',
+      pythonPath: null,
+      instructionsPath: null,
+      hasDevBackendPath: false
     }
 
     it('returns idle when app not ready', () => {
@@ -283,7 +452,11 @@ describe('core/deploy', () => {
       duetDataPath: '', // will be set per test
       duetConfigPath: '/config',
       machine: 'test',
-      pathExists: true
+      pathExists: true,
+      deployChannel: 'prod',
+      pythonPath: null,
+      instructionsPath: null,
+      hasDevBackendPath: false
     }
 
     it('returns false when app not ready', () => {
@@ -326,6 +499,105 @@ describe('core/deploy', () => {
     it('returns false when duetDataPath is null', () => {
       const state: AppState = { ...readyState, duetDataPath: null }
       expect(isDeployWarning(state, '1.0.0')).toBe(false)
+    })
+
+    // --- Channel-aware tests (with build metadata) ---
+
+    it('PROD: warns when dev version deployed', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0+dev_2604041330')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'prod'
+      }
+      expect(isDeployWarning(state, '1.0.0')).toBe(true)
+    })
+
+    it('PROD: warns when SHA mismatches', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0+prod_abc1234')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'prod'
+      }
+      expect(isDeployWarning(state, '1.0.0', 'def5678')).toBe(true)
+    })
+
+    it('PROD: no warning when SHA matches', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0+prod_abc1234')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'prod'
+      }
+      expect(isDeployWarning(state, '1.0.0', 'abc1234')).toBe(false)
+    })
+
+    it('DEV: warns when prod version deployed', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0+prod_abc1234')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'dev'
+      }
+      expect(isDeployWarning(state, '1.0.0')).toBe(true)
+    })
+
+    it('DEV: warns when semver changed', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '0.9.0+dev_2604041330')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'dev'
+      }
+      expect(isDeployWarning(state, '1.0.0')).toBe(true)
+    })
+
+    it('DEV: no warning when dev version matches', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0+dev_2604041330')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'dev'
+      }
+      expect(isDeployWarning(state, '1.0.0')).toBe(false)
+    })
+
+    it('DEV: warns when source files are newer than deploy', () => {
+      const backendDir = join(ctx.duetDataDir, 'backend')
+      mkdirSync(backendDir, { recursive: true })
+      // Deploy timestamp: far in the past
+      writeFileSync(join(backendDir, 'VERSION'), '1.0.0+dev_2301011200')
+
+      // Source files: written now (definitely newer than 2023-01-01)
+      const devSrc = join(ctx.tmpDir, 'dev-backend')
+      mkdirSync(devSrc, { recursive: true })
+      writeFileSync(join(devSrc, 'server.py'), 'print("new")')
+
+      const state: AppState = {
+        ...readyState,
+        duetDataPath: ctx.duetDataDir,
+        deployChannel: 'dev'
+      }
+      expect(isDeployWarning(state, '1.0.0', null, devSrc)).toBe(true)
     })
   })
 
@@ -491,14 +763,40 @@ describe('core/deploy', () => {
   // ===========================================================================
 
   describe('writeVersion', () => {
-    it('writes VERSION file to backend directory', () => {
+    it('writes plain semver when no BUILD_SHA and no deployChannel', () => {
       const { paths } = createDeployContext(ctx)
 
-      writeVersion(paths)
+      const version = writeVersion(paths)
 
       const versionPath = join(ctx.duetDataDir, 'backend', 'VERSION')
       expect(existsSync(versionPath)).toBe(true)
       expect(readFileSync(versionPath, 'utf-8')).toBe('1.2.3')
+      expect(version).toBe('1.2.3')
+    })
+
+    it('writes prod metadata when BUILD_SHA exists', () => {
+      const { paths, resourcesPath } = createDeployContext(ctx)
+      writeFileSync(join(resourcesPath, 'BUILD_SHA'), 'abc1234', 'utf-8')
+
+      const version = writeVersion(paths)
+
+      expect(version).toBe('1.2.3+prod_abc1234')
+      expect(readFileSync(join(ctx.duetDataDir, 'backend', 'VERSION'), 'utf-8')).toBe(
+        '1.2.3+prod_abc1234'
+      )
+    })
+
+    it('writes dev metadata with timestamp', () => {
+      const paths: DeployPaths = {
+        resourcesPath: ctx.tmpDir,
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '2.0.0',
+        deployChannel: 'dev'
+      }
+
+      const version = writeVersion(paths)
+
+      expect(version).toMatch(/^2\.0\.0\+dev_\d{10}$/)
     })
 
     it('creates backend directory if it does not exist', () => {

@@ -12,8 +12,8 @@ import { app } from 'electron'
 import { existsSync, watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { checkAppState, createInitialState, type AppState } from '../core/app-state'
-import { getConfigFile, readPort } from '../core/config'
-import { isDeployWarning } from '../core/deploy'
+import { getConfigFile, readPort, readMachineConfig } from '../core/config'
+import { isDeployWarning, readBuildSha } from '../core/deploy'
 import { readCachedScan } from '../core/business-folders'
 import { readCachedErrors } from '../core/instructions'
 import { detectAgents } from '../core/ai-clients'
@@ -104,7 +104,19 @@ const updateAppState = (): void => {
     startDataWatcher(newPath)
   }
 
-  const deploySeverity: Severity | null = isDeployWarning(appState, app.getVersion())
+  // Build metadata for deploy warning checks
+  const resourcesPath = app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources-dev')
+  const buildSha = readBuildSha(resourcesPath)
+  const machineConfig = readMachineConfig()
+  const devBackendPath =
+    typeof machineConfig?.devBackendPath === 'string' ? machineConfig.devBackendPath : undefined
+
+  const deploySeverity: Severity | null = isDeployWarning(
+    appState,
+    app.getVersion(),
+    buildSha,
+    devBackendPath
+  )
     ? 'warning'
     : null
 
@@ -208,10 +220,14 @@ if (gotTheLock) {
     }
 
     // Auto-start backend if ready and deployed
+    const startupResourcesPath = app.isPackaged
+      ? process.resourcesPath
+      : join(__dirname, '../../resources-dev')
+    const startupBuildSha = readBuildSha(startupResourcesPath)
     if (
       appState.status === 'ready' &&
       appState.duetDataPath &&
-      !isDeployWarning(appState, app.getVersion())
+      !isDeployWarning(appState, app.getVersion(), startupBuildSha)
     ) {
       ensureBackendRunning(appState.duetDataPath).catch((err) => {
         console.error('Auto-start backend failed:', err)

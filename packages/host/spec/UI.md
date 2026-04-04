@@ -100,6 +100,8 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 ### Step Details
 
+**Step 4 (Backend):** Deploy status/button, channel toggle (DEV/PROD, visible when `hasDevBackendPath`), deploy logs. VERSION displayed with full build metadata (e.g. `0.1.8+prod_abc1234`). Shows "(актуальна)" only when semver matches AND channel matches current mode. Channel mismatch warning: "Установлена DEV-версия — переустановите для PROD" (or vice versa). `VersionInfo` sub-component handles parsing and display.
+
 **Step 5 (Business Folders):** Folder picker list with add/remove. Scan is manual (user clicks button). Shows entity tree from `streams.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors.
 
 **Step 6 (Instructions):** Folder picker for `instructionsPath` (saved to machine.json). Auto-merge on first path set. Regenerate button for subsequent merges. On 0 errors, auto-configures AI agents (step 7) and propagates result to App.tsx via `onAgentsUpdated` callback (sidebar step 7 updates immediately). Error table shows Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). Fix → edit source file → auto re-merge. Dependency banner shown when DuetConfig/machine not configured (step 2); folder picker disabled.

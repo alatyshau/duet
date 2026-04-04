@@ -20,7 +20,8 @@ import {
   writeFileSync,
   renameSync,
   rmSync,
-  readdirSync
+  readdirSync,
+  statSync
 } from 'fs'
 import { join, basename } from 'path'
 import { execFile } from 'child_process'
@@ -28,7 +29,7 @@ import { execFile } from 'child_process'
 import { stopBackend, startBackend, venvPythonPath } from './backend'
 import type { StopOptions } from './backend'
 import type { ChildProcess } from 'child_process'
-import type { AppState, DeployStatus, PythonStatus } from '../shared/types'
+import type { AppState, DeployChannel, DeployStatus, PythonStatus } from '../shared/types'
 
 type LogFn = (message: string) => void
 
@@ -60,6 +61,70 @@ export interface DeployPaths {
   appVersion: string
   /** Dev override: direct path to backend source dir (bypasses resourcesPath) */
   backendSourcePath?: string
+  /** Deploy channel for VERSION metadata. Default: 'prod'. */
+  deployChannel?: DeployChannel
+}
+
+// =============================================================================
+// VERSION METADATA
+// =============================================================================
+
+/** Parsed build metadata from VERSION string (e.g. `0.1.8+prod_abc1234`). */
+export interface VersionMeta {
+  semver: string
+  channel: 'prod' | 'dev' | null
+  identifier: string | null
+}
+
+/** Parse VERSION string: `0.1.8+prod_abc1234` → { semver, channel, identifier }. */
+export function parseVersionMeta(version: string): VersionMeta {
+  const plusIdx = version.indexOf('+')
+  if (plusIdx === -1) {
+    return { semver: version, channel: null, identifier: null }
+  }
+  const semver = version.slice(0, plusIdx)
+  const meta = version.slice(plusIdx + 1)
+  const underIdx = meta.indexOf('_')
+  if (underIdx === -1) {
+    return { semver, channel: null, identifier: null }
+  }
+  const channelStr = meta.slice(0, underIdx)
+  const identifier = meta.slice(underIdx + 1)
+  const channel = channelStr === 'prod' || channelStr === 'dev' ? channelStr : null
+  return { semver, channel, identifier }
+}
+
+/** Read BUILD_SHA from bundled resources. Returns null in dev mode (file absent). */
+export function readBuildSha(resourcesPath: string): string | null {
+  const shaPath = join(resourcesPath, 'BUILD_SHA')
+  if (!existsSync(shaPath)) return null
+  try {
+    return readFileSync(shaPath, 'utf-8').trim()
+  } catch {
+    return null
+  }
+}
+
+/** Format deploy timestamp: YYMMDDHHMM (compact, human-readable). */
+export function formatDeployTimestamp(date: Date = new Date()): string {
+  const yy = String(date.getFullYear()).slice(2)
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  return `${yy}${mm}${dd}${hh}${mi}`
+}
+
+/** Parse deploy timestamp YYMMDDHHMM back to Date. Returns null on invalid format. */
+export function parseDeployTimestamp(ts: string): Date | null {
+  if (ts.length !== 10) return null
+  const yy = parseInt(ts.slice(0, 2))
+  const mm = parseInt(ts.slice(2, 4)) - 1 // 0-indexed month
+  const dd = parseInt(ts.slice(4, 6))
+  const hh = parseInt(ts.slice(6, 8))
+  const mi = parseInt(ts.slice(8, 10))
+  if ([yy, mm + 1, dd, hh, mi].some(isNaN)) return null
+  return new Date(2000 + yy, mm, dd, hh, mi)
 }
 
 // =============================================================================
@@ -125,16 +190,60 @@ export const resolveDeployStatus = (
 }
 
 /**
- * Определяет, нужно ли показывать warning в tray (VERSION mismatch).
- * Используется main/index.ts для updateTrayIcon.
+ * Определяет, нужно ли показывать warning в tray.
+ * Channel-aware: проверяет не только semver, но и соответствие канала деплоя.
+ *
+ * PROD mode warnings:
+ * - No VERSION (never deployed)
+ * - Channel is 'dev' in VERSION (dev deploy in prod mode)
+ * - Channel is 'prod' but SHA differs from bundled BUILD_SHA (stale build)
+ * - App version > deployed semver (upgrade needed, fallback when no buildSha)
+ *
+ * DEV mode warnings:
+ * - No VERSION (never deployed)
+ * - Channel is 'prod' in VERSION (prod deploy in dev mode)
+ * - Semver differs (version bumped since deploy)
+ * - Source .py files newer than deploy timestamp (code changed since deploy)
+ *
+ * @param buildSha — SHA from BUILD_SHA (bundled at build time). Null in dev electron.
+ * @param devBackendPath — path to dev backend source. Enables source freshness check.
  */
-export const isDeployWarning = (appState: AppState, appVersion: string): boolean => {
-  if (appState.status !== 'ready' || !appState.duetDataPath) {
-    return false
-  }
+export const isDeployWarning = (
+  appState: AppState,
+  appVersion: string,
+  buildSha?: string | null,
+  devBackendPath?: string
+): boolean => {
+  if (appState.status !== 'ready' || !appState.duetDataPath) return false
+
   const deployed = readDeployedVersion(appState.duetDataPath)
   if (deployed === null) return true
-  return compareSemver(appVersion, deployed) > 0
+
+  const meta = parseVersionMeta(deployed)
+
+  if (appState.deployChannel === 'prod') {
+    // Channel mismatch: dev version deployed in prod mode
+    if (meta.channel === 'dev') return true
+    // SHA mismatch: different build (covers semver changes too)
+    if (meta.channel === 'prod' && buildSha && meta.identifier !== buildSha) return true
+    // Fallback: semver comparison when no buildSha or no metadata
+    if (!buildSha || !meta.channel) {
+      return compareSemver(appVersion, meta.semver) > 0
+    }
+    return false
+  }
+
+  // DEV mode
+  // Channel mismatch: prod version deployed in dev mode
+  if (meta.channel === 'prod') return true
+  // Semver changed (version bumped since deploy)
+  if (compareSemver(appVersion, meta.semver) !== 0) return true
+  // Source freshness: .py files changed since deploy
+  if (meta.channel === 'dev' && meta.identifier && devBackendPath) {
+    const deployTime = parseDeployTimestamp(meta.identifier)
+    if (deployTime && isSourceNewer(devBackendPath, deployTime)) return true
+  }
+  return false
 }
 
 // =============================================================================
@@ -185,12 +294,30 @@ export const deployBackend = (paths: DeployPaths): number => {
 // =============================================================================
 
 /**
- * Записывает VERSION файл в DuetData/backend/VERSION.
+ * Записывает VERSION файл в DuetData/backend/VERSION с build metadata.
+ * Format: `{semver}+{channel}_{identifier}`
+ * - prod: `0.1.8+prod_abc1234` (SHA from BUILD_SHA)
+ * - dev: `0.1.8+dev_2604041330` (deploy timestamp YYMMDDHHMM)
+ * - fallback: plain semver if no metadata available
+ *
+ * Returns the written version string.
  */
-export const writeVersion = (paths: DeployPaths): void => {
+export const writeVersion = (paths: DeployPaths): string => {
   const versionPath = join(paths.duetDataPath, 'backend', 'VERSION')
   mkdirSync(join(paths.duetDataPath, 'backend'), { recursive: true })
-  writeFileSync(versionPath, paths.appVersion, 'utf-8')
+
+  let version = paths.appVersion
+  if (paths.deployChannel === 'dev') {
+    version = `${paths.appVersion}+dev_${formatDeployTimestamp()}`
+  } else {
+    const sha = readBuildSha(paths.resourcesPath)
+    if (sha) {
+      version = `${paths.appVersion}+prod_${sha}`
+    }
+  }
+
+  writeFileSync(versionPath, version, 'utf-8')
+  return version
 }
 
 // =============================================================================
@@ -343,8 +470,8 @@ export const runDeploy = async (
   await setupVenv(paths, pythonCmd)
 
   // 4. Write VERSION only after full success
-  writeVersion(paths)
-  log(`VERSION: ${paths.appVersion}`)
+  const writtenVersion = writeVersion(paths)
+  log(`VERSION: ${writtenVersion}`)
 
   // 5. Start backend after successful deploy
   let proc: ChildProcess | null = null
@@ -388,7 +515,9 @@ export const copyDuetDataReadme = (paths: DeployPaths): void => {
  */
 export function compareSemver(a: string, b: string): -1 | 0 | 1 {
   const parse = (v: string): [number, number, number] => {
-    const parts = v.split('.').map(Number)
+    // Strip build metadata per semver spec (everything after +)
+    const clean = v.split('+')[0]
+    const parts = clean.split('.').map(Number)
     return [parts[0] || 0, parts[1] || 0, parts[2] || 0]
   }
   const [aMajor, aMinor, aPatch] = parse(a)
@@ -398,6 +527,33 @@ export function compareSemver(a: string, b: string): -1 | 0 | 1 {
   if (aMinor !== bMinor) return aMinor > bMinor ? 1 : -1
   if (aPatch !== bPatch) return aPatch > bPatch ? 1 : -1
   return 0
+}
+
+/**
+ * Check if any .py file in dirPath has mtime newer than `since`.
+ * Used for DEV mode: detect source changes after deploy.
+ * Excludes dev artifact dirs (.venv, __pycache__, etc.).
+ */
+export function isSourceNewer(dirPath: string, since: Date): boolean {
+  if (!existsSync(dirPath)) return false
+  try {
+    return hasNewerPyFiles(dirPath, since.getTime())
+  } catch {
+    return false
+  }
+}
+
+function hasNewerPyFiles(dir: string, sinceMs: number): boolean {
+  const entries = readdirSync(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (DEPLOY_EXCLUDE_DIRS.has(entry.name)) continue
+      if (hasNewerPyFiles(join(dir, entry.name), sinceMs)) return true
+    } else if (entry.name.endsWith('.py')) {
+      if (statSync(join(dir, entry.name)).mtimeMs > sinceMs) return true
+    }
+  }
+  return false
 }
 
 function countFiles(dir: string): number {

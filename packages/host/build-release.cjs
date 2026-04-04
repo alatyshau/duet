@@ -26,6 +26,13 @@ pkg.version = newVersion;
 fs.writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 console.log(`Version bumped to ${newVersion}`);
 
+// Write BUILD_SHA for production version tracking
+// Runtime reads this from resources/BUILD_SHA to verify deployed version provenance
+const sha = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+const buildShaPath = path.join(__dirname, 'resources', 'BUILD_SHA');
+fs.writeFileSync(buildShaPath, sha, 'utf8');
+console.log(`Build SHA: ${sha}`);
+
 // Determine platform from args (default: mac)
 const args = process.argv.slice(2);
 let platform = 'mac';

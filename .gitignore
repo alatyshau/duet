@@ -23,6 +23,8 @@ dist/
 out/
 .turbo/
 *.tsbuildinfo
+# BUILD_SHA written at release build time (git rev-parse --short HEAD)
+packages/host/resources/BUILD_SHA
 
 # =============================================================================
 # Python

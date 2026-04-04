@@ -17,6 +17,7 @@ import {
 import {
   resolveDeployStatus,
   runDeploy,
+  readDeployedVersion,
   findPython,
   validatePython,
   pythonInstallHint
@@ -231,6 +232,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     // Dev overrides: only when deployChannel === 'dev'
     const machineConfig = readMachineConfig()
     const isDev = machineConfig?.deployChannel === 'dev'
+    const deployChannel = isDev ? ('dev' as const) : ('prod' as const)
     const backendSourcePath =
       isDev && typeof machineConfig?.devBackendPath === 'string'
         ? machineConfig.devBackendPath
@@ -255,7 +257,8 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
           resourcesPath,
           duetDataPath: state.duetDataPath,
           appVersion,
-          backendSourcePath
+          backendSourcePath,
+          deployChannel
         },
         port,
         pythonPath,
@@ -265,7 +268,9 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
         }
       )
       if (proc) monitorBackendProcess(proc)
-      setDeployStatus({ state: 'deployed', version: appVersion })
+      // Read actual VERSION (includes build metadata) instead of plain appVersion
+      const deployedVersion = readDeployedVersion(state.duetDataPath) ?? appVersion
+      setDeployStatus({ state: 'deployed', version: deployedVersion })
       context.updateAppState() // Refresh tray icon (clear deploy warning)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
