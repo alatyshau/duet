@@ -17,7 +17,8 @@ import type {
   AgentInfo,
   InstructionsMergeResult,
   InstructionsError,
-  ScanResult
+  ScanResult,
+  StreamsCache
 } from '../shared/types'
 
 // Custom APIs for renderer
@@ -40,11 +41,11 @@ const api = {
   selectFolder: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke('dialog:select-folder', defaultPath),
 
-  // Сохранить pointer файл (~/.org.ve68.duet)
+  // Сохранить pointer файл (~/.org.ve68.duet) — partial update, missing fields preserved
   savePointer: (config: {
-    duetDataPath: string
-    duetConfigPath: string
-    machine: string
+    duetDataPath?: string
+    duetConfigPath?: string
+    machine?: string
   }): Promise<AppState> => ipcRenderer.invoke('config:save-pointer', config),
 
   // Открыть папку в Finder/Explorer
@@ -128,6 +129,9 @@ const api = {
   getInstructionsErrors: (): Promise<InstructionsError[]> =>
     ipcRenderer.invoke('instructions:get-errors'),
 
+  setInstructionsPath: (path: string): Promise<AppState> =>
+    ipcRenderer.invoke('config:set-instructions-path', path),
+
   // === Business Folders ===
 
   getBusinessFolders: (): Promise<string[]> => ipcRenderer.invoke('business-folders:get'),
@@ -135,7 +139,18 @@ const api = {
   saveBusinessFolders: (folders: string[]): Promise<void> =>
     ipcRenderer.invoke('business-folders:save', folders),
 
-  scanBusinessFolders: (): Promise<ScanResult> => ipcRenderer.invoke('business-folders:scan')
+  scanBusinessFolders: (): Promise<ScanResult> => ipcRenderer.invoke('business-folders:scan'),
+
+  getCachedScan: (): Promise<ScanResult | null> =>
+    ipcRenderer.invoke('business-folders:get-cached-scan'),
+
+  getCachedStreams: (): Promise<StreamsCache | null> =>
+    ipcRenderer.invoke('business-folders:get-cached-streams'),
+
+  // === Instructions fix ===
+
+  fixInstructionsError: (relativePath: string, reasonCode: string): Promise<boolean> =>
+    ipcRenderer.invoke('instructions:fix-error', relativePath, reasonCode)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

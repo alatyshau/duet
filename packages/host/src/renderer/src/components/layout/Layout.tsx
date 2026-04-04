@@ -3,8 +3,9 @@
  * Объединяет сайдбар и контентную область.
  */
 import { Sidebar } from './Sidebar'
-import type { Page } from '../../navigation'
+import type { Page, WizardPage } from '../../navigation'
 import type { ProcessState } from '../../../../shared/types'
+import type { StepStatus } from '../../../../core/wizard-status'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -13,6 +14,7 @@ interface LayoutProps {
   onOpenFolder: () => void
   folderConfigured: boolean
   backendProcessState?: ProcessState
+  stepStatuses?: Partial<Record<WizardPage, StepStatus>>
 }
 
 export function Layout({
@@ -21,7 +23,8 @@ export function Layout({
   onNavigate,
   onOpenFolder,
   folderConfigured,
-  backendProcessState
+  backendProcessState,
+  stepStatuses
 }: LayoutProps): React.ReactElement {
   return (
     <div className="flex h-screen overflow-hidden">
@@ -31,6 +34,7 @@ export function Layout({
         onOpenFolder={onOpenFolder}
         folderConfigured={folderConfigured}
         backendProcessState={backendProcessState}
+        stepStatuses={stepStatuses}
       />
       <main className="flex-1 overflow-y-auto p-6">{children}</main>
     </div>

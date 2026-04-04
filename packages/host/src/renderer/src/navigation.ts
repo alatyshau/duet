@@ -4,6 +4,7 @@
  * Два таба: Settings (визард настроек) и Apps (запущенные процессы).
  * Каждый таб — свой набор страниц.
  */
+import type { StepStatus } from '../../core/wizard-status'
 
 // =============================================================================
 // TABS
@@ -75,3 +76,32 @@ export function tabForPage(page: Page): Tab {
 }
 
 export const DEFAULT_PAGE: Page = 'duet-data'
+
+// =============================================================================
+// DEPENDENCY CHECKS
+// =============================================================================
+
+/** Check if all dependencies of a wizard step are done. */
+export function isStepAvailable(
+  page: WizardPage,
+  statuses: Partial<Record<WizardPage, StepStatus>>
+): boolean {
+  const step = WIZARD_STEPS.find((s) => s.page === page)
+  if (!step) return true
+  return step.dependsOn.every((dep) => statuses[dep] === 'done')
+}
+
+/** Get labels of missing (not-done) dependencies for a wizard step. */
+export function getMissingDeps(
+  page: WizardPage,
+  statuses: Partial<Record<WizardPage, StepStatus>>
+): string[] {
+  const step = WIZARD_STEPS.find((s) => s.page === page)
+  if (!step) return []
+  return step.dependsOn
+    .filter((dep) => statuses[dep] !== 'done')
+    .map((dep) => {
+      const depStep = WIZARD_STEPS.find((s) => s.page === dep)
+      return depStep?.label ?? dep
+    })
+}

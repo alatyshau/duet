@@ -7,9 +7,12 @@ import {
   APP_ITEMS,
   DEFAULT_PAGE,
   tabForPage,
+  isStepAvailable,
+  getMissingDeps,
   type WizardPage,
   type AppPage
 } from '../../../src/renderer/src/navigation'
+import type { StepStatus } from '../../../src/core/wizard-status'
 
 describe('navigation', () => {
   // =========================================================================
@@ -110,6 +113,79 @@ describe('navigation', () => {
   describe('DEFAULT_PAGE', () => {
     it('is the first wizard step', () => {
       expect(DEFAULT_PAGE).toBe(WIZARD_STEPS[0].page)
+    })
+  })
+
+  // =========================================================================
+  // isStepAvailable
+  // =========================================================================
+
+  describe('isStepAvailable', () => {
+    const allDone: Partial<Record<WizardPage, StepStatus>> = {
+      'duet-data': 'done',
+      'duet-config': 'done',
+      python: 'done',
+      backend: 'done',
+      'business-folders': 'done',
+      instructions: 'done',
+      agents: 'done'
+    }
+
+    it('returns true for steps with no dependencies', () => {
+      expect(isStepAvailable('duet-data', {})).toBe(true)
+      expect(isStepAvailable('duet-config', {})).toBe(true)
+      expect(isStepAvailable('python', {})).toBe(true)
+    })
+
+    it('returns true when all dependencies are done', () => {
+      expect(isStepAvailable('backend', allDone)).toBe(true)
+      expect(isStepAvailable('business-folders', allDone)).toBe(true)
+      expect(isStepAvailable('instructions', allDone)).toBe(true)
+      expect(isStepAvailable('agents', allDone)).toBe(true)
+    })
+
+    it('returns false when a dependency is missing', () => {
+      expect(isStepAvailable('backend', { 'duet-data': 'done' })).toBe(false) // missing python
+      expect(isStepAvailable('backend', { python: 'done' })).toBe(false) // missing duet-data
+    })
+
+    it('returns false when a dependency has error status', () => {
+      expect(
+        isStepAvailable('agents', { backend: 'done', instructions: 'error' })
+      ).toBe(false)
+    })
+
+    it('returns false when a dependency is null', () => {
+      expect(
+        isStepAvailable('agents', { backend: 'done', instructions: null })
+      ).toBe(false)
+    })
+  })
+
+  // =========================================================================
+  // getMissingDeps
+  // =========================================================================
+
+  describe('getMissingDeps', () => {
+    it('returns empty for steps with no dependencies', () => {
+      expect(getMissingDeps('duet-data', {})).toEqual([])
+    })
+
+    it('returns empty when all dependencies are done', () => {
+      expect(
+        getMissingDeps('backend', { 'duet-data': 'done', python: 'done' })
+      ).toEqual([])
+    })
+
+    it('returns labels of missing dependencies', () => {
+      const missing = getMissingDeps('business-folders', {
+        'duet-data': 'done',
+        'duet-config': null,
+        backend: null
+      })
+      expect(missing).toContain('DuetConfig + машина')
+      expect(missing).toContain('Backend')
+      expect(missing).not.toContain('DuetData')
     })
   })
 })

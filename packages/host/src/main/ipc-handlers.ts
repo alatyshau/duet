@@ -6,11 +6,13 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import {
+  readConfig,
   writeConfig,
   readPort,
   readMachineConfig,
   setMachineConfigKey,
-  ensureConfigDefaults
+  ensureConfigDefaults,
+  isValidMachineName
 } from '../core/config'
 import {
   resolveDeployStatus,
@@ -21,8 +23,14 @@ import {
 } from '../core/deploy'
 import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
-import { triggerMerge, readCachedErrors } from '../core/instructions'
-import { getBusinessFolders, saveBusinessFolders, triggerScan } from '../core/business-folders'
+import { triggerMerge, readCachedErrors, fixInstructionsError } from '../core/instructions'
+import {
+  getBusinessFolders,
+  saveBusinessFolders,
+  triggerScan,
+  readCachedScan,
+  readCachedStreams
+} from '../core/business-folders'
 import type {
   AppState,
   DeployStatus,
@@ -30,7 +38,8 @@ import type {
   PythonStatus,
   InstructionsMergeResult,
   InstructionsError,
-  ScanResult
+  ScanResult,
+  StreamsCache
 } from '../shared/types'
 import type { ChildProcess } from 'child_process'
 
@@ -159,15 +168,28 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   })
 
   // Сохранить pointer файл (~/.org.ve68.duet) + создать дефолтные конфиги
+  // Supports partial saves: missing fields are preserved from current config.
   ipcMain.handle(
     'config:save-pointer',
-    (_event, config: { duetDataPath: string; duetConfigPath: string; machine: string }) => {
-      writeConfig({
-        duetDataPath: config.duetDataPath,
-        duetConfigPath: config.duetConfigPath,
-        machine: config.machine
-      })
-      ensureConfigDefaults(config.duetConfigPath, config.machine)
+    (_event, config: { duetDataPath?: string; duetConfigPath?: string; machine?: string }) => {
+      // Validate machine name before writing anything
+      const machine = config.machine?.trim()
+      if (machine !== undefined && !isValidMachineName(machine)) {
+        throw new Error(
+          `Invalid machine name: "${machine}". Use alphanumeric characters, hyphens, underscores, dots.`
+        )
+      }
+
+      const existing = readConfig()
+      const merged = {
+        duetDataPath: config.duetDataPath ?? existing.duetDataPath,
+        duetConfigPath: config.duetConfigPath ?? existing.duetConfigPath,
+        machine: machine ?? existing.machine
+      }
+      writeConfig(merged)
+      if (merged.duetConfigPath && merged.machine) {
+        ensureConfigDefaults(merged.duetConfigPath, merged.machine)
+      }
       context.updateAppState()
       return context.getAppState()
     }
@@ -328,11 +350,15 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    return configureAllAgents(state.duetDataPath, port)
+    const result = configureAllAgents(state.duetDataPath, port)
+    context.updateAppState()
+    return result
   })
 
   ipcMain.handle('agents:fix-issue', (_event, agentId: string, reasonCode: string): boolean => {
-    return fixAgentIssue(agentId, reasonCode)
+    const fixed = fixAgentIssue(agentId, reasonCode)
+    if (fixed) context.updateAppState()
+    return fixed
   })
 
   // === Instructions ===
@@ -342,9 +368,9 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     return triggerMerge(port)
   })
 
-  ipcMain.handle('instructions:get-errors', (): InstructionsError[] => {
+  ipcMain.handle('instructions:get-errors', (): InstructionsError[] | null => {
     const state = context.getAppState()
-    if (!state.duetDataPath) return []
+    if (!state.duetDataPath) return null
     return readCachedErrors(state.duetDataPath)
   })
 
@@ -361,6 +387,41 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('business-folders:scan', async (): Promise<ScanResult> => {
     const port = readPort()
     return triggerScan(port)
+  })
+
+  ipcMain.handle('business-folders:get-cached-scan', (): ScanResult | null => {
+    const state = context.getAppState()
+    if (!state.duetDataPath) return null
+    return readCachedScan(state.duetDataPath)
+  })
+
+  ipcMain.handle('business-folders:get-cached-streams', (): StreamsCache | null => {
+    const state = context.getAppState()
+    if (!state.duetDataPath) return null
+    return readCachedStreams(state.duetDataPath)
+  })
+
+  // === Instructions fix ===
+
+  ipcMain.handle(
+    'instructions:fix-error',
+    (_event, relativePath: string, reasonCode: string): boolean => {
+      const state = context.getAppState()
+      if (!state.instructionsPath) return false
+      return fixInstructionsError(state.instructionsPath, relativePath, reasonCode)
+    }
+  )
+
+  // === Instructions path ===
+
+  ipcMain.handle('config:set-instructions-path', (_event, path: string) => {
+    const config = readConfig()
+    if (!config.duetConfigPath || !config.machine) {
+      throw new Error('Сначала настройте DuetConfig и имя машины (шаг 2)')
+    }
+    setMachineConfigKey('instructionsPath', path)
+    context.updateAppState()
+    return context.getAppState()
   })
 }
 

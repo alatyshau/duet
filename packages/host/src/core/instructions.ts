@@ -6,8 +6,8 @@
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
-import { existsSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join, basename } from 'path'
 import type { InstructionsMergeResult, InstructionsError } from '../shared/types'
 
 // Re-export types
@@ -84,17 +84,91 @@ export function readMergedInstructions(duetDataPath: string): string | null {
   }
 }
 
+// =============================================================================
+// FIX ERRORS
+// =============================================================================
+
+/** Reason codes that can be auto-fixed. */
+const FIXABLE_REASON_CODES = new Set(['no_frontmatter', 'invalid_yaml', 'missing_fields'])
+
+/** Check if an instructions error can be auto-fixed. */
+export function isFixableError(reasonCode: string): boolean {
+  return FIXABLE_REASON_CODES.has(reasonCode)
+}
+
+/**
+ * Auto-fix an instructions error by modifying the source file.
+ * Returns true if fix was applied, false if not applicable.
+ */
+export function fixInstructionsError(
+  instructionsPath: string,
+  relativePath: string,
+  reasonCode: string
+): boolean {
+  if (!isFixableError(reasonCode)) return false
+
+  const filePath = join(instructionsPath, relativePath)
+  if (!existsSync(filePath)) return false
+
+  const content = readFileSync(filePath, 'utf-8')
+  const stem = basename(relativePath, '.md')
+
+  let fixed: string
+
+  switch (reasonCode) {
+    case 'no_frontmatter':
+      fixed = `---\nname: ${stem}\ndescription: \n---\n${content}`
+      break
+
+    case 'invalid_yaml': {
+      // Replace existing broken frontmatter with valid template
+      const match = content.match(/^---\n[\s\S]*?\n---\n?/)
+      if (match) {
+        fixed = `---\nname: ${stem}\ndescription: \n---\n${content.slice(match[0].length)}`
+      } else {
+        fixed = `---\nname: ${stem}\ndescription: \n---\n${content}`
+      }
+      break
+    }
+
+    case 'missing_fields': {
+      // Parse existing frontmatter, add missing name/description
+      const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/)
+      if (!fmMatch) return false
+      const fmBody = fmMatch[1]
+      const rest = content.slice(fmMatch[0].length)
+      const lines = fmBody.split('\n')
+      const hasName = lines.some((l) => l.startsWith('name:'))
+      const hasDesc = lines.some((l) => l.startsWith('description:'))
+      if (!hasName) lines.push(`name: ${stem}`)
+      if (!hasDesc) lines.push('description: ')
+      fixed = `---\n${lines.join('\n')}\n---\n${rest}`
+      break
+    }
+
+    default:
+      return false
+  }
+
+  writeFileSync(filePath, fixed, 'utf-8')
+  return true
+}
+
+// =============================================================================
+// CACHED DATA
+// =============================================================================
+
 /**
  * Читает ошибки из кэша (DuetData/data/duet-instructions-errors.json).
- * Возвращает пустой массив если файла нет или невалидный JSON.
+ * Возвращает null если файла нет (merge never ran), массив если кэш существует.
  */
-export function readCachedErrors(duetDataPath: string): InstructionsError[] {
+export function readCachedErrors(duetDataPath: string): InstructionsError[] | null {
   const filePath = join(duetDataPath, ERRORS_CACHE_FILE)
-  if (!existsSync(filePath)) return []
+  if (!existsSync(filePath)) return null
   try {
     const data = JSON.parse(readFileSync(filePath, 'utf-8'))
-    return Array.isArray(data) ? data : []
+    return Array.isArray(data) ? data : null
   } catch {
-    return []
+    return null
   }
 }

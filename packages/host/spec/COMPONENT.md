@@ -24,6 +24,16 @@ Single source of truth for application status.
 
 **Derivation:** `checkAppState()` reads pointer -> checks fields -> checks `existsSync()` -> returns status.
 
+### AppState Extended Fields
+
+Beyond core status/path fields, AppState exposes machine config values needed by wizard pages:
+
+| Field | Source | Purpose |
+|-------|--------|---------|
+| `pythonPath` | `{machine}.json` | Python interpreter path (step 3) |
+| `instructionsPath` | `{machine}.json` | Duet-Instructions repo path (step 6) |
+| `hasDevBackendPath` | `{machine}.json` | Controls DEV/PROD toggle visibility (step 4) |
+
 ### Config Interface
 
 ```typescript
@@ -48,11 +58,11 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 | Layer | Responsibility | Files |
 |-------|----------------|-------|
 | `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
-| `core/` | Config, app state, deploy, backend, AI clients, instructions, business folders, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `business-folders.ts`, `apps.ts` |
+| `core/` | Config, app state, deploy, backend, AI clients, instructions, business folders, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `business-folders.ts`, `wizard-status.ts`, `apps.ts` |
 | `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
 | `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
 | `preload/` | Bridge main <-> renderer | `index.ts`, `index.d.ts` |
-| `renderer/` | React UI | `App.tsx`, `pages/InstallPage.tsx`, `pages/AppPage.tsx`, `pages/AgentsPage.tsx`, `components/` |
+| `renderer/` | React UI | `App.tsx`, `pages/wizard/*.tsx` (7 wizard steps), `pages/apps/BackendAppPage.tsx`, `components/` |
 
 ## Engineering Principles
 
@@ -129,6 +139,8 @@ Host is the single owner of backend process lifecycle (start, stop, health monit
 
 **Status:** `getBackendStatus(duetDataPath, port)` -> `BackendStatus` (stopped | starting | running | stopping | error).
 
+**File watcher:** `main/index.ts` watches `DuetData/data/` via `fs.watch` (debounce 500ms). Detects external changes (Backend CLI scan/merge) and triggers `updateAppState()` → tray icon refresh. Lifecycle managed by `updateAppState()`: starts when `duetDataPath` appears, restarts on path change, retries when `data/` directory appears after deploy. Stopped on quit. Non-critical: silently handles missing directory or watch errors.
+
 **Auto-start on startup:** When `status === 'ready'` and deployed (no VERSION mismatch) -> `ensureBackendRunning()`.
 
 **Auto-start after deploy:** `runDeploy()` calls `startBackend()` after writing VERSION.
@@ -173,6 +185,8 @@ Manages merged AI instructions lifecycle. Backend generates `DuetData/duet-instr
 - `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult`
 - `readMergedInstructions(duetDataPath)` — reads cached file from disk
 - `readCachedErrors(duetDataPath)` — reads errors from `DuetData/data/duet-instructions-errors.json`
+- `fixInstructionsError(instructionsPath, relativePath, reasonCode)` — auto-fix source file (add/replace frontmatter, add missing fields). Returns true if fix applied.
+- `isFixableError(reasonCode)` — check if error can be auto-fixed. Fixable: `no_frontmatter`, `invalid_yaml`, `missing_fields`.
 
 Implementation: `core/instructions.ts`
 
@@ -183,6 +197,7 @@ Manages business folder configuration (stored in `DuetConfig/settings.json`).
 **Operations:**
 - `getBusinessFolders()` / `saveBusinessFolders(folders)` — CRUD on `settings.json`
 - `triggerScan(port)` — calls Backend `POST /scan`, returns `ScanResult` with errors
+- `readCachedStreams(duetDataPath)` — reads entity tree from `DuetData/data/streams.json`. Returns `StreamsCache` with flat entity list (build tree via `parent_id`).
 
 Implementation: `core/business-folders.ts`
 
@@ -212,8 +227,12 @@ Implementation: `core/business-folders.ts`
 | `business-folders:get` | renderer -> main | Get business_folders from settings.json |
 | `business-folders:save` | renderer -> main | Save business_folders to settings.json |
 | `business-folders:scan` | renderer -> main | Trigger POST /scan |
+| `business-folders:get-cached-scan` | renderer -> main | Read cached scan.json from DuetData/data/ |
+| `business-folders:get-cached-streams` | renderer -> main | Read cached streams.json (entity tree) from DuetData/data/ |
+| `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
+| `config:set-instructions-path` | renderer -> main | Save instructionsPath to machine.json |
 
-**Contract:** `config:save-pointer` writes pointer file, creates default DuetConfig files if missing (`ensureConfigDefaults`), then calls `updateAppState()`, returns new AppState. `deploy:start` runs async deploy, broadcasts status + log events. `config:set-deploy-channel` writes `deployChannel` to `{machine}.json`, calls `updateAppState()`, returns new AppState.
+**Contract:** `config:save-pointer` supports partial updates — missing fields are preserved from existing config. Creates default DuetConfig files only when both `duetConfigPath` and `machine` are present (`ensureConfigDefaults`). Calls `updateAppState()`, returns new AppState. `deploy:start` runs async deploy, broadcasts status + log events. `config:set-deploy-channel` writes `deployChannel` to `{machine}.json`, calls `updateAppState()`, returns new AppState. `config:set-instructions-path` validates machine config is writable (throws if DuetConfig/machine not configured). `agents:configure` and `agents:fix-issue` call `updateAppState()` after mutations to refresh tray icon.
 
 **Config defaults:** `ensureConfigDefaults(duetConfigPath, machine)` — creates `settings.json` (`{ business_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
 
@@ -221,24 +240,27 @@ Implementation: `core/business-folders.ts`
 
 ## Pages
 
-### InstallPage
+### Wizard Pages (Settings tab)
 
-Three sections:
-1. **Config** — folder pickers (DuetData, DuetConfig) + machine name input. Auto-save when all 3 filled.
-2. **Components** — deploy channel toggle (DEV/PROD) in header + deploy status for AI instructions + backend. DEV mode shows amber banner. "Установить" button when deploy needed.
-3. **Log** — deploy log (subscribes to `deploy:log` events).
+7 self-contained pages in `pages/wizard/`. Each manages its own state, calls `window.api` directly, and reports status via `onStatusChange` callback to App.tsx.
 
-### AppPage
+| # | Page | File | Key operations |
+|---|------|------|----------------|
+| 1 | DuetData | `DuetDataPage.tsx` | Folder picker, partial save via `savePointer` |
+| 2 | DuetConfig + machine | `DuetConfigPage.tsx` | Folder picker + text input, partial save |
+| 3 | Python 3.10+ | `PythonPage.tsx` | Auto-detect on mount, manual file picker, `savePythonPath` |
+| 4 | Backend | `BackendPage.tsx` | Deploy status/button, channel toggle (visible when `hasDevBackendPath`), logs |
+| 5 | Business Folders | `BusinessFoldersPage.tsx` | Folder list CRUD, manual Scan button, error table with Fix |
+| 6 | Instructions | `InstructionsPage.tsx` | Folder picker for `instructionsPath`, Regenerate, error table, auto-configure agents on success |
+| 7 | AI Agents | `AgentsPage.tsx` | Agent detection cards, Configure All, Fix issue buttons |
+
+### BackendAppPage (Apps tab)
 
 Per-application page with process cards. Navigate via sidebar → Приложения → {app name} (route: `app:{app-id}`).
 
 Process card shows: state badge, version, uptime, Start/Stop/Restart buttons. States: stopped, starting, running, stopping, error.
 
 Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `AppInfo`, `ProcessInfo`, `ProcessStatus` in `shared/types.ts`. Mapper: `backendStatusToProcessStatus()` in `shared/mappers.ts`. Registry: `BUILTIN_APPS` in `core/apps.ts`.
-
-### AgentsPage
-
-Detects AI clients on mount. Shows status card per client. "Настроить все" button to configure.
 
 ## Behavioral Contracts
 
@@ -297,6 +319,24 @@ npm run typecheck    # tsc
 | `platform/tray.ts` | No — requires Electron (manual testing) |
 | `main/window.ts` | No — requires Electron |
 
+## Wizard Status
+
+Pure function `computeStepStatuses()` in `core/wizard-status.ts` computes sidebar step icons from system state. Used by renderer (App.tsx) and could be used by main process (tray) in the future.
+
+**Input sources:**
+| Steps | Source |
+|-------|--------|
+| 1-2 | AppState (duetDataPath, duetConfigPath, machine) |
+| 3 | AppState (pythonPath from machine.json) |
+| 4 | DeployStatus (deployed/up_to_date) |
+| 5 | Cached scan.json (errors count) |
+| 6 | Cached instruction errors (errors count) |
+| 7 | Agent detection (needs_setup vs configured) |
+
+Steps 5-7 also report status dynamically via `onStatusChange` callbacks from individual pages, which override computed values.
+
+Implementation: `core/wizard-status.ts`
+
 ## Navigation
 
 | Concept | File |
@@ -318,8 +358,8 @@ npm run typecheck    # tsc
 | IPC registration | `main/ipc-handlers.ts` |
 | Preload bridge | `preload/index.ts` |
 | Root React component | `renderer/src/App.tsx` |
-| Install page | `renderer/src/pages/InstallPage.tsx` |
-| App page | `renderer/src/pages/AppPage.tsx` |
-| Agents page | `renderer/src/pages/AgentsPage.tsx` |
+| Wizard step pages | `renderer/src/pages/wizard/*.tsx` |
+| Backend app page | `renderer/src/pages/apps/BackendAppPage.tsx` |
 | Layout (sidebar) | `renderer/src/components/layout/` |
+| Wizard status (pure) | `core/wizard-status.ts` |
 

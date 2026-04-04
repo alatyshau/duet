@@ -27,15 +27,22 @@ export type { AppStatus, AppState } from '../shared/types'
 export const checkAppState = (): AppState => {
   const config = readConfig()
 
+  const base = {
+    duetDataPath: config.duetDataPath ?? null,
+    duetConfigPath: config.duetConfigPath ?? null,
+    machine: config.machine ?? null
+  }
+
   // Все 3 поля обязательны
   if (!config.duetDataPath || !config.duetConfigPath || !config.machine) {
     return {
-      status: 'no_config',
-      duetDataPath: config.duetDataPath ?? null,
-      duetConfigPath: config.duetConfigPath ?? null,
-      machine: config.machine ?? null,
+      status: 'no_config' as const,
+      ...base,
       pathExists: false,
-      deployChannel: 'prod'
+      deployChannel: 'prod' as DeployChannel,
+      pythonPath: null,
+      instructionsPath: null,
+      hasDevBackendPath: false
     }
   }
 
@@ -45,27 +52,33 @@ export const checkAppState = (): AppState => {
 
   if (!pathExists) {
     return {
-      status: 'path_lost',
-      duetDataPath: config.duetDataPath,
-      duetConfigPath: config.duetConfigPath,
-      machine: config.machine,
+      status: 'path_lost' as const,
+      ...base,
       pathExists: false,
-      deployChannel: 'prod'
+      deployChannel: 'prod' as DeployChannel,
+      pythonPath: null,
+      instructionsPath: null,
+      hasDevBackendPath: false
     }
   }
 
-  // Read deployChannel from machine config (default: 'prod')
+  // Read machine config for extended fields
   const machineConfig = readMachineConfig()
   const channel = machineConfig?.deployChannel
   const deployChannel: DeployChannel = channel === 'dev' ? 'dev' : 'prod'
+  const pythonPath = typeof machineConfig?.pythonPath === 'string' ? machineConfig.pythonPath : null
+  const instructionsPath =
+    typeof machineConfig?.instructionsPath === 'string' ? machineConfig.instructionsPath : null
+  const hasDevBackendPath = typeof machineConfig?.devBackendPath === 'string'
 
   return {
-    status: 'ready',
-    duetDataPath: config.duetDataPath,
-    duetConfigPath: config.duetConfigPath,
-    machine: config.machine,
+    status: 'ready' as const,
+    ...base,
     pathExists: true,
-    deployChannel
+    deployChannel,
+    pythonPath,
+    instructionsPath,
+    hasDevBackendPath
   }
 }
 
@@ -78,5 +91,8 @@ export const createInitialState = (): AppState => ({
   duetConfigPath: null,
   machine: null,
   pathExists: false,
-  deployChannel: 'prod'
+  deployChannel: 'prod',
+  pythonPath: null,
+  instructionsPath: null,
+  hasDevBackendPath: false
 })

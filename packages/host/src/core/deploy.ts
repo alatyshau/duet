@@ -334,16 +334,19 @@ export const runDeploy = async (
   const backendCount = deployBackend(paths)
   log(`Backend: ${backendCount} файлов`)
 
-  // 2. Setup venv + pip install
+  // 2. Copy DuetData README
+  copyDuetDataReadme(paths)
+
+  // 3. Setup venv + pip install
   log(`Python: ${pythonCmd}`)
   log('Настройка Python venv и зависимостей...')
   await setupVenv(paths, pythonCmd)
 
-  // 3. Write VERSION only after full success
+  // 4. Write VERSION only after full success
   writeVersion(paths)
   log(`VERSION: ${paths.appVersion}`)
 
-  // 4. Start backend after successful deploy
+  // 5. Start backend after successful deploy
   let proc: ChildProcess | null = null
   try {
     log('Запуск backend...')
@@ -356,6 +359,22 @@ export const runDeploy = async (
 
   log(`Деплой v${paths.appVersion} завершён`)
   return proc
+}
+
+// =============================================================================
+// DUETDATA README
+// =============================================================================
+
+/**
+ * Копирует README.md шаблон в DuetData root.
+ * Source: resources/duetdata-readme.md (bundled) или src-adjacent (dev).
+ */
+export const copyDuetDataReadme = (paths: DeployPaths): void => {
+  const src = join(paths.resourcesPath, 'duetdata-readme.md')
+  const dest = join(paths.duetDataPath, 'README.md')
+  if (existsSync(src)) {
+    cpSync(src, dest, { force: true })
+  }
 }
 
 // =============================================================================

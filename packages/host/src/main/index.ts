@@ -9,10 +9,16 @@
  * - main/ — Electron-specific (window, ipc-handlers)
  */
 import { app } from 'electron'
-import { existsSync } from 'fs'
+import { existsSync, watch, type FSWatcher } from 'fs'
+import { join } from 'path'
 import { checkAppState, createInitialState, type AppState } from '../core/app-state'
-import { getConfigFile } from '../core/config'
+import { getConfigFile, readPort } from '../core/config'
 import { isDeployWarning } from '../core/deploy'
+import { readCachedScan } from '../core/business-folders'
+import { readCachedErrors } from '../core/instructions'
+import { detectAgents } from '../core/ai-clients'
+import { computeStepStatuses, hasWizardWarning } from '../core/wizard-status'
+import type { DeployStatus } from '../shared/types'
 import { createTray, updateTrayIcon } from '../platform/tray'
 import { showWindow, sendAppState, setQuitting } from './window'
 import { setupIpcHandlers, ensureBackendRunning, ensureBackendStopped } from './ipc-handlers'
@@ -23,13 +29,102 @@ import { setupIpcHandlers, ensureBackendRunning, ensureBackendStopped } from './
 
 let appState: AppState = createInitialState()
 
+/** Текущий статус деплоя (обновляется из ipc-handlers). */
+let currentDeployStatus: DeployStatus = { state: 'idle' }
+
+/** Обновить deploy status (вызывается из ipc-handlers через context). */
+export const setCurrentDeployStatus = (status: DeployStatus): void => {
+  currentDeployStatus = status
+}
+
+// =============================================================================
+// FILE WATCHER (DuetData/data/)
+// =============================================================================
+
+let dataWatcher: FSWatcher | null = null
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let lastWatchedPath: string | null = null
+
+/**
+ * Watch DuetData/data/ for external changes (scan.json, errors.json written by Backend CLI).
+ * Debounced: multiple rapid changes coalesce into one updateAppState() call.
+ */
+function startDataWatcher(duetDataPath: string): void {
+  stopDataWatcher()
+  const dataDir = join(duetDataPath, 'data')
+  if (!existsSync(dataDir)) return
+  try {
+    dataWatcher = watch(dataDir, { persistent: false }, () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        updateAppState()
+        sendAppState(appState)
+      }, 500)
+    })
+    dataWatcher.on('error', () => {
+      // Directory deleted or inaccessible — stop watching silently
+      stopDataWatcher()
+    })
+  } catch {
+    // fs.watch not supported or path issue — non-critical
+  }
+}
+
+function stopDataWatcher(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  if (dataWatcher) {
+    dataWatcher.close()
+    dataWatcher = null
+  }
+}
+
 /**
  * Обновляет AppState и уведомляет tray + renderer.
- * Tray показывает warning если VERSION mismatch (нужен деплой).
+ * Tray показывает warning если:
+ * - VERSION mismatch (нужен деплой)
+ * - Любой шаг визарда в состоянии 'error' (scan/instruction/agent проблемы)
  */
 const updateAppState = (): void => {
   appState = checkAppState()
-  updateTrayIcon(appState.status, isDeployWarning(appState, app.getVersion()))
+
+  // Manage DuetData/data/ watcher lifecycle — restart when path changes or retry if not running
+  const newPath = appState.duetDataPath ?? null
+  if (newPath !== lastWatchedPath) {
+    lastWatchedPath = newPath
+    if (newPath) {
+      startDataWatcher(newPath)
+    } else {
+      stopDataWatcher()
+    }
+  } else if (newPath && !dataWatcher) {
+    // Path unchanged but watcher not running (data dir may have appeared after deploy)
+    startDataWatcher(newPath)
+  }
+
+  const deployWarn = isDeployWarning(appState, app.getVersion())
+
+  // Compute wizard warning from cached data (all fs reads, cheap)
+  let wizardWarn = false
+  if (appState.status === 'ready' && appState.duetDataPath) {
+    try {
+      const port = readPort()
+      const statuses = computeStepStatuses({
+        appState,
+        deployStatus: currentDeployStatus,
+        cachedScan: readCachedScan(appState.duetDataPath),
+        cachedInstructionsErrors: readCachedErrors(appState.duetDataPath),
+        agents: detectAgents(appState.duetDataPath, port)
+      })
+      wizardWarn = hasWizardWarning(statuses)
+    } catch {
+      // Port not configured yet, or other issue — don't fail updateAppState
+    }
+  }
+
+  updateTrayIcon(appState.status, deployWarn || wizardWarn)
   sendAppState(appState)
 }
 
@@ -93,8 +188,8 @@ if (gotTheLock) {
       }
     })
 
-    // Учитываем deploy warning на старте (VERSION mismatch при status=ready)
-    updateTrayIcon(appState.status, isDeployWarning(appState, app.getVersion()))
+    // Обновляем tray с полным набором warnings (deploy + wizard)
+    updateAppState()
 
     // На macOS скрываем Dock иконку по умолчанию (живём в Menu Bar)
     if (process.platform === 'darwin') {
@@ -130,10 +225,11 @@ if (gotTheLock) {
     // Ничего не делаем — приложение продолжает работать в трее
   })
 
-  // Обработка перед выходом: остановить бэкенд
+  // Обработка перед выходом: остановить бэкенд и watcher
   let isQuitting = false
   app.on('before-quit', (e) => {
     setQuitting(true)
+    stopDataWatcher()
 
     // Prevent re-entrant quit while stopping backend
     if (isQuitting) return

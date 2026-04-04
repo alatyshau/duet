@@ -1,55 +1,74 @@
 /*
  * Корневой React-компонент приложения.
- * Управляет навигацией и получает AppState от main process.
- *
- * Фаза 5: wizard routes 1-6 рендерят InstallPage (монолитная страница),
- * route "agents" рендерит AgentsPage. В фазе 6 каждый route получит
- * свою страницу из pages/wizard/.
+ * Управляет навигацией, AppState, и вычислением статусов шагов визарда.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Layout } from './components/layout/Layout'
-import { InstallPage } from './pages/InstallPage'
-import { AgentsPage } from './pages/AgentsPage'
+import { DuetDataPage } from './pages/wizard/DuetDataPage'
+import { DuetConfigPage } from './pages/wizard/DuetConfigPage'
+import { PythonPage } from './pages/wizard/PythonPage'
+import { BackendPage } from './pages/wizard/BackendPage'
+import { BusinessFoldersPage } from './pages/wizard/BusinessFoldersPage'
+import { InstructionsPage } from './pages/wizard/InstructionsPage'
+import { WizardAgentsPage } from './pages/wizard/AgentsPage'
 import { AppPage } from './pages/apps/BackendAppPage'
 import { backendStatusToProcessStatus } from '../../shared/mappers'
 import { BUILTIN_APPS } from '../../core/apps'
+import { computeStepStatuses } from '../../core/wizard-status'
 import { DEFAULT_PAGE } from './navigation'
-import type { Page } from './navigation'
-import type { AppState, BackendStatus, ProcessStatus } from '../../preload/index.d'
+import type { Page, WizardPage } from './navigation'
+import type { StepStatus } from '../../core/wizard-status'
+import type {
+  AppState,
+  BackendStatus,
+  DeployStatus,
+  ProcessStatus,
+  ScanResult,
+  InstructionsError,
+  AgentInfo
+} from '../../preload/index.d'
 
 function App(): React.JSX.Element {
   const [currentPage, setCurrentPage] = useState<Page>(DEFAULT_PAGE)
   const [appState, setAppState] = useState<AppState | null>(null)
   const [backendStatus, setBackendStatus] = useState<BackendStatus>({ state: 'stopped' })
+  const [deployStatus, setDeployStatus] = useState<DeployStatus>({ state: 'idle' })
 
-  // Draft state for pointer fields (before saving).
-  // Moves to individual wizard pages in Phase 6.
-  const [draftDuetDataPath, setDraftDuetDataPath] = useState<string | null>(null)
-  const [draftDuetConfigPath, setDraftDuetConfigPath] = useState<string | null>(null)
-  const [draftMachine, setDraftMachine] = useState('')
+  // Cached data for steps 5-7 — loaded on mount, updated by page callbacks
+  const [cachedScan, setCachedScan] = useState<ScanResult | null>(null)
+  const [cachedInstructionsErrors, setCachedInstructionsErrors] = useState<
+    InstructionsError[] | null
+  >(null)
+  const [cachedAgents, setCachedAgents] = useState<AgentInfo[] | null>(null)
+
+  // Dynamic statuses reported by individual wizard pages (steps 3-7)
+  const [pageStatuses, setPageStatuses] = useState<Partial<Record<WizardPage, StepStatus>>>({})
 
   const backendProcessStatus: ProcessStatus = backendStatusToProcessStatus(backendStatus)
+
+  // Step status update callback — passed to wizard pages
+  const createStatusCallback = useCallback(
+    (page: WizardPage) => (status: StepStatus) => {
+      setPageStatuses((prev) => ({ ...prev, [page]: status }))
+    },
+    []
+  )
+
+  // Callback for InstructionsPage → auto-configure agents updates sidebar step 7
+  const handleAgentsUpdated = useCallback((agents: AgentInfo[]) => {
+    setCachedAgents(agents)
+  }, [])
+
+  // ==========================================================================
+  // Subscriptions
+  // ==========================================================================
 
   useEffect(() => {
     if (!window.api) return
 
-    window.api
-      .getAppState()
-      .then((state) => {
-        setAppState(state)
-        if (state.duetDataPath) setDraftDuetDataPath(state.duetDataPath)
-        if (state.duetConfigPath) setDraftDuetConfigPath(state.duetConfigPath)
-        if (state.machine) setDraftMachine(state.machine)
-      })
-      .catch(console.error)
+    window.api.getAppState().then(setAppState).catch(console.error)
 
-    const unsubscribe = window.api.onAppStateChanged((state) => {
-      setAppState(state)
-      if (state.duetDataPath) setDraftDuetDataPath(state.duetDataPath)
-      if (state.duetConfigPath) setDraftDuetConfigPath(state.duetConfigPath)
-      if (state.machine) setDraftMachine(state.machine)
-    })
-
+    const unsubscribe = window.api.onAppStateChanged(setAppState)
     return () => {
       unsubscribe()
     }
@@ -59,56 +78,55 @@ function App(): React.JSX.Element {
     if (!window.api) return
 
     window.api.getBackendStatus().then(setBackendStatus).catch(console.error)
-
     const unsub = window.api.onBackendStatusChanged(setBackendStatus)
     return () => {
       unsub()
     }
   }, [])
 
-  // Выбор папки через системный диалог
-  const handleSelectFolder = async (field: 'duetDataPath' | 'duetConfigPath'): Promise<void> => {
-    const currentPath = field === 'duetDataPath' ? draftDuetDataPath : draftDuetConfigPath
-    const result = await window.api.selectFolder(currentPath || undefined)
-    if (result) {
-      if (field === 'duetDataPath') {
-        setDraftDuetDataPath(result)
-      } else {
-        setDraftDuetConfigPath(result)
-      }
+  useEffect(() => {
+    if (!window.api) return
 
-      // Auto-save if all fields filled
-      const data = field === 'duetDataPath' ? result : draftDuetDataPath
-      const config = field === 'duetConfigPath' ? result : draftDuetConfigPath
-      const machine = draftMachine.trim()
-
-      if (data && config && machine) {
-        const newState = await window.api.savePointer({
-          duetDataPath: data,
-          duetConfigPath: config,
-          machine
-        })
-        setAppState(newState)
-      }
+    window.api.getDeployStatus().then(setDeployStatus).catch(console.error)
+    const unsub = window.api.onDeployStatusChanged(setDeployStatus)
+    return () => {
+      unsub()
     }
-  }
+  }, [])
 
-  const handleSave = async (): Promise<void> => {
-    if (!draftDuetDataPath || !draftDuetConfigPath || !draftMachine.trim()) return
+  // Load cached data for steps 5-7 on mount (so sidebar shows real status before pages visited)
+  useEffect(() => {
+    if (!window.api || !appState || appState.status !== 'ready') return
 
-    const newState = await window.api.savePointer({
-      duetDataPath: draftDuetDataPath,
-      duetConfigPath: draftDuetConfigPath,
-      machine: draftMachine.trim()
+    window.api.getCachedScan().then(setCachedScan).catch(console.error)
+    window.api.getInstructionsErrors().then(setCachedInstructionsErrors).catch(console.error)
+    window.api.getAgents().then(setCachedAgents).catch(console.error)
+  }, [appState?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ==========================================================================
+  // Step statuses
+  // ==========================================================================
+
+  const stepStatuses = useMemo(() => {
+    if (!appState) return {}
+
+    // Compute base statuses from all available data
+    const computed = computeStepStatuses({
+      appState,
+      deployStatus,
+      cachedScan,
+      cachedInstructionsErrors,
+      agents: cachedAgents
     })
-    setAppState(newState)
-  }
 
-  const handleOpenPath = (path: string): void => {
-    window.api.openPath(path)
-  }
+    // Merge with dynamic page-reported statuses (pages override computed on visit)
+    return { ...computed, ...pageStatuses }
+  }, [appState, deployStatus, cachedScan, cachedInstructionsErrors, cachedAgents, pageStatuses])
 
-  // Backend controls
+  // ==========================================================================
+  // Backend controls (for BackendAppPage)
+  // ==========================================================================
+
   const handleBackendStart = async (): Promise<void> => {
     try {
       await window.api.startBackend()
@@ -143,6 +161,10 @@ function App(): React.JSX.Element {
     }
   }
 
+  // ==========================================================================
+  // Render
+  // ==========================================================================
+
   if (!window.api) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -159,37 +181,40 @@ function App(): React.JSX.Element {
     )
   }
 
-  // Merge draft with appState for display
-  const displayState: AppState = {
-    ...appState,
-    duetDataPath: draftDuetDataPath,
-    duetConfigPath: draftDuetConfigPath,
-    machine: draftMachine || appState.machine
-  }
-
   const renderPage = (): React.ReactNode => {
     switch (currentPage) {
-      // Wizard pages 1-6: temporarily render InstallPage (monolithic).
-      // Phase 6 will replace each with its own page from pages/wizard/.
       case 'duet-data':
-      case 'duet-config':
-      case 'python':
-      case 'backend':
-      case 'business-folders':
-      case 'instructions':
         return (
-          <InstallPage
-            appState={displayState}
-            onSelectFolder={handleSelectFolder}
-            onSave={handleSave}
-            onOpenPath={handleOpenPath}
-            machine={draftMachine}
-            onMachineChange={setDraftMachine}
+          <DuetDataPage appState={appState} onStatusChange={createStatusCallback('duet-data')} />
+        )
+      case 'duet-config':
+        return (
+          <DuetConfigPage
+            appState={appState}
+            onStatusChange={createStatusCallback('duet-config')}
           />
         )
-      // Wizard page 7: temporarily render AgentsPage.
+      case 'python':
+        return <PythonPage appState={appState} onStatusChange={createStatusCallback('python')} />
+      case 'backend':
+        return <BackendPage appState={appState} onStatusChange={createStatusCallback('backend')} />
+      case 'business-folders':
+        return (
+          <BusinessFoldersPage
+            appState={appState}
+            onStatusChange={createStatusCallback('business-folders')}
+          />
+        )
+      case 'instructions':
+        return (
+          <InstructionsPage
+            appState={appState}
+            onStatusChange={createStatusCallback('instructions')}
+            onAgentsUpdated={handleAgentsUpdated}
+          />
+        )
       case 'agents':
-        return <AgentsPage />
+        return <WizardAgentsPage onStatusChange={createStatusCallback('agents')} />
       case 'app:duet-backend': {
         const app = BUILTIN_APPS.find((a) => a.id === 'duet-backend')!
         return (
@@ -210,9 +235,10 @@ function App(): React.JSX.Element {
     <Layout
       currentPage={currentPage}
       onNavigate={setCurrentPage}
-      onOpenFolder={() => appState.duetDataPath && handleOpenPath(appState.duetDataPath)}
+      onOpenFolder={() => appState.duetDataPath && window.api.openPath(appState.duetDataPath)}
       folderConfigured={appState.status === 'ready'}
       backendProcessState={backendProcessStatus.state}
+      stepStatuses={stepStatuses}
     >
       {renderPage()}
     </Layout>

@@ -11,13 +11,13 @@ Two-level navigation: **tabs** select a category, **sidebar list** selects a pag
 │ ──────────────── │                             │
 │  [⚙]  [▶]       │                             │
 │ ──────────────── │  Content (current page)     │
-│ ○ DuetData       │                             │
-│ ○ DuetConfig..   │                             │
-│ ○ Python         │                             │
-│ ○ Backend        │                             │
-│ ○ Biz Folders    │                             │
-│ ○ Инструкции     │                             │
-│ ○ AI Агенты      │                             │
+│ ✅ DuetData      │                             │
+│ ✅ DuetConfig..  │                             │
+│ ✅ Python        │                             │
+│ ✅ Backend       │                             │
+│ ✅ Biz Folders   │                             │
+│ ✅ Инструкции    │                             │
+│ ✅ AI Агенты     │                             │
 └──────────────────┴─────────────────────────────┘
 ```
 
@@ -45,7 +45,7 @@ All navigation types defined in `renderer/src/navigation.ts`:
 
 ## Settings Tab — Wizard
 
-7-step configuration wizard. Each step is a sidebar item with a status icon.
+7-step configuration wizard. Each step is a self-contained page with its own state and IPC calls. Status icons in sidebar reflect live configuration state.
 
 ### Steps
 
@@ -59,7 +59,11 @@ All navigation types defined in `renderer/src/navigation.ts`:
 | 6 | `instructions` | Инструкции | yes | 1, 2 |
 | 7 | `agents` | AI Агенты | yes | 4, 6 |
 
-Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforcement in Phase 6.
+Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforced at runtime:
+- **Sidebar:** unavailable steps (deps not `done`) rendered with dimmed text (`text-muted-foreground/50`). Navigation still allowed (user can read help text).
+- **Pages:** action buttons disabled when dependencies unmet; dependency banner shown (e.g. InstructionsPage warns when DuetConfig/machine not configured).
+- **IPC:** `config:set-instructions-path` throws if machine config not writable (prevents silent data loss).
+- Helpers: `isStepAvailable(page, statuses)`, `getMissingDeps(page, statuses)` in `navigation.ts`.
 
 ### Step Status Icons
 
@@ -70,7 +74,36 @@ Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforcement in Phase 6.
 | `'skipped'` | Gray circle + arrows | Not relevant (e.g. agent not installed) |
 | `null` | Hollow circle | Not yet determined |
 
-Status computed from `stepStatuses: Partial<Record<WizardPage, StepStatus>>` passed to Sidebar. Computation logic in Phase 6.
+Status computed by `computeStepStatuses()` in `core/wizard-status.ts` (pure function) merged with dynamic page callbacks.
+
+### Step Status Sources
+
+| Steps | Source | Status logic |
+|-------|--------|-------------|
+| 1-2 | AppState fields | `done` when path/machine set, `null` otherwise |
+| 3 | AppState.pythonPath | `done` when set, `null` otherwise. Page auto-detects on mount |
+| 4 | DeployStatus | `done` when deployed/up_to_date, `null` otherwise |
+| 5 | Scan result (cached or fresh) | `done` when 0 errors, `error` when errors exist |
+| 6 | Instructions merge result | `done` when 0 errors, `error` when errors exist |
+| 7 | Agent detection | `done` when all found agents configured, `error` when any needs_setup |
+
+### Page Architecture
+
+Each wizard page:
+- Receives `appState: AppState` prop (for config values)
+- Receives `onStatusChange: (status: StepStatus) => void` callback
+- Calls `window.api.*` directly for its own IPC operations
+- Manages its own local state (no state lifting to App.tsx)
+
+Pointer saves use partial updates: each page passes only its field(s) to `savePointer`, others are preserved.
+
+### Step Details
+
+**Step 5 (Business Folders):** Folder picker list with add/remove. Scan is manual (user clicks button). Shows entity tree from `streams.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors.
+
+**Step 6 (Instructions):** Folder picker for `instructionsPath` (saved to machine.json). Auto-merge on first path set. Regenerate button for subsequent merges. On 0 errors, auto-configures AI agents (step 7) and propagates result to App.tsx via `onAgentsUpdated` callback (sidebar step 7 updates immediately). Error table shows Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). Fix → edit source file → auto re-merge. Dependency banner shown when DuetConfig/machine not configured (step 2); folder picker disabled.
+
+**Step 7 (AI Agents):** Agent cards show checked files list and issues. Fix button for fixable issues (e.g. additionalDirectories). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No dark: classes (light-only theme).
 
 ## Apps Tab
 
@@ -91,21 +124,16 @@ Status computed from `stepStatuses: Partial<Record<WizardPage, StepStatus>>` pas
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| `App.tsx` | `renderer/src/App.tsx` | Root: AppState subscription, backend controls, page routing |
-| `Layout` | `components/layout/Layout.tsx` | Two-column: sidebar + content |
+| `App.tsx` | `renderer/src/App.tsx` | Root: AppState subscription, deploy subscription, step status computation, page routing |
+| `Layout` | `components/layout/Layout.tsx` | Two-column: sidebar + content. Passes stepStatuses to Sidebar |
 | `Sidebar` | `components/layout/Sidebar.tsx` | Tabs, wizard/apps list, status icons |
 
 ## Pages
 
 | Directory | Contains |
 |-----------|----------|
-| `pages/wizard/` | 7 wizard step pages (stubs in Phase 5, filled in Phase 6) |
+| `pages/wizard/` | 7 wizard step pages (DuetData, DuetConfig, Python, Backend, BusinessFolders, Instructions, Agents) |
 | `pages/apps/` | App process pages (`BackendAppPage.tsx`) |
-| `pages/` | Legacy pages (`InstallPage.tsx`, `AgentsPage.tsx`) — used temporarily until Phase 6 |
-
-### Transitional State (Phase 5)
-
-Wizard routes 1-6 temporarily render `InstallPage` (monolithic setup page). Route "agents" temporarily renders `AgentsPage`. Phase 6 replaces each with its dedicated page from `pages/wizard/`, then deletes the legacy pages.
 
 ## Tray
 
@@ -114,7 +142,7 @@ Wizard routes 1-6 temporarily render `InstallPage` (monolithic setup page). Rout
 | Click on icon | Shows window |
 | Context menu | "Открыть Duet", "Запускать при старте" (checkbox), "Выйти" |
 | Icon: normal | Template icon (adapts to light/dark on macOS) |
-| Icon: warning | Warning variant when status != `ready` |
+| Icon: warning | Warning variant when status != `ready` or deploy needed |
 | Tooltip | "Duet" when ready, "Duet — требуется настройка" / "Duet — папка не найдена" |
 
 ### Tray Icon Files

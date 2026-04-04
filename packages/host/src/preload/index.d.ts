@@ -27,8 +27,12 @@ export type {
   InstructionsError,
   InstructionsMergeResult,
   ScanError,
-  ScanResult
+  ScanResult,
+  StreamEntity,
+  StreamsCache
 } from '../shared/types'
+
+export type { StepStatus, StepStatuses, WizardPage } from '../core/wizard-status'
 
 // Import for use in DuetAPI interface
 import type {
@@ -39,7 +43,8 @@ import type {
   AgentInfo,
   InstructionsMergeResult,
   InstructionsError,
-  ScanResult
+  ScanResult,
+  StreamsCache
 } from '../shared/types'
 
 // Типы для Duet API
@@ -48,9 +53,9 @@ export interface DuetAPI {
   onAppStateChanged: (callback: (state: AppState) => void) => () => void
   selectFolder: (defaultPath?: string) => Promise<string | null>
   savePointer: (config: {
-    duetDataPath: string
-    duetConfigPath: string
-    machine: string
+    duetDataPath?: string
+    duetConfigPath?: string
+    machine?: string
   }) => Promise<AppState>
   openPath: (path: string) => Promise<void>
 
@@ -82,12 +87,18 @@ export interface DuetAPI {
 
   // Instructions
   mergeInstructions: () => Promise<InstructionsMergeResult>
-  getInstructionsErrors: () => Promise<InstructionsError[]>
+  getInstructionsErrors: () => Promise<InstructionsError[] | null>
+  setInstructionsPath: (path: string) => Promise<AppState>
 
   // Business Folders
   getBusinessFolders: () => Promise<string[]>
   saveBusinessFolders: (folders: string[]) => Promise<void>
   scanBusinessFolders: () => Promise<ScanResult>
+  getCachedScan: () => Promise<ScanResult | null>
+  getCachedStreams: () => Promise<StreamsCache | null>
+
+  // Instructions fix
+  fixInstructionsError: (relativePath: string, reasonCode: string) => Promise<boolean>
 }
 
 declare global {

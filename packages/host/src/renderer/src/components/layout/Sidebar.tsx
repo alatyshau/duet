@@ -8,16 +8,14 @@ import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { StatusDot } from '@renderer/components/ui/status-dot'
 import { FolderOpen, Settings, Play } from 'lucide-react'
-import { WIZARD_STEPS, APP_ITEMS, tabForPage } from '../../navigation'
+import { WIZARD_STEPS, APP_ITEMS, tabForPage, isStepAvailable } from '../../navigation'
 import type { Page, Tab, WizardPage } from '../../navigation'
 import type { ProcessState } from '../../../../shared/types'
+import type { StepStatus } from '../../../../core/wizard-status'
 
 // =============================================================================
 // TYPES
 // =============================================================================
-
-/** Статус шага визарда: done, error, skipped, или null (не определён). */
-export type StepStatus = 'done' | 'error' | 'skipped' | null
 
 interface SidebarProps {
   currentPage: Page
@@ -161,6 +159,7 @@ function WizardNav({
       {WIZARD_STEPS.map((step) => {
         const isActive = currentPage === step.page
         const status = stepStatuses[step.page] ?? null
+        const available = isStepAvailable(step.page, stepStatuses)
 
         return (
           <button
@@ -170,7 +169,9 @@ function WizardNav({
               'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
               isActive
                 ? 'bg-primary/10 text-primary font-medium'
-                : 'text-foreground hover:bg-accent'
+                : available
+                  ? 'text-foreground hover:bg-accent'
+                  : 'text-muted-foreground/50'
             )}
           >
             <StepStatusIcon status={status} />

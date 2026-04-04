@@ -6,11 +6,13 @@
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
 import { readSettingsConfig, setSettingsConfigKey } from './config'
-import type { ScanResult } from '../shared/types'
+import type { ScanResult, StreamsCache } from '../shared/types'
 
 // Re-export types
-export type { ScanError, ScanResult } from '../shared/types'
+export type { ScanError, ScanResult, StreamEntity, StreamsCache } from '../shared/types'
 
 // =============================================================================
 // BUSINESS FOLDERS CRUD
@@ -32,6 +34,44 @@ export function getBusinessFolders(): string[] {
  */
 export function saveBusinessFolders(folders: string[]): void {
   setSettingsConfigKey('business_folders', folders)
+}
+
+// =============================================================================
+// CACHED SCAN
+// =============================================================================
+
+/** Path to scan cache relative to DuetData root. */
+const SCAN_CACHE_FILE = join('data', 'scan.json')
+
+/** Path to streams cache relative to DuetData root. */
+const STREAMS_CACHE_FILE = join('data', 'streams.json')
+
+/**
+ * Читает результат последнего скана из кэша (DuetData/data/scan.json).
+ * Возвращает null если файла нет или невалидный JSON.
+ */
+export function readCachedScan(duetDataPath: string): ScanResult | null {
+  const filePath = join(duetDataPath, SCAN_CACHE_FILE)
+  if (!existsSync(filePath)) return null
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8')) as ScanResult
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Читает дерево сущностей из кэша (DuetData/data/streams.json).
+ * Возвращает null если файла нет или невалидный JSON.
+ */
+export function readCachedStreams(duetDataPath: string): StreamsCache | null {
+  const filePath = join(duetDataPath, STREAMS_CACHE_FILE)
+  if (!existsSync(filePath)) return null
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8')) as StreamsCache
+  } catch {
+    return null
+  }
 }
 
 // =============================================================================

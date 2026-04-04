@@ -20,6 +20,12 @@ export interface AppState {
   machine: string | null
   pathExists: boolean
   deployChannel: DeployChannel
+  /** Python interpreter path from machine.json (null if not configured). */
+  pythonPath: string | null
+  /** Path to Duet-Instructions git repo from machine.json (null if not configured). */
+  instructionsPath: string | null
+  /** Whether devBackendPath is set in machine.json (controls DEV/PROD toggle visibility). */
+  hasDevBackendPath: boolean
 }
 
 // =============================================================================
@@ -147,4 +153,24 @@ export interface ScanResult {
   entities_count: number
   duration_ms?: number
   errors: ScanError[]
+}
+
+// =============================================================================
+// STREAMS (entity tree from DuetData/data/streams.json)
+// =============================================================================
+
+export interface StreamEntity {
+  id: string
+  type: string
+  name: string
+  icon: string
+  path: string
+  absolute_path: string | null
+  parent_id: string | null
+  git_url: string | null
+  status: string | null
+}
+
+export interface StreamsCache {
+  streams: StreamEntity[]
 }
