@@ -3,6 +3,8 @@
  *
  * Таб "Settings" показывает визард — 7 шагов с иконками статуса.
  * Таб "Apps" показывает список запущенных приложений с ProcessState индикатором.
+ *
+ * Severity агрегация: каждый таб показывает максимальный severity дочерних элементов.
  */
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
@@ -10,8 +12,12 @@ import { StatusDot } from '@renderer/components/ui/status-dot'
 import { FolderOpen, Settings, Play } from 'lucide-react'
 import { WIZARD_STEPS, APP_ITEMS, tabForPage, isStepAvailable } from '../../navigation'
 import type { Page, Tab, WizardPage } from '../../navigation'
-import type { ProcessState } from '../../../../shared/types'
+import type { ProcessState, Severity } from '../../../../shared/types'
 import type { StepStatus } from '../../../../core/wizard-status'
+import {
+  getSettingsSeverity,
+  processStateToSeverity
+} from '../../../../core/wizard-status'
 
 // =============================================================================
 // TYPES
@@ -51,6 +57,12 @@ export function Sidebar({
     }
   }
 
+  // Compute tab severities from children
+  const settingsSeverity = getSettingsSeverity(stepStatuses)
+  const appsSeverity = backendProcessState
+    ? processStateToSeverity(backendProcessState)
+    : null
+
   return (
     <aside className="w-64 bg-sidebar border-r border-border flex flex-col">
       {/* Логотип */}
@@ -77,12 +89,14 @@ export function Sidebar({
           icon={<Settings size={16} />}
           label="Настройки"
           active={activeTab === 'settings'}
+          severity={settingsSeverity}
           onClick={() => handleTabClick('settings')}
         />
         <TabButton
           icon={<Play size={16} />}
           label="Приложения"
           active={activeTab === 'apps'}
+          severity={appsSeverity}
           onClick={() => handleTabClick('apps')}
         />
       </div>
@@ -118,11 +132,13 @@ function TabButton({
   icon,
   label,
   active,
+  severity,
   onClick
 }: {
   icon: React.ReactNode
   label: string
   active: boolean
+  severity: Severity | null
   onClick: () => void
 }): React.ReactElement {
   return (
@@ -137,7 +153,23 @@ function TabButton({
     >
       {icon}
       {label}
+      {severity && <SeverityDot severity={severity} />}
     </button>
+  )
+}
+
+// =============================================================================
+// SEVERITY DOT (tab indicator)
+// =============================================================================
+
+function SeverityDot({ severity }: { severity: Severity }): React.ReactElement {
+  return (
+    <span
+      className={cn(
+        'w-1.5 h-1.5 rounded-full flex-shrink-0',
+        severity === 'error' ? 'bg-red-500' : 'bg-amber-500'
+      )}
+    />
   )
 }
 
@@ -249,6 +281,17 @@ function StepStatusIcon({ status }: { status: StepStatus }): React.ReactElement 
       <div className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
           <path d="M3 3L7 7M7 3L3 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+    )
+  }
+
+  if (status === 'warning') {
+    return (
+      <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M5 3V5.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="5" cy="7.5" r="0.75" fill="white" />
         </svg>
       </div>
     )

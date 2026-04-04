@@ -5,6 +5,10 @@ import { describe, it, expect } from 'vitest'
 import {
   computeStepStatuses,
   hasWizardWarning,
+  maxSeverity,
+  stepStatusToSeverity,
+  processStateToSeverity,
+  getSettingsSeverity,
   type WizardStatusInput
 } from '../../../src/core/wizard-status'
 import type { AppState, AgentInfo } from '../../../src/shared/types'
@@ -154,12 +158,12 @@ describe('core/wizard-status', () => {
       expect(s['agents']).toBe('done')
     })
 
-    it('marks step 7 as error when any found agent needs setup', () => {
+    it('marks step 7 as warning when any found agent needs setup', () => {
       const s = computeStepStatuses({
         ...baseInput,
         agents: [makeAgent('claude', 'configured'), makeAgent('codex', 'needs_setup')]
       })
-      expect(s['agents']).toBe('error')
+      expect(s['agents']).toBe('warning')
     })
 
     it('marks step 7 as done when no agents found at all', () => {
@@ -171,13 +175,115 @@ describe('core/wizard-status', () => {
     })
   })
 
-  describe('hasWizardWarning', () => {
-    it('returns false when no errors', () => {
+  describe('maxSeverity', () => {
+    it('returns null for empty array', () => {
+      expect(maxSeverity([])).toBeNull()
+    })
+
+    it('returns null when all null/undefined', () => {
+      expect(maxSeverity([null, undefined, null])).toBeNull()
+    })
+
+    it('returns warning when only warnings', () => {
+      expect(maxSeverity([null, 'warning', null])).toBe('warning')
+    })
+
+    it('returns error when only errors', () => {
+      expect(maxSeverity([null, 'error'])).toBe('error')
+    })
+
+    it('returns error when mixed (error > warning)', () => {
+      expect(maxSeverity(['warning', 'error', null])).toBe('error')
+    })
+  })
+
+  describe('stepStatusToSeverity', () => {
+    it('maps error → error', () => {
+      expect(stepStatusToSeverity('error')).toBe('error')
+    })
+
+    it('maps warning → warning', () => {
+      expect(stepStatusToSeverity('warning')).toBe('warning')
+    })
+
+    it('maps done → null', () => {
+      expect(stepStatusToSeverity('done')).toBeNull()
+    })
+
+    it('maps skipped → null', () => {
+      expect(stepStatusToSeverity('skipped')).toBeNull()
+    })
+
+    it('maps null → null', () => {
+      expect(stepStatusToSeverity(null)).toBeNull()
+    })
+  })
+
+  describe('processStateToSeverity', () => {
+    it('maps error → error', () => {
+      expect(processStateToSeverity('error')).toBe('error')
+    })
+
+    it('maps running → null', () => {
+      expect(processStateToSeverity('running')).toBeNull()
+    })
+
+    it('maps stopped → null', () => {
+      expect(processStateToSeverity('stopped')).toBeNull()
+    })
+
+    it('maps starting → null', () => {
+      expect(processStateToSeverity('starting')).toBeNull()
+    })
+
+    it('maps stopping → null', () => {
+      expect(processStateToSeverity('stopping')).toBeNull()
+    })
+  })
+
+  describe('getSettingsSeverity', () => {
+    it('returns null when all steps done', () => {
+      expect(getSettingsSeverity({ 'duet-data': 'done', 'duet-config': 'done' })).toBeNull()
+    })
+
+    it('returns error when any step has error', () => {
+      expect(
+        getSettingsSeverity({ 'duet-data': 'done', 'business-folders': 'error' })
+      ).toBe('error')
+    })
+
+    it('returns warning when step has warning but no errors', () => {
+      expect(
+        getSettingsSeverity({ 'duet-data': 'done', agents: 'warning' })
+      ).toBe('warning')
+    })
+
+    it('returns error when mixed error and warning', () => {
+      expect(
+        getSettingsSeverity({ agents: 'warning', 'business-folders': 'error' })
+      ).toBe('error')
+    })
+
+    it('returns null for empty statuses', () => {
+      expect(getSettingsSeverity({})).toBeNull()
+    })
+
+    it('returns null for skipped steps', () => {
+      expect(getSettingsSeverity({ agents: 'skipped' })).toBeNull()
+    })
+  })
+
+  describe('hasWizardWarning (deprecated compat)', () => {
+    it('returns false when no issues', () => {
       expect(hasWizardWarning({ 'duet-data': 'done', 'duet-config': 'done' })).toBe(false)
     })
 
     it('returns true when any step has error', () => {
       expect(hasWizardWarning({ 'duet-data': 'done', 'business-folders': 'error' })).toBe(true)
+    })
+
+    it('returns true when any step has warning', () => {
+      expect(hasWizardWarning({ agents: 'warning' })).toBe(true)
     })
 
     it('returns false for skipped steps', () => {

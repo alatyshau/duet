@@ -11,15 +11,17 @@ import type {
   DeployStatus,
   ScanResult,
   InstructionsError,
-  AgentInfo
+  AgentInfo,
+  Severity,
+  ProcessState
 } from '../shared/types'
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-/** Статус шага визарда: done, error, skipped, или null (не определён). */
-export type StepStatus = 'done' | 'error' | 'skipped' | null
+/** Статус шага визарда: done, error, warning, skipped, или null (не определён). */
+export type StepStatus = 'done' | 'error' | 'warning' | 'skipped' | null
 
 /** Все страницы визарда (должен совпадать с navigation.ts WizardPage). */
 export type WizardPage =
@@ -80,12 +82,12 @@ export function computeStepStatuses(input: WizardStatusInput): StepStatuses {
     s['instructions'] = cachedInstructionsErrors.length === 0 ? 'done' : 'error'
   }
 
-  // Step 7: AI Agents
+  // Step 7: AI Agents — needs_setup is warning (works, just not configured), not error
   if (agents !== null) {
     const found = agents.filter((a) => a.status !== 'not_found')
-    const hasError = found.some((a) => a.status === 'needs_setup')
-    if (hasError) {
-      s['agents'] = 'error'
+    const needsSetup = found.some((a) => a.status === 'needs_setup')
+    if (needsSetup) {
+      s['agents'] = 'warning'
     } else {
       // All found agents configured (or no agents found at all) = done
       s['agents'] = 'done'
@@ -95,13 +97,43 @@ export function computeStepStatuses(input: WizardStatusInput): StepStatuses {
   return s
 }
 
-/**
- * Определяет, нужна ли warning-иконка в tray.
- * true если любой обязательный шаг в состоянии 'error'.
- */
-export function hasWizardWarning(statuses: StepStatuses): boolean {
-  for (const value of Object.values(statuses)) {
-    if (value === 'error') return true
+// =============================================================================
+// SEVERITY
+// =============================================================================
+
+const SEVERITY_RANK: Record<Severity, number> = { warning: 1, error: 2 }
+
+/** Pick highest severity from a list. null = no issues. */
+export function maxSeverity(severities: (Severity | null | undefined)[]): Severity | null {
+  let max: Severity | null = null
+  let maxRank = 0
+  for (const s of severities) {
+    if (s && SEVERITY_RANK[s] > maxRank) {
+      max = s
+      maxRank = SEVERITY_RANK[s]
+    }
   }
-  return false
+  return max
+}
+
+/** Map StepStatus to Severity (error/warning → severity, done/skipped/null → null). */
+export function stepStatusToSeverity(status: StepStatus): Severity | null {
+  if (status === 'error') return 'error'
+  if (status === 'warning') return 'warning'
+  return null
+}
+
+/** Map ProcessState to Severity (error → error, rest → null). */
+export function processStateToSeverity(state: ProcessState): Severity | null {
+  return state === 'error' ? 'error' : null
+}
+
+/** Aggregate severity of all wizard steps (Settings tab). */
+export function getSettingsSeverity(statuses: StepStatuses): Severity | null {
+  return maxSeverity(Object.values(statuses).map(stepStatusToSeverity))
+}
+
+/** @deprecated Use getSettingsSeverity + maxSeverity instead. */
+export function hasWizardWarning(statuses: StepStatuses): boolean {
+  return getSettingsSeverity(statuses) !== null
 }

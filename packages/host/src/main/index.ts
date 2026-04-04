@@ -17,8 +17,8 @@ import { isDeployWarning } from '../core/deploy'
 import { readCachedScan } from '../core/business-folders'
 import { readCachedErrors } from '../core/instructions'
 import { detectAgents } from '../core/ai-clients'
-import { computeStepStatuses, hasWizardWarning } from '../core/wizard-status'
-import type { DeployStatus } from '../shared/types'
+import { computeStepStatuses, getSettingsSeverity, maxSeverity } from '../core/wizard-status'
+import type { DeployStatus, Severity } from '../shared/types'
 import { createTray, updateTrayIcon } from '../platform/tray'
 import { showWindow, sendAppState, setQuitting } from './window'
 import { setupIpcHandlers, ensureBackendRunning, ensureBackendStopped } from './ipc-handlers'
@@ -104,10 +104,12 @@ const updateAppState = (): void => {
     startDataWatcher(newPath)
   }
 
-  const deployWarn = isDeployWarning(appState, app.getVersion())
+  const deploySeverity: Severity | null = isDeployWarning(appState, app.getVersion())
+    ? 'warning'
+    : null
 
-  // Compute wizard warning from cached data (all fs reads, cheap)
-  let wizardWarn = false
+  // Compute wizard severity from cached data (all fs reads, cheap)
+  let settingsSeverity: Severity | null = null
   if (appState.status === 'ready' && appState.duetDataPath) {
     try {
       const port = readPort()
@@ -118,13 +120,14 @@ const updateAppState = (): void => {
         cachedInstructionsErrors: readCachedErrors(appState.duetDataPath),
         agents: detectAgents(appState.duetDataPath, port)
       })
-      wizardWarn = hasWizardWarning(statuses)
+      settingsSeverity = getSettingsSeverity(statuses)
     } catch {
       // Port not configured yet, or other issue — don't fail updateAppState
     }
   }
 
-  updateTrayIcon(appState.status, deployWarn || wizardWarn)
+  const overallSeverity = maxSeverity([deploySeverity, settingsSeverity])
+  updateTrayIcon(appState.status, overallSeverity)
   sendAppState(appState)
 }
 

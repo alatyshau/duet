@@ -10,6 +10,9 @@
 // APP STATE (IPC: app:get-state, app-state-changed)
 // =============================================================================
 
+/** Severity level for aggregation across UI layers (step → tab → tray). */
+export type Severity = 'error' | 'warning'
+
 export type AppStatus = 'no_config' | 'path_lost' | 'ready'
 export type DeployChannel = 'dev' | 'prod'
 

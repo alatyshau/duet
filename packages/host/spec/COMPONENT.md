@@ -113,13 +113,11 @@ AI instructions are user-owned (separate git repo, configured via `instructionsP
 
 **Version comparison:** Uses `compareSemver(appVersion, deployed)` — deploy only when app version is newer (not on downgrade or same version).
 
-**Flow:** VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop + kill by PID) -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
+**Flow:** VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop -> SIGTERM -> SIGKILL) -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
 
 **VERSION file:** `DuetData/backend/VERSION` contains `app.getVersion()`. Newer app version triggers deploy. VERSION is NOT written if any step fails (Python not found, pip failed, etc.).
 
-**Tray warning:** When `status === 'ready'` but VERSION mismatch -> tray shows warning icon + "требуется обновление".
-
-**Backend stop before deploy:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) -> wait 3s -> kill by PID (`DuetData/.pid`) with SIGTERM -> SIGKILL fallback. Errors don't abort deploy (backend may not be running).
+**Backend stop before deploy:** `stopBackend(port, proc)` — POST `/stop` (2s timeout) -> SIGTERM -> SIGKILL fallback. Errors don't abort deploy (backend may not be running).
 
 **Pure functions (extracted from Electron shell):**
 - `resolveDeployStatus(appState, appVersion, activeStatus)` -> DeployStatus — used by IPC handler `deploy:get-status`
@@ -131,9 +129,9 @@ Implementation: `core/deploy.ts`
 
 Host is the single owner of backend process lifecycle (start, stop, health monitoring).
 
-**Start:** `startBackend(duetDataPath, port, log)` — spawn venv Python with `server.py`, detached + stdio: 'ignore' + unref. Poll `/health` until ready. Kill process if health check fails after all retries.
+**Start:** `startBackend(duetDataPath, port)` — spawn venv Python with `server.py`, detached + stdio: 'ignore' + unref. Poll `/health` until ready. Kill process if health check fails after all retries.
 
-**Stop:** `stopBackend(duetDataPath, port, log)` — POST `/stop` (2s timeout) -> wait 3s -> kill by PID (`.pid` file) with SIGTERM -> SIGKILL fallback.
+**Stop:** `stopBackend(port, proc?, opts?)` — graceful: POST `/stop` -> wait -> SIGTERM -> SIGKILL. No PID file — uses process reference from `startBackend`. Never throws (backend may not be running).
 
 **Health:** `checkHealth(port)` — GET `/health` with 2s timeout. Returns `{version, uptime}` or null.
 
@@ -197,6 +195,7 @@ Manages business folder configuration (stored in `DuetConfig/settings.json`).
 **Operations:**
 - `getBusinessFolders()` / `saveBusinessFolders(folders)` — CRUD on `settings.json`
 - `triggerScan(port)` — calls Backend `POST /scan`, returns `ScanResult` with errors
+- `readCachedScan(duetDataPath)` — reads cached `DuetData/data/scan.json`. Used by main process for wizard status without IPC.
 - `readCachedStreams(duetDataPath)` — reads entity tree from `DuetData/data/streams.json`. Returns `StreamsCache` with flat entity list (build tree via `parent_id`).
 
 Implementation: `core/business-folders.ts`
@@ -208,13 +207,18 @@ Implementation: `core/business-folders.ts`
 | `app:get-state` | renderer -> main | Get current AppState |
 | `app-state-changed` | main -> renderer | Push state updates |
 | `dialog:select-folder` | renderer -> main | Open system folder picker |
+| `dialog:select-file` | renderer -> main | Open system file picker |
 | `config:save-pointer` | renderer -> main | Save pointer file (all 3 fields) |
 | `shell:open-path` | renderer -> main | Open path in Finder/Explorer |
 | `config:set-deploy-channel` | renderer -> main | Set deploy channel (dev/prod) in machine config |
+| `config:set-instructions-path` | renderer -> main | Save instructionsPath to machine.json |
 | `deploy:get-status` | renderer -> main | Get deploy status (idle/up_to_date/deploying/etc.) |
 | `deploy:start` | renderer -> main | Start deploy (async) |
 | `deploy:status-changed` | main -> renderer | Push deploy status updates |
 | `deploy:log` | main -> renderer | Push deploy log messages |
+| `python:detect` | renderer -> main | Auto-detect Python 3.10+ (checks saved path first) |
+| `python:validate` | renderer -> main | Validate a specific Python path |
+| `python:save` | renderer -> main | Save pythonPath to machine.json |
 | `backend:get-status` | renderer -> main | Get backend status (stopped/starting/running/error) |
 | `backend:start` | renderer -> main | Start backend |
 | `backend:stop` | renderer -> main | Stop backend |
@@ -224,13 +228,12 @@ Implementation: `core/business-folders.ts`
 | `agents:fix-issue` | renderer -> main | Fix specific agent issue (by agentId + reasonCode) |
 | `instructions:merge` | renderer -> main | Trigger POST /merge-duet-instructions |
 | `instructions:get-errors` | renderer -> main | Read cached instruction errors |
+| `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
 | `business-folders:get` | renderer -> main | Get business_folders from settings.json |
 | `business-folders:save` | renderer -> main | Save business_folders to settings.json |
 | `business-folders:scan` | renderer -> main | Trigger POST /scan |
 | `business-folders:get-cached-scan` | renderer -> main | Read cached scan.json from DuetData/data/ |
 | `business-folders:get-cached-streams` | renderer -> main | Read cached streams.json (entity tree) from DuetData/data/ |
-| `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
-| `config:set-instructions-path` | renderer -> main | Save instructionsPath to machine.json |
 
 **Contract:** `config:save-pointer` supports partial updates — missing fields are preserved from existing config. Creates default DuetConfig files only when both `duetConfigPath` and `machine` are present (`ensureConfigDefaults`). Calls `updateAppState()`, returns new AppState. `deploy:start` runs async deploy, broadcasts status + log events. `config:set-deploy-channel` writes `deployChannel` to `{machine}.json`, calls `updateAppState()`, returns new AppState. `config:set-instructions-path` validates machine config is writable (throws if DuetConfig/machine not configured). `agents:configure` and `agents:fix-issue` call `updateAppState()` after mutations to refresh tray icon.
 
@@ -270,7 +273,7 @@ Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `A
 | First run (no pointer file) | Shows window for onboarding |
 | Status `path_lost` | Shows window (needs attention) |
 | Status `ready` | Silent in tray, no window |
-| Tray icon | Warning when status != ready OR deploy needed |
+| Tray icon | Severity-based: error (red dot, non-template on macOS), warning (template), normal |
 | macOS Dock | Hidden by default, visible when window shown |
 | Second instance | Shows window of first instance, second exits |
 | Production | Cmd/Ctrl+R reload disabled |
@@ -307,7 +310,7 @@ npm run typecheck    # tsc
 
 | Suite | Files | What |
 |-------|-------|------|
-| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, mappers |
+| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, business-folders, wizard-status, mappers, navigation |
 | E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
 
 ### Testability
@@ -319,47 +322,80 @@ npm run typecheck    # tsc
 | `platform/tray.ts` | No — requires Electron (manual testing) |
 | `main/window.ts` | No — requires Electron |
 
-## Wizard Status
+## Wizard Status & Severity
 
-Pure function `computeStepStatuses()` in `core/wizard-status.ts` computes sidebar step icons from system state. Used by renderer (App.tsx) and could be used by main process (tray) in the future.
+### StepStatus
+
+`StepStatus = 'done' | 'error' | 'warning' | 'skipped' | null`
+
+Pure function `computeStepStatuses()` in `core/wizard-status.ts` computes sidebar step icons from system state. Used by renderer (App.tsx) and main process (tray).
 
 **Input sources:**
-| Steps | Source |
-|-------|--------|
-| 1-2 | AppState (duetDataPath, duetConfigPath, machine) |
-| 3 | AppState (pythonPath from machine.json) |
-| 4 | DeployStatus (deployed/up_to_date) |
-| 5 | Cached scan.json (errors count) |
-| 6 | Cached instruction errors (errors count) |
-| 7 | Agent detection (needs_setup vs configured) |
+| Steps | Source | Severity mapping |
+|-------|--------|-----------------|
+| 1-2 | AppState (duetDataPath, duetConfigPath, machine) | null (not configured) or done |
+| 3 | AppState (pythonPath from machine.json) | null or done |
+| 4 | DeployStatus (deployed/up_to_date) | null or done |
+| 5 | Cached scan.json (errors count) | error (broken manifests) |
+| 6 | Cached instruction errors (errors count) | error (broken files) |
+| 7 | Agent detection (needs_setup vs configured) | **warning** (works but not configured) |
 
 Steps 5-7 also report status dynamically via `onStatusChange` callbacks from individual pages, which override computed values.
 
-Implementation: `core/wizard-status.ts`
+### Severity Aggregation
 
-## Navigation
+`Severity = 'error' | 'warning'` — first-class type in `shared/types.ts`.
 
-| Concept | File |
-|---------|------|
-| Shared IPC types | `shared/types.ts` |
-| IPC -> UI mappers | `shared/mappers.ts` |
-| Pointer + machine config | `core/config.ts` |
-| App state logic | `core/app-state.ts` |
-| Deploy service | `core/deploy.ts` |
-| Backend lifecycle | `core/backend.ts` |
-| App registry | `core/apps.ts` |
-| AI client config | `core/ai-clients.ts` |
-| Instructions merge | `core/instructions.ts` |
-| Business folders | `core/business-folders.ts` |
-| Tray menu + icon | `platform/tray.ts` |
-| Autostart | `platform/autolaunch.ts` |
-| Main lifecycle | `main/index.ts` |
-| Window management | `main/window.ts` |
-| IPC registration | `main/ipc-handlers.ts` |
-| Preload bridge | `preload/index.ts` |
-| Root React component | `renderer/src/App.tsx` |
-| Wizard step pages | `renderer/src/pages/wizard/*.tsx` |
-| Backend app page | `renderer/src/pages/apps/BackendAppPage.tsx` |
-| Layout (sidebar) | `renderer/src/components/layout/` |
-| Wizard status (pure) | `core/wizard-status.ts` |
+**Semantic distinction:**
+- `error` — something is broken, cannot function (backend crashed, broken manifests, corrupt config)
+- `warning` — works but needs attention (agent not configured, deploy needed, stale version)
+
+**Aggregation model:** each UI level shows `maxSeverity()` of its children (error > warning > null):
+
+```
+Step statuses  ──┐
+                  ├─→ Settings tab severity (getSettingsSeverity)  ──┐
+Process states ──┐                                                   │
+                  ├─→ Apps tab severity (processStateToSeverity)  ──┼─→ Tray severity
+Deploy check   ────────────────────────────────── (deploySeverity) ──┘
+```
+
+Four UI levels (visual details in [UI.md](UI.md)):
+
+| Level | What | Severity source |
+|-------|------|-----------------|
+| 4. Page | Error/warning tables inside page | Individual problems |
+| 3. Sidebar item | Step icon or process dot | `StepStatus` / `ProcessState` |
+| 2. Tab button | Colored dot indicator | `maxSeverity` of children |
+| 1. Tray icon | System tray icon + tooltip | `maxSeverity` of all sources |
+
+**Key functions** (all pure, in `core/wizard-status.ts`):
+- `maxSeverity(severities[])` — pick highest (error > warning > null). Single aggregation primitive for all levels.
+- `stepStatusToSeverity(status)` — error→error, warning→warning, rest→null
+- `processStateToSeverity(state)` — error→error, rest→null
+- `getSettingsSeverity(statuses)` — aggregate all wizard steps
+
+**Tray integration** (`main/index.ts`):
+- `deploySeverity` — from `isDeployWarning()` (VERSION mismatch → warning)
+- `settingsSeverity` — from `getSettingsSeverity(computeStepStatuses(...))`
+- `overallSeverity = maxSeverity([deploySeverity, settingsSeverity])`
+- `updateTrayIcon(appStatus, overallSeverity)` — AppStatus != ready forces warning; otherwise uses severity
+
+Implementation: `core/wizard-status.ts`, `platform/tray.ts`
+
+## File Map
+
+Quick lookup for concepts not obvious from file names. For layer responsibilities see [Layers](#layers).
+
+| When you need to find… | Look in |
+|------------------------|---------|
+| All IPC types (single source of truth) | `shared/types.ts` |
+| Severity type + aggregation functions | `shared/types.ts` (type), `core/wizard-status.ts` (functions) |
+| Pointer file path / machine config | `core/config.ts` |
+| What triggers tray icon change | `main/index.ts:updateAppState()` |
+| How IPC channels are registered | `main/ipc-handlers.ts:setupIpcHandlers()` |
+| What renderer exposes to pages | `preload/index.ts` (window.api shape) |
+| Step status computation | `core/wizard-status.ts:computeStepStatuses()` |
+| How pages override computed status | `renderer/src/App.tsx` (pageStatuses + createStatusCallback) |
+| Tray icon file selection (per platform) | `platform/tray.ts:getTrayIconPath()` |
 

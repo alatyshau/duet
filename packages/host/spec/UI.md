@@ -9,15 +9,15 @@ Two-level navigation: **tabs** select a category, **sidebar list** selects a pag
 │ Duet             │                             │
 │ [Open DuetData]  │                             │
 │ ──────────────── │                             │
-│  [⚙]  [▶]       │                             │
-│ ──────────────── │  Content (current page)     │
-│ ✅ DuetData      │                             │
+│  [⚙ 🔴] [▶]     │  ← severity dot on tab     │
+│ ──────────────── │                             │
+│ ✅ DuetData      │  Content (current page)     │
 │ ✅ DuetConfig..  │                             │
 │ ✅ Python        │                             │
 │ ✅ Backend       │                             │
-│ ✅ Biz Folders   │                             │
+│ 🔴 Biz Folders   │  ← error (red)             │
 │ ✅ Инструкции    │                             │
-│ ✅ AI Агенты     │                             │
+│ 🟡 AI Агенты     │  ← warning (amber)         │
 └──────────────────┴─────────────────────────────┘
 ```
 
@@ -70,7 +70,8 @@ Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforced at runtime:
 | Status | Icon | Meaning |
 |--------|------|---------|
 | `'done'` | Green circle + checkmark | Step completed |
-| `'error'` | Red circle + X | Needs attention |
+| `'error'` | Red circle + X | Broken, needs fix |
+| `'warning'` | Amber circle + ! | Works, but needs attention |
 | `'skipped'` | Gray circle + arrows | Not relevant (e.g. agent not installed) |
 | `null` | Hollow circle | Not yet determined |
 
@@ -85,7 +86,7 @@ Status computed by `computeStepStatuses()` in `core/wizard-status.ts` (pure func
 | 4 | DeployStatus | `done` when deployed/up_to_date, `null` otherwise |
 | 5 | Scan result (cached or fresh) | `done` when 0 errors, `error` when errors exist |
 | 6 | Instructions merge result | `done` when 0 errors, `error` when errors exist |
-| 7 | Agent detection | `done` when all found agents configured, `error` when any needs_setup |
+| 7 | Agent detection | `done` when all found agents configured, `warning` when any needs_setup |
 
 ### Page Architecture
 
@@ -118,7 +119,8 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 | `StatusDot` | `components/ui/status-dot.tsx` | Process state indicator (colored dot or spinner). Props: `state: ProcessState`, `size: 'sm' \| 'md'` |
 | `ProcessStateLabel` | `components/ui/process-state-label.tsx` | Text badge with process state. Props: `state: ProcessState` |
 | `Button` | `components/ui/button.tsx` | shadcn/ui button with CVA variants |
-| `StepStatusIcon` | Inline in `Sidebar.tsx` | Wizard step status icon (done/error/skipped/null) |
+| `StepStatusIcon` | Inline in `Sidebar.tsx` | Wizard step status icon (done/error/warning/skipped/null) |
+| `SeverityDot` | Inline in `Sidebar.tsx` | Severity indicator dot on tab buttons (red/amber) |
 
 ## Layout
 
@@ -142,18 +144,31 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 | Click on icon | Shows window |
 | Context menu | "Открыть Duet", "Запускать при старте" (checkbox), "Выйти" |
 | Icon: normal | Template icon (adapts to light/dark on macOS) |
-| Icon: warning | Warning variant when status != `ready` or deploy needed |
-| Tooltip | "Duet" when ready, "Duet — требуется настройка" / "Duet — папка не найдена" |
+| Icon: warning | Warning template icon. Tooltip: "требуется обновление" |
+| Icon: error | Colored icon with red dot (non-template on macOS). Tooltip: "требуется внимание" |
+| Tooltip (AppStatus) | "Duet" (ready), "требуется настройка" (no_config), "папка не найдена" (path_lost) |
+
+`updateTrayIcon(status: AppStatus, severity: Severity | null)` — AppStatus != ready forces warning icon. Otherwise uses severity from aggregation chain.
 
 ### Tray Icon Files
 
-| Platform | Normal | Warning |
-|----------|--------|---------|
-| macOS | `trayTemplate.png` | `trayWarningTemplate.png` |
-| Windows | `tray.ico` | `tray-warning.ico` |
-| Linux | Same as macOS PNG | Same as macOS PNG |
+| Platform | Normal | Warning | Error |
+|----------|--------|---------|-------|
+| macOS | `trayTemplate.png` | `trayWarningTemplate.png` | `trayError.png` (non-template) |
+| Windows | `tray.ico` | `tray-warning.ico` | `tray-error.ico` |
+| Linux | Same as macOS PNG | Same as macOS PNG | Same as macOS PNG |
+
+macOS: normal/warning are template images (adapt to light/dark). Error is non-template — red dot stays red regardless of menu bar appearance.
 
 Location: `resources/tray/{mac,win}/`
+
+### Tab Severity Indicators
+
+Each tab button shows a `SeverityDot` (small colored circle) when its children have issues:
+- Settings tab: `getSettingsSeverity(stepStatuses)` — max of all wizard steps
+- Apps tab: `processStateToSeverity(backendProcessState)` — from process state
+
+Tray aggregates all tabs + deploy severity via `maxSeverity()`.
 
 ## Window Behavioral Contracts
 

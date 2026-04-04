@@ -10,6 +10,7 @@
 import { app, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import type { AppStatus } from '../core/app-state'
+import type { Severity } from '../shared/types'
 
 // =============================================================================
 // ТИПЫ
@@ -31,6 +32,12 @@ const TRAY_TOOLTIPS: Record<AppStatus, string> = {
   ready: 'Duet'
 }
 
+/** Tooltip overrides when app is ready but has severity issues. */
+const SEVERITY_TOOLTIPS: Record<Severity, string> = {
+  error: 'Duet — требуется внимание',
+  warning: 'Duet — требуется обновление'
+}
+
 // =============================================================================
 // ПУТИ К РЕСУРСАМ
 // =============================================================================
@@ -48,37 +55,39 @@ const getResourcePath = (relativePath: string): string => {
 }
 
 /**
- * Возвращает путь к tray иконке в зависимости от платформы и статуса.
+ * Возвращает путь к tray иконке в зависимости от платформы и severity.
  *
  * Файлы:
- * - macOS: resources/tray/mac/trayTemplate.png, trayWarningTemplate.png
- * - Windows: resources/tray/win/tray.ico, tray-warning.ico
+ * - macOS: resources/tray/mac/trayTemplate.png (normal), trayWarningTemplate.png (warning), trayError.png (error)
+ * - Windows: resources/tray/win/tray.ico (normal), tray-warning.ico (warning), tray-error.ico (error)
  * - Linux: использует те же PNG что и macOS
  */
-export const getTrayIconPath = (warning: boolean): string => {
-  if (process.platform === 'darwin') {
-    const file = warning ? 'trayWarningTemplate.png' : 'trayTemplate.png'
-    return getResourcePath(`resources/tray/mac/${file}`)
-  } else if (process.platform === 'win32') {
-    const file = warning ? 'tray-warning.ico' : 'tray.ico'
-    return getResourcePath(`resources/tray/win/${file}`)
+export const getTrayIconPath = (severity: Severity | null): string => {
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    const dir = 'resources/tray/mac'
+    if (severity === 'error') return getResourcePath(`${dir}/trayError.png`)
+    if (severity === 'warning') return getResourcePath(`${dir}/trayWarningTemplate.png`)
+    return getResourcePath(`${dir}/trayTemplate.png`)
   } else {
-    // Linux
-    const file = warning ? 'trayWarningTemplate.png' : 'trayTemplate.png'
-    return getResourcePath(`resources/tray/mac/${file}`)
+    // Windows
+    const dir = 'resources/tray/win'
+    if (severity === 'error') return getResourcePath(`${dir}/tray-error.ico`)
+    if (severity === 'warning') return getResourcePath(`${dir}/tray-warning.ico`)
+    return getResourcePath(`${dir}/tray.ico`)
   }
 }
 
 /**
  * Создаёт NativeImage для tray иконки.
  */
-export const createTrayImage = (status: AppStatus): Electron.NativeImage => {
-  const isWarning = status !== 'ready'
-  const iconPath = getTrayIconPath(isWarning)
+export const createTrayImage = (severity: Severity | null): Electron.NativeImage => {
+  const iconPath = getTrayIconPath(severity)
   const image = nativeImage.createFromPath(iconPath)
 
   if (process.platform === 'darwin') {
-    image.setTemplateImage(true)
+    // Error icon is colored (non-template) — red dot must stay red.
+    // Normal and warning are template images — adapt to light/dark menu bar.
+    image.setTemplateImage(severity !== 'error')
   }
 
   return image
@@ -94,7 +103,8 @@ let tray: Tray | null = null
  * Создаёт tray с контекстным меню.
  */
 export const createTray = (status: AppStatus, callbacks: TrayCallbacks): Tray => {
-  tray = new Tray(createTrayImage(status))
+  const severity: Severity | null = status !== 'ready' ? 'warning' : null
+  tray = new Tray(createTrayImage(severity))
   tray.setToolTip(TRAY_TOOLTIPS[status])
 
   const contextMenu = Menu.buildFromTemplate([
@@ -134,23 +144,23 @@ export const createTray = (status: AppStatus, callbacks: TrayCallbacks): Tray =>
 
 /**
  * Обновляет иконку и tooltip tray.
- * deployWarning=true показывает warning иконку даже при status=ready
- * (VERSION mismatch — нужен деплой через кнопку "Установить").
+ *
+ * AppStatus != ready → severity from status (no_config/path_lost = warning icon).
+ * AppStatus == ready → use provided severity (from wizard + deploy aggregation).
  */
-export const updateTrayIcon = (status: AppStatus, deployWarning?: boolean): void => {
+export const updateTrayIcon = (status: AppStatus, severity: Severity | null): void => {
   if (!tray) return
 
-  const isWarning = status !== 'ready' || deployWarning
-  const iconPath = getTrayIconPath(!!isWarning)
-  const image = nativeImage.createFromPath(iconPath)
-  if (process.platform === 'darwin') {
-    image.setTemplateImage(true)
-  }
+  // AppStatus errors override external severity
+  const effectiveSeverity: Severity | null = status !== 'ready' ? 'warning' : severity
 
+  const image = createTrayImage(effectiveSeverity)
   tray.setImage(image)
 
   const tooltip =
-    deployWarning && status === 'ready' ? 'Duet — требуется обновление' : TRAY_TOOLTIPS[status]
+    status === 'ready' && effectiveSeverity
+      ? SEVERITY_TOOLTIPS[effectiveSeverity]
+      : TRAY_TOOLTIPS[status]
   tray.setToolTip(tooltip)
 }
 
