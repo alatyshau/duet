@@ -139,18 +139,11 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 
 | Block | Fields | When |
 |-------|--------|------|
-| `duet_paths` | duetDataPath, machineConfig | Always |
-| `instructions` | basePath, personas[], skills[] | When instructionsPath configured (422 if missing) |
+| `duet_paths` | duetDataPath, machineConfig, instructionsPath | Always (422 if instructionsPath not configured) |
 | `workspace` | type, topology, typed attributes, reference_repos? | Always |
 | `context` | breadcrumb, chain[{type, name, description?}] | When entity resolved |
 | `key_files` | spec?, readme? | When files exist |
 | `components` | [{name, path, spec?, description?}] | When product in chain |
-
-**instructions block:** Dynamic catalog built from YAML frontmatter.
-- `basePath`: absolute path to instructions workspace (from machine.json `instructionsPath`)
-- `personas[]`: `{name, description, shortcuts?, path}` — relative to basePath
-- `skills[]`: `{category, name, description, shortcuts?, trigger?, noTrigger?, path}` — relative to basePath
-- Scanned from `index.json` in instructions workspace (declares persona path + skill_folders)
 
 **workspace.type values:** `product_in_git` | `product_on_drive` | `stream` | `business` | `root_business` | `unknown`
 

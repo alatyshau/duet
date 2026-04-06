@@ -68,11 +68,7 @@ export interface OrientationResponse {
     duet_paths: {
         duetDataPath: string;
         machineConfig: string;
-    };
-    instructions: {
-        basePath: string;
-        personas: unknown[];
-        skills: unknown[];
+        instructionsPath: string;
     };
     workspace: OrientationWorkspace;
     context?: {

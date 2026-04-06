@@ -17,7 +17,6 @@ from config import (
 )
 from db import DatabaseManager, Entity
 from description import extract_description, find_spec_file
-from instructions import scan_instructions
 from normalization import normalize_path
 from scanner import scan_components
 
@@ -282,21 +281,22 @@ class WorkspaceService:
         """Get full workspace orientation for AI agents.
 
         Returns:
-            Dict with duet_paths, instructions, workspace, context,
+            Dict with duet_paths, workspace, context,
             key_files, components.
         """
         duet_data = get_duet_data_path()
+
+        # instructionsPath required — without it bootstrapper is not merged,
+        # agent has no instructions. Raises ConfigError → 422.
+        instructions_path = get_instructions_path()
 
         result: dict = {
             "duet_paths": {
                 "duetDataPath": str(duet_data.resolve()),
                 "machineConfig": str(get_machine_config_path().resolve()),
+                "instructionsPath": str(instructions_path.resolve()),
             },
         }
-
-        # Instructions catalog — raises ConfigError if instructionsPath not configured
-        instructions_path = get_instructions_path()
-        result["instructions"] = scan_instructions(instructions_path)
 
         # Determine paths to use
         paths = workspace_paths or ([workspace_path] if workspace_path else [])

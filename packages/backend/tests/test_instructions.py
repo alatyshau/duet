@@ -212,22 +212,11 @@ class TestOrientationInstructions:
         assert response.status_code == 200
         data = response.json()
 
-        # Instructions block present
-        assert "instructions" in data
-        instructions = data["instructions"]
-        assert instructions["basePath"] == str(tmp_path / "instructions")
+        # Instructions catalog not in orientation response (moved to merge_instructions)
+        assert "instructions" not in data
 
-        # Personas
-        assert len(instructions["personas"]) == 1
-        assert instructions["personas"][0]["name"] == "test-persona"
-
-        # Skills
-        assert len(instructions["skills"]) == 1
-        assert instructions["skills"][0]["name"] == "test-skill"
-        assert instructions["skills"][0]["category"] == "Tools"
-
-        # instructionsPath NOT in duet_paths anymore
-        assert "instructionsPath" not in data["duet_paths"]
+        # instructionsPath in duet_paths
+        assert data["duet_paths"]["instructionsPath"] == str(tmp_path / "instructions")
 
 
 # === Integration tests: multi-path resolution ===

@@ -11,11 +11,11 @@
 - **`context`** — breadcrumb and chain: which business, stream, product you're working in
 - **`key_files`** — read these first (spec, readme) to orient in the codebase
 - **`components`** — packages in the product, their specs and descriptions
-- **`instructions`** — full catalog of personas and skills. Paths relative to `instructions.basePath`
+- **`duet_paths.instructionsPath`** — root of user instructions workspace
 
 ## User instructions
 
-After orientation, the `instructions` block in the response contains the full catalog of available personas and skills. Paths are relative to `instructions.basePath`. Load specific files via Read.
+The skills table below lists all available personas and skills. Paths are relative to `duet_paths.instructionsPath` from orientation. Load specific files via Read.
 
 **Skill activation rules:**
 - `shortcuts` — explicit user invocation → always load
@@ -25,7 +25,7 @@ After orientation, the `instructions` block in the response contains the full ca
 
 **`!` prefix convention:** Any word in user text starting with `!` (e.g. `!чек`, `!коммит`) is most likely a Duet skill shortcut. Treat it as an explicit invocation — look it up in the skills catalog and load the matching skill.
 
-**Never use the system `Skill` tool for Duet skills.** The `Skill` tool is for harness-level commands only (e.g. `update-config`, `keybindings-help`). Duet skills are always loaded via Read from `instructions.basePath`. If a Duet skill shortcut collides with a system skill name — the Duet skill wins.
+**Never use the system `Skill` tool for Duet skills.** The `Skill` tool is for harness-level commands only (e.g. `update-config`, `keybindings-help`). Duet skills are always loaded via Read from `duet_paths.instructionsPath`. If a Duet skill shortcut collides with a system skill name — the Duet skill wins.
 
 <!-- INSERT SKILLS TABLE -->
 

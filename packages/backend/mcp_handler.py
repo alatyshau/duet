@@ -119,8 +119,7 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
             (root business > business > stream > product > project).
 
     Returns information about:
-    - duet_paths: {duetDataPath, machineConfig}
-    - instructions: {basePath, personas[], skills[]} — dynamic catalog from YAML frontmatter
+    - duet_paths: {duetDataPath, machineConfig, instructionsPath}
     - workspace: {type, topology, typed attributes, reference_repos?}
     - context: {breadcrumb, chain with type/name/description?}
     - key_files: {spec?, readme?} — absolute paths to read first (absent if no files found)
