@@ -27,6 +27,7 @@ server.py (entry point, lifecycle)
     |   +-- entities.py (EntitiesService)
     |
     +-- scanner.py (hierarchy scan, self-healing)
+    +-- watcher.py (manifest file watcher, auto-rescan)
     +-- description.py (extract_description, find_spec_file)
     +-- db.py (SQLite operations)
     +-- config.py (read-only configuration)
@@ -49,6 +50,7 @@ server.py (entry point, lifecycle)
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan, self-healing, scan_components | HTTP, config writes |
+| `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Scan instructions workspace, parse YAML frontmatter | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file fallback chains | DB, HTTP |
 | `db.py` | SQLite CRUD | Business rules |
@@ -89,6 +91,33 @@ server.py (entry point, lifecycle)
 **Why this is OK:** Single-user local app. One person, one machine, predictable behavior.
 
 **Scan errors:** `errors[]` in response contains `{path, reason_code, description, manifest_path?}`. Reason codes: `name_collision`, `repo_collision`, `missing_manifest`, `invalid_manifest`. Each error includes `manifest_path` for Host UI Fix button.
+
+**`run_scan_with_cache()`:** Shared function (in `server.py`) that runs scan + writes JSON cache (scan.json, streams.json). Used by both `POST /scan` handler and ManifestWatcher.
+
+#### Manifest Watcher
+
+Watches business folders for changes to manifest files (`business.json`, `stream.json`, `product.json`). On change — auto-rescan.
+
+**Library:** `watchfiles` (async-native, Rust notify-rs). Uses OS-level events: FSEvents (macOS), inotify (Linux), ReadDirectoryChangesW (Windows).
+
+**Lifecycle:**
+
+| Event | Action |
+|-------|--------|
+| Backend startup | If `business_folders` non-empty → initial scan + start watcher |
+| Manifest file changed | Debounce 10s → `run_scan_with_cache()` |
+| `POST /scan` completes | If folders changed → restart watcher |
+| Backend shutdown | Stop watcher |
+
+**Debounce:** 10s (watchfiles `debounce` parameter). Collects burst of filesystem events, fires one scan. On top of `EntitiesService` 5s debounce (10s > 5s, always passes).
+
+**Data flow:** Manifest changed → watcher → scan → scan.json/streams.json updated → Host file watcher on `DuetData/data/` → UI refresh. No new IPC or endpoints.
+
+**Filter:** `ManifestFilter` — only passes changes to files named `business.json`, `stream.json`, `product.json`. All other filesystem events ignored.
+
+**Folder tracking:** Watcher watches specific folder paths. When `business_folders` change (add/remove via settings), `maybe_restart()` compares current watched list with new list and restarts if different.
+
+Implementation: `watcher.py`
 
 #### JSON Cache Pattern
 
@@ -247,8 +276,9 @@ DuetData/backend.log  <- RotatingFileHandler
 5. db.init()
 6. Create services (DI)
 7. init_services()
-8. write_pid_file()
-9. Start uvicorn
+8. Initial scan + start manifest watcher (if business_folders non-empty)
+9. write_pid_file()
+10. Start uvicorn
 ```
 
 ### Shutdown
@@ -256,9 +286,10 @@ DuetData/backend.log  <- RotatingFileHandler
 ```
 1. Receive SIGTERM/SIGINT or POST /stop
 2. Set shutdown_event
-3. db.close()
-4. remove_pid_file()
-5. Exit
+3. Stop manifest watcher
+4. db.close()
+5. remove_pid_file()
+6. Exit
 ```
 
 **Contract:** PID file MUST be removed on any exit path.
@@ -342,6 +373,8 @@ tests/
 | Instructions scanning | `instructions.py:scan_instructions()` |
 | Merge pipeline | `instructions.py:merge_duet_instructions()` |
 | Frontmatter parsing | `instructions.py:parse_frontmatter()` |
+| Manifest watcher | `watcher.py:ManifestWatcher` |
+| Scan + cache (shared) | `server.py:run_scan_with_cache()` |
 | Atomic file write | `fileio.py:atomic_write()` |
 | SQLite schema | `db.py:_init_schema()` |
 | Config reading | `config.py` |

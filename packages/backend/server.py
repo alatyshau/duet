@@ -42,6 +42,7 @@ from config import (
 from fileio import atomic_write_json
 from instructions import merge_duet_instructions
 from db import DatabaseManager
+from watcher import ManifestWatcher
 from mcp_handler import (
     get_duet_data_path_str,
     get_entities_service,
@@ -62,6 +63,9 @@ _start_time: float = 0
 
 # Shutdown event
 _shutdown_event: asyncio.Event | None = None
+
+# Manifest watcher (initialized in lifespan)
+_watcher: ManifestWatcher | None = None
 
 # Timeout for uvicorn graceful shutdown (seconds).
 # Host waits STOP_GRACE_PERIOD_MS (2s) = this timeout + 1s margin.
@@ -188,8 +192,12 @@ async def streams_handler(request: Request) -> JSONResponse:
     return JSONResponse(response)
 
 
-async def scan_handler(request: Request) -> JSONResponse:
-    """POST /scan - Rescan hierarchy."""
+def run_scan_with_cache() -> dict:
+    """Run scan and write JSON cache files.
+
+    Shared by scan_handler (HTTP) and ManifestWatcher (auto-rescan).
+    Returns scan result dict with duration_ms.
+    """
     start = time.time()
     result = get_entities_service().run_scan()
     result["duration_ms"] = int((time.time() - start) * 1000)
@@ -204,7 +212,19 @@ async def scan_handler(request: Request) -> JSONResponse:
         except Exception as e:
             logger.warning(f"Failed to write scan cache: {e}")
 
-    return JSONResponse(result)
+        # Restart watcher if business folders changed
+        if _watcher:
+            try:
+                _watcher.maybe_restart(get_business_folders())
+            except Exception as e:
+                logger.warning(f"Failed to update watcher: {e}")
+
+    return result
+
+
+async def scan_handler(request: Request) -> JSONResponse:
+    """POST /scan - Rescan hierarchy."""
+    return JSONResponse(run_scan_with_cache())
 
 
 async def add_business_handler(request: Request) -> JSONResponse:
@@ -297,12 +317,26 @@ async def lifespan(app: Starlette):
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_signal)
 
+    # Initial scan + manifest watcher
+    global _watcher
+    _watcher = ManifestWatcher(on_scan=run_scan_with_cache)
+    try:
+        folders = get_business_folders()
+        if folders:
+            logger.info("Running initial scan")
+            run_scan_with_cache()
+            _watcher.start(folders)
+    except Exception as e:
+        logger.warning(f"Initial scan/watcher failed: {e}")
+
     # Initialize MCP session manager (required for streamable HTTP transport)
     async with mcp.session_manager.run():
         try:
             yield
         finally:
             # Cleanup
+            _watcher.stop()
+            _watcher = None
             db.close()
             logger.info("Duet backend stopped")
 

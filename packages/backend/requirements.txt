@@ -9,3 +9,6 @@ mcp>=1.2.0
 
 # YAML frontmatter parsing
 PyYAML>=6.0
+
+# File watching (async-native, Rust notify-rs)
+watchfiles>=1.0.0
