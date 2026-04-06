@@ -12,7 +12,7 @@ from typing import Literal
 from config import get_db_path
 
 
-EntityType = Literal["business", "stream", "product", "project", "product_repo", "reference_repo"]
+EntityType = Literal["business", "stream", "product", "product_repo", "reference_repo"]
 
 
 @dataclass
@@ -65,9 +65,9 @@ class DatabaseManager:
             )
         """)
 
-        # Unique name index — excludes projects (they can share names across parents)
+        # Unique name index — all entity names are globally unique
         self.conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name) WHERE type != 'project'"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name)"
         )
 
         # Migrations: add columns that may be missing in older databases
@@ -276,21 +276,15 @@ class DatabaseManager:
         return row[0] if row else 0
 
     def get_streams(self) -> list[Entity]:
-        """Get streams (business, stream, product) + active projects under business/stream.
+        """Get streams (business, stream, product).
 
         Used for sidebar tree view.
-        Active projects under products are excluded (internal to the product).
         """
         if not self.conn:
             raise RuntimeError("Database not initialized")
 
         cursor = self.conn.execute("""
             SELECT * FROM entities WHERE type IN ('business', 'stream', 'product')
-            UNION
-            SELECT p.* FROM entities p
-            JOIN entities parent ON p.parent_id = parent.id
-            WHERE p.type = 'project' AND p.status = 'active'
-              AND parent.type IN ('business', 'stream')
         """)
         return [self._row_to_entity(row) for row in cursor.fetchall()]
 

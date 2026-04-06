@@ -270,17 +270,16 @@ Implementation: `core/business-folders.ts`
 
 ### Wizard Pages (Settings tab)
 
-7 self-contained pages in `pages/wizard/`. Each manages its own state, calls `window.api` directly, and reports status via `onStatusChange` callback to App.tsx.
+6 self-contained pages in `pages/wizard/`. Each manages its own state, calls `window.api` directly, and reports status via `onStatusChange` callback to App.tsx.
 
 | # | Page | File | Key operations |
 |---|------|------|----------------|
-| 1 | DuetData | `DuetDataPage.tsx` | Folder picker, partial save via `savePointer` |
-| 2 | DuetConfig + machine | `DuetConfigPage.tsx` | Folder picker + text input, partial save |
-| 3 | Python 3.10+ | `PythonPage.tsx` | Auto-detect on mount, manual file picker, `savePythonPath` |
-| 4 | Backend | `BackendPage.tsx` | Deploy status/button, channel toggle (visible when `hasDevBackendPath`), logs |
-| 5 | Business Folders | `BusinessFoldersPage.tsx` | Folder list CRUD, manual Scan button, error table with Fix |
-| 6 | Instructions | `InstructionsPage.tsx` | Folder picker for `instructionsPath`, Regenerate, error table, auto-configure agents on success |
-| 7 | AI Agents | `AgentsPage.tsx` | Agent detection cards, Configure All, Fix issue buttons |
+| 1 | Duet: пути | `DuetPathsPage.tsx` | DuetData/DuetConfig folder pickers, machine name input, business folders add/remove |
+| 2 | Python 3.10+ | `PythonPage.tsx` | Auto-detect on mount, manual file picker, `savePythonPath` |
+| 3 | Backend | `BackendPage.tsx` | Deploy status/button, channel toggle (visible when `hasDevBackendPath`), logs |
+| 4 | Воркспейсы | `WorkspacesPage.tsx` | Manual Scan button, entity tree, error table |
+| 5 | Инструкции | `InstructionsPage.tsx` | Folder picker for `instructionsPath`, Regenerate, error table, auto-configure agents on success |
+| 6 | AI Агенты | `AgentsPage.tsx` | Agent detection cards, Configure All, Fix issue buttons |
 
 ### BackendAppPage (Apps tab)
 

@@ -381,35 +381,6 @@ class TestGetOrientation:
         assert ws["type"] == "stream"
         assert ws["drive_folder"] == str(stream_path)
 
-    def test_workspace_type_project(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Project -> workspace.type = project with drive_folder."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_business("Business")
-        duet_data = builder.build(monkeypatch)
-
-        biz_path = builder.get_business_path(0)
-        projects_dir = biz_path / "projects"
-        projects_dir.mkdir()
-        project_path = projects_dir / "WIP_my_project"
-        project_path.mkdir()
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        service = WorkspaceService(db)
-        result = service.get_orientation(str(project_path))
-
-        ws = result["workspace"]
-        assert ws["type"] == "project"
-        assert ws["drive_folder"] == str(project_path)
-
-        # Chain includes business and project
-        chain = result["context"]["chain"]
-        assert chain[0]["type"] == "business"
-        assert chain[-1]["type"] == "project"
-
     def test_workspace_type_product_on_drive(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -776,47 +747,6 @@ class TestScannerRelativePaths:
         assert product is not None
         assert product.drive_path == "Business/Stream1/Stream2/Product"
 
-    def test_project_from_drive_under_business(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Project under business has relative path with prefix."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_business("Business")
-        duet_data = builder.build(monkeypatch)
-
-        biz_path = builder.get_business_path(0)
-        projects_path = biz_path / "projects"
-        projects_path.mkdir()
-        (projects_path / "MyProject").mkdir()
-        scanner = Scanner(db)
-        scanner.scan()
-
-        project = db.find_by_name("MyProject")
-        assert project is not None
-        assert project.drive_path == "Business/projects/MyProject"
-
-    def test_product_projects_not_in_entities(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Projects under products are not inserted into entities."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_business("Business")
-        duet_data = builder.build(monkeypatch)
-
-        biz_path = builder.get_business_path(0)
-        product_path = biz_path / "Product"
-        product_path.mkdir()
-        ManifestBuilder.product(product_path, "Product")
-
-        projects_path = product_path / "projects"
-        projects_path.mkdir()
-        (projects_path / "SomeProject").mkdir()
-        scanner = Scanner(db)
-        scanner.scan()
-
-        projects = [e for e in db.get_all_entities() if e.type == "project"]
-        assert len(projects) == 0
-
     def test_multiple_business_folders_unique_paths(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -893,32 +823,3 @@ class TestScannerRelativePaths:
         assert ref.type == "reference_repo"
         assert ref.git_url == "https://github.com/anthropics/cookbook.git"
 
-    def test_reference_repo_from_project_manifest(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Scanner creates reference_repo entity from project.json reference_repos."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_business("Business")
-        duet_data = builder.build(monkeypatch)
-
-        biz_path = builder.get_business_path(0)
-        projects_dir = biz_path / "projects"
-        projects_dir.mkdir()
-        project_path = projects_dir / "WIP_test"
-        project_path.mkdir()
-        ManifestBuilder.project(
-            project_path, "WIP_test",
-            reference_repos={"docs-repo": "https://github.com/example/docs.git"},
-        )
-        scanner = Scanner(db)
-        scanner.scan()
-
-        ref = db.find_by_name("docs-repo.git")
-        assert ref is not None
-        assert ref.type == "reference_repo"
-        assert ref.git_url == "https://github.com/example/docs.git"
-
-        # Parent is the project
-        project = db.find_by_name("WIP_test")
-        assert project is not None
-        assert ref.parent_id == project.id

@@ -16,9 +16,6 @@ SPEC_FALLBACK: dict[str, list[str]] = {
     "product": [
         "PRODUCT.md", "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
     ],
-    "project": [
-        "PROJECT.md", "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
-    ],
     "stream": [
         "STREAM.md", "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
     ],
@@ -117,7 +114,7 @@ def find_spec_file(root_path: Path, entity_type: str) -> Path | None:
 
     Args:
         root_path: Root directory of the entity.
-        entity_type: One of: product, component, stream, business, project.
+        entity_type: One of: product, component, stream, business.
 
     Returns:
         Absolute path to first existing spec file, or None.

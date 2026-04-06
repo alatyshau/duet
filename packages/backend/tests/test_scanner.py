@@ -89,20 +89,24 @@ class TestScanner:
         assert stream.parent_id == business.id
         assert product.parent_id == stream.id
 
-    def test_product_projects_not_in_entities(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Projects under products are NOT inserted into entities."""
+    def test_projects_folders_ignored(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """projects/ subdirectories are not scanned as entities."""
         biz_path = tmp_path / "Business"
         biz_path.mkdir()
         ManifestBuilder.business(biz_path, "Business", "🏢")
 
+        # projects/ at business level
+        projects_path = biz_path / "projects"
+        projects_path.mkdir()
+        (projects_path / "ProjectA").mkdir()
+
+        # projects/ at product level
         product_path = biz_path / "Product"
         product_path.mkdir()
         ManifestBuilder.product(product_path, "Product", "📦")
-
-        projects_path = product_path / "projects"
-        projects_path.mkdir()
-        (projects_path / "ProjectA").mkdir()
-        (projects_path / "ProjectB").mkdir()
+        prod_projects = product_path / "projects"
+        prod_projects.mkdir()
+        (prod_projects / "ProjectB").mkdir()
 
         monkeypatch.setattr(
             "scanner.get_business_folders",
@@ -112,11 +116,9 @@ class TestScanner:
         scanner = Scanner(db)
         result = scanner.scan()
 
-        # business + product only (projects under products excluded)
+        # business + product only — projects/ ignored
         assert result["entities_count"] == 2
-
-        projects = [e for e in db.get_all_entities() if e.type == "project"]
-        assert len(projects) == 0
+        assert not any(e.type == "project" for e in db.get_all_entities())
 
     def test_name_conflict_same_type(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
         """Same-type entities with same name get suffix."""
@@ -280,70 +282,6 @@ class TestScanner:
         assert "Normal" in names
         assert "Hidden" not in names
 
-
-    def test_scan_project_with_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Reads project.json manifest: name, icon, status."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
-
-        projects_path = biz_path / "projects"
-        projects_path.mkdir()
-        project_path = projects_path / "my_project"
-        project_path.mkdir()
-        ManifestBuilder.project(project_path, "My Project", icon="🎭", status="active")
-
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        project = db.find_by_name("My Project")
-        assert project is not None
-        assert project.icon == "🎭"
-        assert project.status == "active"
-
-    def test_scan_project_without_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Project without project.json gets defaults: 📋 icon, status=None."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
-
-        projects_path = biz_path / "projects"
-        projects_path.mkdir()
-        (projects_path / "bare_project").mkdir()
-
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        project = db.find_by_name("bare_project")
-        assert project is not None
-        assert project.icon == "📋"
-        assert project.status is None
-
-    def test_scan_project_manifest_without_status(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """project.json without status field → status=None."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
-
-        projects_path = biz_path / "projects"
-        projects_path.mkdir()
-        project_path = projects_path / "named_project"
-        project_path.mkdir()
-        ManifestBuilder.project(project_path, "Named Project", icon="📝")
-
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        project = db.find_by_name("Named Project")
-        assert project is not None
-        assert project.icon == "📝"
-        assert project.status is None
 
 
 class TestScannerEdgeCases:

@@ -21,7 +21,7 @@ export type WizardPage =
   | 'duet-paths'
   | 'python'
   | 'backend'
-  | 'business-folders'
+  | 'workspaces'
   | 'instructions'
   | 'agents'
 
@@ -46,8 +46,8 @@ export const WIZARD_STEPS: WizardStep[] = [
   { page: 'python', label: 'Python 3.10+', dependsOn: [] },
   { page: 'backend', label: 'Backend', dependsOn: ['duet-paths', 'python'] },
   {
-    page: 'business-folders',
-    label: 'Business Folders',
+    page: 'workspaces',
+    label: 'Воркспейсы',
     dependsOn: ['duet-paths', 'backend']
   },
   { page: 'instructions', label: 'Инструкции', dependsOn: ['duet-paths'] },

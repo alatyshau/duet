@@ -28,7 +28,7 @@ export type WizardPage =
   | 'duet-paths'
   | 'python'
   | 'backend'
-  | 'business-folders'
+  | 'workspaces'
   | 'instructions'
   | 'agents'
 
@@ -81,13 +81,13 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
   const isDeployed = deployStatus.state === 'deployed' || deployStatus.state === 'up_to_date'
   s['backend'] = isDeployed ? (input.hasDeployWarning ? 'warning' : 'ok') : null
 
-  // Page 5: Business Folders — scanned with no errors
+  // Page 5: Workspaces — scanned with no errors
   if (cachedScan !== null) {
     if (cachedScan.errors.length === 0) {
-      s['business-folders'] = 'ok'
+      s['workspaces'] = 'ok'
     } else {
       const hasRealError = cachedScan.errors.some((e) => !SCAN_WARNING_CODES.has(e.reason_code))
-      s['business-folders'] = hasRealError ? 'error' : 'warning'
+      s['workspaces'] = hasRealError ? 'error' : 'warning'
     }
   }
 
@@ -156,7 +156,7 @@ const ALL_WIZARD_PAGES: WizardPage[] = [
   'duet-paths',
   'python',
   'backend',
-  'business-folders',
+  'workspaces',
   'instructions',
   'agents'
 ]

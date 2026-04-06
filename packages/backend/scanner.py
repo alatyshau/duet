@@ -3,7 +3,7 @@
 Port of packages/extension/src/core/scanner.ts to Python.
 
 Key behaviors:
-- Global name uniqueness: priority-based (business > stream > product > project)
+- Global name uniqueness: priority-based (business > stream > product)
 - Self-healing: auto-creates/renames manifests to match hierarchy rules
 - Hierarchy: root=business, intermediate=stream, leaf with git_url=product
 - Deterministic order: readdir results sorted by name
@@ -27,7 +27,6 @@ class Manifest:
     name: str
     icon: str | None = None
     git_url: str | None = None
-    status: str | None = None
     root: bool = False
     reference_repos: dict[str, str] | None = None  # name -> URL
 
@@ -39,7 +38,6 @@ TYPE_PRIORITIES = {
     "stream": 2,
     "product": 3,
     "product_repo": 3,
-    "project": 4,
     "reference_repo": 5,
 }
 
@@ -294,9 +292,6 @@ class Scanner:
         # Register reference_repo entities
         self._register_reference_repos(manifest, business_id, path / "business.json")
 
-        # Scan for projects at business level
-        self._scan_projects(path, business_id)
-
         # Scan children (Stream or Product) - sorted for determinism
         for entry in self._readdir_sorted(path):
             if not entry.is_dir() or entry.name.startswith("."):
@@ -340,9 +335,6 @@ class Scanner:
 
             # Register reference_repo entities
             self._register_reference_repos(stream_manifest, stream_id, folder_path / "stream.json")
-
-            # Scan for projects at stream level
-            self._scan_projects(folder_path, stream_id)
 
             # Scan children inside stream (can be nested streams or products)
             for entry in self._readdir_sorted(folder_path):
@@ -441,61 +433,6 @@ class Scanner:
         # Register reference_repo entities
         self._register_reference_repos(manifest, product_id, folder_path / "product.json")
 
-        # Projects under products are not inserted into entities —
-        # they are internal to the product and don't need global indexing
-
-    def _scan_projects(
-        self, folder_path: Path, parent_id: int, is_repos: bool = False
-    ) -> None:
-        """Scan for projects (folders inside /projects/) - any entity can have projects.
-
-        Args:
-            folder_path: Path to scan for projects/ subdirectory
-            parent_id: Parent entity ID
-            is_repos: If True, this is a repos path (use relative to repos_path)
-        """
-        projects_path = folder_path / "projects"
-        if not projects_path.exists():
-            return
-
-        for entry in self._readdir_sorted(projects_path):
-            if entry.is_dir() and not entry.name.startswith("."):
-                # Read project.json manifest (optional)
-                manifest = self._read_manifest(Path(entry.path), "project.json")
-
-                project_name = manifest.name if manifest and manifest.name else entry.name
-
-                # Calculate relative path
-                if is_repos and self.repos_path:
-                    # For repos projects: relative to repos_path
-                    try:
-                        relative_path = normalize_path(
-                            Path(entry.path)
-                            .relative_to(self.repos_path)
-                            .as_posix()
-                        )
-                    except ValueError:
-                        relative_path = normalize_path(entry.path)
-                else:
-                    # For drive projects: relative to business_folder
-                    relative_path = self._to_relative_path(Path(entry.path))
-
-                project_id = self.db.insert_entity(
-                    Entity(
-                        id=None,
-                        type="project",
-                        name=project_name,
-                        icon=(manifest.icon or "📋") if manifest else "📋",
-                        drive_path=relative_path,
-                        parent_id=parent_id,
-                        status=manifest.status if manifest else None,
-                    )
-                )
-
-                # Register reference_repo entities from project manifest
-                if manifest:
-                    self._register_reference_repos(manifest, project_id, Path(entry.path) / "project.json")
-
     def _read_manifest(self, folder_path: Path, filename: str) -> Manifest | None:
         """Read and parse a manifest file."""
         file_path = folder_path / filename
@@ -507,7 +444,6 @@ class Scanner:
                     name=data.get("name", ""),
                     icon=data.get("icon"),
                     git_url=data.get("git_url"),
-                    status=data.get("status"),
                     root=bool(data.get("root", False)),
                     reference_repos=ref_repos if isinstance(ref_repos, dict) else None,
                 )

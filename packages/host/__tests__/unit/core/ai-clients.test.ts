@@ -256,7 +256,7 @@ describe('core/ai-clients', () => {
         join(geminiDir, 'antigravity', 'mcp_config.json'),
         JSON.stringify({
           mcpServers: {
-            duet: { type: 'http', url: MCP_URL }
+            duet: { type: 'http', serverURL: MCP_URL }
           }
         })
       )
@@ -587,7 +587,7 @@ describe('core/ai-clients', () => {
       const { parse } = await import('smol-toml')
       const parsed = parse(content)
       expect(parsed.mcp_servers).toBeDefined()
-      expect(parsed.mcp_servers.duet.url).toBe(MCP_URL)
+      expect((parsed.mcp_servers as any).duet.url).toBe(MCP_URL)
       expect(parsed.model_instructions_file).toContain('duet_instructions.md')
     })
 
@@ -647,7 +647,7 @@ describe('core/ai-clients', () => {
       expect(existsSync(mcpPath)).toBe(true)
       const mcpConfig = JSON.parse(readFileSync(mcpPath, 'utf-8'))
       expect(mcpConfig.mcpServers.duet.type).toBe('http')
-      expect(mcpConfig.mcpServers.duet.url).toBe(MCP_URL)
+      expect(mcpConfig.mcpServers.duet.serverURL).toBe(MCP_URL)
     })
 
     it('preserves existing keys in mcp_config.json', () => {

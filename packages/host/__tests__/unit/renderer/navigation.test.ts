@@ -25,7 +25,7 @@ describe('navigation', () => {
         'duet-paths',
         'python',
         'backend',
-        'business-folders',
+        'workspaces',
         'instructions',
         'agents'
       ]
@@ -57,7 +57,7 @@ describe('navigation', () => {
         'duet-paths',
         'python',
         'backend',
-        'business-folders',
+        'workspaces',
         'instructions',
         'agents'
       ])
@@ -123,7 +123,7 @@ describe('navigation', () => {
       'duet-paths': 'ok',
       python: 'ok',
       backend: 'ok',
-      'business-folders': 'ok',
+      'workspaces': 'ok',
       instructions: 'ok',
       agents: 'ok'
     }
@@ -135,7 +135,7 @@ describe('navigation', () => {
 
     it('returns true when all dependencies are ok', () => {
       expect(isStepAvailable('backend', allOk)).toBe(true)
-      expect(isStepAvailable('business-folders', allOk)).toBe(true)
+      expect(isStepAvailable('workspaces', allOk)).toBe(true)
       expect(isStepAvailable('instructions', allOk)).toBe(true)
       expect(isStepAvailable('agents', allOk)).toBe(true)
     })
@@ -174,7 +174,7 @@ describe('navigation', () => {
     })
 
     it('returns labels of missing dependencies', () => {
-      const missing = getMissingDeps('business-folders', {
+      const missing = getMissingDeps('workspaces', {
         'duet-paths': null,
         backend: null
       })

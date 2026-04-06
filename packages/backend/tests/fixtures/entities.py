@@ -34,7 +34,6 @@ class EntityFactory:
         "stream": "🌊",
         "product": "📦",
         "component": "📁",
-        "project": "📋",
     }
 
     @classmethod
@@ -105,23 +104,6 @@ class EntityFactory:
             **kwargs
         )
 
-    @classmethod
-    def project(
-        cls,
-        name: str = "Project",
-        drive_path: str = "/project",
-        **kwargs
-    ) -> Entity:
-        """Create a project entity."""
-        return Entity(
-            id=kwargs.pop("id", None),
-            type="project",
-            name=name,
-            icon=kwargs.pop("icon", cls.ICONS["project"]),
-            drive_path=drive_path,
-            **kwargs
-        )
-
     # Convenience methods for direct insert
 
     @classmethod
@@ -138,11 +120,6 @@ class EntityFactory:
     def insert_product(cls, db, name: str = "Product", drive_path: str = "/product", **kwargs) -> int:
         """Create and insert a product entity, return its ID."""
         return db.insert_entity(cls.product(name, drive_path, **kwargs))
-
-    @classmethod
-    def insert_project(cls, db, name: str = "Project", drive_path: str = "/project", **kwargs) -> int:
-        """Create and insert a project entity, return its ID."""
-        return db.insert_entity(cls.project(name, drive_path, **kwargs))
 
     @classmethod
     def insert_hierarchy(cls, db, base_path: str = "/repos") -> dict[str, int]:

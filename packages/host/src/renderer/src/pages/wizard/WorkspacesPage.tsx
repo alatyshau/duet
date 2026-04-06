@@ -1,20 +1,12 @@
 /*
- * Шаг 5: Business Folders — корневые папки бизнесов + scan.
- * Пользователь указывает папки, нажимает Scan, видит результат + ошибки.
+ * Воркспейсы — сканирование бизнес-папок и дерево сущностей.
+ * Показывает результаты scan (entity tree + ошибки).
+ * Список папок настраивается на странице "Duet: пути".
  */
 import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { StatusTable, type StatusTableItem } from '@renderer/components/ui/status-table'
-import {
-  FolderOpen,
-  Plus,
-  Trash2,
-  Search,
-  Loader2,
-  CheckCircle,
-  AlertTriangle,
-  ChevronRight
-} from 'lucide-react'
+import { Search, Loader2, CheckCircle, AlertTriangle, ChevronRight, Globe } from 'lucide-react'
 import type {
   AppState,
   ScanResult,
@@ -24,40 +16,40 @@ import type {
 } from '../../../../preload/index.d'
 import type { PageStatus } from '../../../../core/wizard-status'
 
-interface BusinessFoldersPageProps {
+interface WorkspacesPageProps {
   appState: AppState
   onStatusChange: (status: PageStatus) => void
 }
 
-export function BusinessFoldersPage({
+export function WorkspacesPage({
   appState,
   onStatusChange
-}: BusinessFoldersPageProps): React.ReactElement {
+}: WorkspacesPageProps): React.ReactElement {
   const isReady = appState.status === 'ready'
-  const [folders, setFolders] = useState<string[]>([])
+  const [hasFolders, setHasFolders] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [streamsCache, setStreamsCache] = useState<StreamsCache | null>(null)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Load folders, cached scan, and streams on mount
+  // Load cached scan and streams on mount
   useEffect(() => {
     if (!window.api) return
     const load = async (): Promise<void> => {
       try {
-        const [savedFolders, cached, streams] = await Promise.all([
+        const [folders, cached, streams] = await Promise.all([
           window.api.getBusinessFolders(),
           window.api.getCachedScan(),
           window.api.getCachedStreams()
         ])
-        setFolders(savedFolders)
+        setHasFolders(folders.length > 0)
         if (streams) setStreamsCache(streams)
         if (cached) {
           setScanResult(cached)
           onStatusChange(cached.errors.length === 0 ? 'ok' : 'error')
         }
       } catch (e) {
-        console.error('Failed to load business folders:', e)
+        console.error('Failed to load workspaces data:', e)
       } finally {
         setLoading(false)
       }
@@ -65,33 +57,13 @@ export function BusinessFoldersPage({
     void load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAddFolder = async (): Promise<void> => {
-    const selected = await window.api.selectFolder()
-    if (!selected) return
-    if (folders.includes(selected)) return
-    const updated = [...folders, selected]
-    setFolders(updated)
-    await window.api.saveBusinessFolders(updated)
-    // Scan result is stale after adding a folder
-    setScanResult(null)
-    onStatusChange(null)
-  }
-
-  const handleRemoveFolder = async (index: number): Promise<void> => {
-    const updated = folders.filter((_, i) => i !== index)
-    setFolders(updated)
-    await window.api.saveBusinessFolders(updated)
-    setScanResult(null)
-    onStatusChange(null)
-  }
-
   const handleScan = async (): Promise<void> => {
     setScanning(true)
     try {
       const result = await window.api.scanBusinessFolders()
       setScanResult(result)
       onStatusChange(result.errors.length === 0 ? 'ok' : 'error')
-      // Streams cache is updated by scan — read fresh
+      // Streams cache is updated by scan -- read fresh
       const streams = await window.api.getCachedStreams()
       if (streams) setStreamsCache(streams)
     } catch (e) {
@@ -114,54 +86,24 @@ export function BusinessFoldersPage({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-          <FolderOpen size={24} />
-          Business Folders
+          <Globe size={24} />
+          Воркспейсы
         </h2>
-        <p className="text-muted-foreground mt-1">
-          Корневые папки бизнесов на Google Drive — источник для сканирования сущностей
-        </p>
+        <p className="text-muted-foreground mt-1">Сканирование бизнес-папок и дерево сущностей</p>
       </div>
 
-      {/* Folders list */}
+      {/* Scan controls */}
       <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-        <h3 className="text-lg font-medium text-foreground">Папки бизнесов</h3>
+        <h3 className="text-lg font-medium text-foreground">Сканирование</h3>
 
-        {folders.length === 0 && (
+        {!hasFolders && (
           <p className="text-sm text-muted-foreground">
-            Ни одной папки не добавлено. Добавьте корневые папки бизнесов из облачного хранилища.
+            Бизнес-папки не настроены. Добавьте их на шаге &laquo;Duet: пути&raquo;.
           </p>
         )}
 
-        <div className="space-y-2">
-          {folders.map((folder, i) => (
-            <div
-              key={folder}
-              className="flex items-center gap-2 p-3 rounded-lg border border-border bg-background"
-            >
-              <FolderOpen size={16} className="text-muted-foreground flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-foreground">{folder.split(/[\\/]/).pop()}</div>
-                <div className="text-xs text-muted-foreground truncate" title={folder}>{folder}</div>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 flex-shrink-0"
-                onClick={() => handleRemoveFolder(i)}
-              >
-                <Trash2 size={14} className="text-muted-foreground" />
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleAddFolder}>
-            <Plus size={16} />
-            Добавить папку
-          </Button>
-
-          {folders.length > 0 && (
+        {hasFolders && (
+          <div className="flex gap-2 items-center">
             <Button
               variant="default"
               size="sm"
@@ -180,13 +122,13 @@ export function BusinessFoldersPage({
                 </>
               )}
             </Button>
-          )}
-          {!isReady && folders.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Для сканирования нужен задеплоенный Backend (шаг 4).
-            </p>
-          )}
-        </div>
+            {!isReady && (
+              <p className="text-xs text-muted-foreground">
+                Для сканирования нужен задеплоенный Backend.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Scan result */}

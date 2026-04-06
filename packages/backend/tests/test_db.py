@@ -120,47 +120,12 @@ class TestDatabaseManager:
 
         assert db.has_children(parent_id) is True
 
-    def test_get_streams_includes_active_projects(self, db) -> None:
-        """get_streams() includes active projects under business/stream."""
+    def test_get_streams_returns_business_stream_product(self, db) -> None:
+        """get_streams() returns business, stream, product entities."""
         biz_id = EntityFactory.insert_business(db, "Business", "/biz")
         stream_id = EntityFactory.insert_stream(db, "Stream", "/biz/stream", parent_id=biz_id)
-        EntityFactory.insert_project(db, "ActiveProj", "/biz/stream/projects/p1", parent_id=stream_id, status="active")
+        EntityFactory.insert_product(db, "Product", "/biz/stream/product", parent_id=stream_id)
 
         streams = db.get_streams()
         types = {e.type for e in streams}
-        assert "project" in types
-
-        project = next(e for e in streams if e.type == "project")
-        assert project.name == "ActiveProj"
-        assert project.status == "active"
-
-    def test_get_streams_excludes_inactive_projects(self, db) -> None:
-        """get_streams() excludes projects with status != 'active'."""
-        biz_id = EntityFactory.insert_business(db, "Business", "/biz")
-        EntityFactory.insert_project(db, "NoStatus", "/biz/projects/p1", parent_id=biz_id)
-        EntityFactory.insert_project(db, "Postponed", "/biz/projects/p2", parent_id=biz_id, status="postponed")
-        EntityFactory.insert_project(db, "Archived", "/biz/projects/p3", parent_id=biz_id, status="archived")
-
-        streams = db.get_streams()
-        assert all(e.type != "project" for e in streams)
-
-    def test_get_streams_excludes_product_projects(self, db) -> None:
-        """get_streams() excludes active projects under products."""
-        biz_id = EntityFactory.insert_business(db, "Business", "/biz")
-        product_id = EntityFactory.insert_product(db, "Product", "/biz/product", parent_id=biz_id)
-        EntityFactory.insert_project(db, "ProdProj", "/biz/product/projects/p1", parent_id=product_id, status="active")
-
-        streams = db.get_streams()
-        assert all(e.type != "project" for e in streams)
-
-    def test_has_children_with_exclude(self, db) -> None:
-        """Can check children excluding certain types."""
-        parent_id = EntityFactory.insert_business(db, "Parent", "/parent")
-
-        # Add project child
-        EntityFactory.insert_project(db, "Project", "/parent/projects/proj", parent_id=parent_id)
-
-        # Has children
-        assert db.has_children(parent_id) is True
-        # But not if excluding projects
-        assert db.has_children(parent_id, exclude_types=["project"]) is False
+        assert types == {"business", "stream", "product"}

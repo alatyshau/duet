@@ -80,46 +80,6 @@ class TestStreamsEndpoint:
         data = response.json()
         assert len(data["streams"]) == 2
 
-    async def test_excludes_projects_without_active_status(self, client: AsyncClient, db) -> None:
-        """Excludes projects without status='active' from streams."""
-        parent_id = EntityFactory.insert_business(db, "Business", "/business")
-        EntityFactory.insert_project(db, "Project", "/business/project", parent_id=parent_id)
-
-        response = await client.get("/streams")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert len(data["streams"]) == 1
-        assert data["streams"][0]["type"] == "business"
-
-    async def test_includes_active_project(self, client: AsyncClient, db) -> None:
-        """Includes active projects under business/stream in streams."""
-        biz_id = EntityFactory.insert_business(db, "Business", "/business")
-        stream_id = EntityFactory.insert_stream(db, "Stream", "/business/stream", parent_id=biz_id)
-        EntityFactory.insert_project(db, "ActiveProj", "/business/stream/projects/p1", parent_id=stream_id, status="active")
-
-        response = await client.get("/streams")
-        assert response.status_code == 200
-
-        data = response.json()
-        types = {s["type"] for s in data["streams"]}
-        assert "project" in types
-
-        project = next(s for s in data["streams"] if s["type"] == "project")
-        assert project["name"] == "ActiveProj"
-        assert project["status"] == "active"
-
-    async def test_excludes_postponed_project(self, client: AsyncClient, db) -> None:
-        """Excludes postponed/undefined projects from streams."""
-        biz_id = EntityFactory.insert_business(db, "Business", "/business")
-        EntityFactory.insert_project(db, "NoStatus", "/business/projects/p1", parent_id=biz_id)
-        EntityFactory.insert_project(db, "Postponed", "/business/projects/p2", parent_id=biz_id, status="postponed")
-
-        response = await client.get("/streams")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert all(s["type"] != "project" for s in data["streams"])
 
 
 @pytest.mark.asyncio

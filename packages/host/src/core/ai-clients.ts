@@ -265,7 +265,7 @@ export const configureAntigravity = (
     }
     ;(mcpConfig.mcpServers as Record<string, unknown>).duet = {
       type: 'http',
-      url: `http://127.0.0.1:${port}/mcp`
+      serverURL: `http://127.0.0.1:${port}/mcp`
     }
     writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf-8')
 
@@ -612,7 +612,7 @@ function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
     const config = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'))
     const mcp = config?.mcpServers?.duet
     if (!mcp) return false
-    return mcp.type === 'http' && mcp.url === `http://127.0.0.1:${port}/mcp`
+    return mcp.type === 'http' && mcp.serverURL === `http://127.0.0.1:${port}/mcp`
   } catch {
     return false
   }

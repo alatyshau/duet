@@ -1,11 +1,12 @@
 /*
- * Шаг 1: Duet: пути — DuetData, DuetConfig, имя машины.
- * Три секции на одной странице: folder picker для DuetData, folder picker для DuetConfig,
- * text input для имени машины. Статус = ok когда все три настроены.
+ * Шаг 1: Duet: пути — DuetData, DuetConfig, имя машины, бизнес-папки.
+ * Четыре секции на одной странице: folder picker для DuetData, folder picker для DuetConfig,
+ * text input для имени машины, список бизнес-папок (add/remove).
+ * Статус = ok когда три базовых пути настроены (бизнес-папки опциональны).
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, CheckCircle, AlertTriangle, MapPin } from 'lucide-react'
+import { FolderOpen, CheckCircle, AlertTriangle, MapPin, Plus, Trash2 } from 'lucide-react'
 import type { AppState } from '../../../../preload/index.d'
 import type { PageStatus } from '../../../../core/wizard-status'
 
@@ -22,9 +23,32 @@ export function DuetPathsPage({
   const configPath = appState.duetConfigPath
   const [machine, setMachine] = useState(appState.machine ?? '')
   const [machineError, setMachineError] = useState(false)
+  const [businessFolders, setBusinessFolders] = useState<string[]>([])
 
   const _updateStatus = (state: AppState): void => {
     onStatusChange(state.duetDataPath && state.duetConfigPath && state.machine ? 'ok' : null)
+  }
+
+  // Load business folders on mount
+  useEffect(() => {
+    if (!window.api) return
+    window.api.getBusinessFolders().then(setBusinessFolders).catch(console.error)
+  }, [])
+
+  // Business folders
+  const handleAddFolder = async (): Promise<void> => {
+    const selected = await window.api.selectFolder()
+    if (!selected) return
+    if (businessFolders.includes(selected)) return
+    const updated = [...businessFolders, selected]
+    setBusinessFolders(updated)
+    await window.api.saveBusinessFolders(updated)
+  }
+
+  const handleRemoveFolder = async (index: number): Promise<void> => {
+    const updated = businessFolders.filter((_, i) => i !== index)
+    setBusinessFolders(updated)
+    await window.api.saveBusinessFolders(updated)
   }
 
   // DuetData
@@ -104,7 +128,11 @@ export function DuetPathsPage({
             )}
             {dataPath && <p className="text-sm text-green-600 mt-1 break-all">{dataPath}</p>}
             <div className="flex gap-2 mt-3">
-              <Button variant={dataPath ? 'outline' : 'default'} size="sm" onClick={handleSelectData}>
+              <Button
+                variant={dataPath ? 'outline' : 'default'}
+                size="sm"
+                onClick={handleSelectData}
+              >
                 <FolderOpen size={16} />
                 {dataPath ? 'Изменить' : 'Выбрать'}
               </Button>
@@ -205,6 +233,55 @@ export function DuetPathsPage({
             DuetConfig.
           </p>
         </div>
+      </div>
+
+      {/* Business Folders */}
+      <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+        <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
+          <FolderOpen size={20} />
+          Бизнес-папки
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Корневые папки бизнесов на Google Drive — источник для сканирования сущностей.
+        </p>
+
+        {businessFolders.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Ни одной папки не добавлено. Добавьте корневые папки бизнесов из облачного хранилища.
+          </p>
+        )}
+
+        <div className="space-y-2">
+          {businessFolders.map((folder, i) => (
+            <div
+              key={folder}
+              className="flex items-center gap-2 p-3 rounded-lg border border-border bg-background"
+            >
+              <FolderOpen size={16} className="text-muted-foreground flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  {folder.split(/[\\/]/).pop()}
+                </div>
+                <div className="text-xs text-muted-foreground truncate" title={folder}>
+                  {folder}
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+                onClick={() => handleRemoveFolder(i)}
+              >
+                <Trash2 size={14} className="text-muted-foreground" />
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <Button variant="outline" size="sm" onClick={handleAddFolder}>
+          <Plus size={16} />
+          Добавить папку
+        </Button>
       </div>
     </div>
   )

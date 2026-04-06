@@ -11,11 +11,10 @@ Two-level navigation: **tabs** select a category, **sidebar list** selects a pag
 │ ──────────────── │                             │
 │  [⚙🔴] [▶]      │  ← icon-only tabs + severity│
 │ ──────────────── │                             │
-│ ✅ DuetData      │  Content (current page)     │
-│ ✅ DuetConfig..  │                             │
+│ ✅ Duet: пути    │  Content (current page)     │
 │ ✅ Python        │                             │
 │ ✅ Backend       │                             │
-│ 🔴 Biz Folders   │  ← error (red)             │
+│ 🔴 Воркспейсы    │  ← error (red)             │
 │ ✅ Инструкции    │                             │
 │ 🟡 AI Агенты     │  ← warning (amber)         │
 └──────────────────┴─────────────────────────────┘
@@ -25,7 +24,7 @@ Two-level navigation: **tabs** select a category, **sidebar list** selects a pag
 
 | Tab | Icon | Tooltip | Content |
 |-----|------|---------|---------|
-| Settings | ⚙ | Настройки | Wizard — 7-step setup |
+| Settings | ⚙ | Настройки | Wizard — 6-step setup |
 | Apps | ▶ | Приложения | Running processes |
 
 Icon-only tab buttons (no labels) — label shown as tooltip on hover. Severity indicator next to icon when children have issues. Switching tab navigates to the first item in that tab's list.
@@ -37,27 +36,26 @@ All navigation types defined in `renderer/src/navigation.ts`:
 | Type | Values |
 |------|--------|
 | `Tab` | `'settings'` \| `'apps'` |
-| `WizardPage` | `'duet-data'` \| `'duet-config'` \| `'python'` \| `'backend'` \| `'business-folders'` \| `'instructions'` \| `'agents'` |
+| `WizardPage` | `'duet-paths'` \| `'python'` \| `'backend'` \| `'workspaces'` \| `'instructions'` \| `'agents'` |
 | `AppPage` | `'app:duet-backend'` |
 | `Page` | `WizardPage` \| `AppPage` |
 
-`tabForPage(page)` derives tab from page. `DEFAULT_PAGE` = `'duet-data'`.
+`tabForPage(page)` derives tab from page. `DEFAULT_PAGE` = `'duet-paths'`.
 
 ## Settings Tab — Wizard
 
-7-step configuration wizard. Each step is a self-contained page with its own state and IPC calls. Status icons in sidebar reflect live configuration state.
+6-step configuration wizard. Each step is a self-contained page with its own state and IPC calls. Status icons in sidebar reflect live configuration state.
 
 ### Steps
 
 | # | Page | Label | Required | Depends on |
 |---|------|-------|----------|------------|
-| 1 | `duet-data` | DuetData | yes | — |
-| 2 | `duet-config` | DuetConfig + машина | yes | — |
-| 3 | `python` | Python 3.10+ | yes | — |
-| 4 | `backend` | Backend | yes | 1, 3 |
-| 5 | `business-folders` | Business Folders | yes | 1, 2, 4 |
-| 6 | `instructions` | Инструкции | yes | 1, 2 |
-| 7 | `agents` | AI Агенты | yes | 4, 6 |
+| 1 | `duet-paths` | Duet: пути | yes | — |
+| 2 | `python` | Python 3.10+ | yes | — |
+| 3 | `backend` | Backend | yes | 1, 2 |
+| 4 | `workspaces` | Воркспейсы | yes | 1, 3 |
+| 5 | `instructions` | Инструкции | yes | 1 |
+| 6 | `agents` | AI Агенты | yes | 3, 5 |
 
 Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforced at runtime:
 - **Sidebar:** unavailable steps (deps not `ok` or `warning`) rendered with dimmed text (`text-muted-foreground/50`). Navigation still allowed (user can read help text). Warning deps are satisfied — warning means "works but not ideal".
@@ -85,12 +83,12 @@ Status computed by `computePageStatuses()` in `core/wizard-status.ts` (pure func
 
 | Pages | Source | PageStatus |
 |-------|--------|-----------|
-| 1-2 | AppState fields | `ok` when path/machine set, `null` otherwise |
-| 3 | AppState.pythonPath | `ok` when set, `null` otherwise. Page auto-detects on mount |
-| 4 | DeployStatus + hasDeployWarning | `ok` when deployed, `warning` when channel mismatch/stale, `null` otherwise |
-| 5 | Scan result (cached or fresh) | `ok` when 0 errors, `error` when errors exist |
-| 6 | Instructions merge result | `ok` when 0 errors, `error` when errors exist |
-| 7 | Agent detection | `ok` when all found agents configured, `warning` when any needs_setup |
+| 1 | AppState fields (duetDataPath, duetConfigPath, machine) | `ok` when all three set, `null` otherwise |
+| 2 | AppState.pythonPath | `ok` when set, `null` otherwise. Page auto-detects on mount |
+| 3 | DeployStatus + hasDeployWarning | `ok` when deployed, `warning` when channel mismatch/stale, `null` otherwise |
+| 4 | Scan result (cached or fresh) | `ok` when 0 errors, `error` when errors exist |
+| 5 | Instructions merge result | `ok` when 0 errors, `error` when errors exist |
+| 6 | Agent detection | `ok` when all found agents configured, `warning` when any needs_setup |
 
 ### Page Architecture
 
@@ -107,11 +105,13 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 **Step 4 (Backend):** Deploy status/button, channel toggle (DEV/PROD, visible when `hasDevBackendPath`), deploy logs. VERSION displayed with full build metadata (e.g. `0.1.8+prod_abc1234`). Shows "(актуальна)" only when semver matches AND channel matches current mode. Channel mismatch warning: "Установлена DEV-версия — переустановите для PROD" (or vice versa). `VersionInfo` sub-component handles parsing and display.
 
-**Step 5 (Business Folders):** Folder picker list with add/remove. Scan is manual (user clicks button). Shows entity tree from `streams.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors.
+**Step 1 (Duet: пути):** Four sections: DuetData (folder picker), DuetConfig (folder picker), Machine name (text input), Business folders (add/remove folder list). Status = `ok` when all three base paths set (business folders are optional). Business folder CRUD uses `business-folders:get`/`business-folders:save` IPC.
 
-**Step 6 (Instructions):** Folder picker for `instructionsPath` (saved to machine.json). Auto-merge on first path set. Regenerate button for subsequent merges. On 0 errors, auto-configures AI agents (step 7) and propagates result to App.tsx via `onAgentsUpdated` callback (sidebar step 7 updates immediately). Error table shows Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). Fix → edit source file → auto re-merge. Dependency banner shown when DuetConfig/machine not configured (step 2); folder picker disabled.
+**Step 4 (Воркспейсы):** Scan button + results. Shows entity tree from `streams.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors. If no business folders configured, shows message directing user to step 1.
 
-**Step 7 (AI Agents):** Agent cards show checked files list and issues. Fix button for fixable issues (e.g. additionalDirectories). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No dark: classes (light-only theme).
+**Step 5 (Instructions):** Folder picker for `instructionsPath` (saved to machine.json). Auto-merge on first path set. Regenerate button for subsequent merges. On 0 errors, auto-configures AI agents (step 6) and propagates result to App.tsx via `onAgentsUpdated` callback (sidebar step 6 updates immediately). Error table shows Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). Fix → edit source file → auto re-merge. Dependency banner shown when DuetConfig/machine not configured (step 1); folder picker disabled.
+
+**Step 6 (AI Agents):** Agent cards show checked files list and issues. Fix button for fixable issues (e.g. additionalDirectories). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No dark: classes (light-only theme).
 
 ## Apps Tab
 
@@ -142,7 +142,7 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 | Directory | Contains |
 |-----------|----------|
-| `pages/wizard/` | 7 wizard step pages (DuetData, DuetConfig, Python, Backend, BusinessFolders, Instructions, Agents) |
+| `pages/wizard/` | 6 wizard step pages (DuetPaths, Python, Backend, Workspaces, Instructions, Agents) |
 | `pages/apps/` | App process pages (`BackendAppPage.tsx`) |
 
 ## Tray

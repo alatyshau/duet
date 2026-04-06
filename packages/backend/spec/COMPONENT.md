@@ -8,7 +8,7 @@ Python HTTP backend serving REST API and MCP endpoint for Duet.
 
 | Term | Definition |
 |------|------------|
-| **Entity** | Node in hierarchy: business, stream, product, project |
+| **Entity** | Node in hierarchy: business, stream, product |
 | **Manifest** | JSON file: business.json, stream.json, product.json |
 | **Chain** | Path from root business to current entity |
 | **Component** | Package in product's `packages/` with optional `spec/` |
@@ -76,7 +76,7 @@ server.py (entry point, lifecycle)
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
-| GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product + active projects under business/stream. Each entity includes `absolute_path`, `status` |
+| GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product. Each entity includes `absolute_path`, `status` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + core_instructions + skills table → file. Returns `{ status, path, errors[] }` |
 
@@ -131,7 +131,7 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 
 1. Classify each path: `gitFolders` (under DuetData/repos/) or `streamFolders` (contains manifest) or ignored
 2. Resolve entities from classified paths
-3. Prioritize: root business (`root: true`) > business > stream > product > project
+3. Prioritize: root business (`root: true`) > business > stream > product
 
 `root: true` — field in `business.json`. Identifies the meta-business (e.g. БАЗА) in all-businesses workspace.
 
@@ -152,7 +152,7 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 - `skills[]`: `{category, name, description, shortcuts?, trigger?, noTrigger?, path}` — relative to basePath
 - Scanned from `index.json` in instructions workspace (declares persona path + skill_folders)
 
-**workspace.type values:** `product_in_git` | `product_on_drive` | `stream` | `business` | `root_business` | `project` | `unknown`
+**workspace.type values:** `product_in_git` | `product_on_drive` | `stream` | `business` | `root_business` | `unknown`
 
 **workspace.type-specific attributes:**
 
@@ -163,7 +163,6 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 | `stream` | `drive_folder` |
 | `business` | `drive_folder` |
 | `root_business` | `root_business_folder`, `business_folders` (map name→path), `duet_data_folder` |
-| `project` | `drive_folder` |
 | `unknown` | `reason` (`no_workspace_path` \| `path_not_in_hierarchy` \| `entity_not_in_db`) |
 
 **workspace.topology:** Human-readable description of workspace layout. Appended with reference repos addon when applicable.
@@ -210,7 +209,6 @@ Used by: `context.chain[].description` (from README.md), `components[].descripti
 | component | COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
 | stream | STREAM.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
 | business | BUSINESS.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
-| project | PROJECT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
 
 Used by: `key_files.spec`, `components[].spec`.
 

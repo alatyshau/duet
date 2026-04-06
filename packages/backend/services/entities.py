@@ -31,7 +31,7 @@ class EntitiesService:
         """Get list of entities with filters.
 
         Args:
-            entity_type: Filter by type (business, stream, product, project)
+            entity_type: Filter by type (business, stream, product)
             parent_id: Get only children of this parent
             root_only: Get only root entities (no parent)
 
@@ -53,7 +53,7 @@ class EntitiesService:
         return [self._entity_to_dict(e, path_lookup) for e in entities]
 
     def get_streams(self) -> list[dict]:
-        """Get streams (business, stream, product) + active projects under business/stream.
+        """Get streams (business, stream, product).
 
         Returns flat list for sidebar tree view.
         Client computes hasChildren from parent_id relations.

@@ -199,13 +199,6 @@ class TestFindSpecFile:
         (spec_dir / "STREAM.md").write_text("# Stream")
         assert find_spec_file(tmp_path, "stream") == spec_dir / "STREAM.md"
 
-    def test_project_type(self, tmp_path: Path) -> None:
-        """Project type checks PROJECT.md first."""
-        spec_dir = tmp_path / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "PROJECT.md").write_text("# Project")
-        assert find_spec_file(tmp_path, "project") == spec_dir / "PROJECT.md"
-
     def test_fallback_to_readme_md(self, tmp_path: Path) -> None:
         """Falls back to README.md when higher-priority files absent."""
         spec_dir = tmp_path / "spec"

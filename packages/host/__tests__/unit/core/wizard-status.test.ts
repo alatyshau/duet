@@ -115,7 +115,7 @@ describe('core/wizard-status', () => {
         ...baseInput,
         cachedScan: { status: 'ok', entities_count: 5, errors: [] }
       })
-      expect(s['business-folders']).toBe('ok')
+      expect(s['workspaces']).toBe('ok')
     })
 
     it('marks business-folders as warning when scan has only collisions', () => {
@@ -127,7 +127,7 @@ describe('core/wizard-status', () => {
           errors: [{ path: '/foo', reason_code: 'name_collision', description: 'collision' }]
         }
       })
-      expect(s['business-folders']).toBe('warning')
+      expect(s['workspaces']).toBe('warning')
     })
 
     it('marks business-folders as error when scan has real errors', () => {
@@ -139,12 +139,12 @@ describe('core/wizard-status', () => {
           errors: [{ path: '/foo', reason_code: 'invalid_manifest', description: 'broken' }]
         }
       })
-      expect(s['business-folders']).toBe('error')
+      expect(s['workspaces']).toBe('error')
     })
 
     it('leaves business-folders undefined when no scan performed', () => {
       const s = computePageStatuses(baseInput)
-      expect(s['business-folders']).toBeUndefined()
+      expect(s['workspaces']).toBeUndefined()
     })
 
     it('marks instructions as ok when no instruction errors', () => {
@@ -265,7 +265,7 @@ describe('core/wizard-status', () => {
       'duet-paths': 'ok' as const,
       python: 'ok' as const,
       backend: 'ok' as const,
-      'business-folders': 'ok' as const,
+      'workspaces': 'ok' as const,
       instructions: 'ok' as const,
       agents: 'ok' as const
     }
@@ -276,7 +276,7 @@ describe('core/wizard-status', () => {
 
     it('returns error when any page has error', () => {
       expect(
-        getSettingsSeverity({ ...allOk, 'business-folders': 'error' })
+        getSettingsSeverity({ ...allOk, 'workspaces': 'error' })
       ).toBe('error')
     })
 
@@ -288,7 +288,7 @@ describe('core/wizard-status', () => {
 
     it('returns error when mixed error and warning', () => {
       expect(
-        getSettingsSeverity({ ...allOk, agents: 'warning', 'business-folders': 'error' })
+        getSettingsSeverity({ ...allOk, agents: 'warning', 'workspaces': 'error' })
       ).toBe('error')
     })
 

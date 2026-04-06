@@ -163,10 +163,7 @@ Business (root)
 │   ├── Stream
 │   │   └── Product (terminal)
 │   └── Product
-│       └── projects/
-│           └── Project
-└── projects/
-    └── Project
+└── ...
 ```
 
 | Type | Manifest | Terminal? | Has git_url? |
@@ -174,39 +171,24 @@ Business (root)
 | business | `business.json` | No | No |
 | stream | `stream.json` | No | No |
 | product | `product.json` | Yes — stops recursion | Optional |
-| project | `project.json` (optional) | Yes | No |
 
 ### Manifest Format
 
 ```json
 { "name": "Name", "icon": "📁" }
 { "name": "Name", "icon": "📦", "git_url": "https://..." }
-{ "name": "Name", "icon": "📋", "status": "active" }
 { "name": "Name", "icon": "📦", "git_url": "https://...", "reference_repos": {"cookbook": "https://..."} }
 ```
 
-**Contract:** Keys are `snake_case`. `name` globally unique (except projects — see Name Uniqueness). `reference_repos` is optional map (name → URL) in all manifests.
+**Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). `reference_repos` is optional map (name → URL) in all manifests.
 
 ### Reference Repos
 
-`reference_repos` field in any manifest (product.json, stream.json, business.json, project.json) declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git` by Extension. Entity name includes `.git` suffix (enters global uniqueness space).
-
-### Project Status
-
-Projects support `status` field in `project.json`. Only projects with `status: "active"` under business/stream (not product) appear in the sidebar tree.
-
-| Status | Meaning | Visible in ДЕЛА? |
-|--------|---------|------------------|
-| `"active"` | Active project | Yes (if parent is business/stream) |
-| `"postponed"` | On hold | No |
-| `"archived"` | Completed | No |
-| absent / `null` | Undefined | No |
-
-No `project.json` → project exists in DB but not shown in sidebar.
+`reference_repos` field in any manifest (product.json, stream.json, business.json) declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git` by Extension. Entity name includes `.git` suffix (enters global uniqueness space).
 
 ### Name Uniqueness (CRITICAL)
 
-Entity names globally unique **except projects** (projects can share names across different parents). Conflict resolution by priority:
+Entity names globally unique. Conflict resolution by priority:
 
 | Type | Priority | Unique? |
 |------|----------|---------|
@@ -215,9 +197,6 @@ Entity names globally unique **except projects** (projects can share names acros
 | product | 3 | globally |
 | product_repo | 3 (same as product) | globally |
 | reference_repo | 5 (lowest — gets `Name (1)`) | globally |
-| project | — | within parent only |
-
-Projects under **products** are not inserted into entities DB (internal to the product). Projects under **business/stream** are inserted (they appear in sidebar when `status = 'active'`).
 
 ### Self-Healing
 

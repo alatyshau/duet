@@ -51,10 +51,6 @@ _TOPOLOGIES = {
         "— your starting points for navigation. duet_data_folder contains repos, instructions, "
         "and local data."
     ),
-    "project": (
-        "Project folder containing topic files and plans. "
-        "drive_folder is the project directory itself."
-    ),
 }
 
 _REFERENCE_REPOS_TOPOLOGY_ADDON = (
@@ -274,7 +270,7 @@ class WorkspaceService:
                 if e.id == root_business.id:
                     return e
 
-        type_priority = {"business": 1, "stream": 2, "product": 3, "project": 4}
+        type_priority = {"business": 1, "stream": 2, "product": 3}
         entities.sort(key=lambda e: type_priority.get(e.type, 99))
         return entities[0]
 
@@ -412,7 +408,7 @@ class WorkspaceService:
             workspace["business_folders"] = business_folders_map
             workspace["duet_data_folder"] = str(get_duet_data_path().resolve())
 
-        elif ws_type in ("business", "stream", "project"):
+        elif ws_type in ("business", "stream"):
             drive_folder = self._resolve_drive_path(entity)
             if drive_folder:
                 workspace["drive_folder"] = str(drive_folder)
@@ -441,7 +437,6 @@ class WorkspaceService:
             "business": "business.json",
             "stream": "stream.json",
             "product": "product.json",
-            "project": "project.json",
         }
         manifest_filename = manifest_names.get(entity.type)
         if not manifest_filename:
@@ -501,8 +496,6 @@ class WorkspaceService:
             if entity.root:
                 return "root_business"
             return "business"
-        elif entity.type == "project":
-            return "project"
         return "unknown"
 
     def _get_entity_description(self, entity: Entity) -> str | None:

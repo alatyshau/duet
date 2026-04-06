@@ -7,7 +7,7 @@ import { Layout } from './components/layout/Layout'
 import { DuetPathsPage } from './pages/wizard/DuetPathsPage'
 import { PythonPage } from './pages/wizard/PythonPage'
 import { BackendPage } from './pages/wizard/BackendPage'
-import { BusinessFoldersPage } from './pages/wizard/BusinessFoldersPage'
+import { WorkspacesPage } from './pages/wizard/WorkspacesPage'
 import { InstructionsPage } from './pages/wizard/InstructionsPage'
 import { WizardAgentsPage } from './pages/wizard/AgentsPage'
 import { AppPage } from './pages/apps/BackendAppPage'
@@ -197,11 +197,11 @@ function App(): React.JSX.Element {
         return <PythonPage appState={appState} onStatusChange={createStatusCallback('python')} />
       case 'backend':
         return <BackendPage appState={appState} onStatusChange={createStatusCallback('backend')} />
-      case 'business-folders':
+      case 'workspaces':
         return (
-          <BusinessFoldersPage
+          <WorkspacesPage
             appState={appState}
-            onStatusChange={createStatusCallback('business-folders')}
+            onStatusChange={createStatusCallback('workspaces')}
           />
         )
       case 'instructions':
