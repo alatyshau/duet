@@ -150,15 +150,15 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
 const AGENT_INSTALL_INFO: Record<string, { desc: string; url: string }> = {
   'claude-code': {
     desc: 'Claude Code — AI-ассистент от Anthropic для терминала и IDE.',
-    url: 'https://docs.anthropic.com/en/docs/claude-code'
+    url: 'https://code.claude.com'
   },
   codex: {
     desc: 'Codex — AI-агент от OpenAI для кодирования в терминале.',
-    url: 'https://github.com/openai/codex'
+    url: 'https://openai.com/codex/'
   },
   antigravity: {
-    desc: 'Antigravity — AI-ассистент на базе Gemini для терминала.',
-    url: 'https://github.com/nichochar/antigravity'
+    desc: 'Antigravity — AI-ассистент от Google на базе Gemini для терминала.',
+    url: 'https://antigravity.google'
   }
 }
 

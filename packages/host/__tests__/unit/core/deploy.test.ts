@@ -35,7 +35,7 @@ import { stopBackend, venvPythonPath, type StopOptions } from '../../../src/core
 /** Instant sleep for tests — no real delay. */
 const noSleep: StopOptions = { sleep: async () => {} }
 
-import type { AppState, DeployChannel, DeployStatus } from '../../../src/shared/types'
+import type { AppState, DeployStatus } from '../../../src/shared/types'
 
 import { execFile } from 'child_process'
 

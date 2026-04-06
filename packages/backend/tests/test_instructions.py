@@ -146,8 +146,8 @@ class TestScanInstructions:
         result = scan_instructions(tmp_path)
         assert result["personas"] == []
 
-    def test_scan_skips_missing_required_fields(self, tmp_path):
-        """Files with frontmatter but missing name/description are skipped."""
+    def test_scan_includes_missing_description(self, tmp_path):
+        """Files with name but no description are included (description is optional)."""
         index = {"personas": {"path": "p"}, "skill_folders": []}
         (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
 
@@ -158,7 +158,9 @@ class TestScanInstructions:
         )
 
         result = scan_instructions(tmp_path)
-        assert result["personas"] == []
+        assert len(result["personas"]) == 1
+        assert result["personas"][0]["name"] == "test"
+        assert result["personas"][0]["description"] == ""
 
     def test_scan_skips_nonexistent_folder(self, tmp_path):
         """Non-existent folders in index.json are skipped."""
@@ -500,11 +502,12 @@ class TestMergeDuetInstructions:
 
         reason_codes = {e["reason_code"] for e in result["errors"]}
         assert "no_frontmatter" in reason_codes
-        assert "missing_fields" in reason_codes
+        assert "missing_description" in reason_codes
 
-        # Good skill still in output
+        # Good skill and incomplete (warning, not skip) still in output
         content = output.read_text(encoding="utf-8")
         assert "good" in content
+        assert "incomplete" in content
 
     def test_content_between_h1_h2_error(self, tmp_path):
         bootstrapper = _make_bootstrapper(tmp_path)
@@ -615,6 +618,6 @@ class TestMergeDuetInstructions:
         merge_duet_instructions(bootstrapper, instr_path, output, errors_file)
 
         content = output.read_text(encoding="utf-8")
-        assert "| Name | Shortcuts | Trigger |" in content
-        assert "| alpha | !a, !b |" in content
-        assert '| beta | — | When X happens |' in content
+        assert "| Name | Shortcuts | Description | Trigger | noTrigger |" in content
+        assert "| alpha | !a, !b | Alpha skill | — | — |" in content
+        assert "| beta | — | Beta skill | When X happens | — |" in content

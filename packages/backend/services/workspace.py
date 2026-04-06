@@ -298,7 +298,7 @@ class WorkspaceService:
             },
         }
 
-        # Instructions catalog (always present)
+        # Instructions catalog — raises ConfigError if instructionsPath not configured
         instructions_path = get_instructions_path()
         result["instructions"] = scan_instructions(instructions_path)
 

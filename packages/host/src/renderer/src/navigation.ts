@@ -18,8 +18,7 @@ export type Tab = 'settings' | 'apps'
 
 /** Шаги визарда настроек. Порядок массива = порядок в сайдбаре. */
 export type WizardPage =
-  | 'duet-data'
-  | 'duet-config'
+  | 'duet-paths'
   | 'python'
   | 'backend'
   | 'business-folders'
@@ -43,16 +42,15 @@ export interface WizardStep {
 }
 
 export const WIZARD_STEPS: WizardStep[] = [
-  { page: 'duet-data', label: 'DuetData', dependsOn: [] },
-  { page: 'duet-config', label: 'DuetConfig + машина', dependsOn: [] },
+  { page: 'duet-paths', label: 'Duet: пути', dependsOn: [] },
   { page: 'python', label: 'Python 3.10+', dependsOn: [] },
-  { page: 'backend', label: 'Backend', dependsOn: ['duet-data', 'python'] },
+  { page: 'backend', label: 'Backend', dependsOn: ['duet-paths', 'python'] },
   {
     page: 'business-folders',
     label: 'Business Folders',
-    dependsOn: ['duet-data', 'duet-config', 'backend']
+    dependsOn: ['duet-paths', 'backend']
   },
-  { page: 'instructions', label: 'Инструкции', dependsOn: ['duet-data', 'duet-config'] },
+  { page: 'instructions', label: 'Инструкции', dependsOn: ['duet-paths'] },
   { page: 'agents', label: 'AI Агенты', dependsOn: ['backend', 'instructions'] }
 ]
 
@@ -75,7 +73,7 @@ export function tabForPage(page: Page): Tab {
   return page.startsWith('app:') ? 'apps' : 'settings'
 }
 
-export const DEFAULT_PAGE: Page = 'duet-data'
+export const DEFAULT_PAGE: Page = 'duet-paths'
 
 // =============================================================================
 // DEPENDENCY CHECKS

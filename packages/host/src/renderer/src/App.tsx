@@ -4,8 +4,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Layout } from './components/layout/Layout'
-import { DuetDataPage } from './pages/wizard/DuetDataPage'
-import { DuetConfigPage } from './pages/wizard/DuetConfigPage'
+import { DuetPathsPage } from './pages/wizard/DuetPathsPage'
 import { PythonPage } from './pages/wizard/PythonPage'
 import { BackendPage } from './pages/wizard/BackendPage'
 import { BusinessFoldersPage } from './pages/wizard/BusinessFoldersPage'
@@ -187,15 +186,11 @@ function App(): React.JSX.Element {
 
   const renderPage = (): React.ReactNode => {
     switch (currentPage) {
-      case 'duet-data':
+      case 'duet-paths':
         return (
-          <DuetDataPage appState={appState} onStatusChange={createStatusCallback('duet-data')} />
-        )
-      case 'duet-config':
-        return (
-          <DuetConfigPage
+          <DuetPathsPage
             appState={appState}
-            onStatusChange={createStatusCallback('duet-config')}
+            onStatusChange={createStatusCallback('duet-paths')}
           />
         )
       case 'python':

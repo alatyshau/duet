@@ -5,7 +5,7 @@
  *
  * АРХИТЕКТУРА:
  * - Чистые функции (без Electron imports) — тестируемо с plain Node.js.
- * - spawn(venvPython, [server.py]) → attached child, stdio: 'ignore'.
+ * - spawn(venvPython, [server.py]) → attached child, stderr piped for diagnostics.
  * - Health check через GET /health (fetch + AbortSignal.timeout).
  * - Stop: POST /stop → grace → SIGTERM → SIGKILL.
  */
@@ -42,6 +42,7 @@ export const venvPythonPath = (
 const HEALTH_TIMEOUT_MS = 2_000
 const HEALTH_RETRY_COUNT = 10
 const HEALTH_RETRY_DELAY_MS = 300
+const STDERR_MAX_LINES = 50
 
 const STOP_API_TIMEOUT_MS = 2_000
 const STOP_GRACE_PERIOD_MS = 2_000 // Backend SHUTDOWN_TIMEOUT_S (1s) + 1s margin
@@ -122,6 +123,9 @@ export const waitForHealth = async (
  * Возвращает ChildProcess reference (для stop).
  * Бросает ошибку если бэкенд не ответил после spawn.
  *
+ * stderr пайпится для диагностики: если процесс упал, текст ошибки
+ * попадает в throw и далее в BackendStatus.error → UI.
+ *
  * NOTE: Не вешает proc.on('exit'/'error') — мониторинг после старта
  * это ответственность caller'а (см. monitorBackendProcess в ipc-handlers).
  */
@@ -141,25 +145,54 @@ export const startBackend = async (duetDataPath: string, port: number): Promise<
 
   const proc = spawn(pythonPath, [serverPath], {
     cwd: backendPath,
-    stdio: 'ignore'
+    stdio: ['ignore', 'ignore', 'pipe']
   })
 
-  // Wait for backend to become healthy
-  const health = await waitForHealth(port)
+  // Collect stderr for diagnostics (ring buffer, last N lines)
+  const stderrLines: string[] = []
+  proc.stderr!.setEncoding('utf-8')
+  proc.stderr!.on('data', (chunk: string) => {
+    for (const line of chunk.split('\n')) {
+      if (line.trim()) stderrLines.push(line.trim())
+    }
+    if (stderrLines.length > STDERR_MAX_LINES) {
+      stderrLines.splice(0, stderrLines.length - STDERR_MAX_LINES)
+    }
+  })
+
+  // Detect early exit — short-circuits health polling if process dies
+  const earlyExit = new Promise<null>((resolve) => {
+    proc.on('exit', () => resolve(null))
+  })
+
+  // Race: health polling vs early process death
+  const health = await Promise.race([
+    waitForHealth(port),
+    earlyExit
+  ])
 
   if (!health) {
-    // Kill the process we just spawned — it didn't come up
-    try {
-      proc.kill('SIGTERM')
-      const exited = await waitForExit(proc, KILL_GRACE_PERIOD_MS)
-      if (!exited) {
-        proc.kill('SIGKILL')
+    // Kill if still alive (timeout case, not crash)
+    if (proc.exitCode === null) {
+      try {
+        proc.kill('SIGTERM')
+        const exited = await waitForExit(proc, KILL_GRACE_PERIOD_MS)
+        if (!exited) proc.kill('SIGKILL')
+      } catch {
+        // Process may have already exited
       }
-    } catch {
-      // Process may have already exited
     }
-    throw new Error('Backend не ответил после запуска')
+
+    // Build descriptive error from stderr + exit code
+    const stderr = stderrLines.join('\n')
+    if (proc.exitCode !== null && proc.exitCode !== 0) {
+      throw new Error(stderr || `Backend завершился с кодом ${proc.exitCode}`)
+    }
+    throw new Error(stderr || 'Backend не ответил после запуска')
   }
+
+  // Startup succeeded — close stderr pipe (backend logs to file from here)
+  proc.stderr!.destroy()
 
   return proc
 }

@@ -46,39 +46,38 @@ function makeAgent(id: string, status: 'configured' | 'needs_setup' | 'not_found
 
 describe('core/wizard-status', () => {
   describe('computePageStatuses', () => {
-    it('marks pages 1-4 as ok when all configured and deployed', () => {
+    it('marks pages 1-3 as ok when all configured and deployed', () => {
       const s = computePageStatuses(baseInput)
-      expect(s['duet-data']).toBe('ok')
-      expect(s['duet-config']).toBe('ok')
+      expect(s['duet-paths']).toBe('ok')
       expect(s['python']).toBe('ok')
       expect(s['backend']).toBe('ok')
     })
 
-    it('marks page 1 as null when duetDataPath missing', () => {
+    it('marks duet-paths as null when duetDataPath missing', () => {
       const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, duetDataPath: null }
       })
-      expect(s['duet-data']).toBeNull()
+      expect(s['duet-paths']).toBeNull()
     })
 
-    it('marks page 2 as null when machine missing', () => {
+    it('marks duet-paths as null when machine missing', () => {
       const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, machine: null }
       })
-      expect(s['duet-config']).toBeNull()
+      expect(s['duet-paths']).toBeNull()
     })
 
-    it('marks page 2 as null when duetConfigPath missing', () => {
+    it('marks duet-paths as null when duetConfigPath missing', () => {
       const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, duetConfigPath: null }
       })
-      expect(s['duet-config']).toBeNull()
+      expect(s['duet-paths']).toBeNull()
     })
 
-    it('marks page 3 as null when pythonPath missing', () => {
+    it('marks python as null when pythonPath missing', () => {
       const s = computePageStatuses({
         ...baseInput,
         appState: { ...baseAppState, pythonPath: null }
@@ -86,7 +85,7 @@ describe('core/wizard-status', () => {
       expect(s['python']).toBeNull()
     })
 
-    it('marks page 4 as null when not deployed', () => {
+    it('marks backend as null when not deployed', () => {
       const s = computePageStatuses({
         ...baseInput,
         deployStatus: { state: 'idle' }
@@ -94,7 +93,7 @@ describe('core/wizard-status', () => {
       expect(s['backend']).toBeNull()
     })
 
-    it('marks page 4 as warning when deployed with deploy warning', () => {
+    it('marks backend as warning when deployed with deploy warning', () => {
       const s = computePageStatuses({
         ...baseInput,
         deployStatus: { state: 'deployed', version: '1.0.0' },
@@ -103,7 +102,7 @@ describe('core/wizard-status', () => {
       expect(s['backend']).toBe('warning')
     })
 
-    it('marks page 4 as ok for deployed state', () => {
+    it('marks backend as ok for deployed state', () => {
       const s = computePageStatuses({
         ...baseInput,
         deployStatus: { state: 'deployed', version: '1.0.0' }
@@ -111,7 +110,7 @@ describe('core/wizard-status', () => {
       expect(s['backend']).toBe('ok')
     })
 
-    it('marks page 5 as ok when scan has no errors', () => {
+    it('marks business-folders as ok when scan has no errors', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: { status: 'ok', entities_count: 5, errors: [] }
@@ -119,7 +118,7 @@ describe('core/wizard-status', () => {
       expect(s['business-folders']).toBe('ok')
     })
 
-    it('marks page 5 as warning when scan has only collisions', () => {
+    it('marks business-folders as warning when scan has only collisions', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: {
@@ -131,7 +130,7 @@ describe('core/wizard-status', () => {
       expect(s['business-folders']).toBe('warning')
     })
 
-    it('marks page 5 as error when scan has real errors', () => {
+    it('marks business-folders as error when scan has real errors', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: {
@@ -143,12 +142,12 @@ describe('core/wizard-status', () => {
       expect(s['business-folders']).toBe('error')
     })
 
-    it('leaves page 5 undefined when no scan performed', () => {
+    it('leaves business-folders undefined when no scan performed', () => {
       const s = computePageStatuses(baseInput)
       expect(s['business-folders']).toBeUndefined()
     })
 
-    it('marks page 6 as ok when no instruction errors', () => {
+    it('marks instructions as ok when no instruction errors', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedInstructionsErrors: []
@@ -156,7 +155,7 @@ describe('core/wizard-status', () => {
       expect(s['instructions']).toBe('ok')
     })
 
-    it('marks page 6 as error when instruction errors exist', () => {
+    it('marks instructions as error when instruction errors exist', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedInstructionsErrors: [
@@ -166,7 +165,7 @@ describe('core/wizard-status', () => {
       expect(s['instructions']).toBe('error')
     })
 
-    it('marks page 7 as ok when all found agents configured', () => {
+    it('marks agents as ok when all found agents configured', () => {
       const s = computePageStatuses({
         ...baseInput,
         agents: [
@@ -178,7 +177,7 @@ describe('core/wizard-status', () => {
       expect(s['agents']).toBe('ok')
     })
 
-    it('marks page 7 as warning when any found agent needs setup', () => {
+    it('marks agents as warning when any found agent needs setup', () => {
       const s = computePageStatuses({
         ...baseInput,
         agents: [makeAgent('claude', 'configured'), makeAgent('codex', 'needs_setup')]
@@ -186,12 +185,12 @@ describe('core/wizard-status', () => {
       expect(s['agents']).toBe('warning')
     })
 
-    it('marks page 7 as ok when no agents found at all', () => {
+    it('marks agents as skipped when no agents found at all', () => {
       const s = computePageStatuses({
         ...baseInput,
         agents: [makeAgent('claude', 'not_found'), makeAgent('codex', 'not_found')]
       })
-      expect(s['agents']).toBe('ok')
+      expect(s['agents']).toBe('skipped')
     })
   })
 
@@ -263,8 +262,7 @@ describe('core/wizard-status', () => {
 
   describe('getSettingsSeverity', () => {
     const allOk = {
-      'duet-data': 'ok' as const,
-      'duet-config': 'ok' as const,
+      'duet-paths': 'ok' as const,
       python: 'ok' as const,
       backend: 'ok' as const,
       'business-folders': 'ok' as const,
@@ -295,7 +293,7 @@ describe('core/wizard-status', () => {
     })
 
     it('returns error for null status (not configured = error severity)', () => {
-      expect(getSettingsSeverity({ ...allOk, 'duet-data': null })).toBe('error')
+      expect(getSettingsSeverity({ ...allOk, 'duet-paths': null })).toBe('error')
     })
 
     it('returns error for missing pages (undefined = error severity)', () => {
@@ -306,13 +304,12 @@ describe('core/wizard-status', () => {
       expect(getSettingsSeverity({
         ...allOk,
         agents: 'skipped',
-        // all others ok — skipped alone doesn't produce severity
       })).toBeNull()
     })
 
     it('returns error when some pages missing from partial statuses', () => {
-      // Only 2 of 7 pages present — missing 5 are undefined → error
-      expect(getSettingsSeverity({ 'duet-data': 'ok', 'duet-config': 'ok' })).toBe('error')
+      // Only 1 of 6 pages present — missing 5 are undefined → error
+      expect(getSettingsSeverity({ 'duet-paths': 'ok' })).toBe('error')
     })
   })
 })

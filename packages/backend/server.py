@@ -163,7 +163,13 @@ async def orientation_handler(request: Request) -> JSONResponse:
             status_code=400,
         )
 
-    result = get_workspace_service().get_orientation(workspace_paths=workspace_paths)
+    try:
+        result = get_workspace_service().get_orientation(workspace_paths=workspace_paths)
+    except ConfigError as e:
+        return JSONResponse(
+            {"error": str(e), "code": "CONFIG_ERROR"},
+            status_code=422,
+        )
     return JSONResponse(result)
 
 
@@ -253,7 +259,7 @@ async def merge_instructions_handler(request: Request) -> JSONResponse:
     except ConfigError as e:
         return JSONResponse(
             {"error": str(e), "code": "CONFIG_ERROR"},
-            status_code=500,
+            status_code=422,
         )
 
 
@@ -388,14 +394,15 @@ def main() -> None:
 
     # Validate configuration before starting (fail fast)
     try:
-        from config import get_duet_data_path, get_instructions_path, ConfigError
+        from config import get_duet_data_path, ConfigError
 
         duet_data = get_duet_data_path()
         get_version()
         get_port()
         get_timezone()
         get_business_folders()
-        get_instructions_path()
+        # instructionsPath not validated at startup — may not be configured yet
+        # during initial wizard setup. Endpoints check it per-request.
     except ConfigError as e:
         logger.error(f"Config error: {e}")
         logger.error(

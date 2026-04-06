@@ -140,7 +140,7 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 | Block | Fields | When |
 |-------|--------|------|
 | `duet_paths` | duetDataPath, machineConfig | Always |
-| `instructions` | basePath, personas[], skills[] | Always (instructionsPath required at startup) |
+| `instructions` | basePath, personas[], skills[] | When instructionsPath configured (422 if missing) |
 | `workspace` | type, topology, typed attributes, reference_repos? | Always |
 | `context` | breadcrumb, chain[{type, name, description?}] | When entity resolved |
 | `key_files` | spec?, readme? | When files exist |
@@ -251,7 +251,7 @@ DuetData/backend.log  <- RotatingFileHandler
 ```
 1. Read pointer file
 2. setup_logging() -> RotatingFileHandler
-3. Validate config (VERSION, port, settings)
+3. Validate config (VERSION, port, settings; instructionsPath not required at startup)
 4. check_pid_file() -> exit if already running
 5. db.init()
 6. Create services (DI)

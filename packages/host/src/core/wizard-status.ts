@@ -25,8 +25,7 @@ export type PageStatus = 'ok' | 'error' | 'warning' | 'skipped' | null
 
 /** Все страницы визарда (должен совпадать с navigation.ts WizardPage). */
 export type WizardPage =
-  | 'duet-data'
-  | 'duet-config'
+  | 'duet-paths'
   | 'python'
   | 'backend'
   | 'business-folders'
@@ -71,11 +70,9 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
   const { appState, deployStatus, cachedScan, cachedInstructionsErrors, agents } = input
   const s: PageStatuses = {}
 
-  // Page 1: DuetData — path set and exists
-  s['duet-data'] = appState.duetDataPath ? 'ok' : null
-
-  // Page 2: DuetConfig + machine — both set
-  s['duet-config'] = appState.duetConfigPath && appState.machine ? 'ok' : null
+  // Page 1: Duet paths — all three set
+  s['duet-paths'] =
+    appState.duetDataPath && appState.duetConfigPath && appState.machine ? 'ok' : null
 
   // Page 3: Python — path configured in machine.json
   s['python'] = appState.pythonPath ? 'ok' : null
@@ -104,11 +101,12 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
     }
   }
 
-  // Page 7: AI Agents — needs_setup is warning (works, just not configured), not error
+  // Page 7: AI Agents — needs_setup is warning, none found is skipped
   if (agents !== null) {
     const found = agents.filter((a) => a.status !== 'not_found')
-    const needsSetup = found.some((a) => a.status === 'needs_setup')
-    if (needsSetup) {
+    if (found.length === 0) {
+      s['agents'] = 'skipped'
+    } else if (found.some((a) => a.status === 'needs_setup')) {
       s['agents'] = 'warning'
     } else {
       s['agents'] = 'ok'
@@ -155,8 +153,7 @@ export function processStateToSeverity(state: ProcessState): Severity | null {
 }
 
 const ALL_WIZARD_PAGES: WizardPage[] = [
-  'duet-data',
-  'duet-config',
+  'duet-paths',
   'python',
   'backend',
   'business-folders',
