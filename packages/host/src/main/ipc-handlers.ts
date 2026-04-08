@@ -33,7 +33,7 @@ import {
   isFolderEmpty
 } from '../core/instructions-download'
 import {
-  getBusinessFolders,
+  getResolvedBusinessFolders,
   saveBusinessFolders,
   triggerScan,
   readCachedScan,
@@ -41,6 +41,7 @@ import {
 } from '../core/business-folders'
 import type {
   AppState,
+  BusinessFolderEntry,
   DeployStatus,
   BackendStatus,
   PythonStatus,
@@ -420,8 +421,8 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
   // === Business Folders ===
 
-  ipcMain.handle('business-folders:get', (): string[] => {
-    return getBusinessFolders()
+  ipcMain.handle('business-folders:get', (): BusinessFolderEntry[] => {
+    return getResolvedBusinessFolders()
   })
 
   ipcMain.handle('business-folders:save', (_event, folders: string[]): void => {

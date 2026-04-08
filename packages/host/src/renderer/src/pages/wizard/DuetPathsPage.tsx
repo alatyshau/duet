@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { FolderOpen, CheckCircle, AlertTriangle, MapPin, Plus, Trash2 } from 'lucide-react'
-import type { AppState } from '../../../../preload/index.d'
+import type { AppState, BusinessFolderEntry } from '../../../../preload/index.d'
 import type { PageStatus } from '../../../../core/wizard-status'
 
 interface DuetPathsPageProps {
@@ -23,7 +23,7 @@ export function DuetPathsPage({
   const configPath = appState.duetConfigPath
   const [machine, setMachine] = useState(appState.machine ?? '')
   const [machineError, setMachineError] = useState(false)
-  const [businessFolders, setBusinessFolders] = useState<string[]>([])
+  const [businessFolders, setBusinessFolders] = useState<BusinessFolderEntry[]>([])
 
   const _updateStatus = (state: AppState): void => {
     onStatusChange(state.duetDataPath && state.duetConfigPath && state.machine ? 'ok' : null)
@@ -39,16 +39,16 @@ export function DuetPathsPage({
   const handleAddFolder = async (): Promise<void> => {
     const selected = await window.api.selectFolder()
     if (!selected) return
-    if (businessFolders.includes(selected)) return
-    const updated = [...businessFolders, selected]
+    if (businessFolders.some((f) => f.resolved === selected)) return
+    const updated = [...businessFolders, { raw: selected, resolved: selected }]
     setBusinessFolders(updated)
-    await window.api.saveBusinessFolders(updated)
+    await window.api.saveBusinessFolders(updated.map((f) => f.raw))
   }
 
   const handleRemoveFolder = async (index: number): Promise<void> => {
     const updated = businessFolders.filter((_, i) => i !== index)
     setBusinessFolders(updated)
-    await window.api.saveBusinessFolders(updated)
+    await window.api.saveBusinessFolders(updated.map((f) => f.raw))
   }
 
   // DuetData
@@ -252,18 +252,18 @@ export function DuetPathsPage({
         )}
 
         <div className="space-y-2">
-          {businessFolders.map((folder, i) => (
+          {businessFolders.map((entry, i) => (
             <div
-              key={folder}
+              key={entry.raw}
               className="flex items-center gap-2 p-3 rounded-lg border border-border bg-background"
             >
               <FolderOpen size={16} className="text-muted-foreground flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-foreground">
-                  {folder.split(/[\\/]/).pop()}
+                  {entry.resolved.split(/[\\/]/).pop()}
                 </div>
-                <div className="text-xs text-muted-foreground truncate" title={folder}>
-                  {folder}
+                <div className="text-xs text-muted-foreground truncate" title={entry.resolved}>
+                  {entry.resolved}
                 </div>
               </div>
               <Button

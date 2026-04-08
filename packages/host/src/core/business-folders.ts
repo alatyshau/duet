@@ -8,18 +8,24 @@
  */
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { readSettingsConfig, setSettingsConfigKey } from './config'
-import type { ScanResult, StreamsCache } from '../shared/types'
+import { readSettingsConfig, readMachineConfig, setSettingsConfigKey } from './config'
+import type { BusinessFolderEntry, ScanResult, StreamsCache } from '../shared/types'
 
 // Re-export types
-export type { ScanError, ScanResult, StreamEntity, StreamsCache } from '../shared/types'
+export type {
+  BusinessFolderEntry,
+  ScanError,
+  ScanResult,
+  StreamEntity,
+  StreamsCache
+} from '../shared/types'
 
 // =============================================================================
 // BUSINESS FOLDERS CRUD
 // =============================================================================
 
 /**
- * Читает business_folders из settings.json.
+ * Читает business_folders из settings.json (raw aliases).
  * Возвращает пустой массив если настройки не найдены.
  */
 export function getBusinessFolders(): string[] {
@@ -27,6 +33,19 @@ export function getBusinessFolders(): string[] {
   if (!settings) return []
   const folders = settings.business_folders
   return Array.isArray(folders) ? folders : []
+}
+
+/**
+ * Читает business_folders и резолвит @-алиасы через machine config.
+ * Возвращает {raw, resolved} — raw для хранения, resolved для отображения.
+ */
+export function getResolvedBusinessFolders(): BusinessFolderEntry[] {
+  const folders = getBusinessFolders()
+  const mc = readMachineConfig()
+  return folders.map((f) => ({
+    raw: f,
+    resolved: f.startsWith('@') && mc && typeof mc[f] === 'string' ? (mc[f] as string) : f
+  }))
 }
 
 /**

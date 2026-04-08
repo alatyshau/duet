@@ -11,6 +11,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AppState,
+  BusinessFolderEntry,
   DeployStatus,
   BackendStatus,
   PythonStatus,
@@ -134,7 +135,8 @@ const api = {
 
   // === Business Folders ===
 
-  getBusinessFolders: (): Promise<string[]> => ipcRenderer.invoke('business-folders:get'),
+  getBusinessFolders: (): Promise<BusinessFolderEntry[]> =>
+    ipcRenderer.invoke('business-folders:get'),
 
   saveBusinessFolders: (folders: string[]): Promise<void> =>
     ipcRenderer.invoke('business-folders:save', folders),

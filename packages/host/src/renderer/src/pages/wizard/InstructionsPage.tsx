@@ -416,7 +416,7 @@ export function InstructionsPage({
             ) : (
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-muted-foreground">
-                  Сбросить путь к инструкциям? Файлы на диске не будут удалены.
+                  Убрать путь из конфига и выбрать другой?
                 </span>
                 <Button variant="outline" size="sm" onClick={handleReset}>
                   Сбросить

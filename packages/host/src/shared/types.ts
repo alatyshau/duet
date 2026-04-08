@@ -151,6 +151,14 @@ export interface InstructionsMergeResult {
 // BUSINESS FOLDERS (IPC: business-folders:get, business-folders:save, business-folders:scan)
 // =============================================================================
 
+/** Entry returned by business-folders:get — raw alias for storage, resolved path for display. */
+export interface BusinessFolderEntry {
+  /** Raw value from settings.json — @alias or absolute path. Use for save/remove. */
+  raw: string
+  /** Resolved absolute path (alias looked up in machine config). Use for display. */
+  resolved: string
+}
+
 export interface ScanError {
   path: string
   reason_code: string

@@ -11,6 +11,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 export type {
   AppStatus,
   AppState,
+  BusinessFolderEntry,
   DeployChannel,
   DeployStatus,
   BackendStatus,
@@ -37,6 +38,7 @@ export type { PageStatus, PageStatuses, WizardPage } from '../core/wizard-status
 // Import for use in DuetAPI interface
 import type {
   AppState,
+  BusinessFolderEntry,
   DeployStatus,
   BackendStatus,
   PythonStatus,
@@ -91,7 +93,7 @@ export interface DuetAPI {
   setInstructionsPath: (path: string) => Promise<AppState>
 
   // Business Folders
-  getBusinessFolders: () => Promise<string[]>
+  getBusinessFolders: () => Promise<BusinessFolderEntry[]>
   saveBusinessFolders: (folders: string[]) => Promise<void>
   scanBusinessFolders: () => Promise<ScanResult>
   getCachedScan: () => Promise<ScanResult | null>
