@@ -35,6 +35,7 @@ import {
 import {
   getResolvedBusinessFolders,
   saveBusinessFolders,
+  setRootBusiness,
   triggerScan,
   readCachedScan,
   readCachedStreams
@@ -388,7 +389,9 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    return detectAgents(state.duetDataPath, port)
+    const result = detectAgents(state.duetDataPath, port)
+    context.updateAppState() // Refresh tray icon (agents severity may change)
+    return result
   })
 
   ipcMain.handle('agents:configure', () => {
@@ -428,6 +431,15 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('business-folders:save', (_event, folders: string[]): void => {
     saveBusinessFolders(folders)
   })
+
+  ipcMain.handle(
+    'business-folders:set-root',
+    (_event, rootIndex: number): BusinessFolderEntry[] => {
+      const folders = getResolvedBusinessFolders()
+      setRootBusiness(folders, rootIndex)
+      return getResolvedBusinessFolders() // re-read with updated isRoot
+    }
+  )
 
   ipcMain.handle('business-folders:scan', async (): Promise<ScanResult> => {
     const port = readPort()

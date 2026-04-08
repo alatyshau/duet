@@ -6,7 +6,7 @@
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { readSettingsConfig, readMachineConfig, setSettingsConfigKey } from './config'
 import type { BusinessFolderEntry, ScanResult, StreamsCache } from '../shared/types'
@@ -37,15 +37,53 @@ export function getBusinessFolders(): string[] {
 
 /**
  * Читает business_folders и резолвит @-алиасы через machine config.
- * Возвращает {raw, resolved} — raw для хранения, resolved для отображения.
+ * Возвращает {raw, resolved, isRoot} — raw для хранения, resolved для отображения.
  */
 export function getResolvedBusinessFolders(): BusinessFolderEntry[] {
   const folders = getBusinessFolders()
   const mc = readMachineConfig()
-  return folders.map((f) => ({
-    raw: f,
-    resolved: f.startsWith('@') && mc && typeof mc[f] === 'string' ? (mc[f] as string) : f
-  }))
+  return folders.map((f) => {
+    const resolved = f.startsWith('@') && mc && typeof mc[f] === 'string' ? (mc[f] as string) : f
+    return { raw: f, resolved, isRoot: readManifestRoot(resolved) }
+  })
+}
+
+/**
+ * Читает root из business.json в указанной папке.
+ */
+function readManifestRoot(folderPath: string): boolean {
+  const manifestPath = join(folderPath, 'business.json')
+  if (!existsSync(manifestPath)) return false
+  try {
+    const data = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+    return data.root === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Устанавливает root: true в business.json указанной папки,
+ * убирает root у всех остальных бизнес-папок.
+ */
+export function setRootBusiness(folders: BusinessFolderEntry[], rootIndex: number): void {
+  for (let i = 0; i < folders.length; i++) {
+    const manifestPath = join(folders[i].resolved, 'business.json')
+    if (!existsSync(manifestPath)) continue
+    try {
+      const data = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+      const shouldBeRoot = i === rootIndex
+      if (shouldBeRoot && !data.root) {
+        data.root = true
+        writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
+      } else if (!shouldBeRoot && data.root) {
+        delete data.root
+        writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
+      }
+    } catch {
+      // Skip invalid manifests
+    }
+  }
 }
 
 /**

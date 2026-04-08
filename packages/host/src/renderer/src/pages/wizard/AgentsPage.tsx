@@ -42,8 +42,9 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
 
   const updateStatus = (agentList: AgentInfo[]): void => {
     const found = agentList.filter((a) => a.status !== 'not_found')
-    const needsSetup = found.some((a) => a.status === 'needs_setup')
-    if (needsSetup) {
+    if (found.length === 0) {
+      onStatusChange('skipped')
+    } else if (found.some((a) => a.status === 'needs_setup')) {
       onStatusChange('warning')
     } else {
       onStatusChange('ok')

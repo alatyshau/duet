@@ -95,6 +95,7 @@ export interface DuetAPI {
   // Business Folders
   getBusinessFolders: () => Promise<BusinessFolderEntry[]>
   saveBusinessFolders: (folders: string[]) => Promise<void>
+  setRootBusiness: (rootIndex: number) => Promise<BusinessFolderEntry[]>
   scanBusinessFolders: () => Promise<ScanResult>
   getCachedScan: () => Promise<ScanResult | null>
   getCachedStreams: () => Promise<StreamsCache | null>

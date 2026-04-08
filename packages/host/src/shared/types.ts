@@ -157,6 +157,8 @@ export interface BusinessFolderEntry {
   raw: string
   /** Resolved absolute path (alias looked up in machine config). Use for display. */
   resolved: string
+  /** Whether this business has root: true in its business.json manifest. */
+  isRoot: boolean
 }
 
 export interface ScanError {

@@ -6,7 +6,16 @@
  */
 import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { FolderOpen, CheckCircle, AlertTriangle, MapPin, Plus, Trash2 } from 'lucide-react'
+import {
+  FolderOpen,
+  CheckCircle,
+  AlertTriangle,
+  MapPin,
+  Plus,
+  Trash2,
+  GripVertical,
+  Crown
+} from 'lucide-react'
 import type { AppState, BusinessFolderEntry } from '../../../../preload/index.d'
 import type { PageStatus } from '../../../../core/wizard-status'
 
@@ -40,15 +49,60 @@ export function DuetPathsPage({
     const selected = await window.api.selectFolder()
     if (!selected) return
     if (businessFolders.some((f) => f.resolved === selected)) return
-    const updated = [...businessFolders, { raw: selected, resolved: selected }]
+    const updated = [...businessFolders, { raw: selected, resolved: selected, isRoot: false }]
     setBusinessFolders(updated)
     await window.api.saveBusinessFolders(updated.map((f) => f.raw))
   }
 
   const handleRemoveFolder = async (index: number): Promise<void> => {
+    const wasRoot = businessFolders[index].isRoot
     const updated = businessFolders.filter((_, i) => i !== index)
     setBusinessFolders(updated)
     await window.api.saveBusinessFolders(updated.map((f) => f.raw))
+    // If root was removed, promote first remaining folder
+    if (wasRoot && updated.length > 0) {
+      const refreshed = await window.api.setRootBusiness(0)
+      setBusinessFolders(refreshed)
+    }
+  }
+
+  // Drag-and-drop reordering
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  const handleDragStart = (e: React.DragEvent, index: number): void => {
+    e.dataTransfer.effectAllowed = 'move'
+    setDragIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number): void => {
+    e.preventDefault()
+    if (dragOverIndex !== index) setDragOverIndex(index)
+  }
+
+  const handleDrop = async (targetIndex: number): Promise<void> => {
+    if (dragIndex === null || dragIndex === targetIndex) {
+      setDragIndex(null)
+      setDragOverIndex(null)
+      return
+    }
+    const updated = [...businessFolders]
+    const [moved] = updated.splice(dragIndex, 1)
+    updated.splice(targetIndex, 0, moved)
+    setBusinessFolders(updated)
+    setDragIndex(null)
+    setDragOverIndex(null)
+    await window.api.saveBusinessFolders(updated.map((f) => f.raw))
+    // If an item was dragged to position 0, make it root in business.json
+    if (targetIndex === 0 || dragIndex === 0) {
+      const refreshed = await window.api.setRootBusiness(0)
+      setBusinessFolders(refreshed)
+    }
+  }
+
+  const handleDragEnd = (): void => {
+    setDragIndex(null)
+    setDragOverIndex(null)
   }
 
   // DuetData
@@ -255,12 +309,30 @@ export function DuetPathsPage({
           {businessFolders.map((entry, i) => (
             <div
               key={entry.raw}
-              className="flex items-center gap-2 p-3 rounded-lg border border-border bg-background"
+              draggable
+              onDragStart={(e) => handleDragStart(e, i)}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={(e) => { e.preventDefault(); void handleDrop(i) }}
+              onDragEnd={handleDragEnd}
+              className={`flex items-center gap-2 p-3 rounded-lg border bg-background transition-colors
+                ${dragOverIndex === i && dragIndex !== i ? 'border-blue-400 bg-blue-500/10' : 'border-border'}
+                ${dragIndex === i ? 'opacity-50' : ''}`}
             >
-              <FolderOpen size={16} className="text-muted-foreground flex-shrink-0" />
+              <GripVertical
+                size={16}
+                className="text-muted-foreground/50 flex-shrink-0 cursor-grab active:cursor-grabbing"
+              />
+              {entry.isRoot ? (
+                <Crown size={16} className="text-amber-500 flex-shrink-0" />
+              ) : (
+                <FolderOpen size={16} className="text-muted-foreground flex-shrink-0" />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-foreground">
                   {entry.resolved.split(/[\\/]/).pop()}
+                  {entry.isRoot && (
+                    <span className="ml-2 text-[11px] text-amber-600 font-normal">root</span>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground truncate" title={entry.resolved}>
                   {entry.resolved}

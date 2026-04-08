@@ -141,6 +141,9 @@ const api = {
   saveBusinessFolders: (folders: string[]): Promise<void> =>
     ipcRenderer.invoke('business-folders:save', folders),
 
+  setRootBusiness: (rootIndex: number): Promise<BusinessFolderEntry[]> =>
+    ipcRenderer.invoke('business-folders:set-root', rootIndex),
+
   scanBusinessFolders: (): Promise<ScanResult> => ipcRenderer.invoke('business-folders:scan'),
 
   getCachedScan: (): Promise<ScanResult | null> =>

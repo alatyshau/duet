@@ -308,14 +308,16 @@ async def lifespan(app: Starlette):
     logger.info(f"Duet backend started (version {get_version()})")
 
     # Setup signal handlers for graceful shutdown
-    loop = asyncio.get_event_loop()
+    # add_signal_handler is Unix-only; on Windows host uses POST /stop
+    if sys.platform != 'win32':
+        loop = asyncio.get_event_loop()
 
-    def handle_signal():
-        if _shutdown_event:
-            _shutdown_event.set()
+        def handle_signal():
+            if _shutdown_event:
+                _shutdown_event.set()
 
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, handle_signal)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, handle_signal)
 
     # Initial scan + manifest watcher
     global _watcher
