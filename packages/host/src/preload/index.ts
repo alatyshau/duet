@@ -147,6 +147,16 @@ const api = {
   getCachedStreams: (): Promise<StreamsCache | null> =>
     ipcRenderer.invoke('business-folders:get-cached-streams'),
 
+  // === Instructions download ===
+
+  downloadInstructionsTemplate: (
+    targetFolder: string
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('instructions:download-template', targetFolder),
+
+  isInstructionsFolderEmpty: (folderPath: string): Promise<boolean> =>
+    ipcRenderer.invoke('instructions:is-folder-empty', folderPath),
+
   // === Instructions fix ===
 
   fixInstructionsError: (relativePath: string, reasonCode: string): Promise<boolean> =>

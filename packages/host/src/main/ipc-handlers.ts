@@ -29,6 +29,10 @@ import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
 import { triggerMerge, readCachedErrors, fixInstructionsError } from '../core/instructions'
 import {
+  downloadInstructionsTemplate,
+  isFolderEmpty
+} from '../core/instructions-download'
+import {
   getBusinessFolders,
   saveBusinessFolders,
   triggerScan,
@@ -449,6 +453,30 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       const state = context.getAppState()
       if (!state.instructionsPath) return false
       return fixInstructionsError(state.instructionsPath, relativePath, reasonCode)
+    }
+  )
+
+  // === Instructions download ===
+
+  ipcMain.handle(
+    'instructions:download-template',
+    async (
+      _event,
+      targetFolder: string
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        await downloadInstructionsTemplate(targetFolder)
+        return { ok: true }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'instructions:is-folder-empty',
+    (_event, folderPath: string): boolean => {
+      return isFolderEmpty(folderPath)
     }
   )
 

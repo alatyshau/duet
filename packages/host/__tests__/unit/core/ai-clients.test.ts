@@ -587,7 +587,7 @@ describe('core/ai-clients', () => {
       const { parse } = await import('smol-toml')
       const parsed = parse(content)
       expect(parsed.mcp_servers).toBeDefined()
-      expect((parsed.mcp_servers as any).duet.url).toBe(MCP_URL)
+      expect((parsed.mcp_servers as Record<string, Record<string, string>>).duet.url).toBe(MCP_URL)
       expect(parsed.model_instructions_file).toContain('duet_instructions.md')
     })
 

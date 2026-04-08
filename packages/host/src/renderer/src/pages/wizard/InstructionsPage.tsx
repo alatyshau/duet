@@ -1,6 +1,6 @@
 /*
- * Шаг 6: Инструкции — путь к Duet-Instructions + merge + ошибки.
- * Folder picker для instructionsPath, таблица ошибок, кнопка Regenerate.
+ * Шаг 5: Инструкции — onboarding (скачать/указать) + configured (merge + ошибки).
+ * Два состояния: onboarding (instructionsPath не задан) и configured (задан).
  */
 import { useState, useEffect } from 'react'
 import { Button } from '@renderer/components/ui/button'
@@ -11,7 +11,11 @@ import {
   RefreshCw,
   Loader2,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  ChevronRight,
+  ChevronDown,
+  ExternalLink
 } from 'lucide-react'
 import type {
   AppState,
@@ -36,13 +40,17 @@ export function InstructionsPage({
   const [merging, setMerging] = useState(false)
   const [mergeResult, setMergeResult] = useState<InstructionsMergeResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false)
+  const [pendingFolder, setPendingFolder] = useState<string | null>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
 
   const instructionsPath = appState.instructionsPath
   const hasMachineConfig = !!(appState.duetConfigPath && appState.machine)
 
-  // Load cached errors on mount.
-  // null = cache missing (merge never ran) → status stays null (not determined).
-  // [] = cache exists with 0 errors → done.
+  // Load cached errors on mount
   useEffect(() => {
     if (!window.api) return
     window.api
@@ -54,22 +62,12 @@ export function InstructionsPage({
             onStatusChange(_errorsToPageStatus(cached))
           }
         }
-        // cached === null → merge never ran, leave status as null
       })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSelectPath = async (): Promise<void> => {
-    const selected = await window.api.selectFolder(instructionsPath ?? undefined)
-    if (!selected) return
-    const newState = await window.api.setInstructionsPath(selected)
-
-    // Auto-merge on first path set
-    if (newState.instructionsPath) {
-      await handleMerge()
-    }
-  }
+  // === Shared actions ===
 
   const handleMerge = async (): Promise<void> => {
     setMerging(true)
@@ -79,8 +77,9 @@ export function InstructionsPage({
       setErrors(result.errors)
       onStatusChange(_errorsToPageStatus(result.errors))
 
-      // Auto-configure agents when merge has no real errors — propagate to App.tsx for sidebar update
-      const hasRealError = result.errors.some((e: InstructionsError) => !WARNING_CODES.has(e.reason_code))
+      const hasRealError = result.errors.some(
+        (e: InstructionsError) => !WARNING_CODES.has(e.reason_code)
+      )
       if (!hasRealError) {
         const agents = await window.api.configureAgents()
         onAgentsUpdated(agents)
@@ -92,12 +91,78 @@ export function InstructionsPage({
     }
   }
 
+  const setPathAndMerge = async (path: string): Promise<void> => {
+    await window.api.setInstructionsPath(path)
+    await handleMerge()
+  }
+
   const handleFixError = async (error: InstructionsError): Promise<void> => {
     const fixed = await window.api.fixInstructionsError(error.path, error.reason_code)
     if (fixed) {
-      // Re-merge to refresh errors
       await handleMerge()
     }
+  }
+
+  // === Onboarding: download template ===
+
+  const handleDownloadTemplate = async (): Promise<void> => {
+    setDownloadError(null)
+    const selected = await window.api.selectFolder()
+    if (!selected) return
+
+    const empty = await window.api.isInstructionsFolderEmpty(selected)
+    if (!empty) {
+      setPendingFolder(selected)
+      setConfirmOverwrite(true)
+      return
+    }
+
+    await doDownload(selected)
+  }
+
+  const doDownload = async (folder: string): Promise<void> => {
+    setConfirmOverwrite(false)
+    setPendingFolder(null)
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const result = await window.api.downloadInstructionsTemplate(folder)
+      if (!result.ok) {
+        setDownloadError(result.error ?? 'Неизвестная ошибка')
+        return
+      }
+      await setPathAndMerge(folder)
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  // === Onboarding: pick existing folder ===
+
+  const handlePickExisting = async (): Promise<void> => {
+    const selected = await window.api.selectFolder()
+    if (!selected) return
+    await setPathAndMerge(selected)
+  }
+
+  // === Configured: change path ===
+
+  const handleChangePath = async (): Promise<void> => {
+    const selected = await window.api.selectFolder(instructionsPath ?? undefined)
+    if (!selected) return
+    await setPathAndMerge(selected)
+  }
+
+  // === Configured: reset ===
+
+  const handleReset = async (): Promise<void> => {
+    await window.api.setInstructionsPath('')
+    setErrors([])
+    setMergeResult(null)
+    onStatusChange(null)
+    setConfirmReset(false)
   }
 
   const handleOpen = (): void => {
@@ -113,6 +178,8 @@ export function InstructionsPage({
     )
   }
 
+  const isOnboarding = !instructionsPath
+
   return (
     <div className="space-y-6">
       <div>
@@ -120,9 +187,7 @@ export function InstructionsPage({
           <FileText size={24} />
           Инструкции
         </h2>
-        <p className="text-muted-foreground mt-1">
-          Путь к Duet-Instructions — персоны, скиллы, core_instructions
-        </p>
+        <p className="text-muted-foreground mt-1">Персоны, скиллы и настройки для AI</p>
       </div>
 
       {/* Dependency banner */}
@@ -130,7 +195,9 @@ export function InstructionsPage({
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-foreground">Необходима предварительная настройка</p>
+            <p className="text-sm font-medium text-foreground">
+              Необходима предварительная настройка
+            </p>
             <p className="text-xs text-muted-foreground mt-1">
               Сначала настройте DuetConfig и имя машины (шаг 2).
             </p>
@@ -138,98 +205,243 @@ export function InstructionsPage({
         </div>
       )}
 
-      {/* Path picker */}
-      <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-        <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-background">
-          <div className="flex-shrink-0 mt-0.5">
-            {instructionsPath ? (
-              <CheckCircle className="w-5 h-5 text-green-600" />
-            ) : (
-              <AlertTriangle className="w-5 h-5 text-amber-500" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-foreground">Duet-Instructions</div>
-            {!instructionsPath && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Git-репозиторий с пользовательскими инструкциями для AI
-              </p>
-            )}
-            {instructionsPath && (
-              <p className="text-sm text-green-600 mt-1 break-all">{instructionsPath}</p>
-            )}
-            <div className="flex gap-2 mt-3">
-              <Button
-                variant={instructionsPath ? 'outline' : 'default'}
-                size="sm"
-                onClick={handleSelectPath}
-                disabled={!hasMachineConfig}
-              >
-                <FolderOpen size={16} />
-                {instructionsPath ? 'Изменить' : 'Выбрать'}
-              </Button>
-              {instructionsPath && (
-                <Button variant="outline" size="sm" onClick={handleOpen}>
-                  Открыть
-                </Button>
-              )}
+      {isOnboarding ? (
+        // =================================================================
+        // State 1: Onboarding
+        // =================================================================
+        <>
+          {/* Card 1: Download template (primary) */}
+          <div className="bg-card rounded-xl border-2 border-primary/30 p-6 space-y-4 relative">
+            <div className="absolute -top-3 left-4 bg-primary text-primary-foreground text-xs font-medium px-2 py-0.5 rounded-full">
+              Рекомендуется
             </div>
-          </div>
-        </div>
+            <div className="flex items-start gap-3">
+              <Download className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-medium text-foreground">Скачать шаблон Duet</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Готовый набор инструкций. Персоны, скиллы, core_instructions — всё включено. Можно
+                  кастомизировать под себя потом.
+                </p>
+              </div>
+            </div>
 
-        {/* Regenerate button */}
-        {instructionsPath && (
-          <Button variant="outline" className="w-full" onClick={handleMerge} disabled={merging}>
-            {merging ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Генерирую...
-              </>
-            ) : (
-              <>
-                <RefreshCw size={16} />
-                Regenerate
-              </>
+            {/* Confirm overwrite */}
+            {confirmOverwrite && pendingFolder && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-foreground">
+                  Папка содержит файлы. Шаблон будет добавлен поверх.
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => doDownload(pendingFolder)}>
+                    Продолжить
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setConfirmOverwrite(false)
+                      setPendingFolder(null)
+                    }}
+                  >
+                    Отмена
+                  </Button>
+                </div>
+              </div>
             )}
-          </Button>
-        )}
 
-        {/* Merge result */}
-        {mergeResult && mergeResult.status === 'ok' && mergeResult.errors.length === 0 && (
-          <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 bg-green-50">
-            <CheckCircle className="w-4 h-4 text-green-600" />
-            <span className="text-sm text-green-700">
-              Инструкции сгенерированы. AI агенты обновлены.
-            </span>
+            {/* Download error */}
+            {downloadError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm text-red-700">{downloadError}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={handleDownloadTemplate}
+                  >
+                    Повторить
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <Button onClick={handleDownloadTemplate} disabled={!hasMachineConfig || downloading}>
+              {downloading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Скачиваю шаблон...
+                </>
+              ) : (
+                <>
+                  <FolderOpen size={16} />
+                  Выбрать папку и скачать
+                </>
+              )}
+            </Button>
           </div>
-        )}
-      </div>
 
-      {/* Errors */}
-      {errors.length > 0 && (
-        <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-500" />
-            <h3 className="text-lg font-medium text-foreground">
-              {errors.some((e) => !WARNING_CODES.has(e.reason_code))
-                ? `Ошибки валидации (${errors.length})`
-                : `Предупреждения (${errors.length})`}
-            </h3>
+          {/* Card 2: Pick existing folder (secondary) */}
+          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <FolderOpen className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-medium text-foreground">Указать существующую папку</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Если вы уже клонировали репо или у вас есть папка с инструкциями.
+                </p>
+              </div>
+            </div>
+
+            <Button variant="outline" onClick={handlePickExisting} disabled={!hasMachineConfig}>
+              <FolderOpen size={16} />
+              Выбрать папку
+            </Button>
           </div>
 
-          <StatusTable items={instructionErrorsToItems(errors, handleFixError)} />
-        </div>
+          {/* Expandable: advanced git instructions */}
+          <div className="px-1">
+            <button
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Для продвинутых: fork + git clone
+            </button>
+            {showAdvanced && (
+              <div className="mt-2 ml-5 text-sm text-muted-foreground space-y-2">
+                <p>Если хотите управлять инструкциями через git:</p>
+                <ol className="list-decimal ml-4 space-y-1">
+                  <li>
+                    Откройте{' '}
+                    <a
+                      href="https://github.com/alatyshau/Duet-Instructions"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline inline-flex items-center gap-0.5"
+                    >
+                      github.com/alatyshau/Duet-Instructions
+                      <ExternalLink size={12} />
+                    </a>
+                  </li>
+                  <li>Нажмите Fork — создаст копию в вашем GitHub</li>
+                  <li>
+                    Клонируйте свой форк:
+                    <code className="block mt-1 text-xs bg-muted px-2 py-1 rounded">
+                      git clone https://github.com/&lt;you&gt;/Duet-Instructions &lt;путь&gt;
+                    </code>
+                  </li>
+                  <li>Укажите папку выше через «Выбрать папку»</li>
+                </ol>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        // =================================================================
+        // State 2: Configured
+        // =================================================================
+        <>
+          {/* Path card */}
+          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-background">
+              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-foreground">Duet-Instructions</div>
+                <p className="text-sm text-green-600 mt-1 break-all">{instructionsPath}</p>
+                <div className="flex gap-2 mt-3">
+                  <Button variant="outline" size="sm" onClick={handleChangePath}>
+                    <FolderOpen size={16} />
+                    Изменить
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleOpen}>
+                    Открыть
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Regenerate button */}
+            <Button variant="outline" className="w-full" onClick={handleMerge} disabled={merging}>
+              {merging ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Генерирую...
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={16} />
+                  Regenerate
+                </>
+              )}
+            </Button>
+
+            {/* Merge result */}
+            {mergeResult && mergeResult.status === 'ok' && mergeResult.errors.length === 0 && (
+              <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 bg-green-50">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                <span className="text-sm text-green-700">
+                  Инструкции сгенерированы. AI агенты обновлены.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Errors */}
+          {errors.length > 0 && (
+            <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <h3 className="text-lg font-medium text-foreground">
+                  {errors.some((e) => !WARNING_CODES.has(e.reason_code))
+                    ? `Ошибки валидации (${errors.length})`
+                    : `Предупреждения (${errors.length})`}
+                </h3>
+              </div>
+              <StatusTable items={instructionErrorsToItems(errors, handleFixError)} />
+            </div>
+          )}
+
+          {/* Reset link */}
+          <div className="flex justify-end px-1">
+            {!confirmReset ? (
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setConfirmReset(true)}
+              >
+                Сбросить настройку
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">
+                  Сбросить путь к инструкциям? Файлы на диске не будут удалены.
+                </span>
+                <Button variant="outline" size="sm" onClick={handleReset}>
+                  Сбросить
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setConfirmReset(false)}>
+                  Отмена
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Help text */}
+          <div className="text-xs text-muted-foreground space-y-1 px-1">
+            <p>
+              <strong>Что делает Regenerate:</strong> мержит платформенный bootstrapper.md с
+              пользовательскими core_instructions.md, строит таблицу скиллов, записывает в{' '}
+              <code className="text-[11px] bg-muted px-1 rounded">
+                DuetData/duet-instructions.md
+              </code>
+              .
+            </p>
+            <p>При 0 ошибок — автоматически обновляет конфигурацию AI агентов (шаг 6).</p>
+          </div>
+        </>
       )}
-
-      {/* Help text */}
-      <div className="text-xs text-muted-foreground space-y-1 px-1">
-        <p>
-          <strong>Что делает Regenerate:</strong> мержит платформенный bootstrapper.md с
-          пользовательскими core_instructions.md, строит таблицу скиллов, записывает в{' '}
-          <code className="text-[11px] bg-muted px-1 rounded">DuetData/duet-instructions.md</code>.
-        </p>
-        <p>При 0 ошибок — автоматически обновляет конфигурацию AI агентов (шаг 7).</p>
-      </div>
     </div>
   )
 }
@@ -268,12 +480,12 @@ function instructionErrorsToItems(
   return errors.map((e) => {
     const isWarning = WARNING_CODES.has(e.reason_code)
     return {
-      severity: isWarning ? 'warning' as const : 'error' as const,
+      severity: isWarning ? ('warning' as const) : ('error' as const),
       message: e.description,
       detail: e.path || undefined,
       fixable: FIXABLE_CODES.has(e.reason_code),
       onFix: () => onFix(e),
-      copyText: e.path ? _copyTextForReason(e.reason_code, e.path) : undefined,
+      copyText: e.path ? _copyTextForReason(e.reason_code, e.path) : undefined
     }
   })
 }

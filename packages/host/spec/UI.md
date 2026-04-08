@@ -109,7 +109,12 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 **Step 4 (Воркспейсы):** Scan button + results. Shows entity tree from `streams.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors. If no business folders configured, shows message directing user to step 1.
 
-**Step 5 (Instructions):** Folder picker for `instructionsPath` (saved to machine.json). Auto-merge on first path set. Regenerate button for subsequent merges. On 0 errors, auto-configures AI agents (step 6) and propagates result to App.tsx via `onAgentsUpdated` callback (sidebar step 6 updates immediately). Error table shows Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). Fix → edit source file → auto re-merge. Dependency banner shown when DuetConfig/machine not configured (step 1); folder picker disabled.
+**Step 5 (Instructions):** Two states with bidirectional transition:
+
+- **Onboarding** (`instructionsPath` not set): Two cards — "Скачать шаблон Duet" (primary, accent border, "Рекомендуется" badge) downloads zip from GitHub via `instructions:download-template` IPC, and "Указать существующую папку" (secondary) for users with existing repo. Expandable "Для продвинутых: fork + git clone" section with step-by-step guide. Download card handles: folder picker → emptiness check (`instructions:is-folder-empty`) → confirm overwrite if non-empty → download with spinner → auto `setInstructionsPath` + `mergeInstructions` → transition to configured state. Download errors shown inline with retry button.
+- **Configured** (`instructionsPath` set): Path display with Изменить (folder picker → re-merge) and Открыть buttons. Regenerate button (full-width). On 0 errors, auto-configures AI agents (step 6) via `onAgentsUpdated` callback. Error table with Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). "Сбросить настройку" text link at bottom (muted, with confirmation) → clears path → returns to onboarding.
+
+Dependency banner shown when DuetConfig/machine not configured (step 1); action buttons disabled.
 
 **Step 6 (AI Agents):** Agent cards show checked files list and issues. Fix button for fixable issues (e.g. additionalDirectories). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No dark: classes (light-only theme).
 

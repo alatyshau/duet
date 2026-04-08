@@ -305,6 +305,20 @@ Fallback: if standard file absent, orientation searches next in chain per entity
 
 ## Build & Release
 
+### Workflow
+
+```
+1. Code changes ready, verify passes
+2. npm run release (Host) / npm run vsix (Extension)
+   — bumps version in package.json
+   — builds artifact (.dmg / .vsix)
+   — Host also writes resources/BUILD_SHA
+3. Commit: code changes + bumped version + BUILD_SHA
+4. Push
+```
+
+Release **before** commit: build scripts modify working tree (version bump, BUILD_SHA). These changes go into the commit together with the code. Agent never commits — only prepares the message.
+
 ### Artifacts
 
 | Component | Command | Artifact | Version bump |

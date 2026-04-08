@@ -1,6 +1,6 @@
 {
   "name": "duet-host",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Duet Host — Electron Menu Bar приложение",
   "type": "module",
   "main": "./out/main/index.cjs",

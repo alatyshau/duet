@@ -97,6 +97,10 @@ export interface DuetAPI {
   getCachedScan: () => Promise<ScanResult | null>
   getCachedStreams: () => Promise<StreamsCache | null>
 
+  // Instructions download
+  downloadInstructionsTemplate: (targetFolder: string) => Promise<{ ok: boolean; error?: string }>
+  isInstructionsFolderEmpty: (folderPath: string) => Promise<boolean>
+
   // Instructions fix
   fixInstructionsError: (relativePath: string, reasonCode: string) => Promise<boolean>
 }

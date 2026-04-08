@@ -58,7 +58,7 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 | Layer | Responsibility | Files |
 |-------|----------------|-------|
 | `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
-| `core/` | Config, app state, deploy, backend, AI clients, instructions, business folders, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `business-folders.ts`, `wizard-status.ts`, `apps.ts` |
+| `core/` | Config, app state, deploy, backend, AI clients, instructions, instructions download, business folders, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `instructions-download.ts`, `business-folders.ts`, `wizard-status.ts`, `apps.ts` |
 | `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
 | `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
 | `preload/` | Bridge main <-> renderer | `index.ts`, `index.d.ts` |
@@ -213,6 +213,18 @@ Manages merged AI instructions lifecycle. Backend generates `DuetData/duet-instr
 
 Implementation: `core/instructions.ts`
 
+## Instructions Download
+
+Downloads Duet-Instructions template from GitHub for onboarding (users without existing instructions).
+
+**Operations:**
+- `downloadInstructionsTemplate(targetFolder)` — fetches zip from GitHub (`/archive/refs/heads/main.zip`), extracts to targetFolder. Uses global `fetch` (Chromium network stack in Electron ≥28 — proxy, redirects). Extraction: `unzip` on macOS, `tar -xf` on Windows. No new dependencies.
+- `isFolderEmpty(folderPath)` — checks if folder is empty, ignoring system files (.DS_Store, Thumbs.db, desktop.ini, .gitkeep). Returns true for non-existent folders.
+
+Does NOT set `instructionsPath` — that's the caller's responsibility (renderer calls `setInstructionsPath` + `mergeInstructions` after successful download).
+
+Implementation: `core/instructions-download.ts`
+
 ## Business Folders
 
 Manages business folder configuration (stored in `DuetConfig/settings.json`).
@@ -254,6 +266,8 @@ Implementation: `core/business-folders.ts`
 | `instructions:merge` | renderer -> main | Trigger POST /merge-duet-instructions |
 | `instructions:get-errors` | renderer -> main | Read cached instruction errors |
 | `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
+| `instructions:download-template` | renderer -> main | Download Duet-Instructions zip from GitHub, extract to targetFolder |
+| `instructions:is-folder-empty` | renderer -> main | Check if folder is empty (ignoring system files) |
 | `business-folders:get` | renderer -> main | Get business_folders from settings.json |
 | `business-folders:save` | renderer -> main | Save business_folders to settings.json |
 | `business-folders:scan` | renderer -> main | Trigger POST /scan |
@@ -278,7 +292,7 @@ Implementation: `core/business-folders.ts`
 | 2 | Python 3.10+ | `PythonPage.tsx` | Auto-detect on mount, manual file picker, `savePythonPath` |
 | 3 | Backend | `BackendPage.tsx` | Deploy status/button, channel toggle (visible when `hasDevBackendPath`), logs |
 | 4 | Воркспейсы | `WorkspacesPage.tsx` | Manual Scan button, entity tree, error table |
-| 5 | Инструкции | `InstructionsPage.tsx` | Folder picker for `instructionsPath`, Regenerate, error table, auto-configure agents on success |
+| 5 | Инструкции | `InstructionsPage.tsx` | Two states: onboarding (download template / pick existing folder) and configured (path display, Regenerate, error table). Auto-configure agents on successful merge |
 | 6 | AI Агенты | `AgentsPage.tsx` | Agent detection cards, Configure All, Fix issue buttons |
 
 ### BackendAppPage (Apps tab)
@@ -342,7 +356,7 @@ npm run typecheck    # tsc
 
 | Suite | Files | What |
 |-------|-------|------|
-| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, business-folders, wizard-status, mappers, navigation |
+| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, instructions-download, business-folders, wizard-status, mappers, navigation |
 | E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
 
 ### Testability
@@ -488,6 +502,7 @@ Quick lookup for concepts not obvious from file names. For layer responsibilitie
 | Severity type, StatusItem, PageStatus | `shared/types.ts` (types), `core/wizard-status.ts` (functions) |
 | VERSION metadata parsing + writing | `core/deploy.ts` (parseVersionMeta, writeVersion, readBuildSha) |
 | Deploy warning logic (channel-aware) | `core/deploy.ts:isDeployWarning()` |
+| Instructions template download | `core/instructions-download.ts` |
 | Pointer file path / machine config | `core/config.ts` |
 | What triggers tray icon change | `main/index.ts:updateAppState()` |
 | How IPC channels are registered | `main/ipc-handlers.ts:setupIpcHandlers()` |
