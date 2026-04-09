@@ -84,7 +84,7 @@ server.py (entry point, lifecycle)
 
 #### `/scan` Behavior
 
-**Debounce:** If last scan completed < 5 seconds ago, returns `{ status: "skipped", reason: "recent_scan" }`.
+**Debounce:** If last scan completed < 5 seconds ago, returns `{ status: "skipped", reason: "recent_scan", entities_count: 0, errors: [] }`. All scan responses conform to `ScanResult` shape (via `make_scan_result()` factory).
 
 **Blocking:** Scan runs synchronously. During scan, backend does NOT respond to other requests. Typical duration: 1-5 seconds.
 

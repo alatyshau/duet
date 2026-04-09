@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config import get_business_folders, get_repos_path, add_business_folder
 from db import DatabaseManager, Entity
-from scanner import Scanner
+from scanner import Scanner, make_scan_result
 
 
 # Minimum interval between scans (seconds)
@@ -70,7 +70,7 @@ class EntitiesService:
         """
         now = time.time()
         if now - self._last_scan_time < SCAN_DEBOUNCE_SECONDS:
-            return {"status": "skipped", "reason": "recent_scan"}
+            return make_scan_result("skipped", reason="recent_scan")
 
         scanner = Scanner(self.db)
         result = scanner.scan()

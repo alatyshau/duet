@@ -134,7 +134,8 @@ def streams() -> list[dict]:
     """Find any entity in the user's hierarchy: businesses, streams, products, and active projects.
 
     Use this to locate a product by name, discover what exists, or navigate
-    the hierarchy tree.
+    the hierarchy tree. Prefer this over filesystem searches (find, ls, glob)
+    for discovering products and navigating the hierarchy.
 
     Each entity has: id, type, name, icon, path, parent_id.
     """

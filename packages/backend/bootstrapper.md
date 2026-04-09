@@ -13,6 +13,10 @@
 - **`components`** — packages in the product, their specs and descriptions
 - **`duet_paths.instructionsPath`** — root of user instructions workspace
 
+## Duet MCP tools
+
+`orientation` is the session gate. After orientation, use `streams()` to discover products and navigate the hierarchy across all businesses and streams. **Always prefer `streams()` over filesystem searches** (find, ls, glob) for product/stream discovery.
+
 ## User instructions
 
 The skills table below lists all available personas and skills. Paths are relative to `duet_paths.instructionsPath` from orientation. Load specific files via Read.

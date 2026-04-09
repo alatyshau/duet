@@ -22,6 +22,25 @@ from config import get_business_folders, get_repos_path
 from normalization import normalize_path
 
 
+def make_scan_result(
+    status: str,
+    entities_count: int = 0,
+    errors: list[dict] | None = None,
+    **extra,
+) -> dict:
+    """Build a scan result dict conforming to the ScanResult contract.
+
+    All scan code paths MUST use this to guarantee required fields are present.
+    """
+    result = {
+        "status": status,
+        "entities_count": entities_count,
+        "errors": errors if errors is not None else [],
+    }
+    result.update(extra)
+    return result
+
+
 @dataclass
 class Manifest:
     name: str
@@ -97,7 +116,7 @@ class Scanner:
         Returns scan statistics and errors.
         """
         if self._scan_in_progress:
-            return {"status": "skipped", "reason": "scan already in progress"}
+            return make_scan_result("skipped", reason="scan already in progress")
 
         try:
             self._scan_in_progress = True
@@ -110,11 +129,7 @@ class Scanner:
                 self._scan_business(folder)
 
             entities = self.db.get_all_entities()
-            return {
-                "status": "completed",
-                "entities_count": len(entities),
-                "errors": self.errors,
-            }
+            return make_scan_result("completed", entities_count=len(entities), errors=self.errors)
         finally:
             self._scan_in_progress = False
 
