@@ -203,7 +203,7 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 1. Reads `bootstrapper.md` (bundled with backend), finds marker `<!-- INSERT USER CORE INSTRUCTIONS -->`
 2. Reads `core_instructions` from `index.json`, extracts user content (first H2 onwards, H1 stripped)
 3. Replaces marker with user content
-4. Builds skills table (name, shortcuts, trigger), inserts at `<!-- INSERT SKILLS TABLE -->` marker
+4. Builds skills table (name, shortcuts, path, description, trigger, noTrigger), inserts at `<!-- INSERT SKILLS TABLE -->` marker
 5. Writes merged result to `DuetData/duet-instructions.md` (atomic write)
 6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic write)
 

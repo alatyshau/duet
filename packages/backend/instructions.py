@@ -382,17 +382,18 @@ def _build_skills_table(instructions_path: Path, index_data: dict) -> tuple[str,
         "",
         "**Available skills:**",
         "",
-        "| Name | Shortcuts | Description | Trigger | noTrigger |",
-        "|------|-----------|-------------|---------|-----------|",
+        "| Name | Shortcuts | Path | Description | Trigger | noTrigger |",
+        "|------|-----------|------|-------------|---------|-----------|",
     ]
 
     for skill in all_skills:
         name = skill["name"]
         shortcuts = ", ".join(skill.get("shortcuts", [])) or "—"
+        path = skill.get("path", "—")
         description = skill.get("description", "—")
         trigger = skill.get("trigger", "—")
         no_trigger = skill.get("noTrigger", "—")
-        lines.append(f"| {name} | {shortcuts} | {description} | {trigger} | {no_trigger} |")
+        lines.append(f"| {name} | {shortcuts} | {path} | {description} | {trigger} | {no_trigger} |")
 
     lines.append("")
     return "\n".join(lines), all_errors

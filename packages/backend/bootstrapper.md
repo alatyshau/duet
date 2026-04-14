@@ -26,6 +26,7 @@ The skills table below lists all available personas and skills. Paths are relati
 - `trigger` — describes WHEN to auto-load this skill. If the current task matches → load the skill via Read without asking
 - `noTrigger` — describes WHEN NOT to load (disambiguation with similar skills)
 - `description` — general purpose summary. If no `trigger` field, use description to decide
+- `path` — file to Read when loading the skill (relative to `duet_paths.instructionsPath`)
 
 **`!` prefix convention:** Any word in user text starting with `!` (e.g. `!чек`, `!коммит`) is most likely a Duet skill shortcut. Treat it as an explicit invocation — look it up in the skills catalog and load the matching skill.
 

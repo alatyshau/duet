@@ -607,6 +607,6 @@ class TestMergeDuetInstructions:
         merge_duet_instructions(bootstrapper, instr_path, output, errors_file)
 
         content = output.read_text(encoding="utf-8")
-        assert "| Name | Shortcuts | Description | Trigger | noTrigger |" in content
-        assert "| alpha | !a, !b | Alpha skill | — | — |" in content
-        assert "| beta | — | Beta skill | When X happens | — |" in content
+        assert "| Name | Shortcuts | Path | Description | Trigger | noTrigger |" in content
+        assert "| alpha | !a, !b | skills/tools/alpha.md | Alpha skill | — | — |" in content
+        assert "| beta | — | skills/tools/beta.md | Beta skill | When X happens | — |" in content
