@@ -3,7 +3,6 @@
 Provides workspace context for AI agents and extension.
 """
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -19,6 +18,7 @@ from db import DatabaseManager, Entity
 from description import extract_description, find_spec_file
 from normalization import normalize_path
 from scanner import scan_components
+from services.manifest import read_reference_repos as _read_manifest_reference_repos
 
 logger = logging.getLogger(__name__)
 
@@ -429,28 +429,8 @@ class WorkspaceService:
         Returns map of {name.git: absolute_path} for existing clones.
         """
         drive_path = self._resolve_drive_path(entity)
-        if not drive_path:
-            return None
-
-        # Determine manifest filename
-        manifest_names = {
-            "business": "business.json",
-            "stream": "stream.json",
-            "product": "product.json",
-        }
-        manifest_filename = manifest_names.get(entity.type)
-        if not manifest_filename:
-            return None
-
-        manifest_path = drive_path / manifest_filename
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return None
-
-        ref_repos_raw = data.get("reference_repos")
-        if not isinstance(ref_repos_raw, dict) or not ref_repos_raw:
+        ref_repos_raw = _read_manifest_reference_repos(drive_path, entity.type)
+        if not ref_repos_raw:
             return None
 
         repos_path = get_repos_path()

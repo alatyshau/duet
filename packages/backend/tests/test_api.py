@@ -80,6 +80,48 @@ class TestStreamsEndpoint:
         data = response.json()
         assert len(data["streams"]) == 2
 
+    async def test_streams_exposes_reference_repos_from_manifest(
+        self, client: AsyncClient, db, duet_data_builder, monkeypatch
+    ) -> None:
+        """Entities with reference_repos in manifest carry them in /streams response.
+
+        Extension needs URLs (not just cloned paths) to clone missing reference
+        repos when the user opens a node — parallel to how git_url is delivered.
+        """
+        builder = duet_data_builder
+        builder.add_business("Biz")
+        builder.build(monkeypatch)
+
+        biz_path = builder.get_business_path(0)
+        from tests.fixtures import ManifestBuilder
+        ManifestBuilder.business(
+            biz_path, "Biz",
+            reference_repos={"cookbook": "https://github.com/anthropics/cookbook.git"},
+        )
+
+        from scanner import Scanner
+        scanner = Scanner(db, repos_path=builder.get_repos_path())
+        scanner.scan()
+
+        response = await client.get("/streams")
+        assert response.status_code == 200
+
+        streams = response.json()["streams"]
+        biz = next(s for s in streams if s["type"] == "business")
+        assert biz["reference_repos"] == {
+            "cookbook": "https://github.com/anthropics/cookbook.git"
+        }
+
+    async def test_streams_reference_repos_null_when_absent(
+        self, client: AsyncClient, db
+    ) -> None:
+        """Entities without reference_repos in manifest get reference_repos=None."""
+        db.insert_entity(EntityFactory.business("Business", "/business"))
+        response = await client.get("/streams")
+
+        streams = response.json()["streams"]
+        assert streams[0]["reference_repos"] is None
+
 
 
 @pytest.mark.asyncio

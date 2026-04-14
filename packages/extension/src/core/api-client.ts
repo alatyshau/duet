@@ -32,6 +32,7 @@ export interface StreamEntity {
     absolute_path: string | null;
     parent_id: string | null;
     git_url: string | null;
+    reference_repos?: Record<string, string> | null;
     status: string | null;
 }
 

@@ -78,7 +78,7 @@ server.py (entry point, lifecycle)
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
-| GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product. Each entity includes `absolute_path`, `status` |
+| GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product. Each entity includes `absolute_path`, `status`, `git_url`, `reference_repos` (map `{name: url}` read from manifest, or `null`) |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + core_instructions + skills table → file. Returns `{ status, path, errors[] }` |
 

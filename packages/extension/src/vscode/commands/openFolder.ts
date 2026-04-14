@@ -97,11 +97,90 @@ async function gitClone(
 }
 
 /**
- * Get repo path in DuetData/repos/ for a product.
- * Format: {ProductName}.git
+ * Get repo path in DuetData/repos/ for a repo name.
+ * Format: {Name}.git
  */
-function getRepoPath(reposDir: string, productName: string): string {
-    return path.join(reposDir, `${productName}.git`);
+function getRepoPath(reposDir: string, name: string): string {
+    return path.join(reposDir, `${name}.git`);
+}
+
+/**
+ * Validate that a reference repo name is safe to use as a folder name.
+ * Reference repo names come from manifest JSON keys (user-authored), so
+ * we guard against path traversal or illegal characters before joining.
+ */
+function isSafeRepoName(name: string): boolean {
+    if (!name || name === '.' || name === '..') {
+        return false;
+    }
+    // Reject anything that tries to escape the reposDir or hide as a dotfile.
+    return !/[\\/]|^\.|[\x00-\x1f]/.test(name);
+}
+
+/**
+ * Clone reference repos declared in the node's manifest into paths.reposPath.
+ * Skips entries that already exist on disk.
+ *
+ * Semantics match the main `git_url` flow: any failure (clone error or user
+ * cancel) aborts the whole open. If a reference repo is unreachable, the user
+ * must remove/comment it out of the manifest — we do not silently proceed
+ * with a partial environment.
+ *
+ * Returns true if all pending clones completed successfully (or none were
+ * needed), false on failure/cancel.
+ */
+async function cloneReferenceRepos(
+    referenceRepos: Record<string, string>,
+    reposDir: string
+): Promise<boolean> {
+    const entries = Object.entries(referenceRepos);
+    const pending: Array<{ name: string; url: string; target: string }> = [];
+    const outputChannel = getGitOutputChannel();
+
+    for (const [name, url] of entries) {
+        if (!isSafeRepoName(name)) {
+            outputChannel.appendLine(
+                `[Skipping reference repo with unsafe name: "${name}"]`
+            );
+            continue;
+        }
+        const target = getRepoPath(reposDir, name);
+        if (!(await dirExists(target))) {
+            pending.push({ name, url, target });
+        }
+    }
+
+    if (pending.length === 0) {
+        return true;
+    }
+
+    return await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Cloning reference repos...',
+            cancellable: true
+        },
+        async (progress, token) => {
+            try {
+                await fs.mkdir(reposDir, { recursive: true });
+            } catch { /* ignore if exists */ }
+
+            for (let i = 0; i < pending.length; i++) {
+                if (token.isCancellationRequested) {
+                    return false;
+                }
+                const { name, url, target } = pending[i];
+                progress.report({
+                    message: `${name} (${i + 1}/${pending.length})`
+                });
+                const ok = await gitClone(url, target, name, token);
+                if (!ok) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    );
 }
 
 /**
@@ -135,7 +214,16 @@ async function openNode(
         return;
     }
 
-    // For everything else: just open the Drive folder
+    // For business/stream/product-without-git: clone any reference repos first,
+    // then open the Drive folder. Clone failures or cancellation abort the open
+    // (symmetric to the main git_url clone flow).
+    if (node.referenceRepos) {
+        const ok = await cloneReferenceRepos(node.referenceRepos, paths.reposPath);
+        if (!ok) {
+            return;
+        }
+    }
+
     const uri = vscode.Uri.file(node.id);
     await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });
 }
@@ -173,6 +261,15 @@ async function openProductWithGit(
 
         if (!shouldClone) {
             // Cancelled or failed
+            return;
+        }
+    }
+
+    // Clone reference repos (if any). Failures or cancel abort the open —
+    // user must fix the manifest before reopening.
+    if (node.referenceRepos) {
+        const ok = await cloneReferenceRepos(node.referenceRepos, paths.reposPath);
+        if (!ok) {
             return;
         }
     }

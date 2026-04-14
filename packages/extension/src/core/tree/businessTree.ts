@@ -8,6 +8,7 @@ export interface TreeNode {
     hasChildren: boolean;
     entityId: number;
     gitUrl?: string;
+    referenceRepos?: Record<string, string>;
 }
 
 export class BusinessTree {
@@ -89,7 +90,8 @@ export class BusinessTree {
             type: stream.type,
             hasChildren: this.streams.some(s => s.parent_id === stream.id),
             entityId: numId,
-            gitUrl: stream.git_url ?? undefined
+            gitUrl: stream.git_url ?? undefined,
+            referenceRepos: stream.reference_repos ?? undefined
         };
 
         this.nodeCache.set(numId, node);

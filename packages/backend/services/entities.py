@@ -9,6 +9,7 @@ from pathlib import Path
 from config import get_business_folders, get_repos_path, add_business_folder
 from db import DatabaseManager, Entity
 from scanner import Scanner, make_scan_result
+from services.manifest import read_reference_repos
 
 
 # Minimum interval between scans (seconds)
@@ -165,5 +166,6 @@ class EntitiesService:
             "absolute_path": absolute_path,
             "parent_id": str(entity.parent_id) if entity.parent_id else None,
             "git_url": entity.git_url,
+            "reference_repos": read_reference_repos(absolute_path, entity.type),
             "status": entity.status,
         }

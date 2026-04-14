@@ -139,4 +139,27 @@ describe('BusinessTree', () => {
 
         expect(tree.getRoots()[0].gitUrl).toBe('https://github.com/test');
     });
+
+    it('should expose referenceRepos from stream', () => {
+        const streams: StreamEntity[] = [
+            makeStream({
+                id: '1', type: 'business', name: 'Biz', icon: 'B', absolute_path: '/b',
+                reference_repos: { cookbook: 'https://github.com/anthropics/cookbook.git' }
+            }),
+        ];
+        const tree = new BusinessTree(streams);
+
+        expect(tree.getRoots()[0].referenceRepos).toEqual({
+            cookbook: 'https://github.com/anthropics/cookbook.git'
+        });
+    });
+
+    it('should leave referenceRepos undefined when absent', () => {
+        const streams: StreamEntity[] = [
+            makeStream({ id: '1', type: 'business', name: 'Biz', icon: 'B', absolute_path: '/b' }),
+        ];
+        const tree = new BusinessTree(streams);
+
+        expect(tree.getRoots()[0].referenceRepos).toBeUndefined();
+    });
 });

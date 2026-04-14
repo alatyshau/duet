@@ -60,6 +60,8 @@ Tree providers work synchronously over `StreamEntity[]` (filter, find, sort).
 | Product (no git_url) | Open Drive folder |
 | Product (with git_url) | Clone if needed -> generate workspace -> open workspace |
 
+For any entity whose manifest declares `reference_repos`, any missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open (symmetric to the main `git_url` clone) — an unreachable reference repo must be removed from the manifest before the entity can be opened. Reference repo names are validated against path traversal before being joined with `reposPath`.
+
 Git clone UX:
 - `withProgress` notification (cancellable)
 - Output to "Duet Git" channel
