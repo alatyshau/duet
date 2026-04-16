@@ -59,18 +59,18 @@ Business
 | **component** | компонент | Package in monorepo | `packages/ai-kit` |
 | **spec** | спецификация | Source of truth for AI (in `spec/`) | `packages/ai-kit/spec/` |
 | **project** | проект | GTD project with completion criteria | `260110_ai_kit_design` |
-| **project folder** | проектная папка | Folder in `projects/` (naming: `YYMMDD_name`, `WIP_name`, `TODO_name`) | `projects/WIP_workspace_info/` |
+| **work folder** | рабочая папка | Folder in `work/` (or legacy `projects/`) with a `plan.md` at its root; naming: `YYMMDD_name`, `WIP_name`, `TODO_name`. Nests recursively — any work folder can contain child work folders for subtasks. Synonym: `project folder` / `проектная папка` (legacy, being phased out) | `work/WIP_workspace_info/` |
 | **topic file** | топик-файл | topic_*.md — sub-project with steps | `topic_ai_kit_redesign.md` |
 | **step** | шаг | Unit of work in IMPLEMENTATION PLAN | Step 5, Step 6 |
 | **docs** | документация | Materialized view for humans (in component) | `packages/ai-kit/docs/` |
 
 ## Project management
 
-The user must see and control everything you produce. All working artifacts — plans, design docs, drafts, session notes — go into the project folder (`projects/WIP_<name>/`), never into /tmp, memory files, hidden directories, or built-in planning modes. If the user can't find it in the project folder, it doesn't exist.
+The user must see and control everything you produce. All working artifacts — plans, design docs, drafts, session notes — go into the **work folder** (`work/WIP_<name>/`; legacy `projects/WIP_<name>/` is an accepted synonym during migration), never into /tmp, memory files, hidden directories, or built-in planning modes. If the user can't find it in the work folder, it doesn't exist.
 
-Project folder is a scaffold: it lives while work is in progress, then goes to archive.
+A work folder is a scaffold: it lives while work is in progress, then goes to archive.
 
-**Finding your project folder:** The user may specify it at session start. If not — and the task would benefit from one — suggest creating it: "Want me to create `projects/WIP_<name>/` for this?" If the user agrees, create the folder with `plan.md` containing your best guess at the goal. If the user points you to an existing folder without `plan.md` — create it by analyzing everything in the folder and surrounding context.
+**Finding your work folder:** The user may specify it at session start. If not — and the task would benefit from one — suggest creating it: "Want me to create `work/WIP_<name>/` for this?" If the user agrees, create the folder with `plan.md` containing your best guess at the goal. If the user points you to an existing folder without `plan.md` — create it by analyzing everything in the folder and surrounding context. If the product already uses `projects/` — keep using `projects/` for consistency within that product; don't mix roots.
 
 **`plan.md`** — the user reads this to understand the full picture without opening other files. It must fit on one screen — if it grows beyond that, something belongs in a separate file.
 
@@ -78,6 +78,7 @@ Structure:
 - Goal at the top — the problem being solved, not the solution. "Need a way to deeply analyze issues one by one" is a goal. "Skill briefing with 3-phase algorithm" is a solution. As long as needed to be clear. Explain new terms, give context. Dry and terse is an anti-pattern
 - `## ЧТО СДЕЛАНО` — completed milestones as short narratives with links to details
 - `## ЧТО ДАЛЬШЕ` — remaining work
+- `## ОТКРЫТЫЕ ВОПРОСЫ` — unresolved questions that block or shape future decisions. Optional; include only when there actually are open questions. Keep out of `ЧТО ДАЛЬШЕ` — those are things to do, these are things to decide
 
 Use specific names, not abstract categories — the reader has no context loaded yet.
 - ✅ "Фаза 1 — Отделить инструкции от Duet"
@@ -85,10 +86,10 @@ Use specific names, not abstract categories — the reader has no context loaded
 
 Offload all details, designs, and analysis to separate files linked from plan.md.
 
-**Naming conventions in `projects/`:**
-- `WIP_<name>` — active project
+**Naming conventions in `work/` (or legacy `projects/`):**
+- `WIP_<name>` — active work folder
 - `TODO_##_<name>` — backlog / roadmap (`##` = optional priority for sorting)
-- `ARCHIVE/` or `АРХИВ/` — archive folder. Default naming: `YYMMDD_<name>`. If existing archive uses a different structure — follow it. Explore on demand, don't memorize
+- `archive/YYMMDD_<name>/` — closed work folders, nested inside their parent. `YYMMDD` is the close date, lexicographically sortable. Legacy top-level `ARCHIVE/` or `АРХИВ/` folders may still exist — follow whatever structure is already in place
 
 
 <!-- INSERT USER CORE INSTRUCTIONS -->
