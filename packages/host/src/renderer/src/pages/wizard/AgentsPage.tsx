@@ -130,13 +130,21 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
         <h3 className="text-sm font-medium text-foreground mb-2">Что настраивается?</h3>
         <ul className="text-xs text-muted-foreground space-y-1">
           <li>
-            <strong>Claude Code:</strong> output-style (инструкции) + MCP сервер (duet)
+            <strong>Claude Code:</strong> output-style{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">duet-executor</code> + два custom-агента (
+            <code className="text-[11px] bg-muted px-1 rounded">duet-executor</code>, <code className="text-[11px] bg-muted px-1 rounded">duet-vizir</code>) в{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">~/.claude/agents/</code> + MCP сервер (duet). После настройки
+            перезапустите сессию Claude Code, чтобы агенты появились в{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">/agents</code>.
           </li>
           <li>
-            <strong>Codex:</strong> model_instructions_file + MCP сервер (duet)
+            <strong>Codex:</strong> <code className="text-[11px] bg-muted px-1 rounded">model_instructions_file</code>{' '}
+            (executor) + MCP сервер (duet). Кастомные агенты не разливаются.
           </li>
           <li>
-            <strong>Antigravity:</strong> GEMINI.md (инструкции) + MCP сервер (duet)
+            <strong>Antigravity:</strong> <code className="text-[11px] bg-muted px-1 rounded">GEMINI.md</code> (executor) +
+            MCP сервер (duet). Кастомные агенты не разливаются (платформа не
+            поддерживает их глобально).
           </li>
         </ul>
       </div>

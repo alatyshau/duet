@@ -80,7 +80,7 @@ server.py (entry point, lifecycle)
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
 | GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product. Each entity includes `absolute_path`, `status`, `git_url`, `reference_repos` (map `{name: url}` read from manifest, or `null`) |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
-| POST | `/merge-duet-instructions` | Merges bootstrapper + core_instructions + skills table → file. Returns `{ status, path, errors[] }` |
+| POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core + skills table → one file per agent. Returns `{ status, paths: { agent_name: path }, errors[] }` |
 
 #### `/scan` Behavior
 
@@ -125,7 +125,7 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic write
 
 | File | Source | Consumers |
 |------|--------|-----------|
-| `DuetData/duet-instructions.md` | `POST /merge-duet-instructions` | Host → writes to AI client configs |
+| `DuetData/duet-{agent}.md` (one per agent in `index.json.agents`, e.g. `duet-executor.md`, `duet-vizir.md`) | `POST /merge-duet-instructions` | Host → writes to AI client configs |
 | `DuetData/data/duet-instructions-errors.json` | `POST /merge-duet-instructions` | Host wizard (step 6) |
 | `DuetData/data/scan.json` | `POST /scan` | Host wizard (step 5), Extension (tree) |
 | `DuetData/data/streams.json` | `GET /streams` | Extension (tree without HTTP) |
@@ -195,25 +195,31 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 
 **REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII characters). Returns result directly (not wrapped).
 
-### `/merge-duet-instructions` — Merged Instructions
+### `/merge-duet-instructions` — Merged Instructions (multi-agent)
 
-`POST /merge-duet-instructions` — merges platform bootstrapper + user core_instructions + skills table into a single file. Writes result to `DuetData/duet-instructions.md`.
+`POST /merge-duet-instructions` — merges platform bootstrapper + each agent's core file + skills table into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`.
 
 **Pipeline:** `merge_duet_instructions()` in `instructions.py`:
-1. Reads `bootstrapper.md` (bundled with backend), finds marker `<!-- INSERT USER CORE INSTRUCTIONS -->`
-2. Reads `core_instructions` from `index.json`, extracts user content (first H2 onwards, H1 stripped)
-3. Replaces marker with user content
-4. Builds skills table (name, shortcuts, path, description, trigger, noTrigger), inserts at `<!-- INSERT SKILLS TABLE -->` marker
-5. Writes merged result to `DuetData/duet-instructions.md` (atomic write)
-6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic write)
+1. Reads `bootstrapper.md` (bundled with backend, both markers required) — once.
+2. Reads `index.json` — once. Required field: `agents: { name → relative_path }` map.
+3. Builds skills table (name, shortcuts, path, description, trigger, noTrigger) — once. Shared across agents.
+4. Scans workspace for version-suffix files (`_v2`, `_v3`, …) — once.
+5. For each agent in `index.agents`:
+   - Reads agent file at `instructionsPath / relative_path`.
+   - Extracts user content (first H2 onwards, H1 stripped).
+   - Substitutes both bootstrapper markers (`<!-- INSERT USER CORE INSTRUCTIONS -->`, `<!-- INSERT SKILLS TABLE -->`).
+   - Writes `DuetData/duet-{agent}.md` (atomic).
+6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic).
 
-**Response:** `{ status: "ok"|"error", path: "/absolute/path" | null, errors: [{path, reason_code, description}] }`
+**Response:** `{ status: "ok" | "error", paths: { agent_name: "/absolute/path" }, errors: [{path, reason_code, description}] }`.
 
-**Error reason codes:** `no_frontmatter`, `invalid_yaml`, `missing_fields`, `frontmatter_too_large`, `content_between_h1_h2`, `no_h2_found`, `bootstrapper_not_found`, `bootstrapper_missing_marker`, `index_not_found`, `index_invalid`, `index_missing_field`, `core_instructions_not_found`
+**Status semantics (strict):**
+- `"ok"` ⇔ every agent declared in `index.agents` was merged successfully (validation warnings are allowed).
+- `"error"` ⇔ a fatal pre-condition failed (bootstrapper, index, no agents declared) OR at least one agent merge failed. Successfully merged agents still appear in `paths`; failed ones do not.
 
-**Consumer:** Host reads `DuetData/duet-instructions.md` from disk and writes to AI client config files. No HTTP fetch for content — file-based delivery via JSON cache pattern.
+**Error reason codes:** `no_frontmatter`, `invalid_yaml`, `missing_fields`, `missing_description`, `frontmatter_too_large`, `version_suffix`, `content_between_h1_h2`, `no_h2_found`, `bootstrapper_not_found`, `bootstrapper_missing_marker`, `index_not_found`, `index_invalid`, `index_missing_field`, `agent_file_not_found`.
 
-**Behavior:** If merge fails fatally → `status: "error"`, `path: null`. If merge succeeds with validation warnings → `status: "ok"`, `path` set, `errors` may be non-empty.
+**Consumer:** Host reads `DuetData/duet-{agent}.md` from disk and writes them to AI client config files (Claude Code: output-style + per-agent custom subagents in `~/.claude/agents/`; Codex/Antigravity: only `duet-executor.md` content). No HTTP fetch for content — file-based delivery via JSON cache pattern.
 
 ## Description Extraction (`description.py`)
 

@@ -3,46 +3,133 @@
  * ЗАЧЕМ: Host конфигурирует AI клиенты прямой записью файлов (не CLI).
  * КТО ИСПОЛЬЗУЕТ: main process, страница "AI Агенты".
  *
+ * АРХИТЕКТУРА (multi-agent):
+ *   Backend produces per-agent merged files in DuetData (`duet-executor.md`,
+ *   `duet-vizir.md`). Host reads them via `readMergedAgents()` and deploys:
+ *
+ *   - Claude Code:  output-style (executor) + 2 custom subagents in ~/.claude/agents/.
+ *   - Codex:        single instructions file (executor only).
+ *   - Antigravity:  single GEMINI.md (executor only).
+ *
+ *   Custom subagents in Codex/Antigravity are intentionally not deployed —
+ *   Antigravity does not support them globally; Codex deployment is held
+ *   uniformly with Antigravity for now.
+ *
  * ПАТТЕРН: detect (проверить реальные файлы конфигурации) → configure (write files) → show result.
  * detect и configure должны возвращать одинаковый status — это проверяется round-trip тестом.
- * Ненайденный AI клиент — не ошибка, просто информация.
- *
- * КОНТЕНТ: Merged instructions читаются с диска (DuetData/duet-instructions.md),
- * а не запрашиваются по HTTP. Файл генерируется Backend через POST /merge-duet-instructions.
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readDeployedVersion } from './deploy'
-import { readMergedInstructions } from './instructions'
+import { readMergedAgents, type MergedAgents } from './instructions'
 import type { AgentInfo, AgentCheckedFile, AgentIssue } from '../shared/types'
 
 // Re-export IPC types (source of truth: shared/types.ts)
 export type { AgentStatus, AgentCheckedFile, AgentIssue, AgentInfo } from '../shared/types'
 
 // =============================================================================
-// CLAUDE CODE
+// FRONTMATTER HELPERS
 // =============================================================================
 
-/** YAML frontmatter required by Claude Code output-style format. */
-const CLAUDE_OUTPUT_STYLE_FRONTMATTER = `---
-name: Duet
-description: Core instructions for AI agents working in Duet ecosystem
-keep-coding-instructions: true
----\n\n`
+/**
+ * Description shown to the user (and to Claude when picking output styles)
+ * for the Duet output-style. Always paired with the Executor body.
+ */
+const OUTPUT_STYLE_DESCRIPTION =
+  "Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, L7 staff-engineer principles."
+
+/**
+ * Description for the duet-executor custom subagent — when Claude should
+ * delegate to it. Standard Duet operating mode.
+ */
+const AGENT_EXECUTOR_DESCRIPTION =
+  "Use when the user explicitly invokes the Executor agent (e.g. via /agents or by name) to perform a focused task in a Duet project. Standard Duet operating mode."
+
+/**
+ * Description for the duet-vizir custom subagent — when Claude should
+ * delegate to it. Vizir orchestrates work folders and delegates implementation.
+ */
+const AGENT_VIZIR_DESCRIPTION =
+  "Use when the user asks you to act as Vizir, PM (e.g. !менеджер, менеджер, PM, ПМ), or to coordinate work inside a Duet work folder — running the disciplined loop of delegating to agents, monitoring progress, updating plans, and gating archival on human review."
+
+/**
+ * Wrap a string for safe use as a YAML frontmatter scalar.
+ * Single-quote form: simplest reliable escape (' → '').
+ */
+function yamlString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
+/**
+ * Frontmatter for a Claude Code output-style file.
+ * `keep-coding-instructions: true` is critical: without it Claude Code
+ * removes the coding-related portion of its default system prompt
+ * when this style is active.
+ */
+function outputStyleFrontmatter(): string {
+  return [
+    '---',
+    `name: duet-executor`,
+    `description: ${yamlString(OUTPUT_STYLE_DESCRIPTION)}`,
+    `keep-coding-instructions: true`,
+    '---',
+    '',
+    ''
+  ].join('\n')
+}
+
+/**
+ * Frontmatter for a Claude Code custom subagent file.
+ * Two required fields per the Claude Code spec: `name` (lowercase + hyphens),
+ * `description` (when Claude should delegate). `model` and other optional
+ * fields are intentionally omitted — they would inherit from the session.
+ */
+function subagentFrontmatter(name: string, description: string): string {
+  return [
+    '---',
+    `name: ${name}`,
+    `description: ${yamlString(description)}`,
+    '---',
+    '',
+    ''
+  ].join('\n')
+}
+
+/** Expected on-disk content for ~/.claude/output-styles/duet-executor.md. */
+function expectedOutputStyleContent(executorBody: string): string {
+  return outputStyleFrontmatter() + executorBody
+}
+
+/** Expected on-disk content for ~/.claude/agents/duet-executor.md. */
+function expectedExecutorAgentContent(executorBody: string): string {
+  return subagentFrontmatter('duet-executor', AGENT_EXECUTOR_DESCRIPTION) + executorBody
+}
+
+/** Expected on-disk content for ~/.claude/agents/duet-vizir.md. */
+function expectedVizirAgentContent(vizirBody: string): string {
+  return subagentFrontmatter('duet-vizir', AGENT_VIZIR_DESCRIPTION) + vizirBody
+}
+
+// =============================================================================
+// CLAUDE CODE
+// =============================================================================
 
 /**
  * Detect + configure Claude Code.
  *
- * Контракты:
- * - output-style: ~/.claude/output-styles/duet.md (инструкции как system prompt)
- * - MCP: ~/.claude.json → mcpServers.duet (HTTP MCP: http://127.0.0.1:<port>/mcp)
+ * Files written by host (Claude Code контракты):
+ * - `~/.claude/output-styles/duet-executor.md` — executor body + output-style frontmatter
+ * - `~/.claude/agents/duet-executor.md`        — executor body + subagent frontmatter
+ * - `~/.claude/agents/duet-vizir.md`           — vizir body + subagent frontmatter
+ * - `~/.claude/settings.json` → `outputStyle: "duet-executor"`
+ * - `~/.claude.json`         → `mcpServers.duet` (HTTP MCP)
  */
 export const configureClaudeCode = (
-  mergedContent: string | null,
+  merged: MergedAgents,
   duetDataPath: string,
   port: number
 ): AgentInfo => {
@@ -64,32 +151,55 @@ export const configureClaudeCode = (
     // 1. Output style directory
     const stylesDir = join(claudeDir, 'output-styles')
     mkdirSync(stylesDir, { recursive: true })
-    const styleDest = join(stylesDir, 'duet.md')
 
-    // 2. MCP server config in ~/.claude.json
+    // 2. Custom agents directory
+    const agentsDir = join(claudeDir, 'agents')
+    mkdirSync(agentsDir, { recursive: true })
+
+    // 3. MCP server config in ~/.claude.json
     configureClaudeJsonMcp(claudeJson, port)
 
-    // 3. outputStyle in ~/.claude/settings.json
+    // 4. outputStyle setting in ~/.claude/settings.json
     configureClaudeSettings(claudeDir)
 
-    // 4. Output style (requires merged instructions from DuetData)
-    if (!mergedContent) {
+    // 5. Output style + custom agents (require merged content from DuetData)
+    if (merged.executor === null || merged.vizir === null) {
       return {
         id: 'claude-code',
         name: 'Claude Code',
         status: 'needs_setup',
-        details: 'MCP настроен. Output style не записан: инструкции не сгенерированы'
+        details: 'MCP настроен. Output-style/agents не записаны: инструкции не сгенерированы'
       }
     }
 
-    writeFileSync(styleDest, CLAUDE_OUTPUT_STYLE_FRONTMATTER + mergedContent, 'utf-8')
+    const styleDest = join(stylesDir, 'duet-executor.md')
+    const executorAgentDest = join(agentsDir, 'duet-executor.md')
+    const vizirAgentDest = join(agentsDir, 'duet-vizir.md')
+
+    writeFileSync(styleDest, expectedOutputStyleContent(merged.executor), 'utf-8')
+    writeFileSync(executorAgentDest, expectedExecutorAgentContent(merged.executor), 'utf-8')
+    writeFileSync(vizirAgentDest, expectedVizirAgentContent(merged.vizir), 'utf-8')
+
+    // All three new files written successfully — clear legacy artifacts from
+    // pre-multi-agent layout. Idempotent and safe-by-construction: runs only
+    // after new files exist on disk, so users have no migration window where
+    // both old and new are missing.
+    const cleanup = cleanupLegacyClaudeFiles(duetDataPath)
 
     const version = readDeployedVersion(duetDataPath)
+    const baseDetails = 'Output style + 2 custom agents + MCP настроены'
+    const details =
+      cleanup.failed.length > 0
+        ? `${baseDetails}. Не удалось удалить legacy: ${cleanup.failed
+            .map((f) => f.path)
+            .join(', ')}`
+        : baseDetails
+
     return {
       id: 'claude-code',
       name: 'Claude Code',
       status: 'configured',
-      details: 'Output style + MCP настроены',
+      details,
       version: version ?? undefined
     }
   } catch (e) {
@@ -142,9 +252,12 @@ function configureClaudeJsonMcp(claudeJsonPath: string, port: number): void {
  * Контракты:
  * - Instructions: ~/.codex/config.toml → model_instructions_file
  * - MCP: ~/.codex/config.toml → [mcp_servers.duet] url (HTTP MCP)
+ *
+ * Custom subagents (~/.codex/agents/*.toml) intentionally not written —
+ * scope decision documented in `agents/spec/COMPONENT.md`.
  */
 export const configureCodex = (
-  mergedContent: string | null,
+  executorContent: string | null,
   duetDataPath: string,
   port: number
 ): AgentInfo => {
@@ -182,15 +295,15 @@ export const configureCodex = (
       if (Object.keys(config.mcp as object).length === 0) delete config.mcp
     }
 
-    // 2. Instructions (requires merged content from DuetData)
-    if (mergedContent) {
-      writeFileSync(instructionsPath, mergedContent, 'utf-8')
+    // 2. Instructions (require merged content from DuetData)
+    if (executorContent !== null) {
+      writeFileSync(instructionsPath, executorContent, 'utf-8')
       config.model_instructions_file = instructionsPath
     }
 
     writeFileSync(configPath, stringifyToml(config) + '\n', 'utf-8')
 
-    if (!mergedContent) {
+    if (executorContent === null) {
       return {
         id: 'codex',
         name: 'Codex',
@@ -225,11 +338,14 @@ export const configureCodex = (
  * Detect + configure Antigravity (Gemini).
  *
  * Контракты:
- * - Instructions: ~/.gemini/GEMINI.md (копия merged instructions)
+ * - Instructions: ~/.gemini/GEMINI.md (executor merged content)
  * - MCP: ~/.gemini/antigravity/mcp_config.json → mcpServers.duet (HTTP MCP)
+ *
+ * Custom subagents intentionally not deployed — Antigravity does not support
+ * them globally (only `~/.gemini/GEMINI.md` and `~/.gemini/AGENTS.md`).
  */
 export const configureAntigravity = (
-  mergedContent: string | null,
+  executorContent: string | null,
   duetDataPath: string,
   port: number
 ): AgentInfo => {
@@ -269,8 +385,8 @@ export const configureAntigravity = (
     }
     writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf-8')
 
-    // 2. Instructions (requires merged content from DuetData)
-    if (!mergedContent) {
+    // 2. Instructions (require merged content from DuetData)
+    if (executorContent === null) {
       return {
         id: 'antigravity',
         name: 'Antigravity',
@@ -279,7 +395,7 @@ export const configureAntigravity = (
       }
     }
 
-    writeFileSync(instructionsPath, mergedContent, 'utf-8')
+    writeFileSync(instructionsPath, executorContent, 'utf-8')
 
     const version = readDeployedVersion(duetDataPath)
     return {
@@ -305,19 +421,19 @@ export const configureAntigravity = (
 
 /**
  * Обнаружить все AI клиенты (без конфигурации).
- * Читает merged instructions с диска (DuetData/duet-instructions.md).
+ * Читает merged content per-agent с диска (DuetData/duet-{agent}.md).
  */
 export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] => {
-  const mergedContent = readMergedInstructions(duetDataPath)
+  const merged = readMergedAgents(duetDataPath)
   return [
-    detectClaudeCode(mergedContent, duetDataPath, port),
-    detectCodex(mergedContent, duetDataPath, port),
-    detectAntigravity(mergedContent, duetDataPath, port)
+    detectClaudeCode(merged, duetDataPath, port),
+    detectCodex(merged.executor, duetDataPath, port),
+    detectAntigravity(merged.executor, duetDataPath, port)
   ]
 }
 
 function detectClaudeCode(
-  mergedContent: string | null,
+  merged: MergedAgents,
   duetDataPath: string,
   port: number
 ): AgentInfo {
@@ -326,24 +442,36 @@ function detectClaudeCode(
     return { id: 'claude-code', name: 'Claude Code', status: 'not_found', details: 'Не установлен' }
   }
 
-  const stylePath = join(claudeDir, 'output-styles', 'duet.md')
+  const stylePath = join(claudeDir, 'output-styles', 'duet-executor.md')
+  const executorAgentPath = join(claudeDir, 'agents', 'duet-executor.md')
+  const vizirAgentPath = join(claudeDir, 'agents', 'duet-vizir.md')
   const settingsPath = join(claudeDir, 'settings.json')
   const claudeJsonPath = join(homedir(), '.claude.json')
 
-  const hasOutputStyle = existsSync(stylePath)
+  const stylePresent = existsSync(stylePath)
+  const executorAgentPresent = existsSync(executorAgentPath)
+  const vizirAgentPresent = existsSync(vizirAgentPath)
   const hasMcp = claudeJsonHasDuetMcp(claudeJsonPath, port)
   const hasOutputStyleSetting = claudeSettingsHasOutputStyle(settingsPath)
 
-  // Check content freshness (only when merged content available)
-  let contentFresh = false
-  if (hasOutputStyle && mergedContent) {
-    const expected = CLAUDE_OUTPUT_STYLE_FRONTMATTER + mergedContent
-    const actual = readFileSync(stylePath, 'utf-8')
-    contentFresh = actual === expected
-  }
+  // Per-file freshness: each compares against its own expected (frontmatter + body).
+  const styleFresh =
+    stylePresent && merged.executor !== null
+      ? readFileSync(stylePath, 'utf-8') === expectedOutputStyleContent(merged.executor)
+      : false
+  const executorAgentFresh =
+    executorAgentPresent && merged.executor !== null
+      ? readFileSync(executorAgentPath, 'utf-8') === expectedExecutorAgentContent(merged.executor)
+      : false
+  const vizirAgentFresh =
+    vizirAgentPresent && merged.vizir !== null
+      ? readFileSync(vizirAgentPath, 'utf-8') === expectedVizirAgentContent(merged.vizir)
+      : false
 
   const checkedFiles: AgentCheckedFile[] = [
-    { path: stylePath, ok: hasOutputStyle && contentFresh },
+    { path: stylePath, ok: stylePresent && styleFresh },
+    { path: executorAgentPath, ok: executorAgentPresent && executorAgentFresh },
+    { path: vizirAgentPath, ok: vizirAgentPresent && vizirAgentFresh },
     { path: settingsPath, ok: hasOutputStyleSetting },
     { path: claudeJsonPath, ok: hasMcp }
   ]
@@ -352,28 +480,38 @@ function detectClaudeCode(
   const rawIssues = checkClaudeCodeIssues(settingsPath)
   const issues = rawIssues.length > 0 ? rawIssues : undefined
 
-  if (!hasOutputStyle || !hasMcp || !hasOutputStyleSetting) {
+  const allFilesOk = checkedFiles.every((f) => f.ok)
+
+  if (!allFilesOk) {
+    // Build a focused detail message
     const parts: string[] = []
     if (hasMcp) parts.push('MCP настроен')
-    if (hasOutputStyle) parts.push('Output style настроен')
+    if (stylePresent && styleFresh) parts.push('Output style настроен')
+    if (executorAgentPresent && executorAgentFresh && vizirAgentPresent && vizirAgentFresh) {
+      parts.push('Custom agents настроены')
+    }
     if (hasOutputStyleSetting) parts.push('Settings настроены')
-    const detail = parts.length > 0 ? parts.join(', ') : '~/.claude найдена'
+
+    // Stale (file present but content mismatched) — call it out specifically
+    const stale =
+      (stylePresent && !styleFresh && merged.executor !== null) ||
+      (executorAgentPresent && !executorAgentFresh && merged.executor !== null) ||
+      (vizirAgentPresent && !vizirAgentFresh && merged.vizir !== null)
+
+    let detail: string
+    if (stale) {
+      detail = 'Инструкции устарели — нажмите «Настроить все»'
+    } else if (parts.length > 0) {
+      detail = parts.join(', ')
+    } else {
+      detail = '~/.claude найдена'
+    }
+
     return {
       id: 'claude-code',
       name: 'Claude Code',
       status: 'needs_setup',
       details: detail,
-      checkedFiles,
-      issues
-    }
-  }
-
-  if (!contentFresh) {
-    return {
-      id: 'claude-code',
-      name: 'Claude Code',
-      status: 'needs_setup',
-      details: 'Инструкции устарели — нажмите «Настроить все»',
       checkedFiles,
       issues
     }
@@ -398,7 +536,7 @@ function detectClaudeCode(
     id: 'claude-code',
     name: 'Claude Code',
     status: 'configured',
-    details: 'Output style + MCP настроены',
+    details: 'Output style + 2 custom agents + MCP настроены',
     version: version ?? undefined,
     checkedFiles
   }
@@ -434,7 +572,7 @@ function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
   return issues
 }
 
-function detectCodex(mergedContent: string | null, duetDataPath: string, port: number): AgentInfo {
+function detectCodex(executorContent: string | null, duetDataPath: string, port: number): AgentInfo {
   const codexDir = getCodexDir()
   if (!existsSync(codexDir)) {
     return { id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' }
@@ -464,11 +602,11 @@ function detectCodex(mergedContent: string | null, duetDataPath: string, port: n
 
     const instructionsExist = existsSync(instructionsPath)
 
-    // Check content freshness
+    // Check content freshness against executor merged content
     let contentFresh = false
-    if (instructionsExist && mergedContent) {
+    if (instructionsExist && executorContent !== null) {
       const actual = readFileSync(instructionsPath, 'utf-8')
-      contentFresh = actual === mergedContent
+      contentFresh = actual === executorContent
     }
 
     const checkedFiles: AgentCheckedFile[] = [
@@ -506,7 +644,7 @@ function detectCodex(mergedContent: string | null, duetDataPath: string, port: n
 }
 
 function detectAntigravity(
-  mergedContent: string | null,
+  executorContent: string | null,
   duetDataPath: string,
   port: number
 ): AgentInfo {
@@ -526,11 +664,11 @@ function detectAntigravity(
   const hasInstructions = existsSync(instructionsPath)
   const hasMcp = geminiHasDuetMcp(mcpConfigPath, port)
 
-  // Check content freshness
+  // Check content freshness against executor merged content
   let contentFresh = false
-  if (hasInstructions && mergedContent) {
+  if (hasInstructions && executorContent !== null) {
     const actual = readFileSync(instructionsPath, 'utf-8')
-    contentFresh = actual === mergedContent
+    contentFresh = actual === executorContent
   }
 
   const checkedFiles: AgentCheckedFile[] = [
@@ -564,7 +702,7 @@ function detectAntigravity(
   }
 }
 
-/** Устанавливает outputStyle: "Duet" в ~/.claude/settings.json */
+/** Устанавливает outputStyle: "duet-executor" в ~/.claude/settings.json */
 function configureClaudeSettings(claudeDir: string): void {
   const settingsPath = join(claudeDir, 'settings.json')
   let config: Record<string, unknown> = {}
@@ -577,16 +715,16 @@ function configureClaudeSettings(claudeDir: string): void {
     }
   }
 
-  config.outputStyle = 'Duet'
+  config.outputStyle = 'duet-executor'
   writeFileSync(settingsPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
 }
 
-/** Проверяет наличие outputStyle: "Duet" в ~/.claude/settings.json */
+/** Проверяет наличие outputStyle: "duet-executor" в ~/.claude/settings.json */
 function claudeSettingsHasOutputStyle(settingsPath: string): boolean {
   if (!existsSync(settingsPath)) return false
   try {
     const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-    return config?.outputStyle === 'Duet'
+    return config?.outputStyle === 'duet-executor'
   } catch {
     return false
   }
@@ -620,13 +758,13 @@ function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
 
 /**
  * Конфигурировать все найденные AI клиенты.
- * Читает merged instructions с диска.
+ * Читает per-agent merged content с диска один раз и распределяет.
  */
 export const configureAllAgents = (duetDataPath: string, port: number): AgentInfo[] => {
-  const mergedContent = readMergedInstructions(duetDataPath)
-  configureClaudeCode(mergedContent, duetDataPath, port)
-  configureCodex(mergedContent, duetDataPath, port)
-  configureAntigravity(mergedContent, duetDataPath, port)
+  const merged = readMergedAgents(duetDataPath)
+  configureClaudeCode(merged, duetDataPath, port)
+  configureCodex(merged.executor, duetDataPath, port)
+  configureAntigravity(merged.executor, duetDataPath, port)
   // Re-detect after configure to return full AgentInfo with checkedFiles
   return detectAgents(duetDataPath, port)
 }
@@ -664,6 +802,68 @@ function fixClaudeAdditionalDirectories(): boolean {
   } catch {
     return false
   }
+}
+
+// =============================================================================
+// LEGACY UBORKA (кладётся отдельно, вызывается отдельным шагом плана —
+// после end-to-end проверки новой раскатки)
+// =============================================================================
+
+/** Filename of the legacy single merged file (pre-multi-agent layout). */
+const LEGACY_MERGED_INSTRUCTIONS_FILE = 'duet-instructions.md'
+
+/** Result of a legacy-cleanup pass. `failed` entries surface to UI/logs. */
+export interface LegacyCleanupResult {
+  /** Files actually deleted in this pass. */
+  removed: string[]
+  /** Files present on disk but `unlinkSync` refused (permissions, etc.). */
+  failed: { path: string; error: string }[]
+}
+
+/**
+ * Removes legacy Duet files left over from the pre-multi-agent layout.
+ * Idempotent: missing files are silently skipped.
+ *
+ * Called automatically by `configureClaudeCode` after successful write of new
+ * files (output-style + 2 custom agents) — runs only when new files exist on
+ * disk, so users have no migration window where both old and new are missing.
+ *
+ * Targets:
+ *   - `~/.claude/output-styles/duet.md` — old single output-style (host previously wrote it)
+ *   - `~/.claude/agents/duet.md`        — historically user-managed but its
+ *                                          name is reserved by Duet now;
+ *                                          deletion is approved per migration plan
+ *   - `<duetDataPath>/duet-instructions.md` — old single merged file (host previously wrote it)
+ *
+ * NOT removed:
+ *   - `~/.claude/agents/vizir.md` — user's personal draft, name does not collide
+ *     with Duet-managed `duet-vizir.md`. Out of scope for migration.
+ *
+ * Returns `{ removed, failed }`. Failures (e.g. permission denied) are
+ * recorded but do NOT throw — the surrounding configure flow continues.
+ * Caller may surface `failed` in agent details or logs.
+ */
+export function cleanupLegacyClaudeFiles(duetDataPath: string): LegacyCleanupResult {
+  const targets = [
+    join(homedir(), '.claude', 'output-styles', 'duet.md'),
+    join(homedir(), '.claude', 'agents', 'duet.md'),
+    join(duetDataPath, LEGACY_MERGED_INSTRUCTIONS_FILE)
+  ]
+  const removed: string[] = []
+  const failed: { path: string; error: string }[] = []
+  for (const path of targets) {
+    if (!existsSync(path)) continue
+    try {
+      unlinkSync(path)
+      removed.push(path)
+    } catch (e) {
+      failed.push({
+        path,
+        error: e instanceof Error ? e.message : String(e)
+      })
+    }
+  }
+  return { removed, failed }
 }
 
 // =============================================================================

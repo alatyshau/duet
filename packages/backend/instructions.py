@@ -4,7 +4,8 @@ Reads index.json and YAML frontmatter from persona/skill files
 to build a dynamic catalog for orientation response.
 
 merge_duet_instructions() is the primary entry point: merges platform
-bootstrapper with user core_instructions + skills table into a single file.
+bootstrapper + per-agent core file + skills table into one merged file per
+agent declared in index.json (e.g. duet-executor.md, duet-vizir.md).
 """
 
 import json
@@ -217,7 +218,7 @@ def _error_description(reason_code: str, path: str) -> str:
         "index_not_found": f"index.json not found in instructions workspace",
         "index_invalid": f"Cannot parse {path}",
         "index_missing_field": f"Required field missing in {path}",
-        "core_instructions_not_found": f"Core instructions file not found: {path}",
+        "agent_file_not_found": f"Agent file not found: {path}",
     }
     return messages.get(reason_code, f"Validation error in {path}")
 
@@ -285,15 +286,16 @@ def scan_instructions(instructions_path: Path) -> dict:
 INSERT_MARKER = "<!-- INSERT USER CORE INSTRUCTIONS -->"
 
 
-def _extract_user_content(core_instructions_text: str) -> str:
-    """Extract user content from core_instructions.md.
+def _extract_user_content(agent_core_text: str) -> str:
+    """Extract user content from an agent's core .md file.
 
     Strategy: take everything starting from the first H2 (##).
     H1 is the file's "cover" for GitHub/editor — not part of instructions.
     Content between H1 and first H2 is an error (should not exist).
 
     Args:
-        core_instructions_text: Full text of user's core_instructions.md.
+        agent_core_text: Full text of the agent's core file
+                         (e.g. agents/executor.md, agents/vizir.md).
 
     Returns:
         Content from first ## onwards.
@@ -302,7 +304,7 @@ def _extract_user_content(core_instructions_text: str) -> str:
         ValueError: If content exists between H1 and first H2,
                     or if no H2 found.
     """
-    lines = core_instructions_text.split("\n")
+    lines = agent_core_text.split("\n")
 
     h1_line = None
     first_h2_line = None
@@ -315,14 +317,14 @@ def _extract_user_content(core_instructions_text: str) -> str:
             break
 
     if first_h2_line is None:
-        raise ValueError("No H2 (##) found in core_instructions.md")
+        raise ValueError("No H2 (##) found in agent core file")
 
     # Check for content between H1 and first H2
     if h1_line is not None:
         between = lines[h1_line + 1 : first_h2_line]
         if any(line.strip() for line in between):
             raise ValueError(
-                "Content found between H1 and first H2 in core_instructions.md. "
+                "Content found between H1 and first H2 in agent core file. "
                 "Move it into an H2 section or remove it."
             )
 
@@ -404,21 +406,15 @@ def _build_skills_table(instructions_path: Path, index_data: dict) -> tuple[str,
 # =============================================================================
 
 
-def _merge_step_by_step(
+def _read_bootstrapper_and_index(
     bootstrapper_path: Path, instructions_path: Path
 ) -> tuple[str | None, dict | None, list[dict]]:
-    """Execute merge pipeline step-by-step, collecting precise errors.
-
-    Each failure point produces an error with the exact path of the
-    broken file, not a generic fallback. This is critical for Host UI
-    where the Fix button needs to open the right file.
+    """Read bootstrapper template and index.json — shared inputs for all agents.
 
     Returns:
-        Tuple of (merged_content_or_None, index_data_or_None, errors).
-        If merged_content is None, a fatal error prevented merge.
-        index_data is passed through to avoid re-reading index.json.
+        Tuple of (bootstrapper_text, index_data, errors).
+        On fatal error one or both first elements are None and errors describes the cause.
     """
-    # Step 1: Read bootstrapper.md
     if not bootstrapper_path.exists():
         return None, None, [{
             "path": str(bootstrapper_path),
@@ -435,7 +431,6 @@ def _merge_step_by_step(
             "description": f"Marker {INSERT_MARKER!r} not found in {bootstrapper_path.name}",
         }]
 
-    # Step 2: Read index.json
     index_path = instructions_path / "index.json"
     if not index_path.exists():
         return None, None, [{
@@ -453,96 +448,173 @@ def _merge_step_by_step(
             "description": f"Cannot parse index.json: {e}",
         }]
 
-    # Step 3: Resolve core_instructions path
-    core_file = index_data.get("core_instructions")
-    if not core_file:
-        return None, None, [{
-            "path": "index.json",
-            "reason_code": "index_missing_field",
-            "description": "'core_instructions' field not specified in index.json",
-        }]
+    return bootstrapper_text, index_data, []
 
-    core_path = instructions_path / core_file
-    if not core_path.exists():
-        return None, None, [{
-            "path": core_file,
-            "reason_code": "core_instructions_not_found",
-            "description": f"core_instructions file not found: {core_file}",
-        }]
 
-    # Step 4: Extract user content from core_instructions
-    core_text = core_path.read_text(encoding="utf-8")
+def _is_safe_relative_path(rel_path: str, base: Path) -> bool:
+    """Reject path-traversal attempts in user-controlled `index.json` entries.
+
+    Relative path is safe iff:
+      1. it has no absolute root (`/foo`, `C:\\foo`),
+      2. resolved against `base` it stays under `base` (no `../` escapes).
+    """
+    candidate = Path(rel_path)
+    if candidate.is_absolute():
+        return False
     try:
-        user_content = _extract_user_content(core_text)
+        resolved = (base / candidate).resolve()
+        resolved.relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _merge_one_agent(
+    bootstrapper_text: str,
+    skills_table: str,
+    instructions_path: Path,
+    agent_name: str,
+    agent_rel_path: str,
+) -> tuple[str | None, dict | None]:
+    """Merge bootstrapper + one agent's core file + skills table.
+
+    Args:
+        bootstrapper_text: Pre-read bootstrapper template (with both markers).
+        skills_table: Pre-built skills table markdown to substitute.
+        instructions_path: Root of instructions workspace.
+        agent_name: Logical agent name (e.g. "executor", "vizir") — used in errors.
+        agent_rel_path: Path to agent's core .md file, relative to instructions root.
+
+    Returns:
+        Tuple of (merged_content, error). On success error is None.
+    """
+    if not _is_safe_relative_path(agent_rel_path, instructions_path):
+        return None, {
+            "path": agent_rel_path,
+            "reason_code": "agent_file_not_found",
+            "description": (
+                f"Agent file path for '{agent_name}' is unsafe "
+                f"(absolute or escapes instructions root): {agent_rel_path}"
+            ),
+        }
+
+    agent_path = instructions_path / agent_rel_path
+    if not agent_path.exists():
+        return None, {
+            "path": agent_rel_path,
+            "reason_code": "agent_file_not_found",
+            "description": f"Agent file not found for '{agent_name}': {agent_rel_path}",
+        }
+
+    agent_text = agent_path.read_text(encoding="utf-8")
+    try:
+        user_content = _extract_user_content(agent_text)
     except ValueError as e:
         error_msg = str(e)
-        if "between H1 and first H2" in error_msg:
-            reason_code = "content_between_h1_h2"
-        else:
-            reason_code = "no_h2_found"
-        return None, None, [{
-            "path": core_file,
+        reason_code = (
+            "content_between_h1_h2"
+            if "between H1 and first H2" in error_msg
+            else "no_h2_found"
+        )
+        return None, {
+            "path": agent_rel_path,
             "reason_code": reason_code,
             "description": error_msg,
-        }]
+        }
 
-    # Step 5: Merge
     merged = bootstrapper_text.replace(INSERT_MARKER, user_content)
-    return merged, index_data, []
+    if SKILLS_TABLE_MARKER in merged:
+        merged = merged.replace(SKILLS_TABLE_MARKER, skills_table)
+    return merged, None
 
 
 def merge_duet_instructions(
     bootstrapper_path: Path,
     instructions_path: Path,
-    output_path: Path,
+    output_dir: Path,
     errors_path: Path,
 ) -> dict:
-    """Full merge pipeline: bootstrapper + user content + skills table → file.
+    """Full merge pipeline for ALL agents declared in index.json.
 
-    Orchestrates:
-    1. Step-by-step merge with precise error attribution
-    2. Skills table generation with validation error collection
-    3. Atomic write of merged content and errors
+    Pipeline:
+    1. Read bootstrapper.md and index.json (once).
+    2. Build skills table (once) — common to all agents.
+    3. Scan workspace for version-suffix files (once).
+    4. For each agent in index.agents: merge → write `duet-{agent}.md` to output_dir.
+    5. Aggregate errors and write to errors_path.
+
+    Status semantics (strict):
+    - "ok": all declared agents merged successfully (validation warnings allowed).
+    - "error": fatal pre-condition failed (bootstrapper, index, no agents declared) OR
+               any single agent merge failed.
 
     Args:
         bootstrapper_path: Path to bootstrapper.md (in backend package).
         instructions_path: Path to instructions workspace root.
-        output_path: Where to write merged content (e.g. DuetData/duet-instructions.md).
-        errors_path: Where to write errors JSON (e.g. DuetData/data/duet-instructions-errors.json).
+        output_dir: Directory where merged files are written
+                    (`duet-{agent}.md` per agent).
+        errors_path: Where to write errors JSON.
 
     Returns:
-        Dict with status, path, and errors list.
+        Dict: { status, paths: { agent_name: absolute_path_str }, errors: [...] }.
     """
-    # Step 1: Merge bootstrapper + user content
-    merged, index_data, merge_errors = _merge_step_by_step(bootstrapper_path, instructions_path)
+    bootstrapper_text, index_data, fatal_errors = _read_bootstrapper_and_index(
+        bootstrapper_path, instructions_path
+    )
+    if fatal_errors:
+        atomic_write_json(errors_path, fatal_errors)
+        return {"status": "error", "paths": {}, "errors": fatal_errors}
 
-    if merged is None:
-        # Fatal merge error — can't produce output
-        atomic_write_json(errors_path, merge_errors)
-        return {"status": "error", "path": None, "errors": merge_errors}
+    assert bootstrapper_text is not None
+    assert index_data is not None
 
-    errors: list[dict] = []
+    agents_config = index_data.get("agents")
+    if not isinstance(agents_config, dict) or not agents_config:
+        err = [{
+            "path": "index.json",
+            "reason_code": "index_missing_field",
+            "description": "'agents' field missing or empty in index.json",
+        }]
+        atomic_write_json(errors_path, err)
+        return {"status": "error", "paths": {}, "errors": err}
 
-    # Step 2: Build skills table and collect validation errors
-    # index_data is guaranteed non-None here (merge succeeded)
+    # Skills table — shared across agents, built once.
     skills_table, validation_errors = _build_skills_table(instructions_path, index_data)
-    errors.extend(validation_errors)
+    aggregate_errors: list[dict] = list(validation_errors)
+    aggregate_errors.extend(_scan_version_suffixes(instructions_path))
 
-    # Step 2b: Scan entire workspace for version suffix files (_v2, _v3, etc.)
-    errors.extend(_scan_version_suffixes(instructions_path))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, str] = {}
 
-    # Step 3: Insert skills table if marker present
-    if SKILLS_TABLE_MARKER in merged:
-        merged = merged.replace(SKILLS_TABLE_MARKER, skills_table)
+    for agent_name, agent_rel_path in agents_config.items():
+        if not isinstance(agent_rel_path, str) or not agent_rel_path:
+            aggregate_errors.append({
+                "path": "index.json",
+                "reason_code": "index_missing_field",
+                "description": f"agents.{agent_name} must be a non-empty string path",
+            })
+            continue
 
-    # Step 4: Write merged content (atomic)
-    atomic_write(output_path, merged)
+        merged, err = _merge_one_agent(
+            bootstrapper_text, skills_table, instructions_path, agent_name, agent_rel_path
+        )
+        if err is not None:
+            aggregate_errors.append(err)
+            continue
+        assert merged is not None
 
-    # Step 5: Write errors JSON
-    atomic_write_json(errors_path, errors)
+        agent_output = output_dir / f"duet-{agent_name}.md"
+        atomic_write(agent_output, merged)
+        paths[agent_name] = str(agent_output)
+
+    atomic_write_json(errors_path, aggregate_errors)
+
+    expected = set(agents_config.keys())
+    actual = set(paths.keys())
+    status = "ok" if actual == expected else "error"
 
     return {
-        "status": "ok",
-        "path": str(output_path),
-        "errors": errors,
+        "status": status,
+        "paths": paths,
+        "errors": aggregate_errors,
     }

@@ -141,9 +141,16 @@ export interface InstructionsError {
   description: string
 }
 
+/**
+ * Result shape returned by Backend POST /merge-duet-instructions.
+ *
+ * Multi-agent: backend writes one merged file per agent declared in index.json.
+ * `paths` is a map { agent_name → absolute_path } populated only with
+ * successfully merged agents. Empty map ⇒ fatal error.
+ */
 export interface InstructionsMergeResult {
   status: 'ok' | 'error'
-  path: string | null
+  paths: Record<string, string>
   errors: InstructionsError[]
 }
 

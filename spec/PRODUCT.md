@@ -34,22 +34,24 @@
 AI-инструкции вынесены из Duet в отдельный git-репозиторий **Duet-Instructions**, которым владеет пользователь. Duet не деплоит и не бандлит инструкции — только предоставляет платформенный bootstrapper и инструменты для работы с ними.
 
 **Структура Duet-Instructions:**
-- `index.json` — объявляет пути к персонам и skill-каталогам
-- `core_instructions.md` — пользовательские инструкции (L7, spec-driven, project management)
+- `index.json` — объявляет per-agent core-файлы (`agents.executor`, `agents.vizir`), путь к персонам и skill-каталогам
+- `agents/executor.md`, `agents/vizir.md` — пользовательские инструкции для каждого агента (L7, spec-driven, project management — у Executor; orchestration loop — у Vizir)
 - `personas/` — персоны (Socrates, Hephaestus, Ariadna, etc.)
-- `skills/` — скиллы по категориям (coding, modes, stances, tools, workflows)
+- `skills/` — скиллы по категориям (coding, modes, stances, tandem, tools, workflows)
 
 **Подключение:** `instructionsPath` в `{machine}.json` указывает абсолютный путь к Duet-Instructions.
 
-**Merge pipeline:** Backend компонует `bootstrapper.md` (платформенный, в packages/backend) с `core_instructions.md` (пользовательский) + таблицу скиллов через `POST /merge-duet-instructions`. Результат записывается в `DuetData/duet-instructions.md` (atomic write). Host читает файл с диска и записывает в конфиги AI-клиентов.
+**Merge pipeline (multi-agent):** Backend компонует `bootstrapper.md` (платформенный, в packages/backend) с core-файлом каждого агента из `agents/` + общую таблицу скиллов через `POST /merge-duet-instructions`. Один merged-файл на агента: `DuetData/duet-executor.md`, `DuetData/duet-vizir.md` (atomic write). Host читает per-agent файлы с диска и развозит по AI-клиентам.
 
 **AI-клиенты (конфигурируемые Host):**
 
 | Client | Config | Content |
 |--------|--------|---------|
-| Claude Code | `~/.claude/output-styles/duet.md` | Merged bootstrapper+core_instructions |
-| Codex | `~/.codex/duet_instructions.md` | Merged bootstrapper+core_instructions |
-| Antigravity | `~/.gemini/GEMINI.md` | Merged bootstrapper+core_instructions |
+| Claude Code | `~/.claude/output-styles/duet-executor.md` + `~/.claude/agents/duet-executor.md` + `~/.claude/agents/duet-vizir.md` | Output style (executor) + 2 custom subagents |
+| Codex | `~/.codex/duet_instructions.md` | Host-managed instructions file |
+| Antigravity | `~/.gemini/GEMINI.md` | Host-managed instructions file |
+
+**Platform asymmetry:** Claude Code supports custom subagents. Codex and Antigravity use one instructions file.
 
 ## Pointer File
 

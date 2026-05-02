@@ -259,21 +259,22 @@ async def add_business_handler(request: Request) -> JSONResponse:
 
 
 async def merge_instructions_handler(request: Request) -> JSONResponse:
-    """POST /merge-duet-instructions - Merge bootstrapper + user instructions to file.
+    """POST /merge-duet-instructions - Merge bootstrapper + per-agent core + skills table.
 
-    Merges bootstrapper.md + core_instructions.md + skills table.
-    Writes result to DuetData/duet-instructions.md.
-    Writes errors to DuetData/data/duet-instructions-errors.json.
+    Iterates agents declared in index.json (e.g. executor, vizir) and writes one
+    merged file per agent to DuetData/duet-{agent}.md.
+    Errors aggregated into DuetData/data/duet-instructions-errors.json.
+
+    Response: { status, paths: { agent: absolute_path }, errors: [...] }.
     """
     bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
     try:
         instructions_path = get_instructions_path()
         duet_data = get_duet_data_path()
-        output_path = duet_data / "duet-instructions.md"
         errors_path = duet_data / "data" / "duet-instructions-errors.json"
 
         result = merge_duet_instructions(
-            bootstrapper_path, instructions_path, output_path, errors_path
+            bootstrapper_path, instructions_path, duet_data, errors_path
         )
         return JSONResponse(result)
     except ConfigError as e:

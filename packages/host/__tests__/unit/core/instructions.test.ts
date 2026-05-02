@@ -7,7 +7,8 @@ import { join } from 'path'
 import { createTestContext, type TestContext } from '../../helpers'
 
 import {
-  readMergedInstructions,
+  readMergedAgent,
+  readMergedAgents,
   readCachedErrors,
   fixInstructionsError,
   isFixableError
@@ -25,20 +26,41 @@ describe('core/instructions', () => {
   })
 
   // ===========================================================================
-  // readMergedInstructions
+  // readMergedAgent / readMergedAgents
   // ===========================================================================
 
-  describe('readMergedInstructions', () => {
-    it('returns null when file does not exist', () => {
-      const result = readMergedInstructions(ctx.duetDataDir)
-      expect(result).toBeNull()
+  describe('readMergedAgent', () => {
+    it('returns null when an agent merged file does not exist', () => {
+      expect(readMergedAgent(ctx.duetDataDir, 'executor')).toBeNull()
+      expect(readMergedAgent(ctx.duetDataDir, 'vizir')).toBeNull()
     })
 
-    it('returns content when file exists', () => {
-      writeFileSync(join(ctx.duetDataDir, 'duet-instructions.md'), '# Instructions\n', 'utf-8')
+    it('returns content when the agent merged file exists', () => {
+      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
+      writeFileSync(join(ctx.duetDataDir, 'duet-vizir.md'), '# Vizir\n', 'utf-8')
 
-      const result = readMergedInstructions(ctx.duetDataDir)
-      expect(result).toBe('# Instructions\n')
+      expect(readMergedAgent(ctx.duetDataDir, 'executor')).toBe('# Exec\n')
+      expect(readMergedAgent(ctx.duetDataDir, 'vizir')).toBe('# Vizir\n')
+    })
+  })
+
+  describe('readMergedAgents', () => {
+    it('returns both nulls when no merged files', () => {
+      expect(readMergedAgents(ctx.duetDataDir)).toEqual({ executor: null, vizir: null })
+    })
+
+    it('returns mixed values when only one is present', () => {
+      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
+      expect(readMergedAgents(ctx.duetDataDir)).toEqual({ executor: '# Exec\n', vizir: null })
+    })
+
+    it('returns both bodies when both files exist', () => {
+      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
+      writeFileSync(join(ctx.duetDataDir, 'duet-vizir.md'), '# Vizir\n', 'utf-8')
+      expect(readMergedAgents(ctx.duetDataDir)).toEqual({
+        executor: '# Exec\n',
+        vizir: '# Vizir\n'
+      })
     })
   })
 

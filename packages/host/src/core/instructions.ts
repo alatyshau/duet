@@ -1,7 +1,7 @@
 /*
  * ЧТО: Управление AI-инструкциями (merge, errors, cached content).
  * ЗАЧЕМ: Host вызывает Backend POST /merge-duet-instructions, результат —
- *        файл DuetData/duet-instructions.md + ошибки в DuetData/data/.
+ *        per-agent файлы DuetData/duet-{agent}.md + ошибки в DuetData/data/.
  * КТО ИСПОЛЬЗУЕТ: ipc-handlers (IPC instructions:*), core/ai-clients.ts.
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
@@ -13,8 +13,20 @@ import type { InstructionsMergeResult, InstructionsError } from '../shared/types
 // Re-export types
 export type { InstructionsMergeResult, InstructionsError } from '../shared/types'
 
-/** Path to merged instructions file relative to DuetData root. */
-const MERGED_INSTRUCTIONS_FILE = 'duet-instructions.md'
+/** Logical agent names for which Backend produces a merged file. */
+export type AgentName = 'executor' | 'vizir'
+export const AGENT_NAMES: readonly AgentName[] = ['executor', 'vizir'] as const
+
+/** Bag of per-agent merged content read from disk. */
+export interface MergedAgents {
+  executor: string | null
+  vizir: string | null
+}
+
+/** Filename of an agent's merged file under DuetData root. */
+export function mergedAgentFilename(agent: AgentName): string {
+  return `duet-${agent}.md`
+}
 
 /** Path to errors cache relative to DuetData root. */
 const ERRORS_CACHE_FILE = join('data', 'duet-instructions-errors.json')
@@ -39,7 +51,7 @@ export async function triggerMerge(port: number): Promise<InstructionsMergeResul
       const body = await res.json().catch(() => ({}))
       return {
         status: 'error',
-        path: null,
+        paths: {},
         errors: [
           {
             path: '',
@@ -54,7 +66,7 @@ export async function triggerMerge(port: number): Promise<InstructionsMergeResul
   } catch (e) {
     return {
       status: 'error',
-      path: null,
+      paths: {},
       errors: [
         {
           path: '',
@@ -71,16 +83,27 @@ export async function triggerMerge(port: number): Promise<InstructionsMergeResul
 // =============================================================================
 
 /**
- * Читает merged instructions с диска (DuetData/duet-instructions.md).
- * Возвращает null если файла нет.
+ * Читает merged content одного агента с диска (DuetData/duet-{agent}.md).
+ * Возвращает null если файла нет или I/O упал.
  */
-export function readMergedInstructions(duetDataPath: string): string | null {
-  const filePath = join(duetDataPath, MERGED_INSTRUCTIONS_FILE)
+export function readMergedAgent(duetDataPath: string, agent: AgentName): string | null {
+  const filePath = join(duetDataPath, mergedAgentFilename(agent))
   if (!existsSync(filePath)) return null
   try {
     return readFileSync(filePath, 'utf-8')
   } catch {
     return null
+  }
+}
+
+/**
+ * Читает все merged-файлы из DuetData в один bag.
+ * Каждое поле может быть null если файла нет.
+ */
+export function readMergedAgents(duetDataPath: string): MergedAgents {
+  return {
+    executor: readMergedAgent(duetDataPath, 'executor'),
+    vizir: readMergedAgent(duetDataPath, 'vizir')
   }
 }
 

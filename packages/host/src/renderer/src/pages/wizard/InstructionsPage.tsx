@@ -432,9 +432,14 @@ export function InstructionsPage({
           <div className="text-xs text-muted-foreground space-y-1 px-1">
             <p>
               <strong>Что делает Regenerate:</strong> мержит платформенный bootstrapper.md с
-              пользовательскими core_instructions.md, строит таблицу скиллов, записывает в{' '}
+              core-файлами агентов из <code className="text-[11px] bg-muted px-1 rounded">agents/</code>{' '}
+              (executor, vizir), строит общую таблицу скиллов, записывает один merged-файл на агента в{' '}
               <code className="text-[11px] bg-muted px-1 rounded">
-                DuetData/duet-instructions.md
+                DuetData/duet-executor.md
+              </code>{' '}
+              и{' '}
+              <code className="text-[11px] bg-muted px-1 rounded">
+                DuetData/duet-vizir.md
               </code>
               .
             </p>
