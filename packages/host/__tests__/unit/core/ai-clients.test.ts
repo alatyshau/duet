@@ -250,7 +250,7 @@ describe('core/ai-clients', () => {
       const claude = agents[0]
       expect(claude.status).toBe('needs_setup')
       const executorAgentFile = claude.checkedFiles!.find((f) =>
-        f.path.endsWith('agents/duet-executor.md')
+        f.path.endsWith(join('agents', 'duet-executor.md'))
       )
       expect(executorAgentFile?.ok).toBe(false)
       expect(claude.details).toContain('устарели')
@@ -292,7 +292,7 @@ describe('core/ai-clients', () => {
       const claude = agents[0]
       expect(claude.status).toBe('needs_setup')
       const styleFile = claude.checkedFiles!.find((f) =>
-        f.path.endsWith('output-styles/duet-executor.md')
+        f.path.endsWith(join('output-styles', 'duet-executor.md'))
       )
       expect(styleFile?.ok).toBe(false)
     })
@@ -328,7 +328,7 @@ describe('core/ai-clients', () => {
       const claude = agents[0]
       expect(claude.status).toBe('needs_setup')
       const vizirFile = claude.checkedFiles!.find((f) =>
-        f.path.endsWith('agents/duet-vizir.md')
+        f.path.endsWith(join('agents', 'duet-vizir.md'))
       )
       expect(vizirFile?.ok).toBe(false)
     })
