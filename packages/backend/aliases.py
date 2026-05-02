@@ -13,6 +13,8 @@ Example:
     "@БАЗА/subfolder" → "/Users/starship/.../!БАЗА/subfolder"
 """
 
+import os
+
 
 class AliasNotFoundError(Exception):
     """Raised when alias is not found in machine config."""
@@ -68,9 +70,9 @@ class AliasResolver:
 
         resolved = self.aliases[alias]
 
-        # If there's a subpath, append it
+        # If there's a subpath, append it using OS-native separator
         if len(parts) > 1:
-            return f"{resolved}/{parts[1]}"
+            return os.path.join(resolved, parts[1])
 
         return resolved
 

@@ -301,6 +301,52 @@ class TestGetBusinessFolders:
             config.get_business_folders()
 
 
+class TestAddBusinessFolder:
+    """Tests for add_business_folder() — duplicate detection across separators."""
+
+    def test_strips_trailing_posix_slash_for_dedup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Adding "/foo/" when "/foo" exists is detected as duplicate."""
+        biz_path = tmp_path / "Biz"
+        biz_path.mkdir()
+        (biz_path / "business.json").write_text('{"name":"Biz"}')
+
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_alias("@Biz", str(biz_path))
+        builder.with_business_folders(["@Biz"])
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        # Try to add the same folder with trailing slash — should be detected as dup
+        result = config.add_business_folder(str(biz_path) + "/")
+        assert result["status"] == "exists"
+
+    def test_strips_trailing_windows_backslash_for_dedup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Adding "C:\\foo\\" when "C:\\foo" exists is detected as duplicate.
+
+        Old code did rstrip("/") — Windows trailing backslash stayed,
+        duplicate detection failed.
+        """
+        biz_path = tmp_path / "Biz"
+        biz_path.mkdir()
+        (biz_path / "business.json").write_text('{"name":"Biz"}')
+
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_alias("@Biz", str(biz_path))
+        builder.with_business_folders(["@Biz"])
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        # Trailing backslash — emulates Windows-style path tail
+        result = config.add_business_folder(str(biz_path) + "\\")
+        assert result["status"] == "exists"
+
+
 class TestGetVersion:
     """Tests for get_version()."""
 

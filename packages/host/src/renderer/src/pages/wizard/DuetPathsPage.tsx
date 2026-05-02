@@ -49,9 +49,10 @@ export function DuetPathsPage({
     const selected = await window.api.selectFolder()
     if (!selected) return
     if (businessFolders.some((f) => f.resolved === selected)) return
-    const updated = [...businessFolders, { raw: selected, resolved: selected, isRoot: false }]
+    // Backend creates @alias in {machine}.json and appends to settings.json.
+    // settings.json is shared across machines — must contain @aliases, not absolute paths.
+    const updated = await window.api.addBusinessFolder(selected)
     setBusinessFolders(updated)
-    await window.api.saveBusinessFolders(updated.map((f) => f.raw))
   }
 
   const handleRemoveFolder = async (index: number): Promise<void> => {

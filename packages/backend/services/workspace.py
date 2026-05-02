@@ -17,6 +17,7 @@ from config import (
 from db import DatabaseManager, Entity
 from description import extract_description, find_spec_file
 from normalization import normalize_path
+from paths import is_path_inside
 from scanner import scan_components
 from services.manifest import read_reference_repos as _read_manifest_reference_repos
 
@@ -87,8 +88,7 @@ class WorkspaceService:
 
         repos_path = get_repos_path()
         if repos_path:
-            repos_str = str(repos_path.resolve())
-            if path_str == repos_str or path_str.startswith(repos_str + "/"):
+            if is_path_inside(path, repos_path.resolve()):
                 return self._resolve_from_repos(path, repos_path)
 
         return self._resolve_from_drive(path_str)
@@ -134,14 +134,14 @@ class WorkspaceService:
         """
         business_folders = get_business_folders()
 
+        path = Path(path_str)
         for folder in business_folders:
             folder_path = Path(folder).resolve()
-            folder_str = str(folder_path)
 
-            if path_str == folder_str or path_str.startswith(folder_str + "/"):
+            if is_path_inside(path, folder_path):
                 try:
                     business_name = folder_path.name
-                    relative = Path(path_str).relative_to(folder_path)
+                    relative = path.relative_to(folder_path)
                     relative_str = str(relative).replace("\\", "/")
 
                     if relative_str == ".":
@@ -159,17 +159,13 @@ class WorkspaceService:
         """Check if path is in repos/ or any business_folder."""
         workspace_path = normalize_path(workspace_path)
         path = Path(workspace_path).resolve()
-        path_str = str(path)
 
         repos_path = get_repos_path()
-        if repos_path:
-            repos_str = str(repos_path.resolve())
-            if path_str == repos_str or path_str.startswith(repos_str + "/"):
-                return True
+        if repos_path and is_path_inside(path, repos_path.resolve()):
+            return True
 
         for folder in get_business_folders():
-            folder_str = str(Path(folder).resolve())
-            if path_str == folder_str or path_str.startswith(folder_str + "/"):
+            if is_path_inside(path, Path(folder).resolve()):
                 return True
 
         return False
@@ -177,7 +173,13 @@ class WorkspaceService:
     # === Path resolution helpers ===
 
     def _resolve_drive_path(self, entity: Entity) -> Path | None:
-        """Resolve entity's drive_path to absolute filesystem path."""
+        """Resolve entity's drive_path to absolute filesystem path.
+
+        Invariant: entity.drive_path is stored with `/` separator regardless
+        of host OS — Scanner normalizes via `replace("\\", "/")` (see
+        scanner._to_relative_path). Splitting on `/` here is therefore safe
+        on Windows. Do NOT pass raw OS paths into this string field.
+        """
         if not entity.drive_path:
             return None
 
@@ -236,11 +238,9 @@ class WorkspaceService:
         path_s = str(path)
 
         repos_path = get_repos_path()
-        if repos_path:
-            repos_str = str(repos_path.resolve())
-            if path_s == repos_str or path_s.startswith(repos_str + "/"):
-                entity = self._resolve_from_repos(path, repos_path)
-                return ("git", entity)
+        if repos_path and is_path_inside(path, repos_path.resolve()):
+            entity = self._resolve_from_repos(path, repos_path)
+            return ("git", entity)
 
         manifest_names = [
             "business.json", "stream.json", "product.json", "project.json"

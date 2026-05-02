@@ -163,3 +163,22 @@ class TestAliasResolverEdgeCases:
 
         # Multiple slashes in subpath
         assert resolver.resolve("@Base/a/b/c") == "/base/a/b/c"
+
+    def test_windows_alias_subpath_uses_native_separator(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On Windows, @Alias/sub joins with `\\` (native sep), not `/`.
+
+        Old code did f"{resolved}/{parts[1]}" — produced mixed separators
+        like "C:\\foo/sub". Fix uses os.path.join which respects host OS.
+        """
+        # Force ntpath join behavior to simulate Windows host
+        import ntpath
+        import aliases as aliases_mod
+        monkeypatch.setattr(aliases_mod.os.path, "join", ntpath.join)
+
+        resolver = AliasResolver({"@Baza": "C:\\Projects\\Baza"})
+        assert resolver.resolve("@Baza/sub") == "C:\\Projects\\Baza\\sub"
+        assert resolver.resolve("@Baza/a/b") == "C:\\Projects\\Baza\\a/b"
+        # Note: "a/b" stays as-is (subpath splits only first '/'), but the
+        # join between alias and subpath uses native sep.

@@ -7,8 +7,13 @@
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { join } from 'path'
-import { readSettingsConfig, readMachineConfig, setSettingsConfigKey } from './config'
+import { basename, join } from 'path'
+import {
+  readSettingsConfig,
+  readMachineConfig,
+  setMachineConfigKey,
+  setSettingsConfigKey
+} from './config'
 import type { BusinessFolderEntry, ScanResult, StreamsCache } from '../shared/types'
 
 // Re-export types
@@ -91,6 +96,90 @@ export function setRootBusiness(folders: BusinessFolderEntry[], rootIndex: numbe
  */
 export function saveBusinessFolders(folders: string[]): void {
   setSettingsConfigKey('business_folders', folders)
+}
+
+// =============================================================================
+// ADD BUSINESS FOLDER (with alias creation)
+// =============================================================================
+
+/**
+ * Добавляет бизнес-папку через `@alias` механизм.
+ *
+ * Зачем: settings.json — shared между машинами (Google Drive). Прямые
+ * абсолютные пути (например `C:\Projects\Baza`) ломают синхронизацию.
+ * Алиас живёт в settings.json, маппинг алиас → путь — в per-machine
+ * `{machine}.json`. Контракт описан в spec/PRODUCT.md.
+ *
+ * Поведение:
+ * 1. Если путь уже привязан к существующему `@alias` — переиспользуем алиас.
+ * 2. Иначе генерируем `@<basename>` от имени папки.
+ * 3. На коллизию с другим путём — суффикс `_2`, `_3`, ...
+ * 4. Записываем алиас в `{machine}.json`, добавляем в `business_folders`.
+ *
+ * Возвращает обновлённый список `BusinessFolderEntry[]` для рендера.
+ */
+export function addBusinessFolder(absolutePath: string): BusinessFolderEntry[] {
+  const mc = readMachineConfig() ?? {}
+
+  // Существующие @aliases из {machine}.json
+  const existingAliases: Record<string, string> = {}
+  for (const [k, v] of Object.entries(mc)) {
+    if (k.startsWith('@') && typeof v === 'string') existingAliases[k] = v
+  }
+
+  const { alias, isNew } = resolveAliasForPath(absolutePath, existingAliases)
+
+  // Записать новый алиас в {machine}.json
+  if (isNew) {
+    setMachineConfigKey(alias, absolutePath)
+  }
+
+  // Добавить в business_folders в settings.json (без дубликата)
+  const current = getBusinessFolders()
+  if (!current.includes(alias)) {
+    setSettingsConfigKey('business_folders', [...current, alias])
+  }
+
+  return getResolvedBusinessFolders()
+}
+
+/**
+ * Подбирает имя алиаса для абсолютного пути.
+ *
+ * - Если `path` уже привязан к существующему алиасу → переиспользуем его (idempotent).
+ * - Иначе берём `@<basename(path)>`.
+ * - На коллизию с другим путём — добавляем суффикс `_2`, `_3`, ...
+ *
+ * Экспорт для тестируемости.
+ */
+export function resolveAliasForPath(
+  absolutePath: string,
+  existingAliases: Record<string, string>
+): { alias: string; isNew: boolean } {
+  // 1. Reuse: путь уже привязан к существующему алиасу
+  for (const [aliasName, aliasPath] of Object.entries(existingAliases)) {
+    if (aliasPath === absolutePath) return { alias: aliasName, isNew: false }
+  }
+
+  // 2. Базовое имя — `@<folder.name>`. basename() работает с разделителями текущей ОС;
+  //    визард всегда вызывается локально, dialog возвращает OS-native пути.
+  const folderName = basename(absolutePath)
+  if (folderName === '') {
+    throw new Error(
+      `Cannot derive alias from path "${absolutePath}": empty basename. ` +
+        'Pick a folder, not a filesystem root.'
+    )
+  }
+  const base = '@' + folderName
+
+  if (!(base in existingAliases)) {
+    return { alias: base, isNew: true }
+  }
+
+  // 3. Коллизия — суффикс. Не пересекаемся ни с одним существующим алиасом.
+  let i = 2
+  while (`${base}_${i}` in existingAliases) i++
+  return { alias: `${base}_${i}`, isNew: true }
 }
 
 // =============================================================================

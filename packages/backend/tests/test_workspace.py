@@ -184,6 +184,61 @@ class TestResolveEntity:
         assert entity.name == "MyBusiness"
         assert entity.type == "business"
 
+    def test_resolve_does_not_match_sibling_with_shared_prefix(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Path inside `Baza2` must not match business_folder `Baza`.
+
+        Regression: a naive `path.startswith(folder)` (no separator) would
+        treat `/root/Baza2/sub` as inside `/root/Baza`. The fix uses
+        `Path.relative_to`, which correctly rejects this.
+        """
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Baza")
+        builder.add_business("Baza2")
+        duet_data = builder.build(monkeypatch)
+        scanner = Scanner(db)
+        scanner.scan()
+
+        # Subpath inside Baza2 — must resolve to Baza2, not Baza
+        baza2_subpath = builder.get_business_path(1) / "subdir"
+        baza2_subpath.mkdir()
+
+        service = WorkspaceService(db)
+        entity = service._resolve_entity(str(baza2_subpath))
+
+        assert entity is not None
+        assert entity.name == "Baza2", (
+            f"Expected to resolve into Baza2, got {entity.name!r} — "
+            "likely a regression to naive prefix matching"
+        )
+
+    def test_is_path_in_hierarchy_does_not_match_sibling_prefix(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`_is_path_in_hierarchy` must not give false positives on prefix collisions.
+
+        If business_folders contains `/root/Baza` only, then `/root/Baza2`
+        is NOT in the hierarchy. The naive `+ "/"` check happened to handle
+        this on POSIX (because `/Baza/` is not a prefix of `/Baza2`), but
+        the fix via `relative_to` makes the intent explicit and OS-independent.
+        """
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_business("Baza")  # only Baza is registered
+        duet_data = builder.build(monkeypatch)
+
+        # Baza2 exists on disk but is NOT in business_folders
+        sibling = tmp_path / "Baza2"
+        sibling.mkdir()
+
+        service = WorkspaceService(db)
+        assert service._is_path_in_hierarchy(str(sibling)) is False
+        assert service._is_path_in_hierarchy(str(sibling / "deep")) is False
+        # Sanity: actual Baza is in hierarchy
+        assert service._is_path_in_hierarchy(
+            str(builder.get_business_path(0))
+        ) is True
+
 
 class TestGetOrientation:
     """Tests for WorkspaceService.get_orientation method."""

@@ -7,7 +7,9 @@ import { join } from 'path'
 import { createTestContext, writeTestConfig, type TestContext } from '../../helpers'
 
 import {
+  addBusinessFolder,
   getBusinessFolders,
+  resolveAliasForPath,
   saveBusinessFolders,
   readCachedScan,
   readCachedStreams
@@ -116,6 +118,149 @@ describe('core/business-folders', () => {
 
       const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
       expect(settings.business_folders).toEqual(['/new/path1', '/new/path2'])
+    })
+  })
+
+  // ===========================================================================
+  // resolveAliasForPath (pure)
+  // ===========================================================================
+
+  describe('resolveAliasForPath', () => {
+    it('reuses existing alias when path is already aliased', () => {
+      const aliases = { '@Existing': '/foo/bar' }
+      const result = resolveAliasForPath('/foo/bar', aliases)
+      expect(result).toEqual({ alias: '@Existing', isNew: false })
+    })
+
+    it('reuses alias even if its name does not match basename', () => {
+      // User's manually-named aliases (e.g. transliteration) survive: same path → same alias
+      const aliases = { '@MyBaza': '/foo/Baza' }
+      const result = resolveAliasForPath('/foo/Baza', aliases)
+      expect(result).toEqual({ alias: '@MyBaza', isNew: false })
+    })
+
+    it('generates @basename for fresh path', () => {
+      const result = resolveAliasForPath('/foo/Baza', {})
+      expect(result).toEqual({ alias: '@Baza', isNew: true })
+    })
+
+    it('handles unicode folder names', () => {
+      const result = resolveAliasForPath('/foo/МетаЛаб', {})
+      expect(result).toEqual({ alias: '@МетаЛаб', isNew: true })
+    })
+
+    it('appends _2 on collision with different path', () => {
+      const aliases = { '@Baza': '/other/Baza' }
+      const result = resolveAliasForPath('/foo/Baza', aliases)
+      expect(result).toEqual({ alias: '@Baza_2', isNew: true })
+    })
+
+    it('skips taken suffixes until a free one is found', () => {
+      const aliases = {
+        '@Baza': '/a/Baza',
+        '@Baza_2': '/b/Baza',
+        '@Baza_3': '/c/Baza'
+      }
+      const result = resolveAliasForPath('/d/Baza', aliases)
+      expect(result).toEqual({ alias: '@Baza_4', isNew: true })
+    })
+
+    it('throws on degenerate path with empty basename', () => {
+      // Filesystem root or trailing-only path — should be rejected, not produce '@'
+      expect(() => resolveAliasForPath('/', {})).toThrow(/empty basename/)
+    })
+  })
+
+  // ===========================================================================
+  // addBusinessFolder
+  // ===========================================================================
+
+  describe('addBusinessFolder', () => {
+    const writeMachineConfig = (config: Record<string, unknown>): void => {
+      writeFileSync(
+        join(ctx.duetConfigDir, 'test.json'),
+        JSON.stringify(config),
+        'utf-8'
+      )
+    }
+    const readMachineFile = (): Record<string, unknown> =>
+      JSON.parse(readFileSync(join(ctx.duetConfigDir, 'test.json'), 'utf-8'))
+    const readSettingsFile = (): Record<string, unknown> =>
+      JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
+
+    beforeEach(() => {
+      // Each test starts with empty machine config + settings present
+      writeMachineConfig({ port: 19680 })
+      writeFileSync(
+        join(ctx.duetConfigDir, 'settings.json'),
+        JSON.stringify({ business_folders: [] }),
+        'utf-8'
+      )
+    })
+
+    it('creates @alias in machine config and adds to business_folders', () => {
+      const result = addBusinessFolder('/foo/Baza')
+
+      const mc = readMachineFile()
+      expect(mc['@Baza']).toBe('/foo/Baza')
+      expect(mc.port).toBe(19680) // existing keys preserved
+
+      const settings = readSettingsFile()
+      expect(settings.business_folders).toEqual(['@Baza'])
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({ raw: '@Baza', resolved: '/foo/Baza' })
+    })
+
+    it('reuses existing alias for same path (idempotent)', () => {
+      writeMachineConfig({ port: 19680, '@Baza': '/foo/Baza' })
+      writeFileSync(
+        join(ctx.duetConfigDir, 'settings.json'),
+        JSON.stringify({ business_folders: ['@Baza'] }),
+        'utf-8'
+      )
+
+      const result = addBusinessFolder('/foo/Baza')
+
+      // No new alias, no duplicate in business_folders
+      const mc = readMachineFile()
+      expect(Object.keys(mc).filter((k) => k.startsWith('@'))).toEqual(['@Baza'])
+      const settings = readSettingsFile()
+      expect(settings.business_folders).toEqual(['@Baza'])
+      expect(result).toHaveLength(1)
+    })
+
+    it('generates suffixed alias on basename collision', () => {
+      writeMachineConfig({ port: 19680, '@Baza': '/old/Baza' })
+      writeFileSync(
+        join(ctx.duetConfigDir, 'settings.json'),
+        JSON.stringify({ business_folders: ['@Baza'] }),
+        'utf-8'
+      )
+
+      const result = addBusinessFolder('/new/Baza')
+
+      const mc = readMachineFile()
+      expect(mc['@Baza']).toBe('/old/Baza') // unchanged
+      expect(mc['@Baza_2']).toBe('/new/Baza')
+
+      const settings = readSettingsFile()
+      expect(settings.business_folders).toEqual(['@Baza', '@Baza_2'])
+      expect(result).toHaveLength(2)
+    })
+
+    it('creates settings.json with first folder when missing', () => {
+      // Wipe settings to simulate missing
+      writeFileSync(
+        join(ctx.duetConfigDir, 'settings.json'),
+        JSON.stringify({}),
+        'utf-8'
+      )
+
+      addBusinessFolder('/foo/Baza')
+
+      const settings = readSettingsFile()
+      expect(settings.business_folders).toEqual(['@Baza'])
     })
   })
 

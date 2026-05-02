@@ -371,13 +371,13 @@ def add_business_folder(absolute_path: str) -> dict:
     Raises:
         ConfigError: If settings.json is invalid or path already exists.
     """
-    # Normalize for comparison
-    normalized = unicodedata.normalize("NFC", absolute_path.rstrip("/"))
+    # Normalize for comparison: strip trailing separators (POSIX `/`, Windows `\`)
+    normalized = unicodedata.normalize("NFC", absolute_path.rstrip("/\\"))
 
     # Check for duplicates against resolved existing folders
     existing_resolved = get_business_folders()
     for existing in existing_resolved:
-        if unicodedata.normalize("NFC", existing.rstrip("/")) == normalized:
+        if unicodedata.normalize("NFC", existing.rstrip("/\\")) == normalized:
             return {"status": "exists", "business_folders": existing_resolved}
 
     # Read raw settings to preserve @alias entries

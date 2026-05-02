@@ -141,6 +141,9 @@ const api = {
   saveBusinessFolders: (folders: string[]): Promise<void> =>
     ipcRenderer.invoke('business-folders:save', folders),
 
+  addBusinessFolder: (absolutePath: string): Promise<BusinessFolderEntry[]> =>
+    ipcRenderer.invoke('business-folders:add', absolutePath),
+
   setRootBusiness: (rootIndex: number): Promise<BusinessFolderEntry[]> =>
     ipcRenderer.invoke('business-folders:set-root', rootIndex),
 

@@ -33,6 +33,7 @@ import {
   isFolderEmpty
 } from '../core/instructions-download'
 import {
+  addBusinessFolder,
   getResolvedBusinessFolders,
   saveBusinessFolders,
   setRootBusiness,
@@ -431,6 +432,13 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('business-folders:save', (_event, folders: string[]): void => {
     saveBusinessFolders(folders)
   })
+
+  ipcMain.handle(
+    'business-folders:add',
+    (_event, absolutePath: string): BusinessFolderEntry[] => {
+      return addBusinessFolder(absolutePath)
+    }
+  )
 
   ipcMain.handle(
     'business-folders:set-root',
