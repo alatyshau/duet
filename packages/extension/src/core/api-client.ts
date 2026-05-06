@@ -90,12 +90,6 @@ export interface ScanResponse {
     duration_ms?: number;
 }
 
-export interface AddBusinessResponse {
-    status: 'added' | 'exists';
-    business_folders: string[];
-    scan?: ScanResponse;
-}
-
 export interface ApiError {
     error: string;
     code: string;
@@ -151,10 +145,6 @@ export class DuetApiClient {
 
     async scan(): Promise<ScanResponse> {
         return this.post('/scan', 30000); // scan can take time
-    }
-
-    async addBusiness(absolutePath: string): Promise<AddBusinessResponse> {
-        return this.postJson('/add-business', { path: absolutePath }, 30000);
     }
 
     private async get<T>(path: string, timeoutMs: number = 10000): Promise<T> {

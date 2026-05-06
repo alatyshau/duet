@@ -33,6 +33,13 @@ export function DuetPathsPage({
   const [machine, setMachine] = useState(appState.machine ?? '')
   const [machineError, setMachineError] = useState(false)
   const [businessFolders, setBusinessFolders] = useState<BusinessFolderEntry[]>([])
+  const [folderError, setFolderError] = useState<string | null>(null)
+
+  /**
+   * Нормализация для dedup в UI. Должна совпадать с core/business-folders.ts:normalizePath.
+   * Дублируется здесь только потому что renderer не импортит core напрямую.
+   */
+  const normalizePathForCompare = (p: string): string => p.replace(/[\\/]+$/, '').normalize('NFC')
 
   const _updateStatus = (state: AppState): void => {
     onStatusChange(state.duetDataPath && state.duetConfigPath && state.machine ? 'ok' : null)
@@ -45,25 +52,39 @@ export function DuetPathsPage({
   }, [])
 
   // Business folders
+  // Принцип: persist первым, UI обновляем только после успешной записи.
+  // Иначе на ошибке записи UI и диск разойдутся.
   const handleAddFolder = async (): Promise<void> => {
+    setFolderError(null)
     const selected = await window.api.selectFolder()
     if (!selected) return
-    if (businessFolders.some((f) => f.resolved === selected)) return
-    // Backend creates @alias in {machine}.json and appends to settings.json.
-    // settings.json is shared across machines — must contain @aliases, not absolute paths.
-    const updated = await window.api.addBusinessFolder(selected)
-    setBusinessFolders(updated)
+    const selectedNorm = normalizePathForCompare(selected)
+    if (businessFolders.some((f) => normalizePathForCompare(f.resolved) === selectedNorm)) return
+    try {
+      // Host creates @alias in {machine}.json and appends to settings.json.
+      // settings.json is shared across machines — must contain @aliases, not absolute paths.
+      const updated = await window.api.addBusinessFolder(selected)
+      setBusinessFolders(updated)
+    } catch (e) {
+      setFolderError(`Не удалось добавить папку: ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 
   const handleRemoveFolder = async (index: number): Promise<void> => {
+    setFolderError(null)
     const wasRoot = businessFolders[index].isRoot
     const updated = businessFolders.filter((_, i) => i !== index)
-    setBusinessFolders(updated)
-    await window.api.saveBusinessFolders(updated.map((f) => f.raw))
-    // If root was removed, promote first remaining folder
-    if (wasRoot && updated.length > 0) {
-      const refreshed = await window.api.setRootBusiness(0)
-      setBusinessFolders(refreshed)
+    try {
+      await window.api.saveBusinessFolders(updated.map((f) => f.raw))
+      // If root was removed, promote first remaining folder
+      if (wasRoot && updated.length > 0) {
+        const refreshed = await window.api.setRootBusiness(0)
+        setBusinessFolders(refreshed)
+      } else {
+        setBusinessFolders(updated)
+      }
+    } catch (e) {
+      setFolderError(`Не удалось удалить папку: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
@@ -82,6 +103,7 @@ export function DuetPathsPage({
   }
 
   const handleDrop = async (targetIndex: number): Promise<void> => {
+    setFolderError(null)
     if (dragIndex === null || dragIndex === targetIndex) {
       setDragIndex(null)
       setDragOverIndex(null)
@@ -90,14 +112,20 @@ export function DuetPathsPage({
     const updated = [...businessFolders]
     const [moved] = updated.splice(dragIndex, 1)
     updated.splice(targetIndex, 0, moved)
-    setBusinessFolders(updated)
+    const fromIdx = dragIndex
     setDragIndex(null)
     setDragOverIndex(null)
-    await window.api.saveBusinessFolders(updated.map((f) => f.raw))
-    // If an item was dragged to position 0, make it root in business.json
-    if (targetIndex === 0 || dragIndex === 0) {
-      const refreshed = await window.api.setRootBusiness(0)
-      setBusinessFolders(refreshed)
+    try {
+      await window.api.saveBusinessFolders(updated.map((f) => f.raw))
+      // If an item was dragged to position 0, make it root in business.json
+      if (targetIndex === 0 || fromIdx === 0) {
+        const refreshed = await window.api.setRootBusiness(0)
+        setBusinessFolders(refreshed)
+      } else {
+        setBusinessFolders(updated)
+      }
+    } catch (e) {
+      setFolderError(`Не удалось переупорядочить: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
@@ -313,7 +341,10 @@ export function DuetPathsPage({
               draggable
               onDragStart={(e) => handleDragStart(e, i)}
               onDragOver={(e) => handleDragOver(e, i)}
-              onDrop={(e) => { e.preventDefault(); void handleDrop(i) }}
+              onDrop={(e) => {
+                e.preventDefault()
+                void handleDrop(i)
+              }}
               onDragEnd={handleDragEnd}
               className={`flex items-center gap-2 p-3 rounded-lg border bg-background transition-colors
                 ${dragOverIndex === i && dragIndex !== i ? 'border-blue-400 bg-blue-500/10' : 'border-border'}
@@ -355,6 +386,8 @@ export function DuetPathsPage({
           <Plus size={16} />
           Добавить папку
         </Button>
+
+        {folderError && <p className="text-xs text-red-500 break-words">{folderError}</p>}
       </div>
     </div>
   )

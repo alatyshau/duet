@@ -19,9 +19,10 @@ Extension loads entities from Backend HTTP API, not from local storage.
 |--------|--------|------|
 | `GET /streams` | `apiClient.streams()` | All business/stream/product + active projects with `absolute_path` |
 | `POST /scan` | `apiClient.scan()` | Trigger backend rescan |
-| `POST /add-business` | `apiClient.addBusiness(path)` | Add business folder to settings.json |
 
 Loaded `StreamEntity[]` is kept in memory and shared across tree providers (sync access). Refreshed on `duet.refresh` command.
+
+**Business folder configuration is Host-only.** Extension intentionally has no add/remove/reorder commands and no write path to `settings.json` or `{machine}.json` (see [/spec/PRODUCT.md](/spec/PRODUCT.md) → "Single-writer invariant"). All edits go through the Host wizard.
 
 ## Workspace Files
 

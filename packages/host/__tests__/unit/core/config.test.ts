@@ -9,6 +9,7 @@ import {
   ensureConfigDefaults,
   isValidMachineName,
   readSettingsConfig,
+  setMachineConfigKey,
   setSettingsConfigKey
 } from '../../../src/core/config'
 import { createTestContext, writeTestConfig, type TestContext } from '../../helpers'
@@ -207,7 +208,7 @@ describe('core/config', () => {
   // ===========================================================================
 
   describe('setSettingsConfigKey', () => {
-    it('updates key in existing settings.json', () => {
+    it('updates key in existing settings.json, preserves other fields', () => {
       writeTestConfig(ctx.configFile, {
         duetDataPath: ctx.duetDataDir,
         duetConfigPath: ctx.duetConfigDir,
@@ -225,23 +226,96 @@ describe('core/config', () => {
       expect(settings.timestampTZ).toEqual({ id: 'Z', value: 'UTC' })
     })
 
-    it('creates settings.json if missing', () => {
+    it('throws if settings.json is missing (fail-loud, not silent recreate)', () => {
       writeTestConfig(ctx.configFile, {
         duetDataPath: ctx.duetDataDir,
         duetConfigPath: ctx.duetConfigDir,
         machine: 'test'
       })
 
-      setSettingsConfigKey('business_folders', ['/path'])
-
-      const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
-      expect(settings.business_folders).toEqual(['/path'])
+      expect(() => setSettingsConfigKey('business_folders', ['/path'])).toThrow(
+        /Settings file not found/
+      )
     })
 
-    it('does nothing when pointer is not configured', () => {
+    it('throws if settings.json contains invalid JSON', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      writeFileSync(join(ctx.duetConfigDir, 'settings.json'), '{ broken json', 'utf-8')
+
+      expect(() => setSettingsConfigKey('business_folders', ['/path'])).toThrow(/Invalid JSON/)
+    })
+
+    it('throws when pointer is not configured', () => {
       // No writeTestConfig — pointer not set
-      setSettingsConfigKey('business_folders', ['/path'])
-      // Should not throw, just no-op
+      expect(() => setSettingsConfigKey('business_folders', ['/path'])).toThrow(/duetConfigPath/)
+    })
+  })
+
+  // ===========================================================================
+  // setMachineConfigKey
+  // ===========================================================================
+
+  describe('setMachineConfigKey', () => {
+    const machineConfigPath = (): string => join(ctx.duetConfigDir, 'test.json')
+
+    it('updates key in existing machine config, preserves other fields', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      writeFileSync(
+        machineConfigPath(),
+        JSON.stringify({ port: 19680, instructionsPath: '/some/path' })
+      )
+
+      setMachineConfigKey('@MyBiz', '/foo/MyBiz')
+
+      const mc = JSON.parse(readFileSync(machineConfigPath(), 'utf-8'))
+      expect(mc.port).toBe(19680)
+      expect(mc.instructionsPath).toBe('/some/path')
+      expect(mc['@MyBiz']).toBe('/foo/MyBiz')
+    })
+
+    it('throws if {machine}.json is missing (no silent recreate that would lose port etc.)', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+
+      expect(() => setMachineConfigKey('@X', '/x')).toThrow(/Machine config not found/)
+    })
+
+    it('throws on invalid JSON in machine config', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      writeFileSync(machineConfigPath(), '{ broken', 'utf-8')
+
+      expect(() => setMachineConfigKey('@X', '/x')).toThrow(/Invalid JSON/)
+    })
+
+    it('throws if pointer config lacks duetConfigPath or machine', () => {
+      writeTestConfig(ctx.configFile, { duetDataPath: ctx.duetDataDir })
+
+      expect(() => setMachineConfigKey('@X', '/x')).toThrow(/pointer not fully configured/)
+    })
+
+    it('throws on machine name with path traversal (e.g. ../evil)', () => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: '../evil'
+      })
+
+      expect(() => setMachineConfigKey('@X', '/x')).toThrow(/Invalid machine name/)
     })
   })
 

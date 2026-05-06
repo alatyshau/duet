@@ -5,7 +5,6 @@ import { AccordionController } from './providers/AccordionController';
 import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
 import { readPointer, readPort } from '../core/pointer';
 import { refreshFromBackend, dumpIndex } from './commands/refresh';
-import { addBusiness } from './commands/addBusiness';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { copyAtPath } from './commands/copyAtPath';
 import { Paths } from '../core/paths';
@@ -149,8 +148,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                         isExpanded = true;
                     }
-                }),
-                vscode.commands.registerCommand('duet.addBusiness', () => addBusiness(apiClient))
+                })
             );
 
             // Set ready AFTER providers are registered — views become visible only when providers exist

@@ -355,52 +355,6 @@ def resolve_alias(path: str) -> str:
         raise ConfigError(f"Failed to resolve alias: {e}") from e
 
 
-def add_business_folder(absolute_path: str) -> dict:
-    """Add a business folder to settings.json.
-
-    Appends the absolute path to business_folders list.
-    Checks for duplicates by resolving existing entries.
-    Resets config cache so next call picks up changes.
-
-    Args:
-        absolute_path: Absolute filesystem path to the business folder.
-
-    Returns:
-        Dict with status and current business_folders list.
-
-    Raises:
-        ConfigError: If settings.json is invalid or path already exists.
-    """
-    # Normalize for comparison: strip trailing separators (POSIX `/`, Windows `\`)
-    normalized = unicodedata.normalize("NFC", absolute_path.rstrip("/\\"))
-
-    # Check for duplicates against resolved existing folders
-    existing_resolved = get_business_folders()
-    for existing in existing_resolved:
-        if unicodedata.normalize("NFC", existing.rstrip("/\\")) == normalized:
-            return {"status": "exists", "business_folders": existing_resolved}
-
-    # Read raw settings to preserve @alias entries
-    settings = read_settings()
-    raw_folders = settings.get("business_folders", [])
-
-    # Append absolute path (AliasResolver passes through absolute paths)
-    raw_folders.append(absolute_path)
-    settings["business_folders"] = raw_folders
-
-    # Write back
-    settings_path = get_settings_path()
-    settings_path.write_text(
-        json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-    # Reset cache so next get_business_folders() picks up changes
-    reset_cache()
-
-    return {"status": "added", "business_folders": get_business_folders()}
-
-
 # === Legacy compatibility (for gradual migration) ===
 
 

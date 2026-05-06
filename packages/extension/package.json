@@ -27,12 +27,6 @@
                 "title": "Duet: Dump Index (Debug)"
             },
             {
-                "command": "duet.addBusiness",
-                "title": "Добавить бизнес",
-                "icon": "$(plus)",
-                "shortTitle": "Добавить"
-            },
-            {
                 "command": "duet.openInCurrentWindow",
                 "title": "Открыть в текущем окне",
                 "icon": "$(go-to-file)",
@@ -114,11 +108,6 @@
                     "command": "duet.refresh",
                     "when": "view == duet.businesses",
                     "group": "navigation@1"
-                },
-                {
-                    "command": "duet.addBusiness",
-                    "when": "view == duet.businesses",
-                    "group": "navigation@2"
                 },
                 {
                     "command": "duet.toggleExpand",

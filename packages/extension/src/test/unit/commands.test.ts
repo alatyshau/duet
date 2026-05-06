@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { openInCurrentWindow, openInNewWindow } from '../../vscode/commands/openFolder';
-import { addBusiness } from '../../vscode/commands/addBusiness';
 import { refreshFromBackend } from '../../vscode/commands/refresh';
 import { TreeNode } from '../../core/tree/businessTree';
 import * as vscode from 'vscode';
-import * as fs from 'fs/promises';
 
 // Mock pointer
 vi.mock('../../core/pointer', () => ({
@@ -46,26 +44,6 @@ vi.mock('vscode', () => ({
         Notification: 15
     }
 }));
-
-vi.mock('fs/promises', () => ({
-    access: vi.fn().mockResolvedValue(undefined),
-    writeFile: vi.fn().mockResolvedValue(undefined),
-    readFile: vi.fn(),
-    mkdir: vi.fn(),
-    rename: vi.fn().mockResolvedValue(undefined),
-    unlink: vi.fn().mockResolvedValue(undefined),
-    stat: vi.fn().mockResolvedValue({ isDirectory: () => true })
-}));
-
-// Mock DuetApiClient for addBusiness tests
-function createMockApiClient(overrides: Record<string, unknown> = {}) {
-    return {
-        addBusiness: vi.fn().mockResolvedValue({ status: 'added', business_folders: [] }),
-        scan: vi.fn().mockResolvedValue({ status: 'completed' }),
-        streams: vi.fn().mockResolvedValue({ streams: [] }),
-        ...overrides,
-    } as any;
-}
 
 describe('VS Code Commands', () => {
     beforeEach(() => {
@@ -132,83 +110,6 @@ describe('VS Code Commands', () => {
                 'vscode.openFolder',
                 expect.anything(),
                 expect.anything()
-            );
-        });
-    });
-
-    describe('addBusiness', () => {
-        it('should add business folder via backend API', async () => {
-            (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/new/business' }]);
-            // Manifest doesn't exist → triggers creation
-            (fs.access as any).mockRejectedValueOnce(new Error('ENOENT'));
-
-            const apiClient = createMockApiClient();
-            await addBusiness(apiClient);
-
-            // Verify dialog was shown
-            expect(vscode.window.showOpenDialog).toHaveBeenCalled();
-
-            // Verify manifest creation (business.json)
-            expect(fs.writeFile).toHaveBeenCalled();
-
-            // Verify backend API was called with the path
-            expect(apiClient.addBusiness).toHaveBeenCalledWith('/new/business');
-
-            // Verify refresh command
-            expect(vscode.commands.executeCommand).toHaveBeenCalledWith('duet.refresh');
-        });
-
-        it('should not create manifest if business.json already exists', async () => {
-            (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/new/business' }]);
-            // Manifest exists → access succeeds
-            (fs.access as any).mockResolvedValue(undefined);
-
-            const apiClient = createMockApiClient();
-            await addBusiness(apiClient);
-
-            // Should NOT write business.json
-            expect(fs.writeFile).not.toHaveBeenCalled();
-            // But should still call API
-            expect(apiClient.addBusiness).toHaveBeenCalledWith('/new/business');
-        });
-
-        it('should do nothing if dialog cancelled', async () => {
-            (vscode.window.showOpenDialog as any).mockResolvedValue(undefined);
-
-            const apiClient = createMockApiClient();
-            await addBusiness(apiClient);
-
-            expect(vscode.window.showOpenDialog).toHaveBeenCalled();
-            expect(apiClient.addBusiness).not.toHaveBeenCalled();
-            expect(fs.writeFile).not.toHaveBeenCalled();
-        });
-
-        it('should show info message if business already exists', async () => {
-            (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/existing/business' }]);
-            (fs.access as any).mockResolvedValue(undefined); // manifest exists
-
-            const apiClient = createMockApiClient({
-                addBusiness: vi.fn().mockResolvedValue({ status: 'exists', business_folders: ['/existing/business'] })
-            });
-            await addBusiness(apiClient);
-
-            expect(apiClient.addBusiness).toHaveBeenCalledWith('/existing/business');
-            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Business folder already added.');
-            // Should NOT trigger refresh
-            expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith('duet.refresh');
-        });
-
-        it('should show error message on API failure', async () => {
-            (vscode.window.showOpenDialog as any).mockResolvedValue([{ fsPath: '/new/business' }]);
-            (fs.access as any).mockResolvedValue(undefined);
-
-            const apiClient = createMockApiClient({
-                addBusiness: vi.fn().mockRejectedValue(new Error('connection refused'))
-            });
-            await addBusiness(apiClient);
-
-            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-                expect.stringContaining('Failed to add business')
             );
         });
     });

@@ -6,7 +6,7 @@ Provides entity listing and hierarchy scanning.
 import time
 from pathlib import Path
 
-from config import get_business_folders, get_repos_path, add_business_folder
+from config import get_business_folders, get_repos_path
 from db import DatabaseManager, Entity
 from scanner import Scanner, make_scan_result
 from services.manifest import read_reference_repos
@@ -76,25 +76,6 @@ class EntitiesService:
         scanner = Scanner(self.db)
         result = scanner.scan()
         self._last_scan_time = time.time()
-
-        return result
-
-    def add_business(self, absolute_path: str) -> dict:
-        """Add a business folder and trigger rescan.
-
-        Args:
-            absolute_path: Absolute filesystem path to the business folder.
-
-        Returns:
-            Dict with status, business_folders, and scan result.
-        """
-        result = add_business_folder(absolute_path)
-
-        if result["status"] == "added":
-            # Force rescan to pick up new business
-            self._last_scan_time = 0
-            scan_result = self.run_scan()
-            result["scan"] = scan_result
 
         return result
 

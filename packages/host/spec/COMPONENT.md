@@ -239,10 +239,20 @@ Implementation: `core/instructions-download.ts`
 Manages business folder configuration (stored in `DuetConfig/settings.json`).
 
 **Operations:**
-- `getBusinessFolders()` / `saveBusinessFolders(folders)` — CRUD on `settings.json`
+- `getBusinessFolders()` — read raw `business_folders` (list of `@aliases`) from `settings.json`
+- `getResolvedBusinessFolders()` — same, but each entry is `{raw, resolved, isRoot}` (resolves `@alias` via `{machine}.json` and reads `business.json/root` flag for each folder)
+- `addBusinessFolder(absolutePath)` — alias-aware add. Validates pointer (`duetConfigPath`, valid `machine`) and throws if missing. Creates `@<basename>` alias in `{machine}.json` (suffix `_2`, `_3` on collision; reuses if path already aliased). Appends alias to `business_folders` in `settings.json`. Maintains "exactly one root" invariant: if no folder is root after add, promotes position 0.
+- `saveBusinessFolders(folders)` — overwrite full `business_folders` array (used by reorder/remove). Throws if `settings.json` missing or invalid (no silent recreate that would lose `timestampTZ`).
+- `setRootBusiness(folders, rootIndex)` — toggle `root: true` on chosen folder, remove from others. Self-heals: creates `business.json` (with `{name: basename(folder), icon: '📁'}`) if missing, mirroring backend's scanner self-healing. Throws on invalid existing JSON (refuses to overwrite user data silently).
+- `normalizePath(p)` — NFC + strip trailing separators. Cross-platform: NFC fixes macOS NFD from native dialogs, on Windows is a no-op (NTFS already NFC). All path comparisons (alias reuse, dedup) and stored paths in `{machine}.json` go through this helper.
 - `triggerScan(port)` — calls Backend `POST /scan`, returns `ScanResult` with errors
 - `readCachedScan(duetDataPath)` — reads cached `DuetData/data/scan.json`. Used by main process for wizard status without IPC.
 - `readCachedStreams(duetDataPath)` — reads entity tree from `DuetData/data/streams.json`. Returns `StreamsCache` with flat entity list (build tree via `parent_id`).
+
+**Invariants:**
+- `business_folders` in `settings.json` always contains `@aliases` (never absolute paths) — required for cross-machine sync via Drive.
+- If ≥1 business folder configured, exactly one has `root: true` in its `business.json`. By convention, position 0 is root: drag-to-position-0 and remove-of-root in UI re-set root via `setRootBusiness(0)`; first-folder add auto-promotes.
+- All path comparisons go through `normalizePath` so NFC/NFD and trailing-separator differences never produce false-distinct paths.
 
 Implementation: `core/business-folders.ts`
 
@@ -277,8 +287,10 @@ Implementation: `core/business-folders.ts`
 | `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
 | `instructions:download-template` | renderer -> main | Download Duet-Instructions zip from GitHub, extract to targetFolder |
 | `instructions:is-folder-empty` | renderer -> main | Check if folder is empty (ignoring system files) |
-| `business-folders:get` | renderer -> main | Get business_folders from settings.json |
-| `business-folders:save` | renderer -> main | Save business_folders to settings.json |
+| `business-folders:get` | renderer -> main | Get resolved business folders (raw alias + absolute path + isRoot) |
+| `business-folders:save` | renderer -> main | Overwrite business_folders array in settings.json (used by remove/reorder) |
+| `business-folders:add` | renderer -> main | Alias-aware add: creates `@<basename>` in `{machine}.json`, appends to `business_folders`, auto-promotes first folder to root |
+| `business-folders:set-root` | renderer -> main | Set `root: true` on folder at given index, clear on others. Self-heals missing `business.json` |
 | `business-folders:scan` | renderer -> main | Trigger POST /scan |
 | `business-folders:get-cached-scan` | renderer -> main | Read cached scan.json from DuetData/data/ |
 | `business-folders:get-cached-streams` | renderer -> main | Read cached streams.json (entity tree) from DuetData/data/ |
@@ -287,7 +299,7 @@ Implementation: `core/business-folders.ts`
 
 **Config defaults:** `ensureConfigDefaults(duetConfigPath, machine)` — creates `settings.json` (`{ business_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
 
-**Machine config write:** `setMachineConfigKey(key, value)` — read-modify-write single field in `{machine}.json`. Validates machine name. Implementation: `core/config.ts`.
+**Machine config write:** `setMachineConfigKey(key, value)` — read-modify-write single field in `{machine}.json`. Throws if pointer is incomplete, machine name is invalid, or the file is missing/contains invalid JSON. `setSettingsConfigKey(key, value)` mirrors this contract for `settings.json`. Both functions used to silently recreate the file from `{}` on missing/corrupt input — that path is removed because it lost sibling fields (`timestampTZ`, `port`, `instructionsPath`); failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover. Implementation: `core/config.ts`.
 
 ## Pages
 

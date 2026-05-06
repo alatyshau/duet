@@ -299,11 +299,13 @@ Fallback: if standard file absent, orientation searches next in chain per entity
 | File | Host | Extension | Backend | AI Agents |
 |------|------|-----------|---------|-----------|
 | `~/.org.ve68.duet` | **writes** | reads | reads | — |
-| `DuetConfig/settings.json` | creates defaults | — | reads | — |
-| `DuetConfig/{machine}.json` | reads+writes (port, defaults) | reads (port) | reads (port, @aliases) | — |
+| `DuetConfig/settings.json` | reads+writes (business_folders, defaults) | — | reads | — |
+| `DuetConfig/{machine}.json` | reads+writes (port, instructionsPath, pythonPath, deployChannel, @aliases, defaults) | reads (port) | reads (port, @aliases) | — |
 | `DuetData/backend/VERSION` | writes | — | reads | — |
 | `DuetData/backend.log` | — | — | writes | — |
 | `DuetData/.pid` | reads | — | writes | — |
+
+**Single-writer invariant:** Host is the only writer of `settings.json` and `{machine}.json`. Backend strictly reads. Adding/removing/reordering business folders, creating `@alias` mappings — all flows go through Host UI (wizard step 1). Extension does not have its own write path; before any business folder edit it must direct the user to Host.
 
 ## Build & Release
 

@@ -94,18 +94,40 @@ export const readPort = (): number => {
 
 /**
  * Обновляет одно поле в {machine}.json (read-modify-write).
- * Ничего не делает если pointer неполный или machine config не найден.
+ *
+ * Бросает если:
+ * - pointer неполный (нет duetConfigPath или machine)
+ * - machine name невалидный (path-traversal protection)
+ * - файл отсутствует или содержит невалидный JSON
+ *
+ * Раньше функция тихо начинала с пустого `{}` если файл отсутствовал/побит,
+ * что приводило к беззвучной потере остальных полей (port, instructionsPath и т.д.)
+ * Теперь — fail loud, чтобы UI показал ошибку и пользователь починил конфиг
+ * через wizard step 1 (`ensureConfigDefaults`).
  */
 export const setMachineConfigKey = (key: string, value: unknown): void => {
   const config = readConfig()
-  if (!config.duetConfigPath || !config.machine) return
-  if (!isValidMachineName(config.machine)) return
+  if (!config.duetConfigPath || !config.machine) {
+    throw new Error(
+      'Cannot write machine config: pointer not fully configured (need duetConfigPath and machine).'
+    )
+  }
+  if (!isValidMachineName(config.machine)) {
+    throw new Error(`Invalid machine name in pointer config: "${config.machine}".`)
+  }
   const machineConfigPath = join(config.duetConfigPath, `${config.machine}.json`)
-  let existing: Record<string, unknown> = {}
+  if (!existsSync(machineConfigPath)) {
+    throw new Error(
+      `Machine config not found: ${machineConfigPath}. Re-run wizard step 1 to recreate defaults.`
+    )
+  }
+  let existing: Record<string, unknown>
   try {
     existing = JSON.parse(readFileSync(machineConfigPath, 'utf-8'))
-  } catch {
-    /* file missing or invalid — start fresh */
+  } catch (e) {
+    throw new Error(
+      `Invalid JSON in ${machineConfigPath}: ${e instanceof Error ? e.message : String(e)}`
+    )
   }
   existing[key] = value
   writeFileSync(machineConfigPath, JSON.stringify(existing, null, 2) + '\n')
@@ -133,17 +155,33 @@ export const readSettingsConfig = (): Record<string, unknown> | null => {
 
 /**
  * Обновляет одно поле в settings.json (read-modify-write).
- * Ничего не делает если pointer неполный или settings.json не найден.
+ *
+ * Бросает если:
+ * - duetConfigPath не настроен в pointer
+ * - settings.json отсутствует или содержит невалидный JSON
+ *
+ * Раньше функция тихо начинала с пустого `{}` если файл отсутствовал/побит,
+ * что приводило к беззвучной потере `timestampTZ` и других полей.
+ * Теперь — fail loud (см. setMachineConfigKey).
  */
 export const setSettingsConfigKey = (key: string, value: unknown): void => {
   const config = readConfig()
-  if (!config.duetConfigPath) return
+  if (!config.duetConfigPath) {
+    throw new Error('Cannot write settings: duetConfigPath is not configured in pointer.')
+  }
   const settingsPath = join(config.duetConfigPath, 'settings.json')
-  let existing: Record<string, unknown> = {}
+  if (!existsSync(settingsPath)) {
+    throw new Error(
+      `Settings file not found: ${settingsPath}. Re-run wizard step 1 to recreate defaults.`
+    )
+  }
+  let existing: Record<string, unknown>
   try {
     existing = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-  } catch {
-    /* file missing or invalid — start fresh */
+  } catch (e) {
+    throw new Error(
+      `Invalid JSON in ${settingsPath}: ${e instanceof Error ? e.message : String(e)}`
+    )
   }
   existing[key] = value
   writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n')

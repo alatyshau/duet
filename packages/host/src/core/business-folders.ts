@@ -11,10 +11,28 @@ import { basename, join } from 'path'
 import {
   readSettingsConfig,
   readMachineConfig,
+  readConfig,
+  isValidMachineName,
   setMachineConfigKey,
   setSettingsConfigKey
 } from './config'
 import type { BusinessFolderEntry, ScanResult, StreamsCache } from '../shared/types'
+
+/**
+ * Канонизация пути: NFC + срез trailing-разделителей.
+ *
+ * Зачем NFC: macOS dialog возвращает имена в NFD (decomposed),
+ * JSON-файлы хранят то что записано. Если сравнивать без нормализации,
+ * "МетаЛаб" из dialog и "МетаЛаб" из {machine}.json могут не совпасть
+ * по байтам и dedup/реюз alias сломается.
+ *
+ * Зачем strip разделителей: dialog/пользователь может прислать "/foo/" или "C:\foo\".
+ *
+ * Кроссплатформенно: на Windows NFC ≡ raw (NTFS уже NFC), на Mac/Linux фиксит NFD.
+ */
+export function normalizePath(p: string): string {
+  return p.replace(/[\\/]+$/, '').normalize('NFC')
+}
 
 // Re-export types
 export type {
@@ -69,25 +87,43 @@ function readManifestRoot(folderPath: string): boolean {
 
 /**
  * Устанавливает root: true в business.json указанной папки,
- * убирает root у всех остальных бизнес-папок.
+ * убирает root у всех остальных.
+ *
+ * Self-healing: если business.json отсутствует — создаёт его с дефолтным
+ * `{name: basename(folder), icon: '📁'}` (поведение симметрично scanner.py:198
+ * на бэкенде, который чинит missing manifests при скане).
+ *
+ * На невалидный JSON бросает ошибку — это пользовательский манифест,
+ * перезаписать молча нельзя, иначе можно затереть данные.
  */
 export function setRootBusiness(folders: BusinessFolderEntry[], rootIndex: number): void {
   for (let i = 0; i < folders.length; i++) {
-    const manifestPath = join(folders[i].resolved, 'business.json')
-    if (!existsSync(manifestPath)) continue
-    try {
-      const data = JSON.parse(readFileSync(manifestPath, 'utf-8'))
-      const shouldBeRoot = i === rootIndex
-      if (shouldBeRoot && !data.root) {
-        data.root = true
-        writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
-      } else if (!shouldBeRoot && data.root) {
-        delete data.root
-        writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
+    const folderPath = folders[i].resolved
+    const manifestPath = join(folderPath, 'business.json')
+    const shouldBeRoot = i === rootIndex
+
+    let data: Record<string, unknown>
+    if (existsSync(manifestPath)) {
+      try {
+        data = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+      } catch (e) {
+        throw new Error(
+          `Invalid JSON in ${manifestPath}: ${e instanceof Error ? e.message : String(e)}`
+        )
       }
-    } catch {
-      // Skip invalid manifests
+    } else {
+      data = { name: basename(folderPath), icon: '📁' }
     }
+
+    const currentRoot = data.root === true
+    if (shouldBeRoot === currentRoot && existsSync(manifestPath)) continue
+
+    if (shouldBeRoot) {
+      data.root = true
+    } else {
+      delete data.root
+    }
+    writeFileSync(manifestPath, JSON.stringify(data, null, 2) + '\n', 'utf-8')
   }
 }
 
@@ -111,14 +147,36 @@ export function saveBusinessFolders(folders: string[]): void {
  * `{machine}.json`. Контракт описан в spec/PRODUCT.md.
  *
  * Поведение:
- * 1. Если путь уже привязан к существующему `@alias` — переиспользуем алиас.
- * 2. Иначе генерируем `@<basename>` от имени папки.
- * 3. На коллизию с другим путём — суффикс `_2`, `_3`, ...
- * 4. Записываем алиас в `{machine}.json`, добавляем в `business_folders`.
+ * 1. Pre-check: pointer должен иметь duetConfigPath и валидный machine,
+ *    иначе бросаем — иначе alias уйдёт в settings.json без mapping в
+ *    {machine}.json и backend упадёт на резолве.
+ * 2. Путь нормализуется (NFC + strip trailing separators) перед хранением
+ *    и сравнением, чтобы macOS NFD/NFC расхождения не порождали дубликаты.
+ * 3. Если путь уже привязан к существующему `@alias` — переиспользуем.
+ * 4. Иначе генерируем `@<basename>` от имени папки. На коллизию имени —
+ *    суффикс `_2`, `_3`, ...
+ * 5. Записываем alias в `{machine}.json`, добавляем в `business_folders`.
+ * 6. Если это первая папка в списке — автоматически назначаем её root
+ *    (инвариант: при наличии папок ровно одна должна быть root).
  *
  * Возвращает обновлённый список `BusinessFolderEntry[]` для рендера.
+ *
+ * @throws Error если pointer-конфиг неполный (отсутствует duetConfigPath
+ *   или machine, или machine name невалидный) — silent fail здесь оставит
+ *   систему в несогласованном состоянии.
  */
 export function addBusinessFolder(absolutePath: string): BusinessFolderEntry[] {
+  const cfg = readConfig()
+  if (!cfg.duetConfigPath) {
+    throw new Error('Cannot add business folder: duetConfigPath is not set in pointer config.')
+  }
+  if (!cfg.machine || !isValidMachineName(cfg.machine)) {
+    throw new Error(
+      'Cannot add business folder: machine name is not set or invalid in pointer config.'
+    )
+  }
+
+  const normalized = normalizePath(absolutePath)
   const mc = readMachineConfig() ?? {}
 
   // Существующие @aliases из {machine}.json
@@ -127,11 +185,11 @@ export function addBusinessFolder(absolutePath: string): BusinessFolderEntry[] {
     if (k.startsWith('@') && typeof v === 'string') existingAliases[k] = v
   }
 
-  const { alias, isNew } = resolveAliasForPath(absolutePath, existingAliases)
+  const { alias, isNew } = resolveAliasForPath(normalized, existingAliases)
 
-  // Записать новый алиас в {machine}.json
+  // Записать новый алиас в {machine}.json (нормализованным путём)
   if (isNew) {
-    setMachineConfigKey(alias, absolutePath)
+    setMachineConfigKey(alias, normalized)
   }
 
   // Добавить в business_folders в settings.json (без дубликата)
@@ -140,7 +198,14 @@ export function addBusinessFolder(absolutePath: string): BusinessFolderEntry[] {
     setSettingsConfigKey('business_folders', [...current, alias])
   }
 
-  return getResolvedBusinessFolders()
+  // Инвариант: должен быть ровно один root. Если ни одна из папок ещё не root —
+  // делаем root первую (она же только что добавленная при пустом начальном списке).
+  const updated = getResolvedBusinessFolders()
+  if (updated.length > 0 && !updated.some((f) => f.isRoot)) {
+    setRootBusiness(updated, 0)
+    return getResolvedBusinessFolders()
+  }
+  return updated
 }
 
 /**
@@ -150,20 +215,25 @@ export function addBusinessFolder(absolutePath: string): BusinessFolderEntry[] {
  * - Иначе берём `@<basename(path)>`.
  * - На коллизию с другим путём — добавляем суффикс `_2`, `_3`, ...
  *
+ * Сравнение путей идёт через `normalizePath()`, чтобы NFD/NFC расхождения
+ * (macOS) и trailing separators не приводили к ложно-новому алиасу.
+ *
  * Экспорт для тестируемости.
  */
 export function resolveAliasForPath(
   absolutePath: string,
   existingAliases: Record<string, string>
 ): { alias: string; isNew: boolean } {
-  // 1. Reuse: путь уже привязан к существующему алиасу
+  const normalized = normalizePath(absolutePath)
+
+  // 1. Reuse: путь уже привязан к существующему алиасу (сравниваем нормализованные формы)
   for (const [aliasName, aliasPath] of Object.entries(existingAliases)) {
-    if (aliasPath === absolutePath) return { alias: aliasName, isNew: false }
+    if (normalizePath(aliasPath) === normalized) return { alias: aliasName, isNew: false }
   }
 
   // 2. Базовое имя — `@<folder.name>`. basename() работает с разделителями текущей ОС;
   //    визард всегда вызывается локально, dialog возвращает OS-native пути.
-  const folderName = basename(absolutePath)
+  const folderName = basename(normalized)
   if (folderName === '') {
     throw new Error(
       `Cannot derive alias from path "${absolutePath}": empty basename. ` +
