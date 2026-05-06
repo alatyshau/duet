@@ -178,7 +178,7 @@ async def orientation_handler(request: Request) -> JSONResponse:
 
 
 async def streams_handler(request: Request) -> JSONResponse:
-    """GET /streams - Get all streams (business/stream/product) without projects."""
+    """GET /streams - Get all streams (business/stream/product)."""
     result = get_entities_service().get_streams()
     response = {"streams": result}
 

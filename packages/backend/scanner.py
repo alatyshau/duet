@@ -406,10 +406,10 @@ class Scanner:
     def _save_product(
         self, folder_path: Path, parent_id: int, manifest: Manifest
     ) -> None:
-        """Save a product entity and scan for projects inside it.
+        """Save a product entity.
 
-        Products are terminal nodes - we don't scan deeper for manifests.
-        Scans projects from both drive path and git repo (if repos_path configured).
+        Products are terminal nodes — we don't scan deeper for manifests.
+        Reference repos declared in product.json are registered separately.
         """
         base_name = manifest.name or folder_path.name
         unique_name = self._resolve_unique_name(base_name, "product", folder_path / "product.json")

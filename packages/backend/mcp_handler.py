@@ -116,7 +116,7 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
     Args:
         workspace_paths: List of all workspace paths available to the agent.
             Multi-path resolution: classifies paths, picks highest priority entity
-            (root business > business > stream > product > project).
+            (root business > business > stream > product).
 
     Returns information about:
     - duet_paths: {duetDataPath, machineConfig, instructionsPath}
@@ -131,7 +131,7 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
 
 @mcp.tool()
 def streams() -> list[dict]:
-    """Find any entity in the user's hierarchy: businesses, streams, products, and active projects.
+    """Find any entity in the user's hierarchy: businesses, streams, and products.
 
     Use this to locate a product by name, discover what exists, or navigate
     the hierarchy tree. Prefer this over filesystem searches (find, ls, glob)
@@ -148,7 +148,7 @@ def scan() -> dict:
     """Rescan configured business folders and rebuild the entity hierarchy.
 
     Use when the file structure has changed (new folders, moved products)
-    and `streams`/`projects` return stale data.
+    and `streams` returns stale data.
 
     Returns scan statistics including entities_count.
     """

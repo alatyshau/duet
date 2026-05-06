@@ -25,7 +25,7 @@ export interface DuetDataPathResponse {
 
 export interface StreamEntity {
     id: string;
-    type: 'business' | 'stream' | 'product' | 'project';
+    type: 'business' | 'stream' | 'product';
     name: string;
     icon: string | null;
     path: string;
@@ -33,7 +33,6 @@ export interface StreamEntity {
     parent_id: string | null;
     git_url: string | null;
     reference_repos?: Record<string, string> | null;
-    status: string | null;
 }
 
 export interface StreamsResponse {

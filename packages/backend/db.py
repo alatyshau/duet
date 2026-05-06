@@ -24,7 +24,6 @@ class Entity:
     drive_path: str
     parent_id: int | None = None
     git_url: str | None = None
-    status: str | None = None
     root: bool = False
 
 
@@ -60,8 +59,7 @@ class DatabaseManager:
                 icon TEXT,
                 drive_path TEXT UNIQUE,
                 parent_id INTEGER REFERENCES entities(id),
-                git_url TEXT,
-                status TEXT
+                git_url TEXT
             )
         """)
 
@@ -71,7 +69,8 @@ class DatabaseManager:
         )
 
         # Migrations: add columns that may be missing in older databases
-        self._migrate_add_column("entities", "status", "TEXT")
+        # `status` column from removed GTD project entity is intentionally
+        # not dropped from old DBs — orphaned column is harmless.
         self._migrate_add_column("entities", "root", "INTEGER DEFAULT 0")
 
         self.conn.commit()
@@ -112,8 +111,8 @@ class DatabaseManager:
 
         self.conn.execute(
             """INSERT OR IGNORE INTO entities
-               (type, name, icon, drive_path, parent_id, git_url, status, root)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (type, name, icon, drive_path, parent_id, git_url, root)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 entity.type,
                 entity.name,
@@ -121,7 +120,6 @@ class DatabaseManager:
                 entity.drive_path,
                 entity.parent_id,
                 entity.git_url,
-                entity.status,
                 1 if entity.root else 0,
             ),
         )
@@ -313,6 +311,5 @@ class DatabaseManager:
             drive_path=row["drive_path"],
             parent_id=row["parent_id"],
             git_url=row["git_url"],
-            status=row["status"],
             root=bool(row["root"]) if row["root"] else False,
         )

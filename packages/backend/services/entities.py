@@ -106,7 +106,7 @@ class EntitiesService:
         Algorithm:
         1. Split first segment of drive_path (business_folder name)
         2. Match against business_folder names → business_folder / rest
-        3. If no match, try repos_path / drive_path (repos projects)
+        3. If no match, try repos_path / drive_path (paths under cloned repos)
         4. If neither → None
         """
         if not drive_path:
@@ -123,7 +123,7 @@ class EntitiesService:
                 return str(bf / rest)
             return str(bf)
 
-        # Try repos path (for repos projects like "Duet.git/projects/...")
+        # Try repos path (for subpaths under cloned repos like "Duet.git/...")
         repos_path = path_lookup["repos_path"]
         if repos_path:
             return str(repos_path / drive_path)
@@ -148,5 +148,4 @@ class EntitiesService:
             "parent_id": str(entity.parent_id) if entity.parent_id else None,
             "git_url": entity.git_url,
             "reference_repos": read_reference_repos(absolute_path, entity.type),
-            "status": entity.status,
         }

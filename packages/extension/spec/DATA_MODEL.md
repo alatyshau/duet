@@ -17,7 +17,7 @@ Extension loads entities from Backend HTTP API, not from local storage.
 
 | Source | Method | Data |
 |--------|--------|------|
-| `GET /streams` | `apiClient.streams()` | All business/stream/product + active projects with `absolute_path` |
+| `GET /streams` | `apiClient.streams()` | All business/stream/product entities with `absolute_path` |
 | `POST /scan` | `apiClient.scan()` | Trigger backend rescan |
 
 Loaded `StreamEntity[]` is kept in memory and shared across tree providers (sync access). Refreshed on `duet.refresh` command.

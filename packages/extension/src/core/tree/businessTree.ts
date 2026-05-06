@@ -4,7 +4,7 @@ export interface TreeNode {
     id: string; // absolute_path (for path comparison with workspace folders)
     label: string;
     icon: string;
-    type: 'business' | 'stream' | 'product' | 'project';
+    type: 'business' | 'stream' | 'product';
     hasChildren: boolean;
     entityId: number;
     gitUrl?: string;

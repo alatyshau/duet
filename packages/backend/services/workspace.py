@@ -28,21 +28,21 @@ logger = logging.getLogger(__name__)
 _TOPOLOGIES = {
     "product_in_git": (
         "Product with git repo. git_folder is the cloned repository — versioned product content. "
-        "drive_folder is the accompanying folder on Google Drive — management, projects/, drafts/, "
+        "drive_folder is the accompanying folder on Google Drive — management, work/, drafts/, "
         "binaries, and other non-versioned files. "
         "These are two separate locations on disk."
     ),
     "product_on_drive": (
         "Product without git repo. drive_folder contains everything — product content, "
-        "management, projects/, drafts/, binaries. "
+        "management, work/, drafts/, binaries. "
         "All paths are within this single folder."
     ),
     "stream": (
-        "Stream folder on Google Drive. drive_folder contains stream.json, projects/, "
+        "Stream folder on Google Drive. drive_folder contains stream.json, work/, "
         "nested streams or products, and any stream-level resources (documents, notes, assets)."
     ),
     "business": (
-        "Business folder on Google Drive. drive_folder contains business.json, projects/, "
+        "Business folder on Google Drive. drive_folder contains business.json, work/, "
         "nested streams or products, and any business-level resources (documents, notes, assets)."
     ),
     "root_business": (
@@ -242,9 +242,7 @@ class WorkspaceService:
             entity = self._resolve_from_repos(path, repos_path)
             return ("git", entity)
 
-        manifest_names = [
-            "business.json", "stream.json", "product.json", "project.json"
-        ]
+        manifest_names = ["business.json", "stream.json", "product.json"]
         for manifest_name in manifest_names:
             if (path / manifest_name).exists():
                 entity = self._resolve_from_drive(path_s)

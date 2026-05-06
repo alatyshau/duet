@@ -184,7 +184,7 @@ async function cloneReferenceRepos(
 }
 
 /**
- * Open a node (business/stream/product/project).
+ * Open a node (business/stream/product).
  * For products with git_url: clone if needed, generate workspace, open.
  * For others: just open the Drive folder.
  */

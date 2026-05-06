@@ -38,8 +38,7 @@ type TreeElement = TreeNode | VisualRoot | PlaceholderItem | SeparatorItem;
 const TYPE_LABELS: Record<string, string> = {
     'business': 'бизнес',
     'stream': 'дело',
-    'product': 'продукт',
-    'project': 'проект'
+    'product': 'продукт'
 };
 
 export class BusinessTreeProvider implements vscode.TreeDataProvider<TreeElement> {

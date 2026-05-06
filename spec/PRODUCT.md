@@ -217,13 +217,12 @@ Backend's SQLite schema (`entities.db`, native sqlite3):
 ```sql
 CREATE TABLE entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT,        -- 'business' | 'stream' | 'product' | 'project' | 'product_repo' | 'reference_repo'
-    name TEXT,        -- unique (partial index excludes projects)
+    type TEXT,        -- 'business' | 'stream' | 'product' | 'product_repo' | 'reference_repo'
+    name TEXT,        -- globally unique
     icon TEXT,
     drive_path TEXT UNIQUE,
     parent_id INTEGER REFERENCES entities(id),
     git_url TEXT,
-    status TEXT,      -- project status: 'active', 'postponed', 'archived', NULL
     root INTEGER DEFAULT 0  -- business only: 1 = meta-business (root entity)
 );
 CREATE UNIQUE INDEX idx_name ON entities(name);
@@ -265,7 +264,7 @@ AI agents call `orientation(workspace_paths=[<all working dirs>])` at session st
 
 **Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint)
 
-**Multi-path resolution:** Classifies each path (gitFolder / streamFolder / ignored), resolves entities, picks highest priority: root business > business > stream > product > project.
+**Multi-path resolution:** Classifies each path (gitFolder / streamFolder / ignored), resolves entities, picks highest priority: root business > business > stream > product.
 
 **Response blocks:**
 
@@ -288,7 +287,6 @@ AI agents call `orientation(workspace_paths=[<all working dirs>])` at session st
 | component | `spec/COMPONENT.md` |
 | stream | `spec/STREAM.md` |
 | business | `spec/BUSINESS.md` |
-| project | `spec/PROJECT.md` |
 
 Fallback: if standard file absent, orientation searches next in chain per entity type (e.g. product: PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md). Full chains in `packages/backend/spec/COMPONENT.md` → Spec File Fallback.
 

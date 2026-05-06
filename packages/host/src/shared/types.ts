@@ -195,7 +195,6 @@ export interface StreamEntity {
   absolute_path: string | null
   parent_id: string | null
   git_url: string | null
-  status: string | null
 }
 
 export interface StreamsCache {

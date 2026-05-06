@@ -9,7 +9,6 @@ function makeStream(overrides: Partial<StreamEntity> & { id: string; name: strin
         absolute_path: null,
         parent_id: null,
         git_url: null,
-        status: null,
         ...overrides,
     };
 }

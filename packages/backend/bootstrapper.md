@@ -45,10 +45,9 @@ Business
         ├── Component (package)
         │   ├── spec/
         │   └── docs/
-        └── Project (GTD)
-            └── project folder
-                └── topic file
-                    └── step
+        └── work folder
+            └── topic file
+                └── step
 ```
 
 | EN | RU | Meaning | Example |
@@ -58,9 +57,8 @@ Business
 | **product** | продукт | Terminal stream with git repo | `Duet`, `Kreator` |
 | **component** | компонент | Package in monorepo | `packages/ai-kit` |
 | **spec** | спецификация | Source of truth for AI (in `spec/`) | `packages/ai-kit/spec/` |
-| **project** | проект | GTD project with completion criteria | `260110_ai_kit_design` |
 | **work folder** | рабочая папка | Folder in `work/` (or legacy `projects/`) with a `plan.md` at its root; naming: `YYMMDD_name`, `WIP_name`, `TODO_name`. Nests recursively — any work folder can contain child work folders for subtasks. Synonym: `project folder` / `проектная папка` (legacy, being phased out) | `work/WIP_workspace_info/` |
-| **topic file** | топик-файл | topic_*.md — sub-project with steps | `topic_ai_kit_redesign.md` |
+| **topic file** | топик-файл | topic_*.md — substream of work with steps | `topic_ai_kit_redesign.md` |
 | **step** | шаг | Unit of work in IMPLEMENTATION PLAN | Step 5, Step 6 |
 | **docs** | документация | Materialized view for humans (in component) | `packages/ai-kit/docs/` |
 
