@@ -50,3 +50,21 @@ export function isPathInside(childPath: string, parentPath: string): boolean {
            !relative.startsWith('..') &&
            !path.isAbsolute(relative);
 }
+
+/**
+ * Format a Duet @-reference: `` `@<rootName>/<relativePath>` ``.
+ *
+ * Backslashes from Windows `path.relative` are normalized to forward slashes
+ * so the reference reads the same on every platform. If `relativePath` is
+ * empty (the resource IS the workspace root) the trailing slash is dropped:
+ * `` `@<rootName>` ``.
+ *
+ * Precondition: `relativePath` MUST come from `path.relative(root, target)`
+ * where `target` lies inside `root` — i.e. no leading `..` and not absolute.
+ * The function does no validation: garbage in, garbage out.
+ */
+export function formatAtReference(rootName: string, relativePath: string): string {
+    const normalized = relativePath.split(/[\\/]/).filter(Boolean).join('/');
+    const body = normalized ? `${rootName}/${normalized}` : rootName;
+    return `\`@${body}\``;
+}

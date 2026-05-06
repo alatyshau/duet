@@ -77,6 +77,54 @@ Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
 | `{Product}.code-workspace` | On each product open | `openFolder.ts` |
 | `all-businesses.code-workspace` | After scan completes | `refresh.ts` |
 
+## Copy @-Path Command (`duet.copyAtPath`)
+
+User-facing command in the Explorer right-click menu (group `6_copypath`, next
+to native Copy Path / Copy Relative Path). Copies the resource as a Duet
+`@`-reference: `` `@<rootFolder>/<relative>` ``.
+
+Example: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace
+folder copies as `` `@Duet.git/packages/host/spec/COMPONENT.md` ``.
+
+### Why this exists
+
+1. **Multi-root disambiguation.** Native VS Code Copy Relative Path strips the
+   workspace root, so in a multi-root workspace the resulting path doesn't
+   say *which* root it is relative to — `packages/host` could come from any
+   open folder. Including the root folder name removes that ambiguity.
+2. **Matches Duet's `@`-style for context-relative paths.** Throughout Duet,
+   paths relative to a context folder (business / stream / product) are
+   written with a leading `@` and the context name as the first segment.
+   Reusing that syntax for workspace-relative paths keeps a single visual
+   convention across hand-written notes, AI prompts, and Explorer-copied
+   references.
+
+### Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Root name = `path.basename(workspaceFolder.uri.fsPath)` | The on-disk folder name is what the user actually has on the filesystem and recognises across machines. Workspace files (`*.code-workspace`) can override the display label via the `name` field, but the `@`-reference is meant to point at the filesystem — basename stays stable regardless of UI renaming. Falls back to `folder.name` for filesystem roots (`/`, `C:\`) where basename is empty. |
+| Forward slashes always | The `@`-reference is platform-agnostic. `path.relative` on Windows returns `\` — `formatAtReference` normalizes both `/` and `\` to `/`. |
+| Empty relative → `` `@<root>` `` | When the resource IS the workspace root, the trailing `/` is dropped. |
+| No success notification | Native Copy Path is silent; multi-select would otherwise spam toasts. |
+| Multi-select: newline-joined | Matches native Copy Relative Path behavior. VS Code Explorer passes `(resource, resources)`. |
+| Resources outside workspace: skip with warning | A single warning aggregates all skipped resources (`+N more`). The clipboard receives only the resolvable subset; if nothing resolves, the clipboard is left untouched. |
+| Hidden from Command Palette | The command needs a resource argument — invoking it from the palette has no useful effect, so `commandPalette` is `when: false`. |
+| `when: workspaceFolderCount > 0` | Hides the menu item in single-file windows where there is no workspace folder to compute a relative path against. |
+| Keybinding `Cmd+Shift+C` (mac) / `Alt+Shift+C` (win/linux) | Active in either the Explorer tree or an editor (`(filesExplorerFocus \|\| editorTextFocus) && !inputFocus`). Semantics: **copies the @-reference of the current editor file**. VS Code does not expose Explorer selection to keybindings (only context-menu invocations receive `(resource, resources)`), so the command resolves the target via `activeTextEditor` → active tab input. **Folders are out of reach for the keybinding** because they don't open in an editor — for folders, use the right-click menu. The shortcut also pairs with system mouse remappers (Karabiner / AutoHotkey) for a middle-click workflow. |
+| Registered before `if (dataFolder)` guard | Command does not depend on pointer or backend — works even when Duet Host is not configured. |
+
+**Known limitation**: in a multi-root workspace where two folders share the
+same basename (e.g. `frontend/spec` and `backend/spec` added as roots), the
+resulting `@spec/...` reference is ambiguous — it defeats the multi-root
+disambiguation that's the whole point of including the root name. We do not
+detect or rename collisions; the user is expected to keep root basenames
+unique inside one workspace.
+
+**Pure logic**: `core/pathUtils.ts` → `formatAtReference(rootName, relativePath)`.
+**Shell**: `vscode/commands/copyAtPath.ts` (resolves `getWorkspaceFolder`, writes
+clipboard, surfaces warnings).
+
 ## Tree Decorations
 
 `TreeDecorationProvider.ts` uses VS Code FileDecorationProvider API to style tree items.
@@ -148,6 +196,7 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 | Context breadcrumb | `core/tree/contextBreadcrumb.ts` |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` |
+| Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatAtReference`) |
 | Entity types, markers | Backend `scanner.py` |
 | Name conflict resolution | Backend `scanner.py` |
 | DB schema (name unique) | Backend `db.py` |

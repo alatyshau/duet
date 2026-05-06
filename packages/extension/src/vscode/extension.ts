@@ -7,6 +7,7 @@ import { readPointer, readPort } from '../core/pointer';
 import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { addBusiness } from './commands/addBusiness';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
+import { copyAtPath } from './commands/copyAtPath';
 import { Paths } from '../core/paths';
 import { DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
@@ -28,6 +29,11 @@ export async function activate(context: vscode.ExtensionContext) {
     // Uses viewsWelcome from package.json for content
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider('duet.status', new StubProvider())
+    );
+
+    // Workspace-only commands — no pointer or backend required
+    context.subscriptions.push(
+        vscode.commands.registerCommand('duet.copyAtPath', copyAtPath)
     );
 
     const pointer = readPointer();

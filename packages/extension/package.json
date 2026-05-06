@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.27",
+    "version": "0.0.29",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.104.0"
@@ -82,6 +82,12 @@
                 "icon": "$(go-to-file)",
                 "category": "Duet",
                 "shortTitle": "Все дела"
+            },
+            {
+                "command": "duet.copyAtPath",
+                "title": "Копировать @-путь",
+                "category": "Duet",
+                "shortTitle": "@-путь"
             }
         ],
         "submenus": [
@@ -120,6 +126,19 @@
                     "group": "navigation@3"
                 }
             ],
+            "explorer/context": [
+                {
+                    "command": "duet.copyAtPath",
+                    "when": "workspaceFolderCount > 0",
+                    "group": "6_copypath@100"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "duet.copyAtPath",
+                    "when": "false"
+                }
+            ],
             "view/item/context": [
                 {
                     "command": "duet.openAllBusinessesHere",
@@ -143,11 +162,19 @@
                 }
             ]
         },
+        "keybindings": [
+            {
+                "command": "duet.copyAtPath",
+                "key": "alt+shift+c",
+                "mac": "cmd+shift+c",
+                "when": "(filesExplorerFocus || editorTextFocus) && !inputFocus"
+            }
+        ],
         "viewsContainers": {
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.27",
+                    "title": "Duet 0.0.29",
                     "icon": "resources/duet-icon.svg"
                 }
             ]

@@ -14,3 +14,9 @@ webpack.config.js
 node_modules/**
 out/**
 spec/**
+dist/*.vsix
+dist/*.zip
+**/.DS_Store
+build-vsix.js
+esbuild.js
+vitest.config.mts
