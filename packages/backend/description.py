@@ -11,16 +11,19 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-# Spec file fallback chains per entity type
+# Spec file fallback chains keyed by lookup category.
+# - "context_with_git": context whose products live in a git repo (PRODUCT.md inside).
+# - "context": context without git_url (intermediate or root). CONTEXT.md is
+#   the canonical name; legacy BUSINESS.md / STREAM.md are kept as fallbacks
+#   for user-authored files that haven't been renamed yet.
+# - "component": package inside a product.
 SPEC_FALLBACK: dict[str, list[str]] = {
-    "product": [
+    "context_with_git": [
         "PRODUCT.md", "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
     ],
-    "stream": [
-        "STREAM.md", "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
-    ],
-    "business": [
-        "BUSINESS.md", "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
+    "context": [
+        "CONTEXT.md", "BUSINESS.md", "STREAM.md", "COMPONENT.md",
+        "ARCHITECTURE.md", "README.md", "INDEX.md",
     ],
     "component": [
         "COMPONENT.md", "ARCHITECTURE.md", "README.md", "INDEX.md",
@@ -107,21 +110,24 @@ def _extract_first_sentence(text: str) -> str:
     return text.strip()
 
 
-def find_spec_file(root_path: Path, entity_type: str) -> Path | None:
-    """Find spec file using fallback chain for entity type.
+def find_spec_file(root_path: Path, lookup_category: str) -> Path | None:
+    """Find spec file using fallback chain for lookup category.
 
     Searches spec/ directory under root_path for files in priority order.
 
     Args:
         root_path: Root directory of the entity.
-        entity_type: One of: product, component, stream, business.
+        lookup_category: One of: context_with_git, context, component.
 
     Returns:
         Absolute path to first existing spec file, or None.
     """
-    if entity_type not in SPEC_FALLBACK:
-        logger.warning("Unknown entity_type %r in find_spec_file, using 'component' fallback", entity_type)
-    chain = SPEC_FALLBACK.get(entity_type, SPEC_FALLBACK["component"])
+    if lookup_category not in SPEC_FALLBACK:
+        logger.warning(
+            "Unknown lookup_category %r in find_spec_file, using 'component' fallback",
+            lookup_category,
+        )
+    chain = SPEC_FALLBACK.get(lookup_category, SPEC_FALLBACK["component"])
     spec_dir = root_path / "spec"
 
     for filename in chain:

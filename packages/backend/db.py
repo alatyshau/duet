@@ -1,7 +1,12 @@
 """SQLite database manager for Duet entities.
 
-Port of packages/extension/src/core/db/index.ts to Python.
-Uses native sqlite3 instead of sql.js/WASM.
+Stores three entity kinds:
+- `context`: bounded contexts on Drive (root, intermediate, or terminal-with-git).
+  Roles inferred from fields: `meta=1` (meta-context), `git_url IS NOT NULL`
+  (terminal), otherwise intermediate.
+- `product_repo`: registered for each context with `git_url`. Path-resolution
+  helper; not shown in tree.
+- `reference_repo`: read-only clones declared via `reference_repos` map.
 """
 
 import sqlite3
@@ -12,7 +17,7 @@ from typing import Literal
 from config import get_db_path
 
 
-EntityType = Literal["business", "stream", "product", "product_repo", "reference_repo"]
+EntityType = Literal["context", "product_repo", "reference_repo"]
 
 
 @dataclass
@@ -24,7 +29,7 @@ class Entity:
     drive_path: str
     parent_id: int | None = None
     git_url: str | None = None
-    root: bool = False
+    meta: bool = False
 
 
 class DatabaseManager:
@@ -39,7 +44,6 @@ class DatabaseManager:
         if self.conn:
             return
 
-        # Ensure parent directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.conn = sqlite3.connect(self.db_path)
@@ -63,15 +67,11 @@ class DatabaseManager:
             )
         """)
 
-        # Unique name index — all entity names are globally unique
         self.conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_name ON entities(name)"
         )
 
-        # Migrations: add columns that may be missing in older databases
-        # `status` column from removed GTD project entity is intentionally
-        # not dropped from old DBs — orphaned column is harmless.
-        self._migrate_add_column("entities", "root", "INTEGER DEFAULT 0")
+        self._migrate_add_column("entities", "meta", "INTEGER DEFAULT 0")
 
         self.conn.commit()
 
@@ -111,7 +111,7 @@ class DatabaseManager:
 
         self.conn.execute(
             """INSERT OR IGNORE INTO entities
-               (type, name, icon, drive_path, parent_id, git_url, root)
+               (type, name, icon, drive_path, parent_id, git_url, meta)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 entity.type,
@@ -120,12 +120,11 @@ class DatabaseManager:
                 entity.drive_path,
                 entity.parent_id,
                 entity.git_url,
-                1 if entity.root else 0,
+                1 if entity.meta else 0,
             ),
         )
         self.conn.commit()
 
-        # Get ID of inserted or existing row
         cursor = self.conn.execute(
             "SELECT id FROM entities WHERE drive_path = ?", (entity.drive_path,)
         )
@@ -138,7 +137,7 @@ class DatabaseManager:
     def get_entities(self, parent_id: int | None = None) -> list[Entity]:
         """Get entities by parent_id.
 
-        parent_id=None returns root entities (business).
+        parent_id=None returns root entities.
         """
         if not self.conn:
             raise RuntimeError("Database not initialized")
@@ -228,16 +227,19 @@ class DatabaseManager:
         return cursor.fetchone() is not None
 
     def find_closest_entity(self, path: str) -> Entity | None:
-        """Find deepest entity containing the given path.
+        """Find deepest entity whose `drive_path` is a path-segment ancestor of `path`.
 
-        Used for breadcrumb/context detection.
+        Match is segment-aware: `Root/Alpha` matches `Root/Alpha` and
+        `Root/Alpha/sub`, but NOT `Root/AlphaBeta/...`. The trick is to
+        append `/` to both sides before substring-matching, so the
+        comparison is anchored on segment boundaries.
         """
         if not self.conn:
             raise RuntimeError("Database not initialized")
 
         cursor = self.conn.execute(
             """SELECT * FROM entities
-               WHERE instr(?, drive_path) = 1
+               WHERE instr(? || '/', drive_path || '/') = 1
                ORDER BY length(drive_path) DESC
                LIMIT 1""",
             (path,),
@@ -246,7 +248,7 @@ class DatabaseManager:
         return self._row_to_entity(row) if row else None
 
     def get_entity_chain(self, entity_id: int) -> list[Entity]:
-        """Get chain from root to entity (for workspace_info)."""
+        """Get chain from root to entity (for orientation)."""
         if not self.conn:
             raise RuntimeError("Database not initialized")
 
@@ -273,30 +275,27 @@ class DatabaseManager:
         row = cursor.fetchone()
         return row[0] if row else 0
 
-    def get_streams(self) -> list[Entity]:
-        """Get streams (business, stream, product).
-
-        Used for sidebar tree view.
-        """
+    def get_contexts(self) -> list[Entity]:
+        """Get all context entities (excludes product_repo, reference_repo)."""
         if not self.conn:
             raise RuntimeError("Database not initialized")
 
-        cursor = self.conn.execute("""
-            SELECT * FROM entities WHERE type IN ('business', 'stream', 'product')
-        """)
+        cursor = self.conn.execute(
+            "SELECT * FROM entities WHERE type = 'context'"
+        )
         return [self._row_to_entity(row) for row in cursor.fetchall()]
 
-    def find_root_business(self) -> Entity | None:
-        """Find the root business entity (root=true in business.json).
+    def find_meta_context(self) -> Entity | None:
+        """Find the meta-context entity (meta=true in context.json).
 
-        Used by multi-path resolution to determine primary business
-        when multiple businesses are in workspace_paths.
+        Used by multi-path resolution to determine primary context
+        when multiple contexts are in workspace_paths.
         """
         if not self.conn:
             raise RuntimeError("Database not initialized")
 
         cursor = self.conn.execute(
-            "SELECT * FROM entities WHERE type = 'business' AND root = 1 LIMIT 1"
+            "SELECT * FROM entities WHERE type = 'context' AND meta = 1 LIMIT 1"
         )
         row = cursor.fetchone()
         return self._row_to_entity(row) if row else None
@@ -311,5 +310,5 @@ class DatabaseManager:
             drive_path=row["drive_path"],
             parent_id=row["parent_id"],
             git_url=row["git_url"],
-            root=bool(row["root"]) if row["root"] else False,
+            meta=bool(row["meta"]) if row["meta"] else False,
         )

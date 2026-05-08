@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BusinessTreeProvider } from './providers/BusinessTreeProvider';
+import { ContextTreeProvider } from './providers/ContextTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { AccordionController } from './providers/AccordionController';
 import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
@@ -68,12 +68,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Backend-independent commands — work even when backend is down
         context.subscriptions.push(
-            vscode.commands.registerCommand('duet.openAllBusinesses', async () => {
-                const workspacePath = paths.allBusinessesWorkspacePath;
+            vscode.commands.registerCommand('duet.openAllRootContexts', async () => {
+                const workspacePath = paths.rootContextsWorkspacePath;
                 await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
             }),
-            vscode.commands.registerCommand('duet.openAllBusinessesHere', async () => {
-                const workspacePath = paths.allBusinessesWorkspacePath;
+            vscode.commands.registerCommand('duet.openAllRootContextsHere', async () => {
+                const workspacePath = paths.rootContextsWorkspacePath;
                 await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: false });
             }),
             vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
@@ -87,24 +87,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
         try {
             await sidebarState.setInitializing('Подключение к backend...');
-            backendOutputChannel.appendLine(`Connecting to http://127.0.0.1:${port}/streams...`);
-            const { streams } = await apiClient.streams();
+            backendOutputChannel.appendLine(`Connecting to http://127.0.0.1:${port}/contexts...`);
+            const { contexts } = await apiClient.contexts();
 
-            backendOutputChannel.appendLine(`Backend OK: ${streams.length} streams loaded`);
+            backendOutputChannel.appendLine(`Backend OK: ${contexts.length} contexts loaded`);
 
-            const businessProvider = new BusinessTreeProvider(streams, paths.reposPath);
-            const contextProvider = new ContextProvider(streams, paths.reposPath);
+            const contextTreeProvider = new ContextTreeProvider(contexts, paths.reposPath);
+            const contextProvider = new ContextProvider(contexts, paths.reposPath);
             context.subscriptions.push(
                 vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
             );
 
-            const businessTreeView = vscode.window.createTreeView('duet.businesses', {
-                treeDataProvider: businessProvider,
+            const contextTreeView = vscode.window.createTreeView('duet.contexts', {
+                treeDataProvider: contextTreeProvider,
                 showCollapseAll: false // Hide native collapse, we use toggle
             });
 
-            // Accordion behavior: only one business expanded at a time, expand to leaves
-            const accordion = new AccordionController(businessProvider, businessTreeView);
+            // Accordion behavior: only one root expanded at a time, expand to leaves
+            const accordion = new AccordionController(contextTreeProvider, contextTreeView);
             context.subscriptions.push(...accordion.registerListeners());
             accordion.autoExpandActive();
 
@@ -113,9 +113,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
             // Backend-dependent commands — require live connection
             context.subscriptions.push(
-                businessTreeView,
+                contextTreeView,
                 vscode.window.registerTreeDataProvider('duet.context', contextProvider),
-                { dispose: () => businessProvider.dispose() },
+                { dispose: () => contextTreeProvider.dispose() },
                 { dispose: () => contextProvider.dispose() },
                 vscode.commands.registerCommand('duet.refresh', async () => {
                     await vscode.window.withProgress({
@@ -124,9 +124,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         cancellable: false
                     }, async () => {
                         try {
-                            const newStreams = await refreshFromBackend(apiClient, paths);
-                            businessProvider.updateStreams(newStreams);
-                            contextProvider.updateStreams(newStreams);
+                            const newContexts = await refreshFromBackend(apiClient, paths);
+                            contextTreeProvider.updateContexts(newContexts);
+                            contextProvider.updateContexts(newContexts);
                         } catch (error) {
                             vscode.window.showErrorMessage(`Scan failed: ${error}`);
                         }
@@ -135,13 +135,13 @@ export async function activate(context: vscode.ExtensionContext) {
                 vscode.commands.registerCommand('duet.dumpIndex', () => dumpIndex(apiClient)),
                 vscode.commands.registerCommand('duet.toggleExpand', async () => {
                     if (isExpanded) {
-                        await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
+                        await vscode.commands.executeCommand('workbench.actions.treeView.duet.contexts.collapseAll');
                         isExpanded = false;
                     } else {
-                        const nodes = businessProvider.getAllNodes();
+                        const nodes = contextTreeProvider.getAllNodes();
                         for (const node of nodes) {
                             try {
-                                await businessTreeView.reveal(node, { expand: true, focus: false, select: false });
+                                await contextTreeView.reveal(node, { expand: true, focus: false, select: false });
                             } catch (e) {
                                 console.error('Expand error:', e);
                             }

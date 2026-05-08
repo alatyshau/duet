@@ -31,8 +31,8 @@ class TestStartupValidation:
             builder.with_version(overrides["version"])
         if "port" in overrides:
             builder.with_port(overrides["port"])
-        if "business_folders" in overrides:
-            builder.with_business_folders(overrides["business_folders"])
+        if "root_context_folders" in overrides:
+            builder.with_root_context_folders(overrides["root_context_folders"])
 
         builder.build()
         return builder.pointer_path
@@ -113,16 +113,15 @@ class TestStartupValidation:
         output = result.stderr + result.stdout
         assert "timestampTZ" in output or "Config error" in output
 
-    def test_startup_fails_without_business_folders(self, tmp_path: Path) -> None:
-        """main() exits with error if business_folders not in settings."""
+    def test_startup_fails_without_root_context_folders(self, tmp_path: Path) -> None:
+        """main() exits with error if root_context_folders not in settings."""
         builder = DuetDataBuilder(tmp_path)
         builder.build()
 
-        # Remove business_folders from settings
         settings_path = builder.duet_config_path / "settings.json"
         with open(settings_path, "r") as f:
             settings = json.load(f)
-        del settings["business_folders"]
+        del settings["root_context_folders"]
         with open(settings_path, "w") as f:
             json.dump(settings, f)
 
@@ -138,7 +137,7 @@ class TestStartupValidation:
 
         assert result.returncode == 1
         output = result.stderr + result.stdout
-        assert "business_folders" in output or "Config error" in output
+        assert "root_context_folders" in output or "Config error" in output
 
 
 @pytest.mark.asyncio

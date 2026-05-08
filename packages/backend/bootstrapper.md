@@ -8,14 +8,14 @@
 
 **From the response, extract and use for the entire session:**
 - **`workspace.topology`** — your map of the workspace: what each folder is for, which paths are read-only, how the workspace is organized. Read carefully.
-- **`context`** — breadcrumb and chain: which business, stream, product you're working in
+- **`context`** — breadcrumb and chain of contexts you're working in (each item: type, name, optional description)
 - **`key_files`** — read these first (spec, readme) to orient in the codebase
-- **`components`** — packages in the product, their specs and descriptions
+- **`components`** — packages in the product (terminal context with `git_url`), their specs and descriptions
 - **`duet_paths.instructionsPath`** — root of user instructions workspace
 
 ## Duet MCP tools
 
-`orientation` is the session gate. After orientation, use `streams()` to discover products and navigate the hierarchy across all businesses and streams. **Always prefer `streams()` over filesystem searches** (find, ls, glob) for product/stream discovery.
+`orientation` is the session gate. After orientation, use `contexts()` to discover the context tree across all root contexts. **Always prefer `contexts()` over filesystem searches** (find, ls, glob) for context and product discovery.
 
 ## User instructions
 
@@ -39,26 +39,33 @@ The skills table below lists all available personas and skills. Paths are relati
 **Entity Hierarchy:**
 
 ```
-Business
-└── Stream* (0..N nesting)
-    └── Product (git repo)
-        ├── Component (package)
-        │   ├── spec/
-        │   └── docs/
-        └── work folder
-            └── topic file
-                └── step
+meta-context (one per workspace, e.g. !БАЗА)
+└── root context (top-level user context, e.g. МетаЛаб)
+    └── context* (0..N nesting, e.g. ТехноЛаб)
+        └── context with git_url (terminal — a product lives there, e.g. Duet)
+            ├── Component (package)
+            │   ├── spec/
+            │   └── docs/
+            └── work folder
+                └── topic file
+                    └── step
 ```
+
+A **context** is a bounded folder on Drive — `context.json` v2 + nested
+contexts and resources. Roles are inferred from manifest fields:
+`meta: true` marks the system meta-context; `git_url` marks a terminal
+context whose product lives in a git repo (scanner stops there).
 
 | EN | RU | Meaning | Example |
 |----|-----|---------|---------|
-| **business** | бизнес | Root-level stream | `МетаЛаб`, `Семья` |
-| **stream** | дело | Intermediate level (0..N nesting) | `ТехноЛаб`, `ДомоДел` |
-| **product** | продукт | Terminal stream with git repo | `Duet`, `Kreator` |
-| **component** | компонент | Package in monorepo | `packages/ai-kit` |
+| **meta-context** | мета-контекст | System-level context covering everything; `meta: true` in `context.json` | `!БАЗА` |
+| **root context** | корневой контекст | Top-level context (no parent), listed in `root_context_folders` | `МетаЛаб`, `СоциоЛаб` |
+| **context** | контекст | Any bounded context folder with `context.json` | `ТехноЛаб`, `Duet` |
+| **product** | продукт | Software with `spec/PRODUCT.md` inside a context's git repo (terminal context with `git_url`) | `Duet`, `Kreator` |
+| **component** | компонент | Package in a product's monorepo | `packages/ai-kit` |
 | **spec** | спецификация | Source of truth for AI (in `spec/`) | `packages/ai-kit/spec/` |
 | **work folder** | рабочая папка | Folder in `work/` (or legacy `projects/`) with a `plan.md` at its root; naming: `YYMMDD_name`, `WIP_name`, `TODO_name`. Nests recursively — any work folder can contain child work folders for subtasks. Synonym: `project folder` / `проектная папка` (legacy, being phased out) | `work/WIP_workspace_info/` |
-| **topic file** | топик-файл | topic_*.md — substream of work with steps | `topic_ai_kit_redesign.md` |
+| **topic file** | топик-файл | topic_*.md — sub-project with steps | `topic_ai_kit_redesign.md` |
 | **step** | шаг | Unit of work in IMPLEMENTATION PLAN | Step 5, Step 6 |
 | **docs** | документация | Materialized view for humans (in component) | `packages/ai-kit/docs/` |
 

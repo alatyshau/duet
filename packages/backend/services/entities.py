@@ -6,7 +6,7 @@ Provides entity listing and hierarchy scanning.
 import time
 from pathlib import Path
 
-from config import get_business_folders, get_repos_path
+from config import get_repos_path, get_root_context_folders
 from db import DatabaseManager, Entity
 from scanner import Scanner, make_scan_result
 from services.manifest import read_reference_repos
@@ -29,16 +29,7 @@ class EntitiesService:
         parent_id: int | None = None,
         root_only: bool = False,
     ) -> list[dict]:
-        """Get list of entities with filters.
-
-        Args:
-            entity_type: Filter by type (business, stream, product)
-            parent_id: Get only children of this parent
-            root_only: Get only root entities (no parent)
-
-        Returns:
-            List of entity dicts.
-        """
+        """Get list of entities with filters."""
         if root_only:
             entities = self.db.get_entities(parent_id=None)
         elif parent_id is not None:
@@ -46,20 +37,19 @@ class EntitiesService:
         else:
             entities = self.db.get_all_entities()
 
-        # Filter by type if specified
         if entity_type:
             entities = [e for e in entities if e.type == entity_type]
 
         path_lookup = self._build_path_lookup()
         return [self._entity_to_dict(e, path_lookup) for e in entities]
 
-    def get_streams(self) -> list[dict]:
-        """Get streams (business, stream, product).
+    def get_contexts(self) -> list[dict]:
+        """Get all context entities (excludes product_repo, reference_repo).
 
-        Returns flat list for sidebar tree view.
-        Client computes hasChildren from parent_id relations.
+        Returns flat list for sidebar tree view. Client computes hasChildren
+        from parent_id relations.
         """
-        entities = self.db.get_streams()
+        entities = self.db.get_contexts()
         path_lookup = self._build_path_lookup()
         return [self._entity_to_dict(e, path_lookup) for e in entities]
 
@@ -81,21 +71,14 @@ class EntitiesService:
 
     @staticmethod
     def _build_path_lookup() -> dict:
-        """Build lookup for resolving relative drive_path to absolute path.
-
-        Called once per request, shared across all entities in response.
-
-        Returns dict with:
-        - business_folders: {folder_name: Path} mapping
-        - repos_path: Path | None
-        """
-        business_folders = get_business_folders()
+        """Build lookup for resolving relative drive_path to absolute path."""
+        root_folders = get_root_context_folders()
         bf_lookup = {}
-        for folder in business_folders:
+        for folder in root_folders:
             p = Path(folder)
             bf_lookup[p.name] = p
         return {
-            "business_folders": bf_lookup,
+            "root_context_folders": bf_lookup,
             "repos_path": get_repos_path(),
         }
 
@@ -104,8 +87,8 @@ class EntitiesService:
         """Resolve relative drive_path to absolute filesystem path.
 
         Algorithm:
-        1. Split first segment of drive_path (business_folder name)
-        2. Match against business_folder names → business_folder / rest
+        1. Split first segment of drive_path (root context folder name)
+        2. Match against root context folder names → folder / rest
         3. If no match, try repos_path / drive_path (paths under cloned repos)
         4. If neither → None
         """
@@ -116,14 +99,12 @@ class EntitiesService:
         first_segment = parts[0]
         rest = parts[1] if len(parts) > 1 else None
 
-        # Try business folder match
-        bf = path_lookup["business_folders"].get(first_segment)
+        bf = path_lookup["root_context_folders"].get(first_segment)
         if bf:
             if rest:
                 return str(bf / rest)
             return str(bf)
 
-        # Try repos path (for subpaths under cloned repos like "Duet.git/...")
         repos_path = path_lookup["repos_path"]
         if repos_path:
             return str(repos_path / drive_path)
@@ -138,6 +119,11 @@ class EntitiesService:
             absolute_path = EntitiesService._resolve_absolute_path(
                 entity.drive_path, path_lookup
             )
+        ref_repos = (
+            read_reference_repos(absolute_path)
+            if entity.type == "context"
+            else None
+        )
         return {
             "id": str(entity.id),
             "type": entity.type,
@@ -147,5 +133,6 @@ class EntitiesService:
             "absolute_path": absolute_path,
             "parent_id": str(entity.parent_id) if entity.parent_id else None,
             "git_url": entity.git_url,
-            "reference_repos": read_reference_repos(absolute_path, entity.type),
+            "meta": entity.meta,
+            "reference_repos": ref_repos,
         }

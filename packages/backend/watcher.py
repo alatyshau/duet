@@ -1,8 +1,7 @@
 """Manifest file watcher for auto-rescan.
 
-Watches business folders for changes to manifest files
-(business.json, stream.json, product.json). On change,
-debounces 10s then triggers a rescan.
+Watches root context folders for changes to `context.json` manifests.
+On change, debounces 10s then triggers a rescan.
 
 Uses watchfiles (async-native, Rust notify-rs) for OS-level
 file system events (FSEvents/inotify/ReadDirectoryChangesW).
@@ -17,7 +16,7 @@ from watchfiles import awatch, Change, DefaultFilter
 
 logger = logging.getLogger("duet")
 
-MANIFEST_NAMES = frozenset({"business.json", "stream.json", "product.json"})
+MANIFEST_NAMES = frozenset({"context.json"})
 DEBOUNCE_SECONDS = 10
 
 
@@ -35,7 +34,7 @@ class ManifestFilter(DefaultFilter):
 
 
 class ManifestWatcher:
-    """Watches business folders for manifest changes, triggers rescan.
+    """Watches root context folders for manifest changes, triggers rescan.
 
     Usage:
         watcher = ManifestWatcher(on_scan=run_scan_with_cache)
@@ -61,7 +60,7 @@ class ManifestWatcher:
         """Start watching folders. No-op if already watching same folders."""
         existing = [f for f in folders if Path(f).exists()]
         if not existing:
-            logger.info("Watcher: no existing business folders to watch")
+            logger.info("Watcher: no existing root context folders to watch")
             return
 
         if self.is_running and existing == self._watched_folders:
@@ -89,7 +88,7 @@ class ManifestWatcher:
         """Restart only if folder list changed."""
         existing = [f for f in folders if Path(f).exists()]
         if existing != self._watched_folders:
-            logger.info("Watcher: business folders changed, restarting")
+            logger.info("Watcher: root context folders changed, restarting")
             self.restart(folders)
 
     async def _watch_loop(self, folders: list[str]) -> None:

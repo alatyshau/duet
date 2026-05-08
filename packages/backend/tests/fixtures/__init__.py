@@ -3,7 +3,7 @@
 This module provides reusable test infrastructure:
 - EntityFactory: Create Entity objects with sensible defaults
 - DuetDataBuilder: Build DuetData directory structure for tests
-- ManifestBuilder: Create manifest files (business.json, stream.json, etc.)
+- ManifestBuilder: Create `context.json` v2 manifest files
 """
 
 from .entities import EntityFactory

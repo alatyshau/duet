@@ -95,7 +95,7 @@ DuetData/
 ├── .venv/                          # Python virtual environment
 ├── .pid                            # backend PID lockfile
 ├── backend.log                     # backend log (RotatingFileHandler)
-└── all-businesses.code-workspace   # multi-root for all businesses
+└── root-contexts.code-workspace   # multi-root for all root contexts
 ```
 
 ## DuetConfig Directory
@@ -112,15 +112,17 @@ DuetConfig/
 
 ```json
 {
+  "version": 2,
   "timestampTZ": { "id": "M", "value": "Europe/Moscow" },
-  "business_folders": ["@БАЗА", "@МетаЛаб"]
+  "root_context_folders": ["@БАЗА", "@МетаЛаб"]
 }
 ```
 
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
-| `business_folders` | Backend | List of business roots (may use @aliases) |
+| `root_context_folders` | Backend | List of top-level context folders (may use @aliases). Renamed from `business_folders` in v1; Host owns startup migration |
 | `timestampTZ` | Backend | Timezone for timestamps |
+| `version` | Host | Schema version. Host owns auto-upgrade |
 
 ### {machine}.json
 
@@ -141,7 +143,7 @@ DuetConfig/
 
 ## @Alias Resolution
 
-`business_folders` in settings.json use `@aliases` resolved via `{machine}.json`:
+`root_context_folders` in settings.json use `@aliases` resolved via `{machine}.json`:
 
 ```
 "@БАЗА/subfolder" → split → alias "@БАЗА" + rest "subfolder"
@@ -160,33 +162,66 @@ DuetConfig/
 ## Entity Hierarchy
 
 ```
-Business (root)
-├── Stream (intermediate, can nest)
-│   ├── Stream
-│   │   └── Product (terminal)
-│   └── Product
+meta-context (one per workspace, e.g. !БАЗА — meta: true)
+├── root context (top-level user context, parent_id IS NULL)
+│   ├── context (intermediate, can nest)
+│   │   └── context with git_url (terminal — product lives in repo)
+│   └── context with git_url
 └── ...
 ```
 
-| Type | Manifest | Terminal? | Has git_url? |
-|------|----------|-----------|--------------|
-| business | `business.json` | No | No |
-| stream | `stream.json` | No | No |
-| product | `product.json` | Yes — stops recursion | Optional |
+A context is a folder on Drive carrying `context.json` v2. Roles are
+inferred from manifest fields, not from a separate enum:
+
+| Role | How it's identified |
+|------|---------------------|
+| meta-context | `meta: true` in `context.json`. Exactly one per database whenever `root_context_folders` is non-empty |
+| root context | `parent_id IS NULL`, listed in `root_context_folders` |
+| terminal (with git) | `git_url` set; scanner stops recursing |
+| intermediate | none of the above |
+
+**Meta required.** When `root_context_folders` is non-empty, exactly one context in
+`entities.db` has `meta=1`, and it is **the first element** of `root_context_folders`.
+The state «list non-empty, no meta» is impossible — neither through Host UI (drag-to-
+position-0 is the only re-meta mechanism) nor through direct edits to `settings.json`
+or `context.json` (Host's startup migration restores the invariant on the next sweep).
+
+The meta-context is the **управляющий уровень над контекстами** — a container for the
+user's top-level data that spans every other context: the personal task DB, the ontology,
+the AI instructions repo. Other root contexts hold domain data (businesses, streams);
+the meta-context holds the operating layer over them.
+
+Three entity types live in `entities.db`:
+
+| Type | Manifest | Tree? | Notes |
+|------|----------|-------|-------|
+| `context` | `context.json` v2 | yes | Bounded context on Drive |
+| `product_repo` | — | no | Auto-registered for each `context` with `git_url`. Path resolution helper |
+| `reference_repo` | — | no | Read-only clone declared via `reference_repos` |
 
 ### Manifest Format
 
 ```json
-{ "name": "Name", "icon": "📁" }
-{ "name": "Name", "icon": "📦", "git_url": "https://..." }
-{ "name": "Name", "icon": "📦", "git_url": "https://...", "reference_repos": {"cookbook": "https://..."} }
+{ "version": 2, "name": "Duet", "icon": "📦", "git_url": "git@github.com:owner/repo.git" }
+{ "version": 2, "name": "БАЗА", "icon": "🗂", "meta": true }
+{ "version": 2, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
 ```
 
-**Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). `reference_repos` is optional map (name → URL) in all manifests.
+| Field | Type | Required? | Meaning |
+|-------|------|-----------|---------|
+| `version` | int | required | Schema version. `2` for current backend; `version != 2` is ignored with warning |
+| `name` | string | required | Globally unique entity name |
+| `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_url` present |
+| `meta` | bool | optional | `true` marks the meta-context. Renamed from v1's `root` (Host migrates) |
+| `git_url` | string | optional | If set, scanner stops recursing; product lives in this repo |
+| `reference_repos` | map | optional | `{name: url}` for read-only clones |
+| `description` | string | optional | Used for `chain[].description` in orientation; takes priority over README first sentence |
+
+**Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). Backend reads only; Host owns all upgrades.
 
 ### Reference Repos
 
-`reference_repos` field in any manifest (product.json, stream.json, business.json) declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git` by Extension. Entity name includes `.git` suffix (enters global uniqueness space).
+`reference_repos` field in any `context.json` declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space).
 
 ### Name Uniqueness (CRITICAL)
 
@@ -194,21 +229,20 @@ Entity names globally unique. Conflict resolution by priority:
 
 | Type | Priority | Unique? |
 |------|----------|---------|
-| business | 1 (highest — keeps name) | globally |
-| stream | 2 | globally |
-| product | 3 | globally |
-| product_repo | 3 (same as product) | globally |
+| context | 2 (claims name on collision over `(reference_repo)` only) | globally |
+| product_repo | 3 | globally |
 | reference_repo | 5 (lowest — gets `Name (1)`) | globally |
+
+When two contexts collide on name (rare in practice), the second-comer gets the `(N)` suffix.
 
 ### Self-Healing
 
-Scanner auto-fixes manifest issues:
-
-| Issue | Action |
-|-------|--------|
-| No `business.json` at root | Create with folder name |
-| `stream.json` at root | Rename → `business.json` |
-| `business.json` inside chain | Rename → `stream.json` |
+Backend does not self-heal. **Host** owns all manifest upgrades on startup
+(legacy `business.json` / `stream.json` / `product.json` → `context.json` v2,
+including `root → meta` rename) and creates a default `context.json` v2 for
+empty root context folders. Backend reads the upgraded result; folders with
+`version != 2` are silently skipped with an `unrecognized_manifest_version`
+warning in scan errors.
 
 ## Database Schema
 
@@ -217,13 +251,13 @@ Backend's SQLite schema (`entities.db`, native sqlite3):
 ```sql
 CREATE TABLE entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT,        -- 'business' | 'stream' | 'product' | 'product_repo' | 'reference_repo'
+    type TEXT,        -- 'context' | 'product_repo' | 'reference_repo'
     name TEXT,        -- globally unique
     icon TEXT,
     drive_path TEXT UNIQUE,
     parent_id INTEGER REFERENCES entities(id),
     git_url TEXT,
-    root INTEGER DEFAULT 0  -- business only: 1 = meta-business (root entity)
+    meta INTEGER DEFAULT 0  -- 1 = meta-context (e.g. !БАЗА)
 );
 CREATE UNIQUE INDEX idx_name ON entities(name);
 ```
@@ -264,7 +298,7 @@ AI agents call `orientation(workspace_paths=[<all working dirs>])` at session st
 
 **Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint)
 
-**Multi-path resolution:** Classifies each path (gitFolder / streamFolder / ignored), resolves entities, picks highest priority: root business > business > stream > product.
+**Multi-path resolution:** Classifies each path (gitFolder / contextFolder / ignored), resolves entities. If the meta-context is among them, it wins; otherwise the first resolved context is used (also covers the brief window when the DB hasn't caught up with a fresh Host meta-flag write — Host's startup/save sweep owns the invariant and surfaces real failures in red on the wizard's path page).
 
 **Response blocks:**
 
@@ -281,14 +315,13 @@ AI agents call `orientation(workspace_paths=[<all working dirs>])` at session st
 
 ### Spec File Naming Convention
 
-| Entity level | Standard spec file |
-|-------------|-------------------|
-| product | `spec/PRODUCT.md` |
+| Lookup category | Standard spec file |
+|-----------------|--------------------|
+| context with git_url (terminal — a product) | `spec/PRODUCT.md` |
+| context without git_url | `spec/CONTEXT.md` |
 | component | `spec/COMPONENT.md` |
-| stream | `spec/STREAM.md` |
-| business | `spec/BUSINESS.md` |
 
-Fallback: if standard file absent, orientation searches next in chain per entity type (e.g. product: PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md). Full chains in `packages/backend/spec/COMPONENT.md` → Spec File Fallback.
+Fallback: if standard file absent, orientation searches next in chain. For context-without-git the chain still keeps `BUSINESS.md` and `STREAM.md` as legacy fallbacks for files the user has not renamed yet. Full chains in `packages/backend/spec/COMPONENT.md` → Spec File Fallback.
 
 **COMPONENT.md** merges what was previously ARCHITECTURE.md + DOMAIN.md. First sentence of COMPONENT.md becomes component `description` in orientation response.
 
@@ -297,13 +330,13 @@ Fallback: if standard file absent, orientation searches next in chain per entity
 | File | Host | Extension | Backend | AI Agents |
 |------|------|-----------|---------|-----------|
 | `~/.org.ve68.duet` | **writes** | reads | reads | — |
-| `DuetConfig/settings.json` | reads+writes (business_folders, defaults) | — | reads | — |
+| `DuetConfig/settings.json` | reads+writes (root_context_folders, defaults) | — | reads | — |
 | `DuetConfig/{machine}.json` | reads+writes (port, instructionsPath, pythonPath, deployChannel, @aliases, defaults) | reads (port) | reads (port, @aliases) | — |
 | `DuetData/backend/VERSION` | writes | — | reads | — |
 | `DuetData/backend.log` | — | — | writes | — |
 | `DuetData/.pid` | reads | — | writes | — |
 
-**Single-writer invariant:** Host is the only writer of `settings.json` and `{machine}.json`. Backend strictly reads. Adding/removing/reordering business folders, creating `@alias` mappings — all flows go through Host UI (wizard step 1). Extension does not have its own write path; before any business folder edit it must direct the user to Host.
+**Single-writer invariant:** Host is the only writer of `settings.json` and `{machine}.json`. Backend strictly reads. Adding/removing/reordering root context folders, creating `@alias` mappings — all flows go through Host UI. Extension does not have its own write path; before any root context folder edit it must direct the user to Host.
 
 ## Build & Release
 

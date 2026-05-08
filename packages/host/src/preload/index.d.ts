@@ -11,7 +11,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 export type {
   AppStatus,
   AppState,
-  BusinessFolderEntry,
+  RootContextEntry,
   DeployChannel,
   DeployStatus,
   BackendStatus,
@@ -29,8 +29,11 @@ export type {
   InstructionsMergeResult,
   ScanError,
   ScanResult,
-  StreamEntity,
-  StreamsCache
+  ContextEntity,
+  ContextsCache,
+  MigrationContextError,
+  MigrationCriticalError,
+  MigrationResult
 } from '../shared/types'
 
 export type { PageStatus, PageStatuses, WizardPage } from '../core/wizard-status'
@@ -38,7 +41,7 @@ export type { PageStatus, PageStatuses, WizardPage } from '../core/wizard-status
 // Import for use in DuetAPI interface
 import type {
   AppState,
-  BusinessFolderEntry,
+  RootContextEntry,
   DeployStatus,
   BackendStatus,
   PythonStatus,
@@ -46,7 +49,8 @@ import type {
   InstructionsMergeResult,
   InstructionsError,
   ScanResult,
-  StreamsCache
+  ContextsCache,
+  MigrationResult
 } from '../shared/types'
 
 // Типы для Duet API
@@ -92,14 +96,17 @@ export interface DuetAPI {
   getInstructionsErrors: () => Promise<InstructionsError[] | null>
   setInstructionsPath: (path: string) => Promise<AppState>
 
-  // Business Folders
-  getBusinessFolders: () => Promise<BusinessFolderEntry[]>
-  saveBusinessFolders: (folders: string[]) => Promise<void>
-  addBusinessFolder: (absolutePath: string) => Promise<BusinessFolderEntry[]>
-  setRootBusiness: (rootIndex: number) => Promise<BusinessFolderEntry[]>
-  scanBusinessFolders: () => Promise<ScanResult>
+  // Root Contexts
+  getRootContextFolders: () => Promise<RootContextEntry[]>
+  saveRootContextFolders: (folders: string[]) => Promise<void>
+  addRootContextFolder: (absolutePath: string) => Promise<RootContextEntry[]>
+  scanContexts: () => Promise<ScanResult>
   getCachedScan: () => Promise<ScanResult | null>
-  getCachedStreams: () => Promise<StreamsCache | null>
+  getCachedContexts: () => Promise<ContextsCache | null>
+
+  // Schema migrations
+  getMigrationStatus: () => Promise<MigrationResult>
+  onMigrationStatusChanged: (callback: (status: MigrationResult) => void) => () => void
 
   // Instructions download
   downloadInstructionsTemplate: (targetFolder: string) => Promise<{ ok: boolean; error?: string }>

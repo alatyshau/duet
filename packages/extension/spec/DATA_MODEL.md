@@ -17,39 +17,39 @@ Extension loads entities from Backend HTTP API, not from local storage.
 
 | Source | Method | Data |
 |--------|--------|------|
-| `GET /streams` | `apiClient.streams()` | All business/stream/product entities with `absolute_path` |
+| `GET /contexts` | `apiClient.contexts()` | All `context` entities with `absolute_path`, `meta`, optional `git_url` |
 | `POST /scan` | `apiClient.scan()` | Trigger backend rescan |
 
-Loaded `StreamEntity[]` is kept in memory and shared across tree providers (sync access). Refreshed on `duet.refresh` command.
+Loaded `ContextEntity[]` is kept in memory and shared across tree providers (sync access). Refreshed on `duet.refresh` command.
 
-**Business folder configuration is Host-only.** Extension intentionally has no add/remove/reorder commands and no write path to `settings.json` or `{machine}.json` (see [/spec/PRODUCT.md](/spec/PRODUCT.md) → "Single-writer invariant"). All edits go through the Host wizard.
+**Root context configuration is Host-only.** Extension intentionally has no add/remove/reorder commands and no write path to `settings.json` or `{machine}.json` (see [/spec/PRODUCT.md](/spec/PRODUCT.md) → "Single-writer invariant"). All edits go through the Host wizard.
 
 ## Workspace Files
 
-### Product Workspace
+### Context Workspace
 
-Generated/updated on each open of product with `git_url`. Combines repo and Drive folder.
+Generated/updated on each open of a context with `git_url`. Combines repo and Drive folder.
 
 ```json
 {
   "folders": [
     { "path": "../repos/Duet.git" },
-    { "path": "/absolute/path/to/Drive/Product" }
+    { "path": "/absolute/path/to/Drive/Context" }
   ]
 }
 ```
 
 | Aspect | Value |
 |--------|-------|
-| Location | `DuetData/workspaces/{Product}.code-workspace` |
+| Location | `DuetData/workspaces/{Context}.code-workspace` |
 | Repo path | Relative from workspaces/ |
 | Drive path | Absolute (not portable) |
 
-### All-Businesses Workspace
+### Root Contexts Workspace
 
 | Aspect | Value |
 |--------|-------|
-| Location | `DuetData/all-businesses.code-workspace` |
+| Location | `DuetData/root-contexts.code-workspace` |
 | Paths | Absolute (not portable) |
 | Generated | On refresh (after scan completes) |
 

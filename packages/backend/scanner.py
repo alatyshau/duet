@@ -1,25 +1,26 @@
 """Hierarchy scanner for Duet entities.
 
-Port of packages/extension/src/core/scanner.ts to Python.
+Backend is strict v2 reader: walks each root context folder, registers
+contexts that carry a valid `context.json` (v2). Host owns all
+auto-upgrade and self-heal of legacy manifests.
 
 Key behaviors:
-- Global name uniqueness: priority-based (business > stream > product)
-- Self-healing: auto-creates/renames manifests to match hierarchy rules
-- Hierarchy: root=business, intermediate=stream, leaf with git_url=product
-- Deterministic order: readdir results sorted by name
+- Single recursive function `_scan_context` for every level.
+- Global name uniqueness: priority-based (context > product_repo > reference_repo).
+- Terminal stop on `git_url`: scanner does not recurse inside.
+- Deterministic order: readdir results sorted by name.
 """
 
-import json
 import os
-from dataclasses import dataclass
 from pathlib import Path
-
-from description import extract_description, find_spec_file
 from typing import Callable
 
+from description import extract_description, find_spec_file
+
 from db import DatabaseManager, Entity
-from config import get_business_folders, get_repos_path
+from config import get_root_context_folders, get_repos_path
 from normalization import normalize_path
+from services.manifest import Manifest, read_manifest
 
 
 def make_scan_result(
@@ -41,28 +42,19 @@ def make_scan_result(
     return result
 
 
-@dataclass
-class Manifest:
-    name: str
-    icon: str | None = None
-    git_url: str | None = None
-    root: bool = False
-    reference_repos: dict[str, str] | None = None  # name -> URL
-
-
-# Type priorities: lower number = higher priority
-# When name conflict occurs, higher-priority entity keeps the original name
+# Type priorities: lower number = higher priority.
+# All context entities share priority 2; product_repo and reference_repo
+# stay at their original priorities. Collisions across contexts produce
+# suffix `(1)` for the second-comer.
 TYPE_PRIORITIES = {
-    "business": 1,
-    "stream": 2,
-    "product": 3,
+    "context": 2,
     "product_repo": 3,
     "reference_repo": 5,
 }
 
 
 class Scanner:
-    """Scans Google Drive business folders and builds entities.db."""
+    """Scans configured root context folders and rebuilds entities.db."""
 
     def __init__(
         self,
@@ -74,44 +66,40 @@ class Scanner:
         self.on_error = on_error
         self.repos_path = repos_path or get_repos_path()
         self._scan_in_progress = False
-        # Current business_folder being scanned (for relative path calculation)
-        self._current_business_folder: Path | None = None
+        # Current root-context folder being scanned (for relative path calculation)
+        self._current_root_folder: Path | None = None
         # Structured errors collected during scan
         self.errors: list[dict] = []
 
     def _to_relative_path(self, absolute_path: Path) -> str:
-        """Convert absolute path to relative path from current business_folder's parent.
+        """Convert absolute path to relative path from current root context's parent.
 
-        Path format: {business_folder_name}/{relative_path}
-        - For root (business_folder itself): returns just the folder name
-        - For nested: {business_folder_name}/Stream/Product
+        Path format: {root_folder_name}/{relative_path}
+        - For root (root_context_folder itself): returns just the folder name
+        - For nested: {root_folder_name}/Stream/Product
         - Normalizes slashes to forward slashes
         - Normalizes Unicode to NFC (macOS filesystem uses NFD)
 
-        This ensures uniqueness across multiple business_folders.
+        This ensures uniqueness across multiple root context folders.
         """
-        if self._current_business_folder is None:
+        if self._current_root_folder is None:
             return normalize_path(str(absolute_path))
 
-        business_name = self._current_business_folder.name
+        root_name = self._current_root_folder.name
 
         try:
-            relative = absolute_path.relative_to(self._current_business_folder)
+            relative = absolute_path.relative_to(self._current_root_folder)
             relative_str = str(relative).replace("\\", "/")
-            # For root, relative is "." - return just business name
             if relative_str == ".":
-                result = business_name
+                result = root_name
             else:
-                # For nested paths, prepend business name
-                result = f"{business_name}/{relative_str}"
-            # Normalize Unicode: macOS returns NFD, we store NFC
+                result = f"{root_name}/{relative_str}"
             return normalize_path(result)
         except ValueError:
-            # Path not under business_folder - return as-is (shouldn't happen)
             return normalize_path(str(absolute_path))
 
     def scan(self) -> dict:
-        """Run full scan of business folders.
+        """Run full scan of root context folders.
 
         Returns scan statistics and errors.
         """
@@ -124,9 +112,12 @@ class Scanner:
             self.db.init()
             self.db.clear()
 
-            business_folders = get_business_folders()
-            for folder in business_folders:
-                self._scan_business(folder)
+            for folder in get_root_context_folders():
+                path = Path(folder)
+                if not path.exists():
+                    continue
+                self._current_root_folder = path
+                self._scan_context(path, parent_id=None)
 
             entities = self.db.get_all_entities()
             return make_scan_result("completed", entities_count=len(entities), errors=self.errors)
@@ -143,7 +134,7 @@ class Scanner:
         return name
 
     def _resolve_unique_name(
-        self, base_name: str, new_type: str, folder_path: Path | None = None
+        self, base_name: str, new_type: str, manifest_path: Path | None = None
     ) -> str:
         """Resolve name for a new entity using priority-based algorithm.
 
@@ -160,17 +151,15 @@ class Scanner:
         new_priority = TYPE_PRIORITIES.get(new_type, 99)
         existing_priority = TYPE_PRIORITIES.get(existing.type, 99)
 
-        # Determine reason code based on types involved
         repo_types = {"product_repo", "reference_repo"}
         if new_type in repo_types or existing.type in repo_types:
             reason_code = "repo_collision"
         else:
             reason_code = "name_collision"
 
-        path_str = str(folder_path) if folder_path else base_name
+        path_str = str(manifest_path) if manifest_path else base_name
 
         if new_priority < existing_priority:
-            # New entity has higher priority → rename existing, claim original name
             suffixed_name = self._find_available_name(base_name)
             self.db.update_entity_name(existing.id, suffixed_name)
             self.errors.append({
@@ -183,7 +172,6 @@ class Scanner:
             })
             return base_name
         else:
-            # New entity has lower/equal priority → get suffixed name
             suffixed_name = self._find_available_name(base_name)
             self.errors.append({
                 "path": path_str,
@@ -194,55 +182,6 @@ class Scanner:
             })
             return suffixed_name
 
-    def _create_business_manifest(self, folder_path: Path) -> bool:
-        """Self-healing: create business.json if missing at root."""
-        manifest = {"name": folder_path.name, "icon": "📁"}
-        file_path = folder_path / "business.json"
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(manifest, f, indent=2, ensure_ascii=False)
-            print(f"Self-healing: created {file_path}")
-            return True
-        except OSError as e:  # pragma: no cover — OS-level write error
-            msg = f"Self-healing failed: could not create {file_path}: {e}"
-            if self.on_error:
-                self.on_error(msg)
-            else:
-                print(msg)
-            return False
-
-    def _rename_stream_to_business(self, folder_path: Path) -> bool:
-        """Self-healing: rename stream.json to business.json at root."""
-        stream_path = folder_path / "stream.json"
-        business_path = folder_path / "business.json"
-        try:
-            stream_path.rename(business_path)
-            print(f"Self-healing: renamed {stream_path} to {business_path}")
-            return True
-        except OSError as e:
-            msg = f"Self-healing failed: could not rename {stream_path} to {business_path}: {e}"
-            if self.on_error:
-                self.on_error(msg)
-            else:
-                print(msg)
-            return False
-
-    def _rename_business_to_stream(self, folder_path: Path) -> bool:
-        """Self-healing: rename business.json to stream.json inside chain."""
-        business_path = folder_path / "business.json"
-        stream_path = folder_path / "stream.json"
-        try:
-            business_path.rename(stream_path)
-            print(f"Self-healing: renamed {business_path} to {stream_path}")
-            return True
-        except OSError as e:
-            msg = f"Self-healing failed: could not rename {business_path} to {stream_path}: {e}"
-            if self.on_error:
-                self.on_error(msg)
-            else:
-                print(msg)
-            return False
-
     def _readdir_sorted(self, folder_path: Path) -> list[os.DirEntry]:
         """Read directory entries sorted by name for deterministic scan order."""
         try:
@@ -251,146 +190,82 @@ class Scanner:
         except OSError:  # pragma: no cover — OS-level filesystem error
             return []
 
-    def _scan_business(self, folder_path: str) -> None:
-        """Scan a business folder (root level in business_folders).
+    def _scan_context(self, folder_path: Path, parent_id: int | None) -> None:
+        """Scan a folder as a context.
 
-        Self-healing: creates business.json if missing, renames stream.json to business.json.
+        Strict v2: reads `context.json` only. Folders without a manifest are
+        silently traversed (recurse into children to find deeper contexts).
+        Folders with a `git_url` manifest are terminal — scanner stops.
         """
-        path = Path(folder_path)
-        if not path.exists():
-            return
+        manifest_path = folder_path / "context.json"
+        manifest = read_manifest(folder_path, self.errors)
 
-        # Set current business_folder for relative path calculation
-        self._current_business_folder = path
-
-        # Self-healing: check for manifest issues at root
-        manifest = self._read_manifest(path, "business.json")
-
-        if not manifest:
-            # Check if stream.json exists (wrong manifest type at root)
-            stream_manifest = self._read_manifest(path, "stream.json")
-            if stream_manifest:
-                # Rename stream.json to business.json
-                if self._rename_stream_to_business(path):
-                    manifest = stream_manifest
-            else:
-                # No manifest at all - create business.json
-                self.errors.append({
-                    "path": str(path),
-                    "reason_code": "missing_manifest",
-                    "description": f"Missing business.json in {path.name} (auto-created)",
-                })
-                self._create_business_manifest(path)
-
-            # Use fallback manifest if self-healing failed or no manifest read
-            if not manifest:
-                manifest = Manifest(name=path.name, icon="📁")
-
-        base_name = manifest.name or path.name
-        unique_name = self._resolve_unique_name(base_name, "business", path / "business.json")
-        icon = manifest.icon or "📁"
-
-        # Use relative path (empty string for root = business folder itself)
-        relative_path = self._to_relative_path(path)
-
-        business_id = self.db.insert_entity(
-            Entity(
-                id=None,
-                type="business",
-                name=unique_name,
-                icon=icon,
-                drive_path=relative_path,
-                root=manifest.root,
-            )
-        )
-
-        # Register reference_repo entities
-        self._register_reference_repos(manifest, business_id, path / "business.json")
-
-        # Scan children (Stream or Product) - sorted for determinism
-        for entry in self._readdir_sorted(path):
-            if not entry.is_dir() or entry.name.startswith("."):
-                continue
-            self._scan_stream_or_product(Path(entry.path), business_id)
-
-    def _scan_stream_or_product(self, folder_path: Path, parent_id: int) -> None:
-        """Scan a folder that could be stream or product (inside business).
-
-        Self-healing: renames business.json to stream.json if found inside chain.
-        """
-        # Check for stream.json first
-        stream_manifest = self._read_manifest(folder_path, "stream.json")
-
-        # Self-healing: check for business.json inside chain (should be stream.json)
-        if not stream_manifest:
-            business_manifest = self._read_manifest(folder_path, "business.json")
-            if business_manifest:
-                # Rename business.json to stream.json
-                if self._rename_business_to_stream(folder_path):
-                    stream_manifest = business_manifest
-                # If rename failed, we don't use the manifest
-
-        if stream_manifest:
-            base_name = stream_manifest.name or folder_path.name
-            unique_name = self._resolve_unique_name(base_name, "stream", folder_path / "stream.json")
-
-            # Use relative path from business_folder
-            relative_path = self._to_relative_path(folder_path)
-
-            stream_id = self.db.insert_entity(
-                Entity(
-                    id=None,
-                    type="stream",
-                    name=unique_name,
-                    icon=stream_manifest.icon or "🌊",
-                    drive_path=relative_path,
-                    parent_id=parent_id,
-                )
-            )
-
-            # Register reference_repo entities
-            self._register_reference_repos(stream_manifest, stream_id, folder_path / "stream.json")
-
-            # Scan children inside stream (can be nested streams or products)
+        if manifest is None:
+            # No usable manifest. Top-level folders with no manifest are
+            # never registered (Host should have written one); for nested
+            # folders we simply recurse to find deeper contexts.
+            if parent_id is None:
+                return
             for entry in self._readdir_sorted(folder_path):
                 if not entry.is_dir() or entry.name.startswith("."):
                     continue
-                # Recursive call - streams can contain streams or products
-                self._scan_stream_or_product(Path(entry.path), stream_id)
+                self._scan_context(Path(entry.path), parent_id)
             return
 
-        # Check for product.json
-        product_manifest = self._read_manifest(folder_path, "product.json")
-        if product_manifest:
-            self._save_product(folder_path, parent_id, product_manifest)
+        unique_name = self._resolve_unique_name(manifest.name, "context", manifest_path)
+        icon = manifest.icon or ("📦" if manifest.git_url else "📁")
+        relative_path = self._to_relative_path(folder_path)
+
+        context_id = self.db.insert_entity(
+            Entity(
+                id=None,
+                type="context",
+                name=unique_name,
+                icon=icon,
+                drive_path=relative_path,
+                parent_id=parent_id,
+                git_url=manifest.git_url,
+                meta=manifest.meta,
+            )
+        )
+
+        self._register_reference_repos(manifest, context_id, manifest_path)
+
+        if manifest.git_url:
+            repo_entity_name = f"{unique_name}.git"
+            resolved_repo_name = self._resolve_unique_name(
+                repo_entity_name, "product_repo", manifest_path
+            )
+            self.db.insert_entity(
+                Entity(
+                    id=None,
+                    type="product_repo",
+                    name=resolved_repo_name,
+                    icon="📂",
+                    drive_path=resolved_repo_name,
+                    parent_id=context_id,
+                    git_url=manifest.git_url,
+                )
+            )
             return
 
-        # No manifest - recurse to find deeper items
         for entry in self._readdir_sorted(folder_path):
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
-            self._scan_stream_or_product(Path(entry.path), parent_id)
+            self._scan_context(Path(entry.path), context_id)
 
     def _register_reference_repos(
         self, manifest: Manifest, parent_id: int, manifest_path: Path | None = None
     ) -> None:
-        """Register reference_repo entities from manifest's reference_repos field.
-
-        Creates reference_repo entity for each entry in manifest.reference_repos.
-        Entity name includes .git suffix (e.g. "anthropic-cookbook.git").
-
-        Args:
-            manifest: Parsed manifest with reference_repos.
-            parent_id: Parent entity ID.
-            manifest_path: Path to the manifest file declaring reference_repos
-                          (used for error reporting).
-        """
+        """Register reference_repo entities from manifest's reference_repos field."""
         if not manifest.reference_repos:
             return
 
         for ref_name, ref_url in manifest.reference_repos.items():
             ref_entity_name = f"{ref_name}.git"
-            resolved_name = self._resolve_unique_name(ref_entity_name, "reference_repo", manifest_path)
+            resolved_name = self._resolve_unique_name(
+                ref_entity_name, "reference_repo", manifest_path
+            )
             self.db.insert_entity(
                 Entity(
                     id=None,
@@ -403,83 +278,9 @@ class Scanner:
                 )
             )
 
-    def _save_product(
-        self, folder_path: Path, parent_id: int, manifest: Manifest
-    ) -> None:
-        """Save a product entity.
-
-        Products are terminal nodes — we don't scan deeper for manifests.
-        Reference repos declared in product.json are registered separately.
-        """
-        base_name = manifest.name or folder_path.name
-        unique_name = self._resolve_unique_name(base_name, "product", folder_path / "product.json")
-
-        # Use relative path from business_folder
-        relative_path = self._to_relative_path(folder_path)
-
-        product_id = self.db.insert_entity(
-            Entity(
-                id=None,
-                type="product",
-                name=unique_name,
-                icon=manifest.icon or "📦",
-                drive_path=relative_path,
-                parent_id=parent_id,
-                git_url=manifest.git_url,
-            )
-        )
-
-        # Register product_repo entity if product has git_url
-        if manifest.git_url:
-            repo_entity_name = f"{unique_name}.git"
-            resolved_repo_name = self._resolve_unique_name(repo_entity_name, "product_repo", folder_path / "product.json")
-            self.db.insert_entity(
-                Entity(
-                    id=None,
-                    type="product_repo",
-                    name=resolved_repo_name,
-                    icon="📂",
-                    drive_path=resolved_repo_name,
-                    parent_id=product_id,
-                    git_url=manifest.git_url,
-                )
-            )
-
-        # Register reference_repo entities
-        self._register_reference_repos(manifest, product_id, folder_path / "product.json")
-
-    def _read_manifest(self, folder_path: Path, filename: str) -> Manifest | None:
-        """Read and parse a manifest file."""
-        file_path = folder_path / filename
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ref_repos = data.get("reference_repos")
-                return Manifest(
-                    name=data.get("name", ""),
-                    icon=data.get("icon"),
-                    git_url=data.get("git_url"),
-                    root=bool(data.get("root", False)),
-                    reference_repos=ref_repos if isinstance(ref_repos, dict) else None,
-                )
-        except FileNotFoundError:
-            return None
-        except (json.JSONDecodeError, OSError) as e:
-            msg = f"Invalid manifest {filename} at {folder_path}: {e}"
-            self.errors.append({
-                "path": str(file_path),
-                "reason_code": "invalid_manifest",
-                "description": msg,
-            })
-            if self.on_error:
-                self.on_error(msg)
-            else:
-                print(msg)
-            return None
-
 
 def scan_components(product_path: Path) -> list[dict]:
-    """Scan product directory for components (packages/).
+    """Scan a product directory for components (`packages/`).
 
     For each component, finds spec file via fallback chain and extracts
     description (first sentence) from it.
@@ -501,17 +302,14 @@ def scan_components(product_path: Path) -> list[dict]:
                     "path": f"packages/{entry.name}",
                 }
 
-                # Find spec file using fallback chain
                 spec_path = find_spec_file(entry, "component")
                 if spec_path:
-                    # Store relative path from product root
                     try:
                         rel_spec = spec_path.relative_to(product_path)
                         component["spec"] = str(rel_spec).replace("\\", "/")
                     except ValueError:
                         component["spec"] = str(spec_path)
 
-                    # Extract description from spec file
                     desc = extract_description(spec_path)
                     if desc:
                         component["description"] = desc

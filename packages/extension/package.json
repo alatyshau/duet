@@ -64,14 +64,14 @@
                 "category": "Duet"
             },
             {
-                "command": "duet.openAllBusinesses",
+                "command": "duet.openAllRootContexts",
                 "title": "Открыть все дела в новом окне",
                 "icon": "$(link-external)",
                 "category": "Duet",
                 "shortTitle": "В новом окне"
             },
             {
-                "command": "duet.openAllBusinessesHere",
+                "command": "duet.openAllRootContextsHere",
                 "title": "Открыть все дела",
                 "icon": "$(go-to-file)",
                 "category": "Duet",
@@ -106,12 +106,12 @@
                 },
                 {
                     "command": "duet.refresh",
-                    "when": "view == duet.businesses",
+                    "when": "view == duet.contexts",
                     "group": "navigation@1"
                 },
                 {
                     "command": "duet.toggleExpand",
-                    "when": "view == duet.businesses",
+                    "when": "view == duet.contexts",
                     "group": "navigation@3"
                 }
             ],
@@ -130,23 +130,23 @@
             ],
             "view/item/context": [
                 {
-                    "command": "duet.openAllBusinessesHere",
-                    "when": "view == duet.businesses && viewItem == header",
+                    "command": "duet.openAllRootContextsHere",
+                    "when": "view == duet.contexts && viewItem == header",
                     "group": "inline@1"
                 },
                 {
-                    "command": "duet.openAllBusinesses",
-                    "when": "view == duet.businesses && viewItem == header",
+                    "command": "duet.openAllRootContexts",
+                    "when": "view == duet.contexts && viewItem == header",
                     "group": "inline@2"
                 },
                 {
                     "command": "duet.openInCurrentWindow",
-                    "when": "view == duet.businesses && viewItem != header && viewItem != placeholder && viewItem != separator",
+                    "when": "view == duet.contexts && viewItem != header && viewItem != placeholder && viewItem != separator",
                     "group": "inline@1"
                 },
                 {
                     "command": "duet.openInNewWindow",
-                    "when": "view == duet.businesses && viewItem != header && viewItem != placeholder && viewItem != separator",
+                    "when": "view == duet.contexts && viewItem != header && viewItem != placeholder && viewItem != separator",
                     "group": "inline@2"
                 }
             ]
@@ -182,7 +182,7 @@
                     "initialSize": 1
                 },
                 {
-                    "id": "duet.businesses",
+                    "id": "duet.contexts",
                     "name": "ДЕЛА",
                     "when": "duet.hasPointer && duet.ready",
                     "initialSize": 4

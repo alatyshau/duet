@@ -5,8 +5,8 @@
 | View | Purpose | Provider |
 |------|---------|----------|
 | DUET (status) | Shown when backend not ready — welcome message or spinner | Stub `TreeDataProvider` (empty array) |
-| КОНТЕКСТ | Current workspace position in hierarchy | `ContextProvider.ts` |
-| ДЕЛА | Full business tree for navigation | `BusinessTreeProvider.ts` |
+| КОНТЕКСТ | Current workspace position in the context hierarchy | `ContextProvider.ts` |
+| ДЕЛА | Full context tree for navigation | `ContextTreeProvider.ts` |
 
 ## Visibility Contract
 
@@ -39,18 +39,18 @@ Things that are easy to accidentally break:
 
 | View | Behavior | Why it matters |
 |------|----------|----------------|
-| ДЕЛА | **Accordion**: one business expanded at a time | Reduces visual noise, focus on active work |
-| ДЕЛА | Expand business → expands to leaves | User sees full hierarchy without extra clicks |
-| ДЕЛА | Auto-expand active business on startup | Opens the business user is working in |
-| ДЕЛА | Separators between businesses (`· · ·`) | Visual separation of businesses |
+| ДЕЛА | **Accordion**: one root context expanded at a time | Reduces visual noise, focus on active work |
+| ДЕЛА | Expand root context → expands to leaves | User sees full hierarchy without extra clicks |
+| ДЕЛА | Auto-expand active root context on startup | Opens the root the user is working in |
+| ДЕЛА | Solid `────` line between root contexts; blank spacer row between first-level children of a root | Visual separation between roots and inside an expanded root, without competing dotted clutter |
 | ДЕЛА | Header `[МОИ ДЕЛА]` not collapsible | Visual anchor, not a real node |
-| ДЕЛА | Header has hover icon → open all-businesses workspace | Quick access to multi-root |
-| ДЕЛА | Placeholder when empty | User knows how to add first business |
+| ДЕЛА | Header has hover icon → open root-contexts.code-workspace | Quick access to multi-root |
+| ДЕЛА | Placeholder when empty: "Добавьте root-контекст в Duet Host" | User is pointed to the Host (which owns root-context configuration), not to a non-existent in-Extension button |
 | ДЕЛА | Icons: emoji from manifest in label (e.g. `🔬 МетаЛаб`) | Custom icons from manifests, no ThemeIcon |
-| ДЕЛА | Description: type label (бизнес/дело/продукт) | User sees entity type |
-| ДЕЛА | Description: `[git]` marker for products with git_url | User sees which products have repos |
+| ДЕЛА | Description: contextual label (мета-контекст / контекст / контекст [git]) | User sees role at a glance |
+| ДЕЛА | Description: `[git]` marker for contexts with git_url | User sees which contexts have repos |
 | ДЕЛА | **Chain highlighting**: 🟠 for active node + all ancestors | User sees path to current work |
-| ДЕЛА | Business status: 🔹/🟦/🔸/🟧 (collapsed/expanded × inactive/active) | User sees state at a glance |
+| ДЕЛА | Root status: 🔹/🟦/🔸/🟧 (collapsed/expanded × inactive/active) | User sees state at a glance |
 | ДЕЛА | Toggle button (fold icon) | Single button to expand/collapse all |
 | ДЕЛА | Click = select, arrow = toggle | User can select without collapsing |
 | КОНТЕКСТ | Welcome view when no folder open | User knows how to open folder |
@@ -62,26 +62,26 @@ Things that are easy to accidentally break:
 
 | Code | Meaning | User action |
 |------|---------|-------------|
-| `orphan` | Repo in repos/ but no matching product in DB | Add product.json on Drive |
-| `name_conflict` | Repo name matches non-product entity | Rename repo or Drive entity |
+| `orphan` | Repo in repos/ but no matching git-backed context in DB | Add `context.json` with `git_url` on Drive |
+| `name_conflict` | Repo name matches a context that has no `git_url` | Rename repo or set `git_url` on the matching context |
 | `outside_repos` | Repo not in DuetData/repos/ | Move to repos/ |
-| `outside_hierarchy` | Folder not in any business | Add business via ДЕЛА |
+| `outside_hierarchy` | Folder not in any context | Add a root context via ДЕЛА |
 
 ## ДЕЛА Accordion Behavior
 
-The business tree uses **accordion** pattern: only one business can be expanded at a time.
+The context tree uses **accordion** pattern: only one root context can be expanded at a time.
 
 ### State Transitions
 
 ```
-[All collapsed] --click business--> [Business expanded to leaves]
-[Business A expanded] --click business B--> [A collapsed, B expanded to leaves]
-[Business expanded] --click collapse arrow--> [All collapsed]
+[All collapsed] --click root--> [Root expanded to leaves]
+[Root A expanded] --click root B--> [A collapsed, B expanded to leaves]
+[Root expanded] --click collapse arrow--> [All collapsed]
 ```
 
 ### Visual Indicators
 
-Business status circles encode two dimensions:
+Root context status circles encode two dimensions:
 
 | Circle | Expanded | Active |
 |--------|----------|--------|
@@ -90,15 +90,15 @@ Business status circles encode two dimensions:
 | 🟦 | Yes | No |
 | 🟧 | Yes | Yes |
 
-Non-business nodes use:
+Non-root nodes use:
 - 🟠 = in active chain (current OR has active descendant)
 - ◻️ = inactive
 
 ### Implementation
 
 - `AccordionController.ts` — expand/collapse orchestration
-- `BusinessTreeProvider.ts` — state tracking, label generation
-- `BusinessTree.ts` — `getDescendants()` for expand-to-leaves
+- `ContextTreeProvider.ts` — state tracking, label generation
+- `ContextTree.ts` — `getDescendants()` for expand-to-leaves
 
 ## Future
 

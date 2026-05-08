@@ -148,73 +148,71 @@ class TestExtractDescription:
 class TestFindSpecFile:
     """Tests for find_spec_file function."""
 
-    def test_finds_product_md(self, tmp_path: Path) -> None:
-        """Finds PRODUCT.md for product entity type."""
+    def test_context_with_git_finds_product_md(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "PRODUCT.md").write_text("# Product")
-        assert find_spec_file(tmp_path, "product") == spec_dir / "PRODUCT.md"
+        assert find_spec_file(tmp_path, "context_with_git") == spec_dir / "PRODUCT.md"
 
-    def test_fallback_to_component_md(self, tmp_path: Path) -> None:
-        """Falls back to COMPONENT.md when PRODUCT.md absent."""
+    def test_context_with_git_falls_back_to_component_md(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "COMPONENT.md").write_text("# Component")
-        assert find_spec_file(tmp_path, "product") == spec_dir / "COMPONENT.md"
+        assert find_spec_file(tmp_path, "context_with_git") == spec_dir / "COMPONENT.md"
 
     def test_fallback_to_architecture_md(self, tmp_path: Path) -> None:
-        """Falls back to ARCHITECTURE.md when higher-priority files absent."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "ARCHITECTURE.md").write_text("# Arch")
         assert find_spec_file(tmp_path, "component") == spec_dir / "ARCHITECTURE.md"
 
     def test_returns_none_when_no_spec(self, tmp_path: Path) -> None:
-        """Returns None when no spec files exist."""
-        assert find_spec_file(tmp_path, "product") is None
+        assert find_spec_file(tmp_path, "context_with_git") is None
 
     def test_returns_none_when_no_spec_dir(self, tmp_path: Path) -> None:
-        """Returns None when spec/ directory doesn't exist."""
-        assert find_spec_file(tmp_path, "product") is None
+        assert find_spec_file(tmp_path, "context_with_git") is None
 
-    def test_component_type_starts_with_component_md(self, tmp_path: Path) -> None:
-        """Component type checks COMPONENT.md first."""
+    def test_component_starts_with_component_md(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "COMPONENT.md").write_text("# Comp")
         (spec_dir / "ARCHITECTURE.md").write_text("# Arch")
         assert find_spec_file(tmp_path, "component") == spec_dir / "COMPONENT.md"
 
-    def test_business_type(self, tmp_path: Path) -> None:
-        """Business type checks BUSINESS.md first."""
+    def test_context_finds_context_md(self, tmp_path: Path) -> None:
+        """Plain context (no git_url) checks CONTEXT.md first."""
+        spec_dir = tmp_path / "spec"
+        spec_dir.mkdir()
+        (spec_dir / "CONTEXT.md").write_text("# Ctx")
+        assert find_spec_file(tmp_path, "context") == spec_dir / "CONTEXT.md"
+
+    def test_context_legacy_business_md(self, tmp_path: Path) -> None:
+        """Plain context falls back to legacy BUSINESS.md if CONTEXT.md absent."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "BUSINESS.md").write_text("# Biz")
-        assert find_spec_file(tmp_path, "business") == spec_dir / "BUSINESS.md"
+        assert find_spec_file(tmp_path, "context") == spec_dir / "BUSINESS.md"
 
-    def test_stream_type(self, tmp_path: Path) -> None:
-        """Stream type checks STREAM.md first."""
+    def test_context_legacy_stream_md(self, tmp_path: Path) -> None:
+        """Plain context falls back to legacy STREAM.md when no higher-priority files."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "STREAM.md").write_text("# Stream")
-        assert find_spec_file(tmp_path, "stream") == spec_dir / "STREAM.md"
+        assert find_spec_file(tmp_path, "context") == spec_dir / "STREAM.md"
 
     def test_fallback_to_readme_md(self, tmp_path: Path) -> None:
-        """Falls back to README.md when higher-priority files absent."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "README.md").write_text("# Readme")
         assert find_spec_file(tmp_path, "component") == spec_dir / "README.md"
 
     def test_fallback_to_index_md(self, tmp_path: Path) -> None:
-        """Falls back to INDEX.md as last resort."""
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "INDEX.md").write_text("# Index")
         assert find_spec_file(tmp_path, "component") == spec_dir / "INDEX.md"
 
-    def test_unknown_entity_type_falls_back_to_component(self, tmp_path: Path) -> None:
-        """Unknown entity type uses component fallback chain."""
+    def test_unknown_lookup_falls_back_to_component(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
         (spec_dir / "COMPONENT.md").write_text("# Comp")

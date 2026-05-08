@@ -30,12 +30,12 @@ from starlette.routing import Mount, Route
 
 from config import (
     ConfigError,
-    get_business_folders,
     get_db_path,
     get_duet_data_path,
     get_instructions_path,
     get_log_path,
     get_port,
+    get_root_context_folders,
     get_timezone,
     get_version,
 )
@@ -177,17 +177,17 @@ async def orientation_handler(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
-async def streams_handler(request: Request) -> JSONResponse:
-    """GET /streams - Get all streams (business/stream/product)."""
-    result = get_entities_service().get_streams()
-    response = {"streams": result}
+async def contexts_handler(request: Request) -> JSONResponse:
+    """GET /contexts - Get all context entities."""
+    result = get_entities_service().get_contexts()
+    response = {"contexts": result}
 
     # JSON cache: write for file watcher consumers (Host, Extension)
     try:
-        cache_path = get_duet_data_path() / "data" / "streams.json"
+        cache_path = get_duet_data_path() / "data" / "contexts.json"
         atomic_write_json(cache_path, response)
     except Exception as e:
-        logger.warning(f"Failed to write streams cache: {e}")
+        logger.warning(f"Failed to write contexts cache: {e}")
 
     return JSONResponse(response)
 
@@ -202,20 +202,20 @@ def run_scan_with_cache() -> dict:
     result = get_entities_service().run_scan()
     result["duration_ms"] = int((time.time() - start) * 1000)
 
-    # JSON cache: write scan result + fresh streams for file watcher consumers
+    # JSON cache: write scan result + fresh contexts for file watcher consumers
     if result.get("status") == "completed":
         try:
             data_dir = get_duet_data_path() / "data"
             atomic_write_json(data_dir / "scan.json", result)
-            streams = get_entities_service().get_streams()
-            atomic_write_json(data_dir / "streams.json", {"streams": streams})
+            contexts = get_entities_service().get_contexts()
+            atomic_write_json(data_dir / "contexts.json", {"contexts": contexts})
         except Exception as e:
             logger.warning(f"Failed to write scan cache: {e}")
 
-        # Restart watcher if business folders changed
+        # Restart watcher if root context folders changed
         if _watcher:
             try:
-                _watcher.maybe_restart(get_business_folders())
+                _watcher.maybe_restart(get_root_context_folders())
             except Exception as e:
                 logger.warning(f"Failed to update watcher: {e}")
 
@@ -293,7 +293,7 @@ async def lifespan(app: Starlette):
     global _watcher
     _watcher = ManifestWatcher(on_scan=run_scan_with_cache)
     try:
-        folders = get_business_folders()
+        folders = get_root_context_folders()
         if folders:
             logger.info("Running initial scan")
             run_scan_with_cache()
@@ -324,7 +324,7 @@ def create_app() -> Starlette:
         Route("/timestamp", timestamp_handler, methods=["GET"]),
         Route("/duet-data-path", duet_data_path_handler, methods=["GET"]),
         Route("/orientation", orientation_handler, methods=["POST"]),
-        Route("/streams", streams_handler, methods=["GET"]),
+        Route("/contexts", contexts_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/merge-duet-instructions", merge_instructions_handler, methods=["POST"]),
         # Mount MCP at /mcp (streamable HTTP transport)
@@ -405,7 +405,7 @@ def main() -> None:
         get_version()
         get_port()
         get_timezone()
-        get_business_folders()
+        get_root_context_folders()
         # instructionsPath not validated at startup — may not be configured yet
         # during initial wizard setup. Endpoints check it per-request.
     except ConfigError as e:

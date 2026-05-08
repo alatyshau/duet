@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   readConfig,
+  readPointerStrict,
   writeConfig,
   getConfigFile,
   ensureConfigDefaults,
@@ -71,6 +72,45 @@ describe('core/config', () => {
       const config = readConfig()
       expect(config).toEqual({ duetDataPath: '/new/path' })
     })
+
+    it('writes atomically (no .tmp leftover)', () => {
+      writeConfig({ duetDataPath: '/new/path' })
+      expect(existsSync(`${getConfigFile()}.tmp`)).toBe(false)
+    })
+  })
+
+  // === Review #2 — Issue 3: pointer validation must distinguish missing vs corrupt ===
+  describe('readPointerStrict', () => {
+    it('returns kind=missing when file does not exist', () => {
+      const result = readPointerStrict()
+      expect(result.kind).toBe('missing')
+    })
+
+    it('returns kind=ok with parsed config for valid JSON object', () => {
+      writeTestConfig(ctx.configFile, { duetDataPath: '/data', machine: 'test' })
+      const result = readPointerStrict()
+      expect(result.kind).toBe('ok')
+      if (result.kind === 'ok') {
+        expect(result.config.duetDataPath).toBe('/data')
+        expect(result.config.machine).toBe('test')
+      }
+    })
+
+    it('returns kind=invalid_json for corrupt pointer (review issue 3 — must NOT silently first-run)', () => {
+      writeFileSync(ctx.configFile, '{ corrupted', 'utf-8')
+      const result = readPointerStrict()
+      expect(result.kind).toBe('invalid_json')
+      if (result.kind === 'invalid_json') {
+        expect(result.path).toBe(ctx.configFile)
+        expect(result.error).toBeTruthy()
+      }
+    })
+
+    it('returns kind=invalid_json for non-object payload (e.g. JSON array or scalar)', () => {
+      writeFileSync(ctx.configFile, '[]', 'utf-8')
+      const result = readPointerStrict()
+      expect(result.kind).toBe('invalid_json')
+    })
   })
 
   // ===========================================================================
@@ -86,7 +126,8 @@ describe('core/config', () => {
 
       const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
       expect(settings).toEqual({
-        business_folders: [],
+        version: 2,
+        root_context_folders: [],
         timestampTZ: { id: 'Z', value: 'UTC' }
       })
     })
@@ -98,13 +139,13 @@ describe('core/config', () => {
       expect(existsSync(machinePath)).toBe(true)
 
       const machineConfig = JSON.parse(readFileSync(machinePath, 'utf-8'))
-      expect(machineConfig).toEqual({ port: 19680 })
+      expect(machineConfig).toEqual({ version: 2, port: 19680 })
     })
 
     it('does not overwrite existing settings.json', () => {
       const settingsPath = join(ctx.duetConfigDir, 'settings.json')
       const custom = {
-        business_folders: ['@MyBiz'],
+        root_context_folders: ['@MyCtx'],
         timestampTZ: { id: 'M', value: 'Europe/Moscow' }
       }
       writeFileSync(settingsPath, JSON.stringify(custom))
@@ -183,11 +224,11 @@ describe('core/config', () => {
       })
       writeFileSync(
         join(ctx.duetConfigDir, 'settings.json'),
-        JSON.stringify({ business_folders: ['/path'] })
+        JSON.stringify({ root_context_folders: ['/path'] })
       )
 
       const result = readSettingsConfig()
-      expect(result).toEqual({ business_folders: ['/path'] })
+      expect(result).toEqual({ root_context_folders: ['/path'] })
     })
 
     it('returns null on invalid JSON', () => {
@@ -216,13 +257,13 @@ describe('core/config', () => {
       })
       writeFileSync(
         join(ctx.duetConfigDir, 'settings.json'),
-        JSON.stringify({ business_folders: [], timestampTZ: { id: 'Z', value: 'UTC' } })
+        JSON.stringify({ root_context_folders: [], timestampTZ: { id: 'Z', value: 'UTC' } })
       )
 
-      setSettingsConfigKey('business_folders', ['/new/path'])
+      setSettingsConfigKey('root_context_folders', ['/new/path'])
 
       const settings = JSON.parse(readFileSync(join(ctx.duetConfigDir, 'settings.json'), 'utf-8'))
-      expect(settings.business_folders).toEqual(['/new/path'])
+      expect(settings.root_context_folders).toEqual(['/new/path'])
       expect(settings.timestampTZ).toEqual({ id: 'Z', value: 'UTC' })
     })
 
@@ -233,7 +274,7 @@ describe('core/config', () => {
         machine: 'test'
       })
 
-      expect(() => setSettingsConfigKey('business_folders', ['/path'])).toThrow(
+      expect(() => setSettingsConfigKey('root_context_folders', ['/path'])).toThrow(
         /Settings file not found/
       )
     })
@@ -246,12 +287,12 @@ describe('core/config', () => {
       })
       writeFileSync(join(ctx.duetConfigDir, 'settings.json'), '{ broken json', 'utf-8')
 
-      expect(() => setSettingsConfigKey('business_folders', ['/path'])).toThrow(/Invalid JSON/)
+      expect(() => setSettingsConfigKey('root_context_folders', ['/path'])).toThrow(/Invalid JSON/)
     })
 
     it('throws when pointer is not configured', () => {
       // No writeTestConfig — pointer not set
-      expect(() => setSettingsConfigKey('business_folders', ['/path'])).toThrow(/duetConfigPath/)
+      expect(() => setSettingsConfigKey('root_context_folders', ['/path'])).toThrow(/duetConfigPath/)
     })
   })
 

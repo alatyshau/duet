@@ -47,7 +47,7 @@ def duet_data_builder(tmp_path: Path) -> DuetDataBuilder:
         def test_something(duet_data_builder):
             builder = duet_data_builder
             builder.with_version("2.0.0")
-            builder.add_business("MyBusiness")
+            builder.add_root_context("MyContext")
             path = builder.build()
     """
     return DuetDataBuilder(tmp_path)
@@ -127,7 +127,7 @@ def entity_factory() -> type[EntityFactory]:
 
     Usage in tests:
         def test_something(entity_factory, db):
-            entity = entity_factory.business("MyBusiness", "/path")
+            entity = entity_factory.context("MyContext", "/path")
             db.insert_entity(entity)
     """
     return EntityFactory

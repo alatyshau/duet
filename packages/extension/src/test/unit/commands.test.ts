@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { openInCurrentWindow, openInNewWindow } from '../../vscode/commands/openFolder';
 import { refreshFromBackend } from '../../vscode/commands/refresh';
-import { TreeNode } from '../../core/tree/businessTree';
+import { TreeNode } from '../../core/tree/contextTree';
 import * as vscode from 'vscode';
 
 // Mock pointer
@@ -56,7 +56,10 @@ describe('VS Code Commands', () => {
                 id: '/path/to/folder',
                 label: 'Folder',
                 icon: '',
-                type: 'business',
+                type: 'context',
+                isRoot: true,
+                meta: false,
+                hasGit: false,
                 hasChildren: false,
                 entityId: 1
             };
@@ -76,7 +79,10 @@ describe('VS Code Commands', () => {
                 id: '/path/to/folder',
                 label: 'Folder',
                 icon: '',
-                type: 'business',
+                type: 'context',
+                isRoot: true,
+                meta: false,
+                hasGit: false,
                 hasChildren: false,
                 entityId: 1
             };
@@ -95,7 +101,10 @@ describe('VS Code Commands', () => {
                 id: '!МетаЛаб/ДЕЛА/ТехноЛаб', // relative drive_path — no absolute_path from backend
                 label: 'ТехноЛаб',
                 icon: '',
-                type: 'stream',
+                type: 'context',
+                isRoot: false,
+                meta: false,
+                hasGit: false,
                 hasChildren: false,
                 entityId: 2
             };
@@ -115,25 +124,25 @@ describe('VS Code Commands', () => {
     });
 
     describe('refreshFromBackend', () => {
-        it('should call apiClient.scan and return streams', async () => {
-            const mockStreams = [
-                { id: '1', type: 'business', name: 'Biz1', icon: 'B', path: '', absolute_path: '/drive/biz1', parent_id: null, git_url: null }
+        it('should call apiClient.scan and return contexts', async () => {
+            const mockContexts = [
+                { id: '1', type: 'context', name: 'Biz1', icon: 'B', path: '', absolute_path: '/drive/biz1', parent_id: null, meta: false, git_url: null }
             ];
             const apiClient = {
                 scan: vi.fn().mockResolvedValue({ status: 'completed' }),
-                streams: vi.fn().mockResolvedValue({ streams: mockStreams }),
+                contexts: vi.fn().mockResolvedValue({ contexts: mockContexts }),
             } as any;
             const paths = {
                 workspacesPath: '/tmp/workspaces',
                 reposPath: '/tmp/repos',
-                allBusinessesWorkspacePath: '/tmp/all.code-workspace',
+                rootContextsWorkspacePath: '/tmp/root-contexts.code-workspace',
             } as any;
 
             const result = await refreshFromBackend(apiClient, paths);
 
             expect(apiClient.scan).toHaveBeenCalled();
-            expect(apiClient.streams).toHaveBeenCalled();
-            expect(result).toEqual(mockStreams);
+            expect(apiClient.contexts).toHaveBeenCalled();
+            expect(result).toEqual(mockContexts);
         });
     });
 
@@ -141,12 +150,12 @@ describe('VS Code Commands', () => {
         it('should call the correct VS Code built-in command', async () => {
             // This tests the expected behavior of collapseAll command
             // The actual command is registered in extension.ts and calls:
-            // vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll')
+            // vscode.commands.executeCommand('workbench.actions.treeView.duet.contexts.collapseAll')
 
-            await vscode.commands.executeCommand('workbench.actions.treeView.duet.businesses.collapseAll');
+            await vscode.commands.executeCommand('workbench.actions.treeView.duet.contexts.collapseAll');
 
             expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-                'workbench.actions.treeView.duet.businesses.collapseAll'
+                'workbench.actions.treeView.duet.contexts.collapseAll'
             );
         });
     });

@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-    generateProductWorkspace,
-    generateAllBusinessesWorkspace,
+    generateContextWithGitWorkspace,
+    generateRootContextsWorkspace,
     WorkspaceManager
 } from '../../core/workspace';
 import { createMockFs } from '../../core/fs';
 
 describe('workspace', () => {
-    describe('generateProductWorkspace', () => {
+    describe('generateContextWithGitWorkspace', () => {
         it('should create workspace with repo and drive paths', () => {
-            const result = generateProductWorkspace(
+            const result = generateContextWithGitWorkspace(
                 '../repos/Duet.git',
                 '/Users/test/Drive/МетаЛаб/ТехноЛаб/Duet'
             );
@@ -20,7 +20,7 @@ describe('workspace', () => {
         });
 
         it('should not include names by default', () => {
-            const result = generateProductWorkspace(
+            const result = generateContextWithGitWorkspace(
                 '../repos/Test.git',
                 '/path/to/drive'
             );
@@ -30,15 +30,15 @@ describe('workspace', () => {
         });
     });
 
-    describe('generateAllBusinessesWorkspace', () => {
-        it('should create workspace with all business folders', () => {
+    describe('generateRootContextsWorkspace', () => {
+        it('should create workspace with all root context folders', () => {
             const folders = [
                 '/Users/test/Drive/МетаЛаб',
                 '/Users/test/Drive/Семья',
                 '/Users/test/Drive/База'
             ];
 
-            const result = generateAllBusinessesWorkspace(folders);
+            const result = generateRootContextsWorkspace(folders);
 
             expect(result.folders).toHaveLength(3);
             expect(result.folders[0].path).toBe('/Users/test/Drive/МетаЛаб');
@@ -48,7 +48,7 @@ describe('workspace', () => {
 
         it('should include DuetData folder when duetDataPath provided', () => {
             const folders = ['/Users/test/Drive/МетаЛаб'];
-            const result = generateAllBusinessesWorkspace(folders, '/Users/test/DuetData');
+            const result = generateRootContextsWorkspace(folders, '/Users/test/DuetData');
 
             expect(result.folders).toHaveLength(2);
             expect(result.folders[0].path).toBe('/Users/test/Drive/МетаЛаб');
@@ -56,12 +56,12 @@ describe('workspace', () => {
         });
 
         it('should handle empty array', () => {
-            const result = generateAllBusinessesWorkspace([]);
+            const result = generateRootContextsWorkspace([]);
             expect(result.folders).toHaveLength(0);
         });
 
         it('should handle empty array with duetDataPath', () => {
-            const result = generateAllBusinessesWorkspace([], '/Users/test/DuetData');
+            const result = generateRootContextsWorkspace([], '/Users/test/DuetData');
             expect(result.folders).toHaveLength(1);
             expect(result.folders[0]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
         });
@@ -88,16 +88,16 @@ describe('workspace', () => {
             );
         });
 
-        describe('getProductWorkspacePath', () => {
+        describe('getContextWithGitWorkspacePath', () => {
             it('should return correct path', () => {
-                const path = manager.getProductWorkspacePath('Duet');
+                const path = manager.getContextWithGitWorkspacePath('Duet');
                 expect(path).toBe('/Users/test/DuetData/workspaces/Duet.code-workspace');
             });
         });
 
-        describe('writeProductWorkspace', () => {
+        describe('writeContextWithGitWorkspace', () => {
             it('should write workspace file with correct content', async () => {
-                const result = await manager.writeProductWorkspace(
+                const result = await manager.writeContextWithGitWorkspace(
                     'Duet',
                     '/Users/test/Drive/МетаЛаб/ТехноЛаб/Duet'
                 );
@@ -136,14 +136,14 @@ describe('workspace', () => {
                     fsWithNoDir
                 );
 
-                await managerWithNoDir.writeProductWorkspace('Test', '/drive/path');
+                await managerWithNoDir.writeContextWithGitWorkspace('Test', '/drive/path');
                 expect(mkdirCalled).toBe(true);
             });
         });
 
-        describe('productWorkspaceExists', () => {
+        describe('contextWithGitWorkspaceExists', () => {
             it('should return true if file exists', async () => {
-                const exists = await manager.productWorkspaceExists('Duet');
+                const exists = await manager.contextWithGitWorkspaceExists('Duet');
                 expect(exists).toBe(true);
             });
 
@@ -160,17 +160,17 @@ describe('workspace', () => {
                     fsNoFile
                 );
 
-                const exists = await managerNoFile.productWorkspaceExists('NonExistent');
+                const exists = await managerNoFile.contextWithGitWorkspaceExists('NonExistent');
                 expect(exists).toBe(false);
             });
         });
 
-        describe('writeAllBusinessesWorkspace', () => {
-            it('should write workspace file with business folders', async () => {
-                const outputPath = '/Users/test/DuetData/all-businesses.code-workspace';
+        describe('writeRootContextsWorkspace', () => {
+            it('should write workspace file with root context folders', async () => {
+                const outputPath = '/Users/test/DuetData/root-contexts.code-workspace';
                 const folders = ['/drive/МетаЛаб', '/drive/Семья'];
 
-                await manager.writeAllBusinessesWorkspace(folders, outputPath);
+                await manager.writeRootContextsWorkspace(folders, outputPath);
 
                 const content = writtenFiles.get(outputPath);
                 expect(content).toBeDefined();
@@ -182,10 +182,10 @@ describe('workspace', () => {
             });
 
             it('should include DuetData folder when duetDataPath provided', async () => {
-                const outputPath = '/Users/test/DuetData/all-businesses.code-workspace';
+                const outputPath = '/Users/test/DuetData/root-contexts.code-workspace';
                 const folders = ['/drive/МетаЛаб'];
 
-                await manager.writeAllBusinessesWorkspace(folders, outputPath, '/Users/test/DuetData');
+                await manager.writeRootContextsWorkspace(folders, outputPath, '/Users/test/DuetData');
 
                 const content = writtenFiles.get(outputPath);
                 expect(content).toBeDefined();

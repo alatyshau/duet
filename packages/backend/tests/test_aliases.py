@@ -119,7 +119,7 @@ class TestAliasResolver:
             "@Valid": "/valid/path",
             "invalid": "/invalid/path",
             "port": 19680,
-            "business_folders": ["/some/path"],
+            "root_context_folders": ["/some/path"],
         })
 
         assert resolver.has_alias("@Valid") is True

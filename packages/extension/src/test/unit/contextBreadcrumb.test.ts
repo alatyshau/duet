@@ -3,35 +3,37 @@
  *
  * Tests cover:
  * - Empty workspace folders -> empty result
- * - Git repo in repos/ with matching product -> chain
+ * - Git repo in repos/ with matching git-backed context -> chain
  * - Git repo in repos/ without match -> orphan error
- * - Git repo in repos/ with name conflict -> name_conflict error
- * - Folder on Drive found in streams -> chain
- * - Folder not in streams -> external
+ * - Git repo in repos/ with name conflict (no git_url) -> name_conflict error
+ * - Folder on Drive found in contexts -> chain
+ * - Folder not in contexts -> external
  * - Common ancestor merging
- * - Root sorting by leaf type
+ * - Root sorting by leaf flavor (meta > root > regular > with-git > git > external)
  */
 
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
-import { StreamEntity } from '../../core/api-client';
-import { ContextBreadcrumb, ContextNode } from '../../core/tree/contextBreadcrumb';
+import { ContextEntity } from '../../core/api-client';
+import { ContextBreadcrumb } from '../../core/tree/contextBreadcrumb';
 
 const REPOS_PATH = '/DuetData/repos';
 
-function makeStream(overrides: Partial<StreamEntity> & { id: string; name: string; type: StreamEntity['type'] }): StreamEntity {
+function makeContext(overrides: Partial<ContextEntity> & { id: string; name: string }): ContextEntity {
     return {
+        type: 'context',
         icon: null,
         path: '',
         absolute_path: null,
         parent_id: null,
+        meta: false,
         git_url: null,
         ...overrides,
     };
 }
 
-function createBreadcrumb(streams: StreamEntity[]): ContextBreadcrumb {
-    return new ContextBreadcrumb({ streams, reposPath: REPOS_PATH });
+function createBreadcrumb(contexts: ContextEntity[]): ContextBreadcrumb {
+    return new ContextBreadcrumb({ contexts, reposPath: REPOS_PATH });
 }
 
 describe('ContextBreadcrumb', () => {
@@ -43,24 +45,26 @@ describe('ContextBreadcrumb', () => {
     });
 
     describe('Git repos in repos/ folder', () => {
-        it('should build chain for git repo with matching product', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'TestBiz', icon: '🔬', absolute_path: '/drive/TestBiz' }),
-                makeStream({ id: '2', type: 'product', name: 'MyApp', icon: '📱', absolute_path: '/drive/TestBiz/MyApp', parent_id: '1' }),
+        it('should build chain for git repo with matching git-backed context', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'TestBiz', icon: '🔬', absolute_path: '/drive/TestBiz' }),
+                makeContext({ id: '2', name: 'MyApp', icon: '📱', absolute_path: '/drive/TestBiz/MyApp', parent_id: '1', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const gitFolder = path.join(REPOS_PATH, 'MyApp.git');
 
             const result = bc.build([gitFolder]);
 
             expect(result).toHaveLength(1);
-            expect(result[0].type).toBe('business');
+            expect(result[0].type).toBe('context');
             expect(result[0].name).toBe('TestBiz');
+            expect(result[0].isRoot).toBe(true);
             expect(result[0].children).toHaveLength(1);
 
             const product = result[0].children[0];
-            expect(product.type).toBe('product');
+            expect(product.type).toBe('context');
             expect(product.name).toBe('MyApp');
+            expect(product.hasGit).toBe(true);
             expect(product.children).toHaveLength(1);
 
             const git = product.children[0];
@@ -84,11 +88,11 @@ describe('ContextBreadcrumb', () => {
             expect(result[0].children[0].errorCode).toBe('orphan');
         });
 
-        it('should return name_conflict error as child of git folder', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'Conflict', icon: '🔬', absolute_path: '/drive/Conflict' }),
+        it('should return name_conflict error when matching context has no git_url', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'Conflict', icon: '🔬', absolute_path: '/drive/Conflict' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const gitFolder = path.join(REPOS_PATH, 'Conflict.git');
 
             const result = bc.build([gitFolder]);
@@ -118,31 +122,32 @@ describe('ContextBreadcrumb', () => {
     });
 
     describe('Folders on Drive (lookup)', () => {
-        it('should build chain for folder found in streams', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
-                makeStream({ id: '2', type: 'stream', name: 'ТехноЛаб', icon: '💻', absolute_path: '/drive/МетаЛаб/ТехноЛаб', parent_id: '1' }),
-                makeStream({ id: '3', type: 'product', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Duet', parent_id: '2' }),
+        it('should build chain for folder found in contexts', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
+                makeContext({ id: '2', name: 'ТехноЛаб', icon: '💻', absolute_path: '/drive/МетаЛаб/ТехноЛаб', parent_id: '1' }),
+                makeContext({ id: '3', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Duet', parent_id: '2', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const driveFolder = '/drive/МетаЛаб/ТехноЛаб/Duet';
 
             const result = bc.build([driveFolder]);
 
             expect(result).toHaveLength(1);
-            expect(result[0].type).toBe('business');
+            expect(result[0].type).toBe('context');
             expect(result[0].name).toBe('МетаЛаб');
 
             const stream = result[0].children[0];
-            expect(stream.type).toBe('stream');
+            expect(stream.type).toBe('context');
             expect(stream.name).toBe('ТехноЛаб');
 
             const product = stream.children[0];
-            expect(product.type).toBe('product');
+            expect(product.type).toBe('context');
             expect(product.name).toBe('Duet');
+            expect(product.hasGit).toBe(true);
         });
 
-        it('should return external for folder not in streams with info child', () => {
+        it('should return external for folder not in contexts with info child', () => {
             const bc = createBreadcrumb([]);
             const result = bc.build(['/some/random/path']);
 
@@ -156,27 +161,27 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should match deepest entity for nested path', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'Biz', icon: 'B', absolute_path: '/drive/Biz' }),
-                makeStream({ id: '2', type: 'product', name: 'Prod', icon: 'P', absolute_path: '/drive/Biz/Prod', parent_id: '1' }),
+            const contexts = [
+                makeContext({ id: '1', name: 'Biz', icon: 'B', absolute_path: '/drive/Biz' }),
+                makeContext({ id: '2', name: 'Prod', icon: 'P', absolute_path: '/drive/Biz/Prod', parent_id: '1', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const subFolder = '/drive/Biz/Prod/src/components';
 
             const result = bc.build([subFolder]);
 
             expect(result).toHaveLength(1);
-            expect(result[0].type).toBe('business');
-            expect(result[0].children[0].type).toBe('product');
+            expect(result[0].type).toBe('context');
+            expect(result[0].children[0].type).toBe('context');
             expect(result[0].children[0].name).toBe('Prod');
         });
 
         it('should not false-match path with same prefix but different entity', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'Biz', icon: 'B', absolute_path: '/drive/Biz' }),
-                makeStream({ id: '2', type: 'product', name: 'BizExtra', icon: 'P', absolute_path: '/drive/BizExtra' }),
+            const contexts = [
+                makeContext({ id: '1', name: 'Biz', icon: 'B', absolute_path: '/drive/Biz' }),
+                makeContext({ id: '2', name: 'BizExtra', icon: 'P', absolute_path: '/drive/BizExtra' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             // /drive/BizExtra should NOT match /drive/Biz
             const folder = '/drive/BizExtra/something';
 
@@ -184,26 +189,26 @@ describe('ContextBreadcrumb', () => {
 
             expect(result).toHaveLength(1);
             // Should match BizExtra (exact entity), not Biz (false prefix)
-            expect(result[0].type).toBe('product');
+            expect(result[0].type).toBe('context');
             expect(result[0].name).toBe('BizExtra');
         });
     });
 
     describe('Common ancestor merging', () => {
-        it('should merge two products from same business into one tree', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
-                makeStream({ id: '2', type: 'product', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/Duet', parent_id: '1' }),
-                makeStream({ id: '3', type: 'product', name: 'Kreator', icon: '🎨', absolute_path: '/drive/МетаЛаб/Kreator', parent_id: '1' }),
+        it('should merge two git-backed children of the same root into one tree', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
+                makeContext({ id: '2', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/Duet', parent_id: '1', git_url: 'git@x:y.git' }),
+                makeContext({ id: '3', name: 'Kreator', icon: '🎨', absolute_path: '/drive/МетаЛаб/Kreator', parent_id: '1', git_url: 'git@x:k.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const duetRepo = path.join(REPOS_PATH, 'Duet.git');
             const kreatorRepo = path.join(REPOS_PATH, 'Kreator.git');
 
             const result = bc.build([duetRepo, kreatorRepo]);
 
             expect(result).toHaveLength(1);
-            expect(result[0].type).toBe('business');
+            expect(result[0].type).toBe('context');
             expect(result[0].name).toBe('МетаЛаб');
             expect(result[0].children).toHaveLength(2);
 
@@ -212,14 +217,14 @@ describe('ContextBreadcrumb', () => {
             expect(productNames).toContain('Kreator');
         });
 
-        it('should merge products from same stream into one subtree', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
-                makeStream({ id: '2', type: 'stream', name: 'ТехноЛаб', icon: '💻', absolute_path: '/drive/МетаЛаб/ТехноЛаб', parent_id: '1' }),
-                makeStream({ id: '3', type: 'product', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Duet', parent_id: '2' }),
-                makeStream({ id: '4', type: 'product', name: 'Kreator', icon: '🎨', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Kreator', parent_id: '2' }),
+        it('should merge git-backed siblings under the same intermediate context', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/МетаЛаб' }),
+                makeContext({ id: '2', name: 'ТехноЛаб', icon: '💻', absolute_path: '/drive/МетаЛаб/ТехноЛаб', parent_id: '1' }),
+                makeContext({ id: '3', name: 'Duet', icon: '🎭', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Duet', parent_id: '2', git_url: 'git@x:d.git' }),
+                makeContext({ id: '4', name: 'Kreator', icon: '🎨', absolute_path: '/drive/МетаЛаб/ТехноЛаб/Kreator', parent_id: '2', git_url: 'git@x:k.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const duetRepo = path.join(REPOS_PATH, 'Duet.git');
             const kreatorRepo = path.join(REPOS_PATH, 'Kreator.git');
 
@@ -227,18 +232,18 @@ describe('ContextBreadcrumb', () => {
 
             expect(result).toHaveLength(1);
             const stream = result[0].children[0];
-            expect(stream.type).toBe('stream');
+            expect(stream.type).toBe('context');
             expect(stream.children).toHaveLength(2);
         });
 
-        it('should create separate roots for different businesses', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'Business1', icon: '1️⃣', absolute_path: '/drive/Business1' }),
-                makeStream({ id: '2', type: 'business', name: 'Business2', icon: '2️⃣', absolute_path: '/drive/Business2' }),
-                makeStream({ id: '3', type: 'product', name: 'Prod1', icon: 'P1', absolute_path: '/drive/Business1/Prod1', parent_id: '1' }),
-                makeStream({ id: '4', type: 'product', name: 'Prod2', icon: 'P2', absolute_path: '/drive/Business2/Prod2', parent_id: '2' }),
+        it('should create separate roots for different root contexts', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'Business1', icon: '1️⃣', absolute_path: '/drive/Business1' }),
+                makeContext({ id: '2', name: 'Business2', icon: '2️⃣', absolute_path: '/drive/Business2' }),
+                makeContext({ id: '3', name: 'Prod1', icon: 'P1', absolute_path: '/drive/Business1/Prod1', parent_id: '1', git_url: 'git@x:1.git' }),
+                makeContext({ id: '4', name: 'Prod2', icon: 'P2', absolute_path: '/drive/Business2/Prod2', parent_id: '2', git_url: 'git@x:2.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const prod1Repo = path.join(REPOS_PATH, 'Prod1.git');
             const prod2Repo = path.join(REPOS_PATH, 'Prod2.git');
 
@@ -252,30 +257,33 @@ describe('ContextBreadcrumb', () => {
     });
 
     describe('Root sorting', () => {
-        it('should sort roots by leaf type: business > stream > product > external', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'JustBusiness', icon: 'B', absolute_path: '/drive/JustBusiness' }),
-                makeStream({ id: '2', type: 'stream', name: 'JustStream', icon: 'S', absolute_path: '/drive/JustBusiness/JustStream', parent_id: '1' }),
-                makeStream({ id: '3', type: 'business', name: 'BizWithProduct', icon: 'B', absolute_path: '/drive/BizWithProduct' }),
-                makeStream({ id: '4', type: 'product', name: 'TheProduct', icon: 'P', absolute_path: '/drive/BizWithProduct/TheProduct', parent_id: '3' }),
+        it('should sort by leaf flavor: meta > root > regular > with-git > external', () => {
+            const contexts = [
+                makeContext({ id: 'm', name: 'BASE', icon: 'M', absolute_path: '/drive/BASE', meta: true }),
+                makeContext({ id: '1', name: 'JustRoot', icon: 'R', absolute_path: '/drive/JustRoot' }),
+                makeContext({ id: '2', name: 'Reg', icon: 'r', absolute_path: '/drive/JustRoot/Reg', parent_id: '1' }),
+                makeContext({ id: '3', name: 'BizWithProduct', icon: 'B', absolute_path: '/drive/BizWithProduct' }),
+                makeContext({ id: '4', name: 'TheProduct', icon: 'P', absolute_path: '/drive/BizWithProduct/TheProduct', parent_id: '3', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const folders = [
-                '/drive/JustBusiness/JustStream', // Stream deepest
-                '/some/external/folder',          // External
-                path.join(REPOS_PATH, 'TheProduct.git'), // Product via git
-                '/drive/JustBusiness'             // Business deepest
+                '/drive/JustRoot/Reg',                    // regular context (parent has parent)
+                '/some/external/folder',                  // external
+                path.join(REPOS_PATH, 'TheProduct.git'),  // chain ending with-git
+                '/drive/JustRoot',                        // root context
+                '/drive/BASE'                             // meta-context
             ];
 
             const result = bc.build(folders);
 
             expect(result.length).toBeGreaterThan(0);
+            expect(result[0].name).toBe('BASE'); // meta first
             const lastRoot = result[result.length - 1];
             expect(lastRoot).toBeDefined();
             expect(lastRoot!.type).toBe('external');
         });
 
-        it('should sort alphabetically within same leaf type', () => {
+        it('should sort alphabetically within same leaf flavor', () => {
             const bc = createBreadcrumb([]);
             const folders = [
                 '/some/path/Zebra',
@@ -309,11 +317,11 @@ describe('ContextBreadcrumb', () => {
 
     describe('Complex scenarios', () => {
         it('should handle mix of valid chains, errors, and externals', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'ValidBiz', icon: '✓', absolute_path: '/drive/ValidBiz' }),
-                makeStream({ id: '2', type: 'product', name: 'ValidProd', icon: 'P', absolute_path: '/drive/ValidBiz/ValidProd', parent_id: '1' }),
+            const contexts = [
+                makeContext({ id: '1', name: 'ValidBiz', icon: '✓', absolute_path: '/drive/ValidBiz' }),
+                makeContext({ id: '2', name: 'ValidProd', icon: 'P', absolute_path: '/drive/ValidBiz/ValidProd', parent_id: '1', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const folders = [
                 path.join(REPOS_PATH, 'ValidProd.git'),  // Valid chain
                 path.join(REPOS_PATH, 'Orphan.git'),     // Orphan error
@@ -324,7 +332,7 @@ describe('ContextBreadcrumb', () => {
 
             expect(result).toHaveLength(3);
 
-            const validRoot = result.find(r => r.type === 'business');
+            const validRoot = result.find(r => r.type === 'context');
             const orphan = result.find(r => r.errorCode === 'orphan');
             const external = result.find(r => r.type === 'external');
 
@@ -334,13 +342,13 @@ describe('ContextBreadcrumb', () => {
         });
 
         it('should handle deeply nested hierarchy', () => {
-            const streams = [
-                makeStream({ id: '1', type: 'business', name: 'DeepBiz', icon: 'B', absolute_path: '/drive/DeepBiz' }),
-                makeStream({ id: '2', type: 'stream', name: 'Stream1', icon: 'S1', absolute_path: '/drive/DeepBiz/Stream1', parent_id: '1' }),
-                makeStream({ id: '3', type: 'stream', name: 'Stream2', icon: 'S2', absolute_path: '/drive/DeepBiz/Stream1/Stream2', parent_id: '2' }),
-                makeStream({ id: '4', type: 'product', name: 'DeepProd', icon: 'P', absolute_path: '/drive/DeepBiz/Stream1/Stream2/DeepProd', parent_id: '3' }),
+            const contexts = [
+                makeContext({ id: '1', name: 'DeepBiz', icon: 'B', absolute_path: '/drive/DeepBiz' }),
+                makeContext({ id: '2', name: 'Stream1', icon: 'S1', absolute_path: '/drive/DeepBiz/Stream1', parent_id: '1' }),
+                makeContext({ id: '3', name: 'Stream2', icon: 'S2', absolute_path: '/drive/DeepBiz/Stream1/Stream2', parent_id: '2' }),
+                makeContext({ id: '4', name: 'DeepProd', icon: 'P', absolute_path: '/drive/DeepBiz/Stream1/Stream2/DeepProd', parent_id: '3', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams);
+            const bc = createBreadcrumb(contexts);
             const gitFolder = path.join(REPOS_PATH, 'DeepProd.git');
 
             const result = bc.build([gitFolder]);
@@ -348,44 +356,45 @@ describe('ContextBreadcrumb', () => {
             expect(result).toHaveLength(1);
 
             let node = result[0];
-            expect(node.type).toBe('business');
+            expect(node.type).toBe('context');
             expect(node.name).toBe('DeepBiz');
 
             node = node.children[0];
-            expect(node.type).toBe('stream');
+            expect(node.type).toBe('context');
             expect(node.name).toBe('Stream1');
 
             node = node.children[0];
-            expect(node.type).toBe('stream');
+            expect(node.type).toBe('context');
             expect(node.name).toBe('Stream2');
 
             node = node.children[0];
-            expect(node.type).toBe('product');
+            expect(node.type).toBe('context');
             expect(node.name).toBe('DeepProd');
+            expect(node.hasGit).toBe(true);
 
             node = node.children[0];
             expect(node.type).toBe('git');
         });
     });
 
-    describe('updateStreams', () => {
+    describe('updateContexts', () => {
         it('should rebuild tree with new data', () => {
-            const streams1 = [
-                makeStream({ id: '1', type: 'business', name: 'OldBiz', icon: 'O', absolute_path: '/drive/OldBiz' }),
-                makeStream({ id: '2', type: 'product', name: 'OldProd', icon: 'P', absolute_path: '/drive/OldBiz/OldProd', parent_id: '1' }),
+            const contexts1 = [
+                makeContext({ id: '1', name: 'OldBiz', icon: 'O', absolute_path: '/drive/OldBiz' }),
+                makeContext({ id: '2', name: 'OldProd', icon: 'P', absolute_path: '/drive/OldBiz/OldProd', parent_id: '1', git_url: 'git@x:y.git' }),
             ];
-            const bc = createBreadcrumb(streams1);
+            const bc = createBreadcrumb(contexts1);
 
             // Should find OldProd
             const result1 = bc.build([path.join(REPOS_PATH, 'OldProd.git')]);
-            expect(result1[0].type).toBe('business');
+            expect(result1[0].type).toBe('context');
 
-            // Update streams
-            const streams2 = [
-                makeStream({ id: '1', type: 'business', name: 'NewBiz', icon: 'N', absolute_path: '/drive/NewBiz' }),
-                makeStream({ id: '2', type: 'product', name: 'OldProd', icon: 'P', absolute_path: '/drive/NewBiz/OldProd', parent_id: '1' }),
+            // Update contexts
+            const contexts2 = [
+                makeContext({ id: '1', name: 'NewBiz', icon: 'N', absolute_path: '/drive/NewBiz' }),
+                makeContext({ id: '2', name: 'OldProd', icon: 'P', absolute_path: '/drive/NewBiz/OldProd', parent_id: '1', git_url: 'git@x:y.git' }),
             ];
-            bc.updateStreams(streams2);
+            bc.updateContexts(contexts2);
 
             // Should now find under NewBiz
             const result2 = bc.build([path.join(REPOS_PATH, 'OldProd.git')]);

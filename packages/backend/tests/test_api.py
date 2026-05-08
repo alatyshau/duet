@@ -15,14 +15,13 @@ class TestHealthEndpoint:
     """Tests for /health endpoint."""
 
     async def test_health_returns_ok(self, client: AsyncClient) -> None:
-        """Health endpoint returns status ok."""
         response = await client.get("/health")
         assert response.status_code == 200
 
         data = response.json()
         assert data["status"] == "ok"
         assert "version" in data
-        assert data["version"] == "test"  # from DuetDataBuilder.DEFAULT_CONFIG
+        assert data["version"] == "test"
         assert "uptime_seconds" in data
 
 
@@ -31,15 +30,13 @@ class TestTimestampEndpoint:
     """Tests for /timestamp endpoint."""
 
     async def test_timestamp_format(self, client: AsyncClient) -> None:
-        """Timestamp endpoint returns properly formatted timestamp."""
         response = await client.get("/timestamp")
         assert response.status_code == 200
 
         data = response.json()
         ts = data["timestamp"]
 
-        # Format: YYMMDD_HHMMSS + timezone suffix
-        assert len(ts) >= 14  # minimum: 260131_120000Z
+        assert len(ts) >= 14
         assert "_" in ts
 
 
@@ -48,7 +45,6 @@ class TestDuetDataPathEndpoint:
     """Tests for /duet-data-path endpoint."""
 
     async def test_returns_path(self, client: AsyncClient, duet_data: Path) -> None:
-        """Returns path to DuetData."""
         response = await client.get("/duet-data-path")
         assert response.status_code == 200
 
@@ -58,70 +54,67 @@ class TestDuetDataPathEndpoint:
 
 
 @pytest.mark.asyncio
-class TestStreamsEndpoint:
-    """Tests for /streams endpoint."""
+class TestContextsEndpoint:
+    """Tests for /contexts endpoint."""
 
-    async def test_empty_streams(self, client: AsyncClient) -> None:
-        """Returns empty list when no entities."""
-        response = await client.get("/streams")
+    async def test_empty_contexts(self, client: AsyncClient) -> None:
+        response = await client.get("/contexts")
         assert response.status_code == 200
 
         data = response.json()
-        assert data["streams"] == []
+        assert data["contexts"] == []
 
-    async def test_returns_streams(self, client: AsyncClient, db) -> None:
-        """Returns list of streams (business/stream/product)."""
-        db.insert_entity(EntityFactory.business("Business", "/business"))
-        db.insert_entity(EntityFactory.product("Product", "/product"))
+    async def test_returns_contexts(self, client: AsyncClient, db) -> None:
+        db.insert_entity(EntityFactory.context("Root", "/root"))
+        db.insert_entity(EntityFactory.context(
+            "Product", "/root/product",
+            git_url="https://example.com/p.git",
+        ))
 
-        response = await client.get("/streams")
+        response = await client.get("/contexts")
         assert response.status_code == 200
 
         data = response.json()
-        assert len(data["streams"]) == 2
+        assert len(data["contexts"]) == 2
+        for entry in data["contexts"]:
+            assert entry["type"] == "context"
+            assert "meta" in entry
 
-    async def test_streams_exposes_reference_repos_from_manifest(
+    async def test_contexts_exposes_reference_repos_from_manifest(
         self, client: AsyncClient, db, duet_data_builder, monkeypatch
     ) -> None:
-        """Entities with reference_repos in manifest carry them in /streams response.
-
-        Extension needs URLs (not just cloned paths) to clone missing reference
-        repos when the user opens a node — parallel to how git_url is delivered.
-        """
+        """Entities with reference_repos in manifest carry them in /contexts response."""
         builder = duet_data_builder
-        builder.add_business("Biz")
+        builder.add_root_context("Root")
         builder.build(monkeypatch)
 
-        biz_path = builder.get_business_path(0)
+        root_path = builder.get_root_context_path(0)
         from tests.fixtures import ManifestBuilder
-        ManifestBuilder.business(
-            biz_path, "Biz",
+        ManifestBuilder.context(
+            root_path, "Root",
             reference_repos={"cookbook": "https://github.com/anthropics/cookbook.git"},
         )
 
         from scanner import Scanner
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
 
-        response = await client.get("/streams")
+        response = await client.get("/contexts")
         assert response.status_code == 200
 
-        streams = response.json()["streams"]
-        biz = next(s for s in streams if s["type"] == "business")
-        assert biz["reference_repos"] == {
+        contexts = response.json()["contexts"]
+        ctx = next(c for c in contexts if c["name"] == "Root")
+        assert ctx["reference_repos"] == {
             "cookbook": "https://github.com/anthropics/cookbook.git"
         }
 
-    async def test_streams_reference_repos_null_when_absent(
+    async def test_contexts_reference_repos_null_when_absent(
         self, client: AsyncClient, db
     ) -> None:
-        """Entities without reference_repos in manifest get reference_repos=None."""
-        db.insert_entity(EntityFactory.business("Business", "/business"))
-        response = await client.get("/streams")
+        db.insert_entity(EntityFactory.context("Root", "/root"))
+        response = await client.get("/contexts")
 
-        streams = response.json()["streams"]
-        assert streams[0]["reference_repos"] is None
-
+        contexts = response.json()["contexts"]
+        assert contexts[0]["reference_repos"] is None
 
 
 @pytest.mark.asyncio
@@ -129,7 +122,6 @@ class TestOrientationEndpoint:
     """Tests for /orientation endpoint."""
 
     async def test_returns_base_info(self, client: AsyncClient, duet_data: Path) -> None:
-        """Returns base orientation without path."""
         response = await client.post("/orientation", json={"workspace_paths": []})
         assert response.status_code == 200
 
@@ -141,27 +133,25 @@ class TestOrientationEndpoint:
     async def test_returns_chain(
         self, client: AsyncClient, db, duet_data_builder, monkeypatch
     ) -> None:
-        """Returns entity chain for workspace path (via repos)."""
+        """Returns chain for workspace path under repos."""
         builder = duet_data_builder
-        builder.add_business("Business")
+        builder.add_root_context("Root")
         builder.add_repo("Product", components=["extension"])
-        duet_data = builder.build(monkeypatch)
+        builder.build(monkeypatch)
 
-        biz_path = builder.get_business_path(0)
-        stream_path = biz_path / "Stream"
-        stream_path.mkdir()
+        root_path = builder.get_root_context_path(0)
+        mid_path = root_path / "Mid"
+        mid_path.mkdir()
         from tests.fixtures import ManifestBuilder
-        ManifestBuilder.stream(stream_path, "Stream")
+        ManifestBuilder.context(mid_path, "Mid")
 
-        product_path = stream_path / "Product"
+        product_path = mid_path / "Product"
         product_path.mkdir()
-        ManifestBuilder.product(product_path, "Product", git_url="https://...")
+        ManifestBuilder.context(product_path, "Product", git_url="https://...")
 
         from scanner import Scanner
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
 
-        import time
         from services.workspace import WorkspaceService
         from services.entities import EntitiesService
         from mcp_handler import init_services
@@ -177,12 +167,8 @@ class TestOrientationEndpoint:
         assert data["workspace"]["type"] != "unknown"
         chain = data["context"]["chain"]
         assert len(chain) == 3
-        assert chain[0]["name"] == "Business"
-        assert chain[0]["type"] == "business"
-        assert chain[1]["name"] == "Stream"
-        assert chain[1]["type"] == "stream"
-        assert chain[2]["name"] == "Product"
-        assert chain[2]["type"] == "product"
+        assert [c["name"] for c in chain] == ["Root", "Mid", "Product"]
+        assert all(c["type"] == "context" for c in chain)
 
 
 @pytest.mark.asyncio
@@ -190,10 +176,8 @@ class TestScanEndpoint:
     """Tests for /scan endpoint."""
 
     async def test_scan_returns_stats(self, client: AsyncClient, monkeypatch) -> None:
-        """Scan endpoint returns statistics."""
-        # Mock config to return empty business_folders
         monkeypatch.setattr(
-            "scanner.get_business_folders",
+            "scanner.get_root_context_folders",
             lambda: []
         )
 
@@ -206,18 +190,15 @@ class TestScanEndpoint:
         assert "duration_ms" in data
 
     async def test_scan_debounce(self, client: AsyncClient, monkeypatch) -> None:
-        """Scan returns skipped if called within 5 seconds."""
         monkeypatch.setattr(
-            "scanner.get_business_folders",
+            "scanner.get_root_context_folders",
             lambda: []
         )
 
-        # First scan
         response1 = await client.post("/scan")
         assert response1.status_code == 200
         assert response1.json()["status"] == "completed"
 
-        # Immediate second scan should be skipped
         response2 = await client.post("/scan")
         assert response2.status_code == 200
         data = response2.json()
@@ -229,29 +210,26 @@ class TestResolveAbsolutePath:
     """Unit tests for EntitiesService._resolve_absolute_path()."""
 
     def test_drive_entity_root(self) -> None:
-        """Resolves business folder root (drive_path = folder name only)."""
         path_lookup = {
-            "business_folders": {"MyBiz": Path("/drive/MyBiz")},
+            "root_context_folders": {"MyRoot": Path("/drive/MyRoot")},
             "repos_path": None,
         }
-        result = EntitiesService._resolve_absolute_path("MyBiz", path_lookup)
-        assert result == str(Path("/drive/MyBiz"))
+        result = EntitiesService._resolve_absolute_path("MyRoot", path_lookup)
+        assert result == str(Path("/drive/MyRoot"))
 
     def test_drive_entity_nested(self) -> None:
-        """Resolves nested drive entity (stream/product)."""
         path_lookup = {
-            "business_folders": {"MyBiz": Path("/drive/MyBiz")},
+            "root_context_folders": {"MyRoot": Path("/drive/MyRoot")},
             "repos_path": None,
         }
         result = EntitiesService._resolve_absolute_path(
-            "MyBiz/Streams/TechStream", path_lookup
+            "MyRoot/Streams/TechStream", path_lookup
         )
-        assert result == str(Path("/drive/MyBiz/Streams/TechStream"))
+        assert result == str(Path("/drive/MyRoot/Streams/TechStream"))
 
-    def test_repos_project(self) -> None:
-        """Resolves repos project (drive_path not matching any business folder)."""
+    def test_repos_subpath(self) -> None:
         path_lookup = {
-            "business_folders": {"MyBiz": Path("/drive/MyBiz")},
+            "root_context_folders": {"MyRoot": Path("/drive/MyRoot")},
             "repos_path": Path("/data/repos"),
         }
         result = EntitiesService._resolve_absolute_path(
@@ -260,18 +238,16 @@ class TestResolveAbsolutePath:
         assert result == str(Path("/data/repos/Product.git/projects/my_project"))
 
     def test_none_drive_path(self) -> None:
-        """Returns None for empty drive_path."""
         path_lookup = {
-            "business_folders": {},
+            "root_context_folders": {},
             "repos_path": None,
         }
         assert EntitiesService._resolve_absolute_path(None, path_lookup) is None
         assert EntitiesService._resolve_absolute_path("", path_lookup) is None
 
     def test_no_match_no_repos(self) -> None:
-        """Returns None when no business folder matches and no repos_path."""
         path_lookup = {
-            "business_folders": {"Other": Path("/drive/Other")},
+            "root_context_folders": {"Other": Path("/drive/Other")},
             "repos_path": None,
         }
         assert EntitiesService._resolve_absolute_path("Unknown/path", path_lookup) is None
@@ -279,48 +255,39 @@ class TestResolveAbsolutePath:
 
 @pytest.mark.asyncio
 class TestAbsolutePathIntegration:
-    """Integration tests: /streams and /projects return absolute_path."""
+    """Integration: /contexts returns absolute_path."""
 
-    async def test_streams_absolute_path(
+    async def test_contexts_absolute_path(
         self, client: AsyncClient, db, duet_data_builder, monkeypatch
     ) -> None:
-        """Streams response includes correct absolute_path for scanned entities."""
         from scanner import Scanner
         from mcp_handler import init_services
         from services.workspace import WorkspaceService
 
-        # Build hierarchy: business → stream → product
         builder = duet_data_builder
-        builder.add_business("TestBiz")
-        duet_data = builder.build(monkeypatch)
+        builder.add_root_context("TestRoot")
+        builder.build(monkeypatch)
 
-        biz_path = builder.get_business_path(0)
-        stream_path = biz_path / "MyStream"
-        stream_path.mkdir()
+        root_path = builder.get_root_context_path(0)
+        mid_path = root_path / "MyMid"
+        mid_path.mkdir()
         from tests.fixtures import ManifestBuilder
-        ManifestBuilder.stream(stream_path, "MyStream")
+        ManifestBuilder.context(mid_path, "MyMid")
 
-        # Scan
-        scanner = Scanner(db)
-        scanner.scan()
+        Scanner(db).scan()
 
-        # Re-init services
         workspace_service = WorkspaceService(db)
         entities_service = EntitiesService(db)
         init_services(workspace_service, entities_service, time.time())
 
-        # Request streams
-        response = await client.get("/streams")
+        response = await client.get("/contexts")
         assert response.status_code == 200
 
-        streams = response.json()["streams"]
-        assert len(streams) == 2  # business + stream
+        contexts = response.json()["contexts"]
+        assert len(contexts) == 2
 
-        # Find business and stream
-        biz = next(s for s in streams if s["type"] == "business")
-        stream = next(s for s in streams if s["type"] == "stream")
+        root = next(c for c in contexts if c["name"] == "TestRoot")
+        mid = next(c for c in contexts if c["name"] == "MyMid")
 
-        # Verify absolute_path resolves correctly
-        assert biz["absolute_path"] == str(biz_path)
-        assert stream["absolute_path"] == str(stream_path)
-
+        assert root["absolute_path"] == str(root_path)
+        assert mid["absolute_path"] == str(mid_path)

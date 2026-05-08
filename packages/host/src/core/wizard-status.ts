@@ -12,6 +12,7 @@ import type {
   ScanResult,
   InstructionsError,
   AgentInfo,
+  MigrationResult,
   Severity,
   ProcessState
 } from '../shared/types'
@@ -46,6 +47,8 @@ export interface PageStatusInput {
   agents: AgentInfo[] | null
   /** Deploy staleness flag from isDeployWarning() — channel mismatch, stale version, etc. */
   hasDeployWarning?: boolean
+  /** Schema-migration sweep result. Critical → DuetPathsPage error; per-context → warning. */
+  migrationStatus?: MigrationResult
 }
 
 // =============================================================================
@@ -57,6 +60,20 @@ const SCAN_WARNING_CODES = new Set(['name_collision', 'repo_collision', 'missing
 
 /** Instructions reason codes that are warnings, not errors. */
 const INSTRUCTIONS_WARNING_CODES = new Set(['missing_description', 'version_suffix'])
+
+/**
+ * Map a backend scan result into a PageStatus.
+ *
+ * Single source of truth — used both by `computePageStatuses` (main-process tray)
+ * and by WorkspacesPage (renderer). Without this, the renderer would treat every
+ * scan error as page-level 'error', escalating warnings to red — which is the bug
+ * behind review issue 5.
+ */
+export function scanResultToPageStatus(scan: ScanResult): PageStatus {
+  if (scan.errors.length === 0) return 'ok'
+  const hasRealError = scan.errors.some((e) => !SCAN_WARNING_CODES.has(e.reason_code))
+  return hasRealError ? 'error' : 'warning'
+}
 
 // =============================================================================
 // COMPUTATION
@@ -70,9 +87,21 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
   const { appState, deployStatus, cachedScan, cachedInstructionsErrors, agents } = input
   const s: PageStatuses = {}
 
-  // Page 1: Duet paths — all three set
-  s['duet-paths'] =
-    appState.duetDataPath && appState.duetConfigPath && appState.machine ? 'ok' : null
+  // Page 1: Duet paths — all three set; downgrade if schema-migration produced errors.
+  // Critical migration error (settings/machine future-version, invalid JSON) → 'error'.
+  // Per-context migration errors (broken/future manifest, unresolved alias) → 'error'
+  // (data corruption — context unreachable until user fixes).
+  if (input.migrationStatus?.critical) {
+    s['duet-paths'] = 'error'
+  } else if (
+    appState.duetDataPath &&
+    appState.duetConfigPath &&
+    appState.machine
+  ) {
+    s['duet-paths'] = (input.migrationStatus?.contextErrors?.length ?? 0) > 0 ? 'error' : 'ok'
+  } else {
+    s['duet-paths'] = null
+  }
 
   // Page 3: Python — path configured in machine.json
   s['python'] = appState.pythonPath ? 'ok' : null
@@ -81,14 +110,10 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
   const isDeployed = deployStatus.state === 'deployed' || deployStatus.state === 'up_to_date'
   s['backend'] = isDeployed ? (input.hasDeployWarning ? 'warning' : 'ok') : null
 
-  // Page 5: Workspaces — scanned with no errors
+  // Page 5: Workspaces — scanned with no errors. Derived via shared helper so renderer
+  // and main process stay in sync (review issue 5).
   if (cachedScan !== null) {
-    if (cachedScan.errors.length === 0) {
-      s['workspaces'] = 'ok'
-    } else {
-      const hasRealError = cachedScan.errors.some((e) => !SCAN_WARNING_CODES.has(e.reason_code))
-      s['workspaces'] = hasRealError ? 'error' : 'warning'
-    }
+    s['workspaces'] = scanResultToPageStatus(cachedScan)
   }
 
   // Page 6: Instructions — merged with no errors

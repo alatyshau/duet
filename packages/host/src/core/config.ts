@@ -9,7 +9,8 @@
  */
 import { homedir } from 'os'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, mkdirSync } from 'fs'
+import { atomicWriteJson, readJsonStrict } from './json-io'
 
 // =============================================================================
 // ТИПЫ
@@ -38,24 +39,52 @@ export const getConfigFile = (): string => {
 
 /**
  * Читает конфиг. Возвращает {} если файла нет или JSON невалидный.
+ *
+ * Graceful path: используется широко (checkAppState, readMachineConfig, deploy и т.д.).
+ * Битый файл не должен валить приложение — оно покажет wizard. Strict-валидация
+ * (для миграции) живёт в `readPointerStrict()`.
  */
 export const readConfig = (): Config => {
-  const configFile = getConfigFile()
-  if (existsSync(configFile)) {
-    try {
-      return JSON.parse(readFileSync(configFile, 'utf-8'))
-    } catch {
-      return {}
-    }
+  const result = readJsonStrict(getConfigFile())
+  if (result.kind === 'ok' && result.data && typeof result.data === 'object') {
+    return result.data as Config
   }
   return {}
 }
 
 /**
- * Записывает конфиг.
+ * Strict pointer read — различает «файла нет» (legitimate first-run) от «файл битый»
+ * (recoverable error, blocked startup). Используется startup-миграцией: если pointer
+ * существует, но не парсится, мы НЕ должны переходить в no_config / first-run flow,
+ * иначе следующий `config:save-pointer` затрёт повреждённый файл, потеряв данные.
+ */
+export const readPointerStrict = ():
+  | { kind: 'ok'; config: Config }
+  | { kind: 'missing' }
+  | { kind: 'invalid_json'; path: string; error: string }
+  | { kind: 'read_failed'; path: string; error: string } => {
+  const filePath = getConfigFile()
+  const result = readJsonStrict(filePath)
+  if (result.kind === 'ok') {
+    if (!result.data || typeof result.data !== 'object' || Array.isArray(result.data)) {
+      return {
+        kind: 'invalid_json',
+        path: filePath,
+        error: `Expected an object in pointer file, got ${Array.isArray(result.data) ? 'array' : typeof result.data}.`
+      }
+    }
+    return { kind: 'ok', config: result.data as Config }
+  }
+  if (result.kind === 'missing') return { kind: 'missing' }
+  if (result.kind === 'invalid_json') return { kind: 'invalid_json', path: filePath, error: result.error }
+  return { kind: 'read_failed', path: filePath, error: result.error }
+}
+
+/**
+ * Записывает конфиг атомарно (.tmp → rename). См. core/json-io.
  */
 export const writeConfig = (config: Config): void => {
-  writeFileSync(getConfigFile(), JSON.stringify(config, null, 2) + '\n')
+  atomicWriteJson(getConfigFile(), config)
 }
 
 /**
@@ -130,7 +159,7 @@ export const setMachineConfigKey = (key: string, value: unknown): void => {
     )
   }
   existing[key] = value
-  writeFileSync(machineConfigPath, JSON.stringify(existing, null, 2) + '\n')
+  atomicWriteJson(machineConfigPath, existing)
 }
 
 // =============================================================================
@@ -184,7 +213,7 @@ export const setSettingsConfigKey = (key: string, value: unknown): void => {
     )
   }
   existing[key] = value
-  writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n')
+  atomicWriteJson(settingsPath, existing)
 }
 
 // =============================================================================
@@ -192,11 +221,15 @@ export const setSettingsConfigKey = (key: string, value: unknown): void => {
 // =============================================================================
 
 const DEFAULT_SETTINGS = {
-  business_folders: [] as string[],
+  version: 2,
+  root_context_folders: [] as string[],
   timestampTZ: { id: 'Z', value: 'UTC' }
 }
 
-const DEFAULT_PORT = 19680
+const DEFAULT_MACHINE_CONFIG = {
+  version: 2,
+  port: 19680
+}
 
 /**
  * Проверяет что machine name безопасен для использования как имя файла.
@@ -222,11 +255,11 @@ export const ensureConfigDefaults = (duetConfigPath: string, machine: string): v
 
   const settingsPath = join(duetConfigPath, 'settings.json')
   if (!existsSync(settingsPath)) {
-    writeFileSync(settingsPath, JSON.stringify(DEFAULT_SETTINGS, null, 2) + '\n')
+    atomicWriteJson(settingsPath, DEFAULT_SETTINGS)
   }
 
   const machineConfigPath = join(duetConfigPath, `${machine}.json`)
   if (!existsSync(machineConfigPath)) {
-    writeFileSync(machineConfigPath, JSON.stringify({ port: DEFAULT_PORT }, null, 2) + '\n')
+    atomicWriteJson(machineConfigPath, DEFAULT_MACHINE_CONFIG)
   }
 }

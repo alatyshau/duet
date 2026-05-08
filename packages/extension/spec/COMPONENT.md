@@ -33,8 +33,8 @@ Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.m
 | Decision | Rationale |
 |----------|-----------|
 | Pointer-based config (`pointer.ts`) | Reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
-| Backend HTTP API as data source | `DuetApiClient` -> all entity data via `/streams`, `/scan` |
-| `StreamEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
+| Backend HTTP API as data source | `DuetApiClient` -> all entity data via `/contexts`, `/scan` |
+| `ContextEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
 | FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
 | Deterministic scan order | Backend scanner: `readdir` sorted by name for reproducible results |
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
@@ -43,24 +43,33 @@ Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.m
 ## Data Flow
 
 ```
-activation -> apiClient.streams() -> StreamEntity[]
-           -> pass to BusinessTreeProvider, ContextProvider
+activation -> apiClient.contexts() -> ContextEntity[]
+           -> pass to ContextTreeProvider, ContextProvider
 
-refresh    -> apiClient.scan() + apiClient.streams() -> new StreamEntity[]
-           -> updateStreams() on all providers -> fire onDidChangeTreeData
+refresh    -> apiClient.scan() + apiClient.contexts() -> new ContextEntity[]
+           -> updateContexts() on all providers -> fire onDidChangeTreeData
 ```
 
-Tree providers work synchronously over `StreamEntity[]` (filter, find, sort).
+Tree providers work synchronously over `ContextEntity[]` (filter, find, sort).
+Each entity carries `meta` (boolean), `git_url` (nullable string), and
+`parent_id` (nullable string) — all role differences (meta-context, root
+context, terminal git-backed context, regular context) are derived from these
+fields rather than from a `type` enum.
+
+**Tree sort order:** the meta-context appears first; everything else is sorted
+alphabetically by `name` at every nesting level. `git_url` controls icon and
+decoration only — it does not change ordering, so a terminal context like `Duet`
+mixes with intermediate siblings purely by name. Implementation lives in
+`core/tree/contextTree.ts:compareTreeNodes` and `core/tree/contextBreadcrumb.ts:bucketOrder`.
 
 ## Launcher (openFolder.ts)
 
-| Entity Type | Action |
-|-------------|--------|
-| Business/Stream | Open Drive folder directly |
-| Product (no git_url) | Open Drive folder |
-| Product (with git_url) | Clone if needed -> generate workspace -> open workspace |
+| Context flavor | Action |
+|----------------|--------|
+| Context without `git_url` | Open Drive folder directly |
+| Context with `git_url` | Clone if needed -> generate workspace -> open workspace |
 
-For any entity whose manifest declares `reference_repos`, any missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open (symmetric to the main `git_url` clone) — an unreachable reference repo must be removed from the manifest before the entity can be opened. Reference repo names are validated against path traversal before being joined with `reposPath`.
+For any entity whose manifest declares `reference_repos`, any missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open (symmetric to the main `git_url` clone) — an unreachable reference repo must be removed from the manifest before the context can be opened. Reference repo names are validated against path traversal before being joined with `reposPath`.
 
 Git clone UX:
 - `withProgress` notification (cancellable)
@@ -74,8 +83,8 @@ Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
 
 | Workspace | When Generated | Where |
 |-----------|----------------|-------|
-| `{Product}.code-workspace` | On each product open | `openFolder.ts` |
-| `all-businesses.code-workspace` | After scan completes | `refresh.ts` |
+| `{Context}.code-workspace` | On each git-backed context open | `openFolder.ts` |
+| `root-contexts.code-workspace` | After scan completes (lists all root contexts) | `refresh.ts` |
 
 ## Copy @-Path Command (`duet.copyAtPath`)
 
@@ -93,8 +102,8 @@ folder copies as `` `@Duet.git/packages/host/spec/COMPONENT.md` ``.
    say *which* root it is relative to — `packages/host` could come from any
    open folder. Including the root folder name removes that ambiguity.
 2. **Matches Duet's `@`-style for context-relative paths.** Throughout Duet,
-   paths relative to a context folder (business / stream / product) are
-   written with a leading `@` and the context name as the first segment.
+   paths relative to a context folder are written with a leading `@` and the
+   context name as the first segment.
    Reusing that syntax for workspace-relative paths keeps a single visual
    convention across hand-written notes, AI prompts, and Explorer-copied
    references.
@@ -127,18 +136,13 @@ clipboard, surfaces warnings).
 
 ## Tree Decorations
 
-`TreeDecorationProvider.ts` uses VS Code FileDecorationProvider API to style tree items.
+`TreeDecorationProvider.ts` is a `FileDecorationProvider`. It currently has a single responsibility: grey out separator rows so the line/spacer items read as visual gaps rather than active items.
 
-| URI Scheme | Format | Purpose |
-|------------|--------|---------|
-| `duet-tree` | `duet-tree:/<type>/<entityId>?active` | Enables color styling for tree nodes |
+| URI Scheme | Format | Decoration |
+|------------|--------|------------|
+| `duet-tree` | `duet-tree:/separator/<index>` | `disabledForeground` colour |
 
-| Decoration | Color | When |
-|------------|-------|------|
-| Business | `charts.blue` | All business nodes |
-| Active | `charts.red` | Currently loaded node (`?active` in URI) |
-
-Note: Active color takes priority over business color.
+`SeparatorItem` in `ContextTreeProvider` is the only call site setting `resourceUri` with this scheme. Active-node / root-context colouring is **not** wired today — node labels carry their own emoji-based status (🔹/🟦/🔸/🟧 for roots, 🟠/◻️ for nested). If colour decoration becomes needed, both the provider and the matching `resourceUri` assignment in the tree provider have to land together.
 
 ## Backend Health Monitoring
 
@@ -149,7 +153,7 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 | 1. Read pointer | `readPointer()` -> `duetDataPath`, set `duet.hasPointer` |
 | 2. Read port | `readPort()` -> port (default 19680), create `DuetApiClient` |
 | 3. Set initializing | `duet.initializing=true`, `duet.ready=false` -> spinner in status view |
-| 4. Load streams | `apiClient.streams()` -> `StreamEntity[]` |
+| 4. Load contexts | `apiClient.contexts()` -> `ContextEntity[]` |
 | 5. Register providers | Create and register all tree providers |
 | 6. Set ready | `duet.ready=true`, `duet.initializing=false` -> main views appear |
 
@@ -182,7 +186,7 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 
 | Layer | Tool | Approach |
 |-------|------|----------|
-| `core/` | vitest | Unit tests with mock StreamEntity[] and DuetApiClient |
+| `core/` | vitest | Unit tests with mock ContextEntity[] and DuetApiClient |
 | `vscode/` | @vscode/test-electron | Integration tests (planned) |
 
 ## Navigation
@@ -192,7 +196,7 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 | Pointer reading (sync) | `core/pointer.ts` |
 | DuetData paths | `core/paths.ts` |
 | Backend API client | `core/api-client.ts` |
-| Business tree logic | `core/tree/businessTree.ts` |
+| Context tree logic | `core/tree/contextTree.ts` |
 | Context breadcrumb | `core/tree/contextBreadcrumb.ts` |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` |
@@ -200,5 +204,5 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 | Entity types, markers | Backend `scanner.py` |
 | Name conflict resolution | Backend `scanner.py` |
 | DB schema (name unique) | Backend `db.py` |
-| Entity data in Extension | `api-client.ts` -> `StreamEntity` type |
-| Tree navigation | `core/tree/businessTree.ts`, `contextBreadcrumb.ts` |
+| Entity data in Extension | `api-client.ts` -> `ContextEntity` type |
+| Tree navigation | `core/tree/contextTree.ts`, `contextBreadcrumb.ts` |

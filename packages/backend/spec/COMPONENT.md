@@ -8,12 +8,13 @@ Python HTTP backend serving REST API and MCP endpoint for Duet.
 
 | Term | Definition |
 |------|------------|
-| **Entity** | Node in hierarchy: business, stream, product |
-| **Manifest** | JSON file: business.json, stream.json, product.json |
-| **Chain** | Path from root business to current entity |
-| **Component** | Package in product's `packages/` with optional `spec/` |
+| **Entity** | Node in DB: `context`, `product_repo`, or `reference_repo` |
+| **Context** | Bounded folder on Drive carrying `context.json` v2 |
+| **Manifest** | `context.json` v2 — strict reader; Host owns upgrades |
+| **Chain** | Path from meta/root context down to the current context |
+| **Component** | Package in a product's `packages/` with optional `spec/` |
 
-Entity hierarchy, manifests, name uniqueness, self-healing: see PRODUCT.md
+Entity hierarchy, manifests, name uniqueness, ownership of self-heal (Host): see PRODUCT.md
 
 ## Architecture
 
@@ -26,7 +27,7 @@ server.py (entry point, lifecycle)
     |   +-- workspace.py (WorkspaceService)
     |   +-- entities.py (EntitiesService)
     |
-    +-- scanner.py (hierarchy scan, self-healing)
+    +-- scanner.py (hierarchy scan, strict v2 reader)
     +-- watcher.py (manifest file watcher, auto-rescan)
     +-- description.py (extract_description, find_spec_file)
     +-- db.py (SQLite operations)
@@ -49,7 +50,7 @@ server.py (entry point, lifecycle)
 | `server.py` | HTTP routes, lifecycle, DI init, logging setup | Business logic |
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
-| `scanner.py` | Hierarchy scan, self-healing, scan_components | HTTP, config writes |
+| `scanner.py` | Hierarchy scan (strict v2 reader), scan_components | HTTP, config writes, manifest upgrades |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Scan instructions workspace, parse YAML frontmatter | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file fallback chains | DB, HTTP |
@@ -78,7 +79,7 @@ server.py (entry point, lifecycle)
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
-| GET | `/streams` | Returns `{ streams: [...] }` — business/stream/product. Each entity includes `absolute_path`, `status`, `git_url`, `reference_repos` (map `{name: url}` read from manifest, or `null`) |
+| GET | `/contexts` | Returns `{ contexts: [...] }` — `type='context'` entities. Each entity includes `absolute_path`, `git_url`, `meta`, `reference_repos` (map `{name: url}` read from manifest, or `null`) |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core + skills table → one file per agent. Returns `{ status, paths: { agent_name: path }, errors[] }` |
 
@@ -90,13 +91,13 @@ server.py (entry point, lifecycle)
 
 **Why this is OK:** Single-user local app. One person, one machine, predictable behavior.
 
-**Scan errors:** `errors[]` in response contains `{path, reason_code, description, manifest_path?}`. Reason codes: `name_collision`, `repo_collision`, `missing_manifest`, `invalid_manifest`. Each error includes `manifest_path` for Host UI Fix button.
+**Scan errors:** `errors[]` in response contains `{path, reason_code, description}`. Reason codes: `name_collision`, `repo_collision`, `invalid_manifest`, `unrecognized_manifest_version`. Backend never writes manifests; Host owns missing-file creation and version upgrades.
 
-**`run_scan_with_cache()`:** Shared function (in `server.py`) that runs scan + writes JSON cache (scan.json, streams.json). Used by both `POST /scan` handler and ManifestWatcher.
+**`run_scan_with_cache()`:** Shared function (in `server.py`) that runs scan + writes JSON cache (scan.json, contexts.json). Used by both `POST /scan` handler and ManifestWatcher.
 
 #### Manifest Watcher
 
-Watches business folders for changes to manifest files (`business.json`, `stream.json`, `product.json`). On change — auto-rescan.
+Watches root context folders for changes to `context.json` manifests. On change — auto-rescan.
 
 **Library:** `watchfiles` (async-native, Rust notify-rs). Uses OS-level events: FSEvents (macOS), inotify (Linux), ReadDirectoryChangesW (Windows).
 
@@ -104,7 +105,7 @@ Watches business folders for changes to manifest files (`business.json`, `stream
 
 | Event | Action |
 |-------|--------|
-| Backend startup | If `business_folders` non-empty → initial scan + start watcher |
+| Backend startup | If `root_context_folders` non-empty → initial scan + start watcher |
 | Manifest file changed | Debounce 10s → `run_scan_with_cache()` |
 | `POST /scan` completes | If folders changed → restart watcher |
 | Backend shutdown | Stop watcher |
@@ -113,9 +114,9 @@ Watches business folders for changes to manifest files (`business.json`, `stream
 
 **Data flow:** Manifest changed → watcher → scan → scan.json/streams.json updated → Host file watcher on `DuetData/data/` → UI refresh. No new IPC or endpoints.
 
-**Filter:** `ManifestFilter` — only passes changes to files named `business.json`, `stream.json`, `product.json`. All other filesystem events ignored.
+**Filter:** `ManifestFilter` — only passes changes to files named `context.json`. All other filesystem events ignored.
 
-**Folder tracking:** Watcher watches specific folder paths. When `business_folders` change (add/remove via settings), `maybe_restart()` compares current watched list with new list and restarts if different.
+**Folder tracking:** Watcher watches specific folder paths. When `root_context_folders` change (add/remove via settings), `maybe_restart()` compares current watched list with new list and restarts if different.
 
 Implementation: `watcher.py`
 
@@ -128,7 +129,7 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic write
 | `DuetData/duet-{agent}.md` (one per agent in `index.json.agents`, e.g. `duet-executor.md`, `duet-vizir.md`) | `POST /merge-duet-instructions` | Host → writes to AI client configs |
 | `DuetData/data/duet-instructions-errors.json` | `POST /merge-duet-instructions` | Host wizard (step 6) |
 | `DuetData/data/scan.json` | `POST /scan` | Host wizard (step 5), Extension (tree) |
-| `DuetData/data/streams.json` | `GET /streams` | Extension (tree without HTTP) |
+| `DuetData/data/contexts.json` | `GET /contexts` | Extension (tree without HTTP) |
 
 **Atomic write:** All files written via `.new` → rename → `.old` → delete. File watcher never sees half-written file. Implementation: `fileio.py:atomic_write()`.
 
@@ -139,7 +140,7 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic write
 | `timestamp` | Returns string directly |
 | `duet_data_path` | Returns string directly |
 | `orientation` | Returns dict directly |
-| `streams` | Returns list directly |
+| `contexts` | Returns list directly |
 | `scan` | Returns dict directly |
 | `health` | Returns `{ status, version, uptime_seconds }` |
 
@@ -158,11 +159,11 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 
 **Multi-path entity resolution:**
 
-1. Classify each path: `gitFolders` (under DuetData/repos/) or `streamFolders` (contains manifest) or ignored
+1. Classify each path: `gitFolders` (under DuetData/repos/) or `contextFolders` (contains `context.json`) or ignored
 2. Resolve entities from classified paths
-3. Prioritize: root business (`root: true`) > business > stream > product
+3. If the meta-context (`meta=true`) is among the resolved entities, it wins; otherwise the first resolved context is used.
 
-`root: true` — field in `business.json`. Identifies the meta-business (e.g. БАЗА) in all-businesses workspace.
+`meta: true` — field in `context.json`. Identifies the meta-context (e.g. БАЗА) in all-contexts workspace. Renamed from v1's `root` (Host migrates).
 
 **Response (entity resolved):**
 
@@ -172,24 +173,24 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 | `workspace` | type, topology, typed attributes, reference_repos? | Always |
 | `context` | breadcrumb, chain[{type, name, description?}] | When entity resolved |
 | `key_files` | spec?, readme? | When files exist |
-| `components` | [{name, path, spec?, description?}] | When product in chain |
+| `components` | [{name, path, spec?, description?}] | When chain ends at a context with `git_url` |
 
-**workspace.type values:** `product_in_git` | `product_on_drive` | `stream` | `business` | `root_business` | `unknown`
+**workspace.type values:** `context_with_products_in_git` | `context_meta` | `context` | `unknown`
 
 **workspace.type-specific attributes:**
 
 | Type | Attributes |
 |------|------------|
-| `product_in_git` | `git_folder`, `drive_folder` |
-| `product_on_drive` | `drive_folder` |
-| `stream` | `drive_folder` |
-| `business` | `drive_folder` |
-| `root_business` | `root_business_folder`, `business_folders` (map name→path), `duet_data_folder` |
+| `context_with_products_in_git` | `git_folder`, `drive_folder` |
+| `context_meta` | `meta_context_folder`, `root_context_folders` (map name→path of all top-level contexts), `duet_data_folder` |
+| `context` | `drive_folder` |
 | `unknown` | `reason` (`no_workspace_path` \| `path_not_in_hierarchy` \| `entity_not_in_db`) |
 
 **workspace.topology:** Human-readable description of workspace layout. Appended with reference repos addon when applicable.
 
 **workspace.reference_repos:** Map `{name.git: absolute_path}` of existing reference repo clones. Read from entity's manifest on disk (fresh data, no DB).
+
+**chain[].description priority:** `context.json::description` field (when present and non-empty) > first sentence of `README.md`.
 
 **Path conventions:** `key_files` contains absolute paths (for direct agent use). `components[].path` and `components[].spec` are relative to product git_folder/drive_folder (compact, resolved by consumer).
 
@@ -229,14 +230,15 @@ Used by: `context.chain[].description` (from README.md), `components[].descripti
 
 ## Spec File Fallback (`description.py`)
 
-`find_spec_file(root_path, entity_type)` — searches `spec/` for first existing file:
+`find_spec_file(root_path, lookup_category)` — searches `spec/` for first existing file:
 
-| Entity type | Chain |
-|-------------|-------|
-| product | PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
+| Lookup category | Chain |
+|-----------------|-------|
+| context_with_git | PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
+| context | CONTEXT.md > BUSINESS.md > STREAM.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
 | component | COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
-| stream | STREAM.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
-| business | BUSINESS.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
+
+`BUSINESS.md` and `STREAM.md` remain as legacy fallbacks for users who have not yet renamed their per-context spec files to `CONTEXT.md`.
 
 Used by: `key_files.spec`, `components[].spec`.
 
@@ -244,8 +246,9 @@ Used by: `key_files.spec`, `components[].spec`.
 
 ### Scanner
 
-- Reads `business_folders` from `DuetConfig/settings.json`
+- Reads `root_context_folders` from `DuetConfig/settings.json`
 - Resolves `@aliases` via `{machine}.json` (see PRODUCT.md -> @Alias Resolution)
+- Strict v2 reader: never writes manifests; folders without `context.json` v2 are silently skipped
 - Stores results in `DuetData/data/entities.db` (native sqlite3)
 
 ### Config Reading Order
@@ -371,8 +374,8 @@ tests/
 | MCP tools | `mcp_handler.py` |
 | Workspace info | `services/workspace.py` |
 | Entity listing | `services/entities.py` |
-| Hierarchy scan | `scanner.py` |
-| Self-healing | `scanner.py` |
+| Hierarchy scan | `scanner.py:_scan_context()` |
+| Manifest reader | `services/manifest.py:read_manifest()` |
 | Component scan | `scanner.py:scan_components()` |
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback | `description.py:find_spec_file()` |

@@ -28,7 +28,7 @@ export class Paths {
         return path.join(this.dataFolder, 'workspaces');
     }
 
-    get allBusinessesWorkspacePath(): string {
-        return path.join(this.dataFolder, 'all-businesses.code-workspace');
+    get rootContextsWorkspacePath(): string {
+        return path.join(this.dataFolder, 'root-contexts.code-workspace');
     }
 }

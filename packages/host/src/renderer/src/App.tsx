@@ -24,7 +24,8 @@ import type {
   ProcessStatus,
   ScanResult,
   InstructionsError,
-  AgentInfo
+  AgentInfo,
+  MigrationResult
 } from '../../preload/index.d'
 
 function App(): React.JSX.Element {
@@ -39,6 +40,7 @@ function App(): React.JSX.Element {
     InstructionsError[] | null
   >(null)
   const [cachedAgents, setCachedAgents] = useState<AgentInfo[] | null>(null)
+  const [migrationStatus, setMigrationStatus] = useState<MigrationResult | undefined>(undefined)
 
   // Dynamic statuses reported by individual wizard pages
   const [pageStatuses, setPageStatuses] = useState<Partial<Record<WizardPage, PageStatus>>>({})
@@ -103,6 +105,19 @@ function App(): React.JSX.Element {
     window.api.getAgents().then(setCachedAgents).catch(console.error)
   }, [appState]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Migration status — fetched on mount and refreshed via push channel from main.
+  // Push covers cases where main triggers a sweep but doesn't ship a fresh AppState
+  // (e.g., scoped sweep on root-contexts:add that updates only migration). Without
+  // subscription the renderer would observe stale status (review issue 6).
+  useEffect(() => {
+    if (!window.api) return
+    window.api.getMigrationStatus().then(setMigrationStatus).catch(console.error)
+    const unsub = window.api.onMigrationStatusChanged(setMigrationStatus)
+    return () => {
+      unsub()
+    }
+  }, [])
+
   // ==========================================================================
   // Step statuses
   // ==========================================================================
@@ -119,12 +134,21 @@ function App(): React.JSX.Element {
       cachedScan,
       cachedInstructionsErrors,
       agents: cachedAgents,
-      hasDeployWarning
+      hasDeployWarning,
+      migrationStatus
     })
 
     // Merge with dynamic page-reported statuses (pages override computed on visit)
     return { ...computed, ...pageStatuses }
-  }, [appState, deployStatus, cachedScan, cachedInstructionsErrors, cachedAgents, pageStatuses])
+  }, [
+    appState,
+    deployStatus,
+    cachedScan,
+    cachedInstructionsErrors,
+    cachedAgents,
+    pageStatuses,
+    migrationStatus
+  ])
 
   // ==========================================================================
   // Backend controls (for BackendAppPage)

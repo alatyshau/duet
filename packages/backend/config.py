@@ -1,12 +1,11 @@
 """Configuration management for Duet backend.
 
-New architecture (pointer-based):
+Pointer-based architecture:
 - ~/.org.ve68.duet (pointer) → duetDataPath, duetConfigPath, machine
-- DuetConfig/settings.json → business_folders (@aliases), timestampTZ
+- DuetConfig/settings.json → root_context_folders (@aliases), timestampTZ
 - DuetConfig/{machine}.json → port, @alias mappings
 
 Backend reads pointer at startup, resolves all paths itself.
-No more --data-path CLI argument needed.
 
 For testing: env DUET_POINTER_FILE overrides pointer path.
 """
@@ -161,7 +160,7 @@ def read_settings() -> dict:
     """Read settings.json from DuetConfig.
 
     Returns:
-        Dict with business_folders (list of @aliases), timestampTZ.
+        Dict with root_context_folders (list of @aliases), timestampTZ.
 
     Raises:
         ConfigError: If file is missing or invalid.
@@ -264,10 +263,10 @@ def get_timezone() -> dict:
     return timezone
 
 
-def get_business_folders() -> list[str]:
-    """Get list of business folders (resolved from @aliases).
+def get_root_context_folders() -> list[str]:
+    """Get list of root context folders (resolved from @aliases).
 
-    Reads business_folders from settings.json (as @aliases),
+    Reads root_context_folders from settings.json (as @aliases),
     resolves them to absolute paths using machine config.
 
     Normalizes paths to NFC for consistent comparison.
@@ -276,28 +275,27 @@ def get_business_folders() -> list[str]:
         List of absolute paths.
 
     Raises:
-        ConfigError: If business_folders not set or alias not found.
+        ConfigError: If root_context_folders not set or alias not found.
     """
     settings = read_settings()
-    folders = settings.get("business_folders")
+    folders = settings.get("root_context_folders")
 
     if folders is None:
         raise ConfigError(
-            "business_folders not set in settings.json. "
-            "Add 'business_folders' field with list of @aliases."
+            "root_context_folders not set in settings.json. "
+            "Add 'root_context_folders' field with list of @aliases."
         )
 
     if not isinstance(folders, list):
         raise ConfigError(
-            f"business_folders must be a list in settings.json, got {type(folders).__name__}"
+            f"root_context_folders must be a list in settings.json, got {type(folders).__name__}"
         )
 
-    # Resolve @aliases to absolute paths
     resolver = _get_resolver()
     try:
         resolved = resolver.resolve_all(folders)
     except Exception as e:
-        raise ConfigError(f"Failed to resolve business_folders: {e}") from e
+        raise ConfigError(f"Failed to resolve root_context_folders: {e}") from e
 
     # Normalize Unicode: macOS filesystem may use NFD
     return [unicodedata.normalize("NFC", f) for f in resolved]

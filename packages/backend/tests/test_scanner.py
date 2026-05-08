@@ -1,5 +1,6 @@
-"""Tests for scanner.py - Hierarchy scanner."""
+"""Tests for scanner.py - hierarchy scanner (strict v2 reader)."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -10,16 +11,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import DatabaseManager
 from scanner import Scanner, scan_components
 
-from tests.fixtures import ManifestBuilder, HierarchyBuilder
+from tests.fixtures import ManifestBuilder
 
 
 class TestScanner:
     """Tests for Scanner class."""
 
     def test_scan_empty(self, db: DatabaseManager, monkeypatch) -> None:
-        """Scanning with no business folders returns empty."""
+        """Scanning with no root context folders returns empty."""
         monkeypatch.setattr(
-            "scanner.get_business_folders",
+            "scanner.get_root_context_folders",
             lambda: []
         )
 
@@ -29,15 +30,15 @@ class TestScanner:
         assert result["status"] == "completed"
         assert result["entities_count"] == 0
 
-    def test_scan_business(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Scans a business folder with manifest."""
-        biz_path = tmp_path / "MyBusiness"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "My Business", "🏢")
+    def test_scan_root_context(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Scans a root context folder with manifest."""
+        ctx_path = tmp_path / "MyContext"
+        ctx_path.mkdir()
+        ManifestBuilder.context(ctx_path, "My Context", icon="🏢")
 
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx_path)]
         )
 
         scanner = Scanner(db)
@@ -48,284 +49,304 @@ class TestScanner:
 
         entities = db.get_all_entities()
         assert len(entities) == 1
-        assert entities[0].type == "business"
-        assert entities[0].name == "My Business"
+        assert entities[0].type == "context"
+        assert entities[0].name == "My Context"
         assert entities[0].icon == "🏢"
 
-    def test_scan_hierarchy(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Scans full hierarchy: business -> stream -> product."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
-
-        stream_path = biz_path / "Stream"
-        stream_path.mkdir()
-        ManifestBuilder.stream(stream_path, "Stream", "🌊")
-
-        product_path = stream_path / "Product"
-        product_path.mkdir()
-        ManifestBuilder.product(product_path, "Product", "📦")
+    def test_scan_meta_context(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Scanner reads `meta: true` and stores it on the entity."""
+        ctx_path = tmp_path / "Meta"
+        ctx_path.mkdir()
+        ManifestBuilder.context(ctx_path, "Meta", meta=True)
 
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx_path)]
         )
 
-        scanner = Scanner(db)
+        Scanner(db).scan()
+
+        meta = db.find_by_name("Meta")
+        assert meta is not None
+        assert meta.meta is True
+        assert db.find_meta_context() == meta
+
+    def test_scan_hierarchy(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+        """Scans full hierarchy: root → mid → terminal-with-git."""
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
+
+        mid_path = root_path / "Mid"
+        mid_path.mkdir()
+        ManifestBuilder.context(mid_path, "Mid")
+
+        product_path = mid_path / "Product"
+        product_path.mkdir()
+        ManifestBuilder.context(product_path, "Product", git_url="https://example.com/p.git")
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        scanner = Scanner(db, repos_path=tmp_path / "repos")
         result = scanner.scan()
 
-        assert result["entities_count"] == 3
+        # 3 contexts + 1 product_repo for the terminal
+        assert result["entities_count"] == 4
 
-        entities = db.get_all_entities()
-        types = {e.type for e in entities}
-        assert types == {"business", "stream", "product"}
+        contexts = db.get_contexts()
+        names = {e.name for e in contexts}
+        assert names == {"Root", "Mid", "Product"}
 
-        # Check hierarchy
-        business = db.find_by_name("Business")
-        stream = db.find_by_name("Stream")
+        root = db.find_by_name("Root")
+        mid = db.find_by_name("Mid")
         product = db.find_by_name("Product")
+        product_repo = db.find_by_name("Product.git")
 
-        assert business.parent_id is None
-        assert stream.parent_id == business.id
-        assert product.parent_id == stream.id
+        assert root.parent_id is None
+        assert mid.parent_id == root.id
+        assert product.parent_id == mid.id
+        assert product.git_url == "https://example.com/p.git"
+        assert product_repo is not None
+        assert product_repo.type == "product_repo"
+        assert product_repo.parent_id == product.id
+
+    def test_terminal_with_git_does_not_recurse(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Context with git_url is terminal — scanner stops, even if children have manifests."""
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
+
+        product_path = root_path / "Product"
+        product_path.mkdir()
+        ManifestBuilder.context(product_path, "Product", git_url="https://example.com/p.git")
+
+        # A folder inside the terminal that *would* be scanned if recursion happened.
+        deep = product_path / "DeepChild"
+        deep.mkdir()
+        ManifestBuilder.context(deep, "DeepChild")
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        Scanner(db).scan()
+
+        assert db.find_by_name("DeepChild") is None
 
     def test_projects_folders_ignored(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """projects/ subdirectories are not scanned as entities."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+        """projects/ subdirectories without manifest don't become entities."""
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
-        # projects/ at business level
-        projects_path = biz_path / "projects"
+        # projects/ without manifest — scanner recurses but finds nothing
+        projects_path = root_path / "projects"
         projects_path.mkdir()
         (projects_path / "ProjectA").mkdir()
 
-        # projects/ at product level
-        product_path = biz_path / "Product"
+        product_path = root_path / "Product"
         product_path.mkdir()
-        ManifestBuilder.product(product_path, "Product", "📦")
+        ManifestBuilder.context(product_path, "Product", git_url="https://example.com/p.git")
         prod_projects = product_path / "projects"
         prod_projects.mkdir()
         (prod_projects / "ProjectB").mkdir()
 
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
         )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        result = Scanner(db).scan()
 
-        # business + product only — projects/ ignored
-        assert result["entities_count"] == 2
-        assert not any(e.type == "project" for e in db.get_all_entities())
+        # Root + Product (context) + Product.git (product_repo)
+        assert result["entities_count"] == 3
+        contexts = db.get_contexts()
+        assert {e.name for e in contexts} == {"Root", "Product"}
 
     def test_name_conflict_same_type(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Same-type entities with same name get suffix."""
-        biz1_path = tmp_path / "Biz1"
-        biz1_path.mkdir()
-        ManifestBuilder.business(biz1_path, "SameName", "🏢")
+        """Same-name contexts get suffix on the second-comer."""
+        ctx1_path = tmp_path / "Ctx1"
+        ctx1_path.mkdir()
+        ManifestBuilder.context(ctx1_path, "SameName")
 
-        biz2_path = tmp_path / "Biz2"
-        biz2_path.mkdir()
-        ManifestBuilder.business(biz2_path, "SameName", "🏢")
+        ctx2_path = tmp_path / "Ctx2"
+        ctx2_path.mkdir()
+        ManifestBuilder.context(ctx2_path, "SameName")
 
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz1_path), str(biz2_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx1_path), str(ctx2_path)]
         )
 
-        scanner = Scanner(db)
-        scanner.scan()
+        Scanner(db).scan()
 
-        entities = db.get_all_entities()
-        names = {e.name for e in entities}
+        names = {e.name for e in db.get_all_entities()}
         assert "SameName" in names
         assert "SameName (1)" in names
 
-    def test_name_conflict_priority(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Higher-priority type claims the name, lower gets suffix."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
-
-        product_path = biz_path / "Shared"
-        product_path.mkdir()
-        ManifestBuilder.product(product_path, "Shared", "📦")
-
-        biz2_path = tmp_path / "Shared"
-        biz2_path.mkdir()
-        ManifestBuilder.business(biz2_path, "Shared", "🏢")
-
-        monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path), str(biz2_path)]
-        )
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        # Business should have "Shared", product should have "Shared (1)"
-        business = [e for e in db.get_all_entities() if e.type == "business" and "Shared" in e.name]
-        product = [e for e in db.get_all_entities() if e.type == "product"]
-
-        assert any(b.name == "Shared" for b in business)
-        assert product[0].name == "Shared (1)"
-
-    def test_self_healing_create_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Creates business.json if missing at root."""
-        biz_path = tmp_path / "MyBusiness"
-        biz_path.mkdir()
-
-        monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
-        )
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        assert (biz_path / "business.json").exists()
-
-        entities = db.get_all_entities()
-        assert len(entities) == 1
-        assert entities[0].name == "MyBusiness"
-
-    def test_self_healing_rename_stream_to_business(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Renames stream.json to business.json at root."""
-        biz_path = tmp_path / "MyBusiness"
-        biz_path.mkdir()
-        ManifestBuilder.stream(biz_path, "My Business", "🌊")
-
-        monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
-        )
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        assert (biz_path / "business.json").exists()
-        assert not (biz_path / "stream.json").exists()
-
-    def test_self_healing_rename_business_to_stream(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Renames business.json to stream.json inside chain."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
-
-        stream_path = biz_path / "Stream"
-        stream_path.mkdir()
-        # Wrong manifest type - should be stream.json
-        ManifestBuilder.business(stream_path, "Stream", "🌊")
-
-        monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
-        )
-
-        scanner = Scanner(db)
-        scanner.scan()
-
-        assert (stream_path / "stream.json").exists()
-        assert not (stream_path / "business.json").exists()
-
     def test_deterministic_order(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
         """Scan order is deterministic (sorted by name)."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
         for name in ["Zebra", "Apple", "Mango"]:
-            p = biz_path / name
+            p = root_path / name
             p.mkdir()
-            ManifestBuilder.stream(p, name, "🌊")
+            ManifestBuilder.context(p, name)
 
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
         )
 
-        scanner = Scanner(db)
-        scanner.scan()
+        Scanner(db).scan()
 
-        streams = [e for e in db.get_all_entities() if e.type == "stream"]
-        names = [s.name for s in streams]
-
+        children = db.get_entities(parent_id=db.find_by_name("Root").id)
+        names = [c.name for c in children]
         assert names == sorted(names)
 
     def test_skip_hidden_folders(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
         """Hidden folders (starting with .) are skipped."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
-        hidden_path = biz_path / ".hidden"
+        hidden_path = root_path / ".hidden"
         hidden_path.mkdir()
-        ManifestBuilder.stream(hidden_path, "Hidden", "🌊")
+        ManifestBuilder.context(hidden_path, "Hidden")
 
-        normal_path = biz_path / "Normal"
+        normal_path = root_path / "Normal"
         normal_path.mkdir()
-        ManifestBuilder.stream(normal_path, "Normal", "🌊")
+        ManifestBuilder.context(normal_path, "Normal")
 
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
         )
 
-        scanner = Scanner(db)
-        scanner.scan()
+        Scanner(db).scan()
 
-        entities = db.get_all_entities()
-        names = {e.name for e in entities}
-
+        names = {e.name for e in db.get_all_entities()}
         assert "Normal" in names
         assert "Hidden" not in names
 
 
-
 class TestScannerEdgeCases:
-    """Edge case tests for Scanner — error handling branches."""
+    """Edge case tests for Scanner."""
 
-    def test_scan_nonexistent_business_folder(self, db: DatabaseManager, monkeypatch) -> None:
-        """_scan_business skips folder that doesn't exist."""
+    def test_scan_nonexistent_root_folder(self, db: DatabaseManager, monkeypatch) -> None:
+        """Folder that doesn't exist on disk is skipped."""
         monkeypatch.setattr(
-            "scanner.get_business_folders",
+            "scanner.get_root_context_folders",
             lambda: ["/nonexistent/path/that/does/not/exist"]
         )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        result = Scanner(db).scan()
 
         assert result["status"] == "completed"
         assert result["entities_count"] == 0
 
-    def test_read_manifest_json_decode_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """_read_manifest returns None and calls on_error for corrupt JSON."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        (biz_path / "business.json").write_text("{corrupt json!!!")
+    def test_root_folder_without_manifest_skipped(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Root context folder without `context.json` is skipped silently.
 
-        errors: list[str] = []
+        Backend is strict reader; Host owns creation of missing manifests.
+        """
+        ctx_path = tmp_path / "NoManifest"
+        ctx_path.mkdir()
+
         monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx_path)]
         )
 
-        scanner = Scanner(db, on_error=errors.append)
-        scanner.scan()
+        result = Scanner(db).scan()
 
-        assert len(errors) == 1
-        assert "Invalid manifest" in errors[0]
-        # Self-healing should have created a fallback
-        entities = db.get_all_entities()
-        assert len(entities) == 1
-        assert entities[0].name == "Business"
+        assert result["status"] == "completed"
+        assert result["entities_count"] == 0
+        assert result["errors"] == []
+
+    def test_invalid_json_manifest(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Corrupt JSON in `context.json` produces invalid_manifest error."""
+        ctx_path = tmp_path / "Bad"
+        ctx_path.mkdir()
+        (ctx_path / "context.json").write_text("{corrupt json!!!", encoding="utf-8")
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        assert result["entities_count"] == 0
+        invalid = [e for e in result["errors"] if e["reason_code"] == "invalid_manifest"]
+        assert len(invalid) == 1
+
+    def test_malformed_manifest_no_silent_repair(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Manifest with `version: 2` but missing `name` must not register
+        a context under the folder name. Strict reader rejects malformed
+        shape with `invalid_manifest`; scanner skips.
+        """
+        ctx_path = tmp_path / "MyFolder"
+        ctx_path.mkdir()
+        (ctx_path / "context.json").write_text(
+            json.dumps({"version": 2}),  # no `name`
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        # No silent fall-back to folder name.
+        assert db.find_by_name("MyFolder") is None
+        assert result["entities_count"] == 0
+
+        codes = {e["reason_code"] for e in result["errors"]}
+        assert "invalid_manifest" in codes
+
+    def test_unrecognized_version_skipped(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """`version != 2` produces unrecognized_manifest_version warning, no entity created."""
+        ctx_path = tmp_path / "Future"
+        ctx_path.mkdir()
+        (ctx_path / "context.json").write_text(
+            json.dumps({"version": 99, "name": "Future"}),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(ctx_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        assert result["entities_count"] == 0
+        codes = {e["reason_code"] for e in result["errors"]}
+        assert "unrecognized_manifest_version" in codes
 
     def test_scan_reentrancy_guard(self, db: DatabaseManager, monkeypatch) -> None:
         """scan() returns 'skipped' if already in progress."""
         monkeypatch.setattr(
-            "scanner.get_business_folders",
+            "scanner.get_root_context_folders",
             lambda: []
         )
 
@@ -337,128 +358,129 @@ class TestScannerEdgeCases:
         assert result["status"] == "skipped"
         assert "already in progress" in result["reason"]
 
-    def test_scan_intermediate_folder_without_manifest(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Folder without any manifest recurses to find deeper items."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+    def test_scan_intermediate_folder_without_manifest(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Folder without any manifest recurses to find deeper contexts."""
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
-        # Intermediate folder with no manifest
-        intermediate = biz_path / "SomeFolder"
+        intermediate = root_path / "SomeFolder"
         intermediate.mkdir()
-        # Product nested inside intermediate
         product_path = intermediate / "DeepProduct"
         product_path.mkdir()
-        ManifestBuilder.product(product_path, "DeepProduct", "📦")
-
-        monkeypatch.setattr(
-            "scanner.get_business_folders",
-            lambda: [str(biz_path)]
+        ManifestBuilder.context(
+            product_path, "DeepProduct", git_url="https://example.com/d.git",
         )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
 
-        # business + product (intermediate is skipped, not an entity)
-        assert result["entities_count"] == 2
-        product = db.find_by_name("DeepProduct")
-        assert product is not None
-        assert product.type == "product"
+        result = Scanner(db).scan()
+
+        # Root + DeepProduct + DeepProduct.git
+        assert result["entities_count"] == 3
+        deep = db.find_by_name("DeepProduct")
+        assert deep is not None
+        assert deep.type == "context"
+        # Parent should be Root (intermediate folder is not an entity)
+        assert deep.parent_id == db.find_by_name("Root").id
 
 
 class TestScanErrors:
     """Tests for structured error collection during scan."""
 
-    def test_name_collision_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Name collision produces error with reason_code."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+    def test_name_collision_error(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
-        # Two streams with same name
-        s1 = biz_path / "StreamA"
+        s1 = root_path / "ChildA"
         s1.mkdir()
-        ManifestBuilder.stream(s1, "Conflict", "🌊")
-        s2 = biz_path / "StreamB"
+        ManifestBuilder.context(s1, "Conflict")
+        s2 = root_path / "ChildB"
         s2.mkdir()
-        ManifestBuilder.stream(s2, "Conflict", "🌊")
+        ManifestBuilder.context(s2, "Conflict")
 
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        result = Scanner(db).scan()
 
-        assert len(result["errors"]) == 1
-        assert result["errors"][0]["reason_code"] == "name_collision"
-        assert "Conflict" in result["errors"][0]["description"]
+        collisions = [e for e in result["errors"] if e["reason_code"] == "name_collision"]
+        assert len(collisions) == 1
+        assert "Conflict" in collisions[0]["description"]
 
-    def test_invalid_manifest_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Corrupt JSON manifest produces error with reason_code."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+    def test_invalid_manifest_error(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
-        stream_path = biz_path / "BadStream"
-        stream_path.mkdir()
-        (stream_path / "stream.json").write_text("{not valid json!!!", encoding="utf-8")
+        bad_path = root_path / "Bad"
+        bad_path.mkdir()
+        (bad_path / "context.json").write_text("{not valid json!!!", encoding="utf-8")
 
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        result = Scanner(db).scan()
 
         invalid_errors = [e for e in result["errors"] if e["reason_code"] == "invalid_manifest"]
         assert len(invalid_errors) == 1
-        assert "stream.json" in invalid_errors[0]["description"]
+        assert "context.json" in invalid_errors[0]["description"]
 
-    def test_missing_manifest_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Business folder without manifest produces missing_manifest error."""
-        biz_path = tmp_path / "NoBizJson"
-        biz_path.mkdir()
-        # No business.json, no stream.json — scanner will self-heal
-
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
-
-        scanner = Scanner(db)
-        result = scanner.scan()
-
-        missing_errors = [e for e in result["errors"] if e["reason_code"] == "missing_manifest"]
-        assert len(missing_errors) == 1
-        assert "NoBizJson" in missing_errors[0]["description"]
-
-    def test_repo_collision_error(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
+    def test_repo_collision_error(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
         """Product repo vs reference_repo name collision produces repo_collision."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        # Business has reference_repo "Lib" → creates "Lib.git" reference_repo
-        ManifestBuilder.business(biz_path, "Business", "🏢", reference_repos={"Lib": "https://github.com/test/lib-ref"})
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(
+            root_path, "Root",
+            reference_repos={"Lib": "https://github.com/test/lib-ref"},
+        )
 
-        # Product named "Lib" with git_url → tries to create "Lib.git" product_repo
-        p1 = biz_path / "Lib"
+        p1 = root_path / "Lib"
         p1.mkdir()
-        ManifestBuilder.product(p1, "Lib", "📦", git_url="https://github.com/test/lib")
+        ManifestBuilder.context(p1, "Lib", git_url="https://github.com/test/lib")
 
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        result = Scanner(db).scan()
 
         repo_errors = [e for e in result["errors"] if e["reason_code"] == "repo_collision"]
         assert len(repo_errors) >= 1
         assert "Lib.git" in repo_errors[0]["description"]
         # Error path points to the manifest for Fix button
-        assert "product.json" in repo_errors[0]["path"]
+        assert "context.json" in repo_errors[0]["path"]
 
-    def test_errors_empty_on_clean_scan(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Clean scan produces no errors."""
-        biz_path = tmp_path / "Business"
-        biz_path.mkdir()
-        ManifestBuilder.business(biz_path, "Business", "🏢")
+    def test_errors_empty_on_clean_scan(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
 
-        monkeypatch.setattr("scanner.get_business_folders", lambda: [str(biz_path)])
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
 
-        scanner = Scanner(db)
-        result = scanner.scan()
+        result = Scanner(db).scan()
 
         assert result["errors"] == []
 
@@ -467,7 +489,6 @@ class TestScanComponents:
     """Tests for scan_components() function."""
 
     def test_empty_when_no_packages(self, tmp_path: Path) -> None:
-        """Returns empty list when no packages/ directory."""
         product_path = tmp_path / "product"
         product_path.mkdir()
 
@@ -475,7 +496,6 @@ class TestScanComponents:
         assert result == []
 
     def test_scans_packages_directory(self, tmp_path: Path) -> None:
-        """Scans packages/ directory for components."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
         packages_path.mkdir(parents=True)
@@ -490,7 +510,6 @@ class TestScanComponents:
         assert names == {"component-a", "component-b"}
 
     def test_detects_spec_file(self, tmp_path: Path) -> None:
-        """Detects spec when spec/ contains a recognized file."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
 
@@ -511,7 +530,6 @@ class TestScanComponents:
         assert "spec" not in by_name["without-spec"]
 
     def test_returns_relative_paths(self, tmp_path: Path) -> None:
-        """Returns relative paths in format packages/{name}."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
         (packages_path / "my-component").mkdir(parents=True)
@@ -521,7 +539,6 @@ class TestScanComponents:
         assert result[0]["path"] == "packages/my-component"
 
     def test_sorted_by_name(self, tmp_path: Path) -> None:
-        """Components are sorted by name."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
         packages_path.mkdir(parents=True)
@@ -535,7 +552,6 @@ class TestScanComponents:
         assert names == ["apple", "mango", "zebra"]
 
     def test_skips_files(self, tmp_path: Path) -> None:
-        """Skips files in packages/, only directories."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
         packages_path.mkdir(parents=True)
@@ -549,7 +565,6 @@ class TestScanComponents:
         assert result[0]["name"] == "real-component"
 
     def test_skips_hidden_directories(self, tmp_path: Path) -> None:
-        """Skips hidden directories (starting with .) in packages/."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
         packages_path.mkdir(parents=True)
@@ -563,7 +578,6 @@ class TestScanComponents:
         assert result[0]["name"] == "visible-component"
 
     def test_spec_without_description(self, tmp_path: Path) -> None:
-        """Component has spec but no extractable description (no H1)."""
         product_path = tmp_path / "product"
         packages_path = product_path / "packages"
         comp_path = packages_path / "my-comp"

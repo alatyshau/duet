@@ -1,25 +1,29 @@
 /**
  * Context Breadcrumb Builder
  *
- * Builds a tree representation of workspace folders in the business hierarchy.
+ * Builds a tree representation of workspace folders in the context hierarchy.
  *
  * Algorithm:
- * 1. Folders from DuetData/repos/ with .git suffix -> lookup product by name
+ * 1. Folders from DuetData/repos/ with .git suffix -> lookup context by name
  * 2. Folders from DuetData/repos/ without .git suffix -> external folder
- * 3. Other folders -> lookup in streams[] or mark as external
+ * 3. Other folders -> lookup in contexts[] or mark as external
  *
  * Features:
- * - Merges common ancestors (two products from same business -> single tree)
- * - Sorts roots by leaf type: businesses > streams > products > external
- * - Git folders displayed as children of products
+ * - Merges common ancestors (two contexts under the same root -> single tree)
+ * - Sort: meta-context always first; everything else alphabetically. `hasGit` does not
+ *   affect ordering (it only drives icon/decoration). External/error nodes go last so
+ *   the user's data tree comes before infra rows.
+ * - Git folders are displayed as children of their git-backed context
  */
 
 import * as path from 'path';
-import { StreamEntity } from '../api-client';
+import { ContextEntity } from '../api-client';
 import { isPathInside } from '../pathUtils';
 
-// Node types for the context tree
-export type ContextNodeType = 'business' | 'stream' | 'product' | 'git' | 'external' | 'error';
+// Node types for the context tree.
+// `context` is the unified entity type from the backend; `git` / `external` /
+// `error` are display-only categories used by the breadcrumb.
+export type ContextNodeType = 'context' | 'git' | 'external' | 'error';
 
 // Error codes for problematic folders
 export type ContextErrorCode = 'orphan' | 'name_conflict' | 'outside_repos' | 'outside_hierarchy';
@@ -45,6 +49,12 @@ export interface ContextNode {
     errorCode?: ContextErrorCode;
     /** Original entity ID from database (for lookups) */
     entityId?: number;
+    /** True for meta-context (one per workspace, e.g. !БАЗА) */
+    meta?: boolean;
+    /** True when context has an associated git repository */
+    hasGit?: boolean;
+    /** True when context is top-level (parent_id === null) */
+    isRoot?: boolean;
 }
 
 /**
@@ -52,7 +62,7 @@ export interface ContextNode {
  * Injected for testability.
  */
 export interface ContextBreadcrumbDeps {
-    streams: StreamEntity[];
+    contexts: ContextEntity[];
     reposPath: string;
 }
 
@@ -62,8 +72,8 @@ export interface ContextBreadcrumbDeps {
 interface FolderClassification {
     /** The original folder path */
     folderPath: string;
-    /** Entity chain from root to leaf (business -> stream* -> product) */
-    chain: StreamEntity[];
+    /** Entity chain from top-level root context to leaf */
+    chain: ContextEntity[];
     /** Whether this is a git repo folder (has .git suffix in repos/) */
     isGitRepo: boolean;
     /** Error if folder couldn't be resolved */
@@ -75,24 +85,24 @@ interface FolderClassification {
  *
  * Usage:
  * ```typescript
- * const builder = new ContextBreadcrumb({ streams, reposPath });
+ * const builder = new ContextBreadcrumb({ contexts, reposPath });
  * const roots = builder.build(workspaceFolderPaths);
  * ```
  */
 export class ContextBreadcrumb {
-    private streams: StreamEntity[];
+    private contexts: ContextEntity[];
     private readonly reposPath: string;
 
     constructor(deps: ContextBreadcrumbDeps) {
-        this.streams = deps.streams;
+        this.contexts = deps.contexts;
         this.reposPath = deps.reposPath;
     }
 
     /**
-     * Update streams array (after refresh/scan).
+     * Update contexts array (after refresh/scan).
      */
-    updateStreams(streams: StreamEntity[]): void {
-        this.streams = streams;
+    updateContexts(contexts: ContextEntity[]): void {
+        this.contexts = contexts;
     }
 
     /**
@@ -147,11 +157,11 @@ export class ContextBreadcrumb {
                 folderPath: normalizedPath,
                 chain: [],
                 isGitRepo: true,
-                error: { code: 'outside_repos', message: '\u0420\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440\u0438\u0439 \u0432\u043d\u0435 DuetData' }
+                error: { code: 'outside_repos', message: 'Репозиторий вне DuetData' }
             };
         }
 
-        // Case 4: Regular folder - look up in streams
+        // Case 4: Regular folder - look up in contexts
         return this.classifyByPath(normalizedPath);
     }
 
@@ -159,33 +169,33 @@ export class ContextBreadcrumb {
      * Classify a .git repo folder from DuetData/repos/.
      */
     private classifyGitRepo(folderPath: string, folderName: string): FolderClassification {
-        // Strip .git suffix to get product name
-        const productName = folderName.slice(0, -4);
+        // Strip .git suffix to get context name
+        const contextName = folderName.slice(0, -4);
 
-        // Look up by name in streams
-        const entity = this.streams.find(s => s.name === productName);
+        // Look up by name in contexts
+        const entity = this.contexts.find(c => c.name === contextName);
 
         if (!entity) {
-            // Orphan: repo exists but no matching entity
+            // Orphan: repo exists but no matching context
             return {
                 folderPath,
                 chain: [],
                 isGitRepo: true,
-                error: { code: 'orphan', message: '\u0420\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440\u0438\u0439 \u043d\u0435 \u0441\u0432\u044f\u0437\u0430\u043d' }
+                error: { code: 'orphan', message: 'Репозиторий не связан' }
             };
         }
 
-        if (entity.type !== 'product') {
-            // Name conflict: name exists but is not a product
+        if (!entity.git_url) {
+            // Name conflict: name exists but the matching context has no git_url
             return {
                 folderPath,
                 chain: [],
                 isGitRepo: true,
-                error: { code: 'name_conflict', message: `\u0418\u043c\u044f \u0437\u0430\u043d\u044f\u0442\u043e (${entity.type})` }
+                error: { code: 'name_conflict', message: 'Имя занято' }
             };
         }
 
-        // Build chain from product to root
+        // Build chain from this context up to the top-level root
         const chain = this.buildChainToRoot(entity);
 
         return {
@@ -196,7 +206,7 @@ export class ContextBreadcrumb {
     }
 
     /**
-     * Classify a folder by looking it up in the streams array.
+     * Classify a folder by looking it up in the contexts array.
      */
     private classifyByPath(folderPath: string): FolderClassification {
         // Find closest entity matching this path (by absolute_path prefix)
@@ -208,11 +218,10 @@ export class ContextBreadcrumb {
                 folderPath,
                 chain: [],
                 isGitRepo: false,
-                error: { code: 'outside_hierarchy', message: '\u041f\u0430\u043f\u043a\u0430 \u0432\u043d\u0435 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438' }
+                error: { code: 'outside_hierarchy', message: 'Папка вне иерархии' }
             };
         }
 
-        // Build chain from entity to root
         const chain = this.buildChainToRoot(entity);
 
         return {
@@ -226,10 +235,10 @@ export class ContextBreadcrumb {
      * Find closest entity whose absolute_path is a prefix of the given path.
      * Returns the deepest match (longest path).
      */
-    private findClosestEntity(folderPath: string): StreamEntity | null {
-        const matches = this.streams
-            .filter(s => s.absolute_path && (
-                folderPath === s.absolute_path || isPathInside(folderPath, s.absolute_path)
+    private findClosestEntity(folderPath: string): ContextEntity | null {
+        const matches = this.contexts
+            .filter(c => c.absolute_path && (
+                folderPath === c.absolute_path || isPathInside(folderPath, c.absolute_path)
             ))
             .sort((a, b) => (b.absolute_path?.length ?? 0) - (a.absolute_path?.length ?? 0));
 
@@ -237,16 +246,16 @@ export class ContextBreadcrumb {
     }
 
     /**
-     * Build entity chain from given entity up to root business.
+     * Build entity chain from given entity up to the top-level root context.
      */
-    private buildChainToRoot(entity: StreamEntity): StreamEntity[] {
-        const chain: StreamEntity[] = [];
-        let current: StreamEntity | undefined = entity;
+    private buildChainToRoot(entity: ContextEntity): ContextEntity[] {
+        const chain: ContextEntity[] = [];
+        let current: ContextEntity | undefined = entity;
 
         while (current) {
             chain.unshift(current);
             if (current.parent_id) {
-                current = this.streams.find(s => s.id === current!.parent_id);
+                current = this.contexts.find(c => c.id === current!.parent_id);
             } else {
                 current = undefined;
             }
@@ -301,8 +310,9 @@ export class ContextBreadcrumb {
                     }
                 }
 
-                // If this is a product and we have a git repo, add git folder as child
-                if (isLast && classification.isGitRepo && entity.type === 'product') {
+                // If this is a git-backed context and we opened its git repo,
+                // attach the git folder as a child of the context node.
+                if (isLast && classification.isGitRepo && entity.git_url) {
                     const gitNode = this.createGitNode(classification.folderPath);
                     if (!node.children.find(c => c.path === gitNode.path)) {
                         node.children.push(gitNode);
@@ -320,7 +330,7 @@ export class ContextBreadcrumb {
      * Create a ContextNode for an error/external folder.
      *
      * Error nodes are children of the problematic folder, not replacements.
-     * Example: `Duet.git` -> `\u0420\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440\u0438\u0439 \u043d\u0435 \u0441\u0432\u044f\u0437\u0430\u043d` (child)
+     * Example: `Duet.git` -> `Репозиторий не связан` (child)
      */
     private createErrorNode(classification: FolderClassification): ContextNode {
         const folderName = path.basename(classification.folderPath);
@@ -351,7 +361,7 @@ export class ContextBreadcrumb {
         // Both repos/ without .git suffix and folders outside hierarchy
         const infoChild: ContextNode = {
             type: 'error',  // Use 'error' type for clickable behavior
-            name: '\u041f\u0430\u043f\u043a\u0430 \u0432\u043d\u0435 \u0438\u0435\u0440\u0430\u0440\u0445\u0438\u0438',
+            name: 'Папка вне иерархии',
             icon: 'info',
             path: `${classification.folderPath}#info`,
             children: [],
@@ -361,7 +371,7 @@ export class ContextBreadcrumb {
         return {
             type: 'external',
             name: folderName,
-            icon: '\uD83D\uDCC1',
+            icon: '📁',
             path: classification.folderPath,
             children: [infoChild]
             // No errorCode on parent - only child is clickable
@@ -369,7 +379,7 @@ export class ContextBreadcrumb {
     }
 
     /**
-     * Create a git folder node (child of product).
+     * Create a git folder node (child of a git-backed context).
      */
     private createGitNode(gitFolderPath: string): ContextNode {
         const folderName = path.basename(gitFolderPath);
@@ -383,66 +393,96 @@ export class ContextBreadcrumb {
     }
 
     /**
-     * Convert a stream entity to a ContextNode.
+     * Convert a context entity to a ContextNode.
      */
-    private entityToNode(entity: StreamEntity): ContextNode {
+    private entityToNode(entity: ContextEntity): ContextNode {
         return {
-            type: entity.type as ContextNodeType,
+            type: 'context',
             name: entity.name,
             icon: entity.icon ?? '',
             path: entity.absolute_path ?? entity.path,
             children: [],
-            entityId: parseInt(entity.id, 10)
+            entityId: parseInt(entity.id, 10),
+            meta: entity.meta,
+            hasGit: entity.git_url !== null,
+            isRoot: entity.parent_id === null
         };
     }
 
     /**
-     * Sort root nodes by leaf type, then alphabetically.
-     * Order: businesses > streams > products > external/error
+     * Sort root nodes: meta-context always first, then everything else alphabetically.
+     * `hasGit` does not affect ordering (only icon/decoration). External/error/git nodes
+     * sort after real contexts so user data leads infra rows.
+     *
+     * Children at deeper levels are sorted via `sortChildrenAlphabetically` after the
+     * tree is built — so every nesting level uses the same alpha rule.
      */
     private sortRoots(roots: ContextNode[]): ContextNode[] {
-        const typeOrder: Record<ContextNodeType, number> = {
-            'business': 1,
-            'stream': 2,
-            'product': 3,
-            'git': 4,
-            'external': 5,
-            'error': 6
-        };
-
-        return roots.sort((a, b) => {
-            // Get leaf type for sorting
-            const aLeafType = this.getLeafType(a);
-            const bLeafType = this.getLeafType(b);
-
-            const aOrder = typeOrder[aLeafType] ?? 99;
-            const bOrder = typeOrder[bLeafType] ?? 99;
-
+        const sorted = roots.sort((a, b) => {
+            const aOrder = this.bucketOrder(a);
+            const bOrder = this.bucketOrder(b);
             if (aOrder !== bOrder) {
                 return aOrder - bOrder;
             }
-
-            // Same type - sort alphabetically
             return a.name.localeCompare(b.name);
         });
+        for (const root of sorted) {
+            this.sortChildrenAlphabetically(root);
+        }
+        return sorted;
     }
 
     /**
-     * Get the leaf node type for a tree (for sorting).
-     * Traverses to deepest child.
+     * Bucket key: meta first, regular contexts next, infra last.
+     * `hasGit` is intentionally NOT a bucket — terminal contexts mix with intermediates
+     * alphabetically (decision: stabilize-taxonomy-migration).
      */
-    private getLeafType(node: ContextNode): ContextNodeType {
-        if (node.children.length === 0) {
-            return node.type;
+    private bucketOrder(node: ContextNode): number {
+        const leaf = this.getLeafNode(node);
+        if (leaf.type === 'context') {
+            if (leaf.meta) {
+                return 0;
+            }
+            return 1;
         }
-        // For sorting purposes, we care about the deepest "real" node type
-        // Git folders are children of products, so product is the leaf type
+        if (leaf.type === 'git') {
+            return 2;
+        }
+        if (leaf.type === 'external') {
+            return 3;
+        }
+        return 99; // error / unknown
+    }
+
+    /** Recursively sort node.children alphabetically by name (meta first only at root level). */
+    private sortChildrenAlphabetically(node: ContextNode): void {
+        node.children.sort((a, b) => {
+            const aOrder = this.bucketOrder(a);
+            const bOrder = this.bucketOrder(b);
+            if (aOrder !== bOrder) {
+                return aOrder - bOrder;
+            }
+            return a.name.localeCompare(b.name);
+        });
+        for (const child of node.children) {
+            this.sortChildrenAlphabetically(child);
+        }
+    }
+
+    /**
+     * Walk to the deepest "real" descendant of a node, ignoring git children.
+     * Git folders are always children of a context, so we report the context
+     * as the leaf in that case.
+     */
+    private getLeafNode(node: ContextNode): ContextNode {
+        if (node.children.length === 0) {
+            return node;
+        }
         const nonGitChildren = node.children.filter(c => c.type !== 'git');
         if (nonGitChildren.length > 0) {
-            return this.getLeafType(nonGitChildren[0]);
+            return this.getLeafNode(nonGitChildren[0]);
         }
-        // Only git children - this is a product
-        return node.type;
+        return node;
     }
 
     /**

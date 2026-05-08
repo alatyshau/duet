@@ -8,6 +8,7 @@ import {
   pageStatusToSeverity,
   processStateToSeverity,
   getSettingsSeverity,
+  scanResultToPageStatus,
   type PageStatusInput
 } from '../../../src/core/wizard-status'
 import type { AppState, AgentInfo } from '../../../src/shared/types'
@@ -110,7 +111,7 @@ describe('core/wizard-status', () => {
       expect(s['backend']).toBe('ok')
     })
 
-    it('marks business-folders as ok when scan has no errors', () => {
+    it('marks workspaces as ok when scan has no errors', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: { status: 'ok', entities_count: 5, errors: [] }
@@ -118,7 +119,7 @@ describe('core/wizard-status', () => {
       expect(s['workspaces']).toBe('ok')
     })
 
-    it('marks business-folders as warning when scan has only collisions', () => {
+    it('marks workspaces as warning when scan has only collisions', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: {
@@ -130,7 +131,7 @@ describe('core/wizard-status', () => {
       expect(s['workspaces']).toBe('warning')
     })
 
-    it('marks business-folders as error when scan has real errors', () => {
+    it('marks workspaces as error when scan has real errors', () => {
       const s = computePageStatuses({
         ...baseInput,
         cachedScan: {
@@ -191,6 +192,51 @@ describe('core/wizard-status', () => {
         agents: [makeAgent('claude', 'not_found'), makeAgent('codex', 'not_found')]
       })
       expect(s['agents']).toBe('skipped')
+    })
+
+    // Schema-migration coverage on duet-paths page
+    it('marks duet-paths as error when migration has critical (settings/machine future-version)', () => {
+      const s = computePageStatuses({
+        ...baseInput,
+        migrationStatus: {
+          critical: {
+            file: 'settings',
+            path: '/foo/settings.json',
+            reason_code: 'future_version',
+            description: 'settings.json is from a future Duet version'
+          },
+          contextErrors: [],
+          migratedCount: 0
+        }
+      })
+      expect(s['duet-paths']).toBe('error')
+    })
+
+    it('marks duet-paths as error when migration has per-context errors (data corruption is red)', () => {
+      const s = computePageStatuses({
+        ...baseInput,
+        migrationStatus: {
+          critical: null,
+          contextErrors: [
+            {
+              path: '/foo/Х',
+              root_context_path: '/foo/Х',
+              reason_code: 'future_version',
+              description: 'context manifest from future version'
+            }
+          ],
+          migratedCount: 0
+        }
+      })
+      expect(s['duet-paths']).toBe('error')
+    })
+
+    it('marks duet-paths as ok when migration is clean and paths set', () => {
+      const s = computePageStatuses({
+        ...baseInput,
+        migrationStatus: { critical: null, contextErrors: [], migratedCount: 0 }
+      })
+      expect(s['duet-paths']).toBe('ok')
     })
   })
 
@@ -257,6 +303,51 @@ describe('core/wizard-status', () => {
 
     it('maps stopping → null', () => {
       expect(processStateToSeverity('stopping')).toBeNull()
+    })
+  })
+
+  // === Review #2 — Issue 5: scan status derivation must be unified ===
+  describe('scanResultToPageStatus', () => {
+    it('returns ok when there are no errors', () => {
+      expect(scanResultToPageStatus({ status: 'ok', entities_count: 5, errors: [] })).toBe('ok')
+    })
+
+    it('returns warning when only warning-codes (name_collision, repo_collision, missing_manifest)', () => {
+      expect(
+        scanResultToPageStatus({
+          status: 'ok',
+          entities_count: 1,
+          errors: [
+            { path: '/foo', reason_code: 'name_collision', description: 'x' },
+            { path: '/bar', reason_code: 'missing_manifest', description: 'y' }
+          ]
+        })
+      ).toBe('warning')
+    })
+
+    it('returns error when any non-warning code is present', () => {
+      expect(
+        scanResultToPageStatus({
+          status: 'ok',
+          entities_count: 0,
+          errors: [
+            { path: '/foo', reason_code: 'invalid_manifest', description: 'broken' }
+          ]
+        })
+      ).toBe('error')
+    })
+
+    it('returns error when warning + real error mixed (worst-wins)', () => {
+      expect(
+        scanResultToPageStatus({
+          status: 'ok',
+          entities_count: 0,
+          errors: [
+            { path: '/a', reason_code: 'name_collision', description: 'x' },
+            { path: '/b', reason_code: 'invalid_manifest', description: 'y' }
+          ]
+        })
+      ).toBe('error')
     })
   })
 

@@ -23,20 +23,21 @@ export interface DuetDataPathResponse {
     path: string;
 }
 
-export interface StreamEntity {
+export interface ContextEntity {
     id: string;
-    type: 'business' | 'stream' | 'product';
+    type: 'context';
     name: string;
     icon: string | null;
     path: string;
     absolute_path: string | null;
     parent_id: string | null;
+    meta: boolean;
     git_url: string | null;
     reference_repos?: Record<string, string> | null;
 }
 
-export interface StreamsResponse {
-    streams: StreamEntity[];
+export interface ContextsResponse {
+    contexts: ContextEntity[];
 }
 
 export interface ChainItem {
@@ -58,8 +59,8 @@ export interface OrientationWorkspace {
     reason?: string;
     git_folder?: string;
     drive_folder?: string;
-    root_business_folder?: string;
-    business_folders?: Record<string, string>;
+    meta_context_folder?: string;
+    root_context_folders?: Record<string, string>;
     duet_data_folder?: string;
     reference_repos?: Record<string, string>;
 }
@@ -138,8 +139,8 @@ export class DuetApiClient {
         return this.postJson('/orientation', { workspace_paths: workspacePaths ?? [] });
     }
 
-    async streams(): Promise<StreamsResponse> {
-        return this.get('/streams');
+    async contexts(): Promise<ContextsResponse> {
+        return this.get('/contexts');
     }
 
     async scan(): Promise<ScanResponse> {

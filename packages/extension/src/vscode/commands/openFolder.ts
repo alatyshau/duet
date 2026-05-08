@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { spawn } from 'child_process';
-import { TreeNode } from '../../core/tree/businessTree';
+import { TreeNode } from '../../core/tree/contextTree';
 import { WorkspaceManager } from '../../core/workspace';
 import { Paths } from '../../core/paths';
 import { readPointer } from '../../core/pointer';
@@ -184,8 +184,8 @@ async function cloneReferenceRepos(
 }
 
 /**
- * Open a node (business/stream/product).
- * For products with git_url: clone if needed, generate workspace, open.
+ * Open a context node.
+ * For git-backed contexts: clone if needed, generate workspace, open.
  * For others: just open the Drive folder.
  */
 async function openNode(
@@ -203,19 +203,19 @@ async function openNode(
     // which is meaningless for filesystem operations.
     if (!path.isAbsolute(node.id)) {
         vscode.window.showErrorMessage(
-            `Cannot open "${node.label}": backend returned relative path. Check settings.json business_folders and reposPath.`
+            `Cannot open "${node.label}": backend returned relative path. Check settings.json root_context_folders and reposPath.`
         );
         return;
     }
 
-    // For products with git_url: handle git clone and workspace
-    if (node.type === 'product' && node.gitUrl) {
-        await openProductWithGit(node, forceNewWindow, paths);
+    // For git-backed contexts: handle git clone and workspace
+    if (node.hasGit && node.gitUrl) {
+        await openContextWithGit(node, forceNewWindow, paths);
         return;
     }
 
-    // For business/stream/product-without-git: clone any reference repos first,
-    // then open the Drive folder. Clone failures or cancellation abort the open
+    // For non-git contexts: clone any reference repos first, then open the
+    // Drive folder. Clone failures or cancellation abort the open
     // (symmetric to the main git_url clone flow).
     if (node.referenceRepos) {
         const ok = await cloneReferenceRepos(node.referenceRepos, paths.reposPath);
@@ -229,10 +229,10 @@ async function openNode(
 }
 
 /**
- * Open a product with git repository.
+ * Open a git-backed context.
  * Clones if needed, generates workspace, opens workspace file.
  */
-async function openProductWithGit(
+async function openContextWithGit(
     node: TreeNode,
     forceNewWindow: boolean,
     paths: Paths
@@ -276,7 +276,7 @@ async function openProductWithGit(
 
     // Generate/update workspace file
     const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
-    const workspacePath = await workspaceManager.writeProductWorkspace(node.label, node.id);
+    const workspacePath = await workspaceManager.writeContextWithGitWorkspace(node.label, node.id);
 
     // Open workspace
     const uri = vscode.Uri.file(workspacePath);

@@ -12,13 +12,13 @@ export interface WorkspaceFile {
 }
 
 /**
- * Generates .code-workspace file content for a product.
+ * Generates .code-workspace file content for a context that has a git repo.
  * Combines git repo (relative) with Drive folder (absolute).
  *
  * @param repoPath - Relative path to git repo from workspaces dir (e.g., "../repos/Duet.git")
- * @param drivePath - Absolute path to product folder on Drive
+ * @param drivePath - Absolute path to context's Drive folder
  */
-export function generateProductWorkspace(repoPath: string, drivePath: string): WorkspaceFile {
+export function generateContextWithGitWorkspace(repoPath: string, drivePath: string): WorkspaceFile {
     return {
         folders: [
             { path: repoPath },
@@ -28,14 +28,14 @@ export function generateProductWorkspace(repoPath: string, drivePath: string): W
 }
 
 /**
- * Generates all-businesses.code-workspace content.
- * Lists all business folders from config, plus DuetData folder.
+ * Generates root-contexts.code-workspace content.
+ * Lists all root context folders, plus DuetData folder.
  *
- * @param businessFolders - Absolute paths to business folders
+ * @param rootContextFolders - Absolute paths to root context folders
  * @param duetDataPath - Absolute path to DuetData directory (added as named folder)
  */
-export function generateAllBusinessesWorkspace(businessFolders: string[], duetDataPath?: string): WorkspaceFile {
-    const folders: WorkspaceFolder[] = businessFolders.map(p => ({ path: p }));
+export function generateRootContextsWorkspace(rootContextFolders: string[], duetDataPath?: string): WorkspaceFile {
+    const folders: WorkspaceFolder[] = rootContextFolders.map(p => ({ path: p }));
     if (duetDataPath) {
         folders.push({ path: duetDataPath, name: 'DuetData' });
     }
@@ -65,39 +65,39 @@ export class WorkspaceManager {
     }
 
     /**
-     * Gets path to product workspace file.
+     * Gets path to workspace file for a context-with-git.
      */
-    getProductWorkspacePath(productName: string): string {
-        return path.join(this.workspacesDir, `${productName}.code-workspace`);
+    getContextWithGitWorkspacePath(contextName: string): string {
+        return path.join(this.workspacesDir, `${contextName}.code-workspace`);
     }
 
     /**
-     * Creates or updates product workspace file.
-     * Returns path to workspace file.
+     * Creates or updates a context-with-git workspace file.
+     * Returns path to the workspace file.
      *
-     * @param productName - Product name (e.g., "Duet")
-     * @param drivePath - Absolute path to product folder on Drive
+     * @param contextName - Context name (e.g., "Duet")
+     * @param drivePath - Absolute path to context's Drive folder
      */
-    async writeProductWorkspace(productName: string, drivePath: string): Promise<string> {
+    async writeContextWithGitWorkspace(contextName: string, drivePath: string): Promise<string> {
         await this.ensureDir();
 
-        const workspacePath = this.getProductWorkspacePath(productName);
+        const workspacePath = this.getContextWithGitWorkspacePath(contextName);
 
         // Relative path from workspaces/ to repos/
-        const repoPath = path.join('..', 'repos', `${productName}.git`);
+        const repoPath = path.join('..', 'repos', `${contextName}.git`);
 
-        const workspace = generateProductWorkspace(repoPath, drivePath);
+        const workspace = generateContextWithGitWorkspace(repoPath, drivePath);
         await this.fs.writeFile(workspacePath, JSON.stringify(workspace, null, 2), 'utf8');
 
         return workspacePath;
     }
 
     /**
-     * Checks if product workspace file exists.
+     * Checks if context-with-git workspace file exists.
      */
-    async productWorkspaceExists(productName: string): Promise<boolean> {
+    async contextWithGitWorkspaceExists(contextName: string): Promise<boolean> {
         try {
-            await this.fs.access(this.getProductWorkspacePath(productName));
+            await this.fs.access(this.getContextWithGitWorkspacePath(contextName));
             return true;
         } catch {
             return false;
@@ -105,13 +105,13 @@ export class WorkspaceManager {
     }
 
     /**
-     * Writes all-businesses.code-workspace file.
+     * Writes root-contexts.code-workspace file.
      *
-     * @param businessFolders - Array of absolute paths to business folders
+     * @param rootContextFolders - Absolute paths to root context folders
      * @param outputPath - Path to write workspace file
      * @param duetDataPath - Absolute path to DuetData directory
      */
-    async writeAllBusinessesWorkspace(businessFolders: string[], outputPath: string, duetDataPath?: string): Promise<void> {
+    async writeRootContextsWorkspace(rootContextFolders: string[], outputPath: string, duetDataPath?: string): Promise<void> {
         const dir = path.dirname(outputPath);
         try {
             await this.fs.access(dir);
@@ -119,7 +119,7 @@ export class WorkspaceManager {
             await this.fs.mkdir(dir, { recursive: true });
         }
 
-        const workspace = generateAllBusinessesWorkspace(businessFolders, duetDataPath);
+        const workspace = generateRootContextsWorkspace(rootContextFolders, duetDataPath);
         await this.fs.writeFile(outputPath, JSON.stringify(workspace, null, 2), 'utf8');
     }
 }

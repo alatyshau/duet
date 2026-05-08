@@ -18,73 +18,43 @@ class EntityFactory:
     """Factory for creating Entity objects with sensible defaults.
 
     Usage:
-        # Simple creation
-        entity = EntityFactory.business("MyBusiness", "/path")
+        # Plain context
+        entity = EntityFactory.context("МетаЛаб", "/path")
 
-        # With custom fields
-        entity = EntityFactory.product("MyProduct", "/path", parent_id=1)
+        # Context with git_url (terminal — product lives in repo)
+        entity = EntityFactory.context("Duet", "/path", git_url="https://...")
+
+        # Meta-context (one per workspace)
+        entity = EntityFactory.context("БАЗА", "/path", meta=True)
 
         # Insert directly into db
-        entity_id = EntityFactory.insert_business(db, "MyBusiness", "/path")
+        entity_id = EntityFactory.insert_context(db, "МетаЛаб", "/path")
     """
 
-    # Default icons for each entity type
-    ICONS = {
-        "business": "🏢",
-        "stream": "🌊",
-        "product": "📦",
-        "component": "📁",
-    }
+    DEFAULT_ICON_CONTEXT = "📁"
+    DEFAULT_ICON_GIT = "📦"
+    DEFAULT_ICON_COMPONENT = "📁"
 
     @classmethod
-    def business(
+    def context(
         cls,
-        name: str = "Business",
-        drive_path: str = "/business",
-        **kwargs
+        name: str = "Context",
+        drive_path: str = "/context",
+        **kwargs,
     ) -> Entity:
-        """Create a business entity."""
-        return Entity(
-            id=kwargs.pop("id", None),
-            type="business",
-            name=name,
-            icon=kwargs.pop("icon", cls.ICONS["business"]),
-            drive_path=drive_path,
-            **kwargs
-        )
+        """Create a context entity.
 
-    @classmethod
-    def stream(
-        cls,
-        name: str = "Stream",
-        drive_path: str = "/stream",
-        **kwargs
-    ) -> Entity:
-        """Create a stream entity."""
+        Pass ``meta=True`` for the meta-context, ``git_url=...`` for a
+        terminal context whose product lives in a git repo.
+        """
+        icon_default = cls.DEFAULT_ICON_GIT if kwargs.get("git_url") else cls.DEFAULT_ICON_CONTEXT
         return Entity(
             id=kwargs.pop("id", None),
-            type="stream",
+            type="context",
             name=name,
-            icon=kwargs.pop("icon", cls.ICONS["stream"]),
+            icon=kwargs.pop("icon", icon_default),
             drive_path=drive_path,
-            **kwargs
-        )
-
-    @classmethod
-    def product(
-        cls,
-        name: str = "Product",
-        drive_path: str = "/product",
-        **kwargs
-    ) -> Entity:
-        """Create a product entity."""
-        return Entity(
-            id=kwargs.pop("id", None),
-            type="product",
-            name=name,
-            icon=kwargs.pop("icon", cls.ICONS["product"]),
-            drive_path=drive_path,
-            **kwargs
+            **kwargs,
         )
 
     @classmethod
@@ -92,51 +62,53 @@ class EntityFactory:
         cls,
         name: str = "Component",
         drive_path: str = "/component",
-        **kwargs
+        **kwargs,
     ) -> Entity:
-        """Create a component entity."""
+        """Create a component entity (used in tests that pre-populate DB)."""
         return Entity(
             id=kwargs.pop("id", None),
-            type="component",
+            type="context",
             name=name,
-            icon=kwargs.pop("icon", cls.ICONS["component"]),
+            icon=kwargs.pop("icon", cls.DEFAULT_ICON_COMPONENT),
             drive_path=drive_path,
-            **kwargs
+            **kwargs,
         )
 
-    # Convenience methods for direct insert
-
     @classmethod
-    def insert_business(cls, db, name: str = "Business", drive_path: str = "/business", **kwargs) -> int:
-        """Create and insert a business entity, return its ID."""
-        return db.insert_entity(cls.business(name, drive_path, **kwargs))
-
-    @classmethod
-    def insert_stream(cls, db, name: str = "Stream", drive_path: str = "/stream", **kwargs) -> int:
-        """Create and insert a stream entity, return its ID."""
-        return db.insert_entity(cls.stream(name, drive_path, **kwargs))
-
-    @classmethod
-    def insert_product(cls, db, name: str = "Product", drive_path: str = "/product", **kwargs) -> int:
-        """Create and insert a product entity, return its ID."""
-        return db.insert_entity(cls.product(name, drive_path, **kwargs))
+    def insert_context(
+        cls,
+        db,
+        name: str = "Context",
+        drive_path: str = "/context",
+        **kwargs,
+    ) -> int:
+        """Create and insert a context entity, return its ID."""
+        return db.insert_entity(cls.context(name, drive_path, **kwargs))
 
     @classmethod
     def insert_hierarchy(cls, db, base_path: str = "/repos") -> dict[str, int]:
-        """Create a standard hierarchy: business -> stream -> product.
+        """Create a standard 3-level context hierarchy.
 
-        Returns dict with entity IDs: {"business": 1, "stream": 2, "product": 3}
+        Top-level (root context) -> intermediate context -> terminal-with-git.
+
+        Returns dict: {"root": id, "mid": id, "product": id}.
         """
-        biz_path = f"{base_path}/business"
-        stream_path = f"{biz_path}/stream"
-        product_path = f"{stream_path}/product"
+        root_path = f"{base_path}/Root"
+        mid_path = f"{root_path}/Mid"
+        product_path = f"{mid_path}/Product"
 
-        biz_id = cls.insert_business(db, "Business", biz_path)
-        stream_id = cls.insert_stream(db, "Stream", stream_path, parent_id=biz_id)
-        product_id = cls.insert_product(db, "Product", product_path, parent_id=stream_id)
+        root_id = cls.insert_context(db, "Root", root_path)
+        mid_id = cls.insert_context(db, "Mid", mid_path, parent_id=root_id)
+        product_id = cls.insert_context(
+            db,
+            "Product",
+            product_path,
+            parent_id=mid_id,
+            git_url="https://example.com/Product.git",
+        )
 
         return {
-            "business": biz_id,
-            "stream": stream_id,
+            "root": root_id,
+            "mid": mid_id,
             "product": product_id,
         }

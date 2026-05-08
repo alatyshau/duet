@@ -1,5 +1,5 @@
 /*
- * Воркспейсы — сканирование бизнес-папок и дерево сущностей.
+ * Воркспейсы — сканирование корневых контекстов и дерево сущностей.
  * Показывает результаты scan (entity tree + ошибки).
  * Список папок настраивается на странице "Duet: пути".
  */
@@ -11,10 +11,11 @@ import type {
   AppState,
   ScanResult,
   ScanError,
-  StreamEntity,
-  StreamsCache
+  ContextEntity,
+  ContextsCache
 } from '../../../../preload/index.d'
 import type { PageStatus } from '../../../../core/wizard-status'
+import { scanResultToPageStatus } from '../../../../core/wizard-status'
 
 interface WorkspacesPageProps {
   appState: AppState
@@ -28,25 +29,25 @@ export function WorkspacesPage({
   const isReady = appState.status === 'ready'
   const [hasFolders, setHasFolders] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
-  const [streamsCache, setStreamsCache] = useState<StreamsCache | null>(null)
+  const [contextsCache, setContextsCache] = useState<ContextsCache | null>(null)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Load cached scan and streams on mount
+  // Load cached scan and contexts on mount
   useEffect(() => {
     if (!window.api) return
     const load = async (): Promise<void> => {
       try {
-        const [folders, cached, streams] = await Promise.all([
-          window.api.getBusinessFolders(),
+        const [folders, cached, contexts] = await Promise.all([
+          window.api.getRootContextFolders(),
           window.api.getCachedScan(),
-          window.api.getCachedStreams()
+          window.api.getCachedContexts()
         ])
         setHasFolders(folders.length > 0)
-        if (streams) setStreamsCache(streams)
+        if (contexts) setContextsCache(contexts)
         if (cached) {
           setScanResult(cached)
-          onStatusChange(cached.errors.length === 0 ? 'ok' : 'error')
+          onStatusChange(scanResultToPageStatus(cached))
         }
       } catch (e) {
         console.error('Failed to load workspaces data:', e)
@@ -60,12 +61,12 @@ export function WorkspacesPage({
   const handleScan = async (): Promise<void> => {
     setScanning(true)
     try {
-      const result = await window.api.scanBusinessFolders()
+      const result = await window.api.scanContexts()
       setScanResult(result)
-      onStatusChange(result.errors.length === 0 ? 'ok' : 'error')
-      // Streams cache is updated by scan -- read fresh
-      const streams = await window.api.getCachedStreams()
-      if (streams) setStreamsCache(streams)
+      onStatusChange(scanResultToPageStatus(result))
+      // Contexts cache is updated by scan -- read fresh
+      const contexts = await window.api.getCachedContexts()
+      if (contexts) setContextsCache(contexts)
     } catch (e) {
       console.error('Scan failed:', e)
     } finally {
@@ -89,7 +90,7 @@ export function WorkspacesPage({
           <Globe size={24} />
           Воркспейсы
         </h2>
-        <p className="text-muted-foreground mt-1">Сканирование бизнес-папок и дерево сущностей</p>
+        <p className="text-muted-foreground mt-1">Сканирование корневых контекстов и дерево сущностей</p>
       </div>
 
       {/* Scan controls */}
@@ -98,7 +99,7 @@ export function WorkspacesPage({
 
         {!hasFolders && (
           <p className="text-sm text-muted-foreground">
-            Бизнес-папки не настроены. Добавьте их на шаге &laquo;Duet: пути&raquo;.
+            Корневые контексты не настроены. Добавьте их на шаге &laquo;Duet: пути&raquo;.
           </p>
         )}
 
@@ -147,10 +148,10 @@ export function WorkspacesPage({
           </div>
 
           {/* Entity tree */}
-          {streamsCache && streamsCache.streams.length > 0 && (
-            <EntityTree entities={streamsCache.streams} />
+          {contextsCache && contextsCache.contexts.length > 0 && (
+            <EntityTree entities={contextsCache.contexts} />
           )}
-          {(!streamsCache || streamsCache.streams.length === 0) && (
+          {(!contextsCache || contextsCache.contexts.length === 0) && (
             <p className="text-sm text-muted-foreground">
               Найдено сущностей: <strong>{scanResult.entities_count}</strong>
             </p>
@@ -176,8 +177,8 @@ export function WorkspacesPage({
 // =============================================================================
 
 /** Build tree from flat entity list using parent_id. */
-function buildTree(entities: StreamEntity[]): Map<string | null, StreamEntity[]> {
-  const children = new Map<string | null, StreamEntity[]>()
+function buildTree(entities: ContextEntity[]): Map<string | null, ContextEntity[]> {
+  const children = new Map<string | null, ContextEntity[]>()
   for (const e of entities) {
     const key = e.parent_id
     const list = children.get(key) ?? []
@@ -187,7 +188,7 @@ function buildTree(entities: StreamEntity[]): Map<string | null, StreamEntity[]>
   return children
 }
 
-function EntityTree({ entities }: { entities: StreamEntity[] }): React.ReactElement {
+function EntityTree({ entities }: { entities: ContextEntity[] }): React.ReactElement {
   const tree = buildTree(entities)
   const roots = tree.get(null) ?? []
 
@@ -208,8 +209,8 @@ function TreeNode({
   tree,
   depth
 }: {
-  entity: StreamEntity
-  tree: Map<string | null, StreamEntity[]>
+  entity: ContextEntity
+  tree: Map<string | null, ContextEntity[]>
   depth: number
 }): React.ReactElement {
   const children = tree.get(entity.id) ?? []

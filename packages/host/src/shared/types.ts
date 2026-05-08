@@ -155,17 +155,23 @@ export interface InstructionsMergeResult {
 }
 
 // =============================================================================
-// BUSINESS FOLDERS (IPC: business-folders:get, business-folders:save, business-folders:scan)
+// ROOT CONTEXTS (IPC: root-contexts:get, root-contexts:save, root-contexts:scan)
 // =============================================================================
 
-/** Entry returned by business-folders:get — raw alias for storage, resolved path for display. */
-export interface BusinessFolderEntry {
-  /** Raw value from settings.json — @alias or absolute path. Use for save/remove. */
+/** Entry returned by root-contexts:get — raw alias for storage, resolved path for display. */
+export interface RootContextEntry {
+  /** Raw value from settings.json — @alias, @alias/subpath, or absolute path. Use for save/remove. */
   raw: string
   /** Resolved absolute path (alias looked up in machine config). Use for display. */
   resolved: string
-  /** Whether this business has root: true in its business.json manifest. */
-  isRoot: boolean
+  /** Whether this context has meta: true in its context.json manifest (e.g. !БАЗА). */
+  isMeta: boolean
+  /**
+   * True iff `raw` references an `@alias` that doesn't exist in this machine's config — folder
+   * cannot be located until the alias is registered. Migration walk skips these (raises a
+   * warning); UI shows a "missing alias" affordance.
+   */
+  unresolved?: boolean
 }
 
 export interface ScanError {
@@ -183,10 +189,10 @@ export interface ScanResult {
 }
 
 // =============================================================================
-// STREAMS (entity tree from DuetData/data/streams.json)
+// CONTEXTS (entity tree from DuetData/data/contexts.json)
 // =============================================================================
 
-export interface StreamEntity {
+export interface ContextEntity {
   id: string
   type: string
   name: string
@@ -195,8 +201,36 @@ export interface StreamEntity {
   absolute_path: string | null
   parent_id: string | null
   git_url: string | null
+  /** True for meta-context (e.g. !БАЗА). Sister node `implement-backend-rename` adds this field. */
+  meta?: boolean
 }
 
-export interface StreamsCache {
-  streams: StreamEntity[]
+export interface ContextsCache {
+  contexts: ContextEntity[]
+}
+
+// =============================================================================
+// SCHEMA MIGRATIONS (IPC: migrations:get-status)
+// =============================================================================
+
+/** Critical migration error — blocks backend spawn. */
+export interface MigrationCriticalError {
+  file: 'pointer' | 'settings' | 'machine'
+  path: string
+  reason_code: 'future_version' | 'invalid_json' | 'read_failed'
+  description: string
+}
+
+/** Per-context migration error — all surface as red on DuetPathsPage; backend skips affected contexts but otherwise starts. */
+export interface MigrationContextError {
+  path: string
+  root_context_path: string
+  reason_code: 'future_version' | 'invalid_json' | 'migration_failed' | 'unresolved_alias'
+  description: string
+}
+
+export interface MigrationResult {
+  critical: MigrationCriticalError | null
+  contextErrors: MigrationContextError[]
+  migratedCount: number
 }

@@ -1,6 +1,6 @@
 """Cross-platform path comparison utilities.
 
-Backend resolves workspace paths against business_folders and repos_path
+Backend resolves workspace paths against root_context_folders and repos_path
 to classify them. The naive `str.startswith(base + "/")` check breaks on
 Windows because `Path.resolve()` returns paths with `\\` separator —
 the hardcoded `/` never matches a real subpath.

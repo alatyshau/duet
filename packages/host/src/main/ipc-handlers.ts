@@ -33,24 +33,24 @@ import {
   isFolderEmpty
 } from '../core/instructions-download'
 import {
-  addBusinessFolder,
-  getResolvedBusinessFolders,
-  saveBusinessFolders,
-  setRootBusiness,
+  addRootContextFolder,
+  getResolvedRootContextFolders,
+  saveRootContextFolders,
   triggerScan,
   readCachedScan,
-  readCachedStreams
-} from '../core/business-folders'
+  readCachedContexts
+} from '../core/root-contexts'
 import type {
   AppState,
-  BusinessFolderEntry,
+  RootContextEntry,
   DeployStatus,
   BackendStatus,
   PythonStatus,
   InstructionsMergeResult,
   InstructionsError,
   ScanResult,
-  StreamsCache
+  ContextsCache,
+  MigrationResult
 } from '../shared/types'
 import type { ChildProcess } from 'child_process'
 
@@ -62,6 +62,10 @@ export interface IpcHandlersContext {
   getAppState: () => AppState
   updateAppState: () => void
   setDeployStatus: (status: DeployStatus) => void
+  /** Запустить полный startup-sweep миграции. Обновляет module-state main/index.ts. */
+  runMigrations: () => Promise<MigrationResult>
+  /** Прочитать кешированный результат последней миграции. */
+  getMigrationStatus: () => MigrationResult
 }
 
 let deployStatus: DeployStatus = { state: 'idle' }
@@ -106,8 +110,22 @@ function monitorBackendProcess(proc: ChildProcess): void {
 /**
  * Запускает бэкенд (используется IPC handler и auto-start).
  * Идемпотентен: если бэкенд уже запущен или запускается, ничего не делает.
+ *
+ * Перед спавном проверяется migration.critical: если settings/machine конфиг невалиден или
+ * future-version — backend не запускается, broadcast'им error со ссылкой на DuetPathsPage.
  */
-export async function ensureBackendRunning(duetDataPath: string): Promise<void> {
+export async function ensureBackendRunning(
+  duetDataPath: string,
+  migrationStatus: MigrationResult
+): Promise<void> {
+  if (migrationStatus.critical) {
+    broadcastBackendStatus({
+      state: 'error',
+      error: migrationStatus.critical.description
+    })
+    return
+  }
+
   // If we already own a running process, just broadcast its status
   if (currentBackendProc) {
     const port = readPort()
@@ -182,9 +200,16 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
   // Сохранить pointer файл (~/.org.ve68.duet) + создать дефолтные конфиги
   // Supports partial saves: missing fields are preserved from current config.
+  //
+  // После любых изменений в pointer'е, влияющих на конфиги (`duetConfigPath`, `machine`),
+  // прогоняем startup-sweep миграции — settings.json и {machine}.json могут оказаться
+  // legacy/future, и backend нельзя запускать без этой проверки.
   ipcMain.handle(
     'config:save-pointer',
-    (_event, config: { duetDataPath?: string; duetConfigPath?: string; machine?: string }) => {
+    async (
+      _event,
+      config: { duetDataPath?: string; duetConfigPath?: string; machine?: string }
+    ) => {
       // Validate machine name before writing anything
       const machine = config.machine?.trim()
       if (machine !== undefined && !isValidMachineName(machine)) {
@@ -202,6 +227,12 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       writeConfig(merged)
       if (merged.duetConfigPath && merged.machine) {
         ensureConfigDefaults(merged.duetConfigPath, merged.machine)
+      }
+      // Re-run migration sweep if config-relevant fields changed (or first set).
+      const configChanged =
+        merged.duetConfigPath !== existing.duetConfigPath || merged.machine !== existing.machine
+      if (configChanged) {
+        await context.runMigrations()
       }
       context.updateAppState()
       return context.getAppState()
@@ -375,7 +406,11 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('backend:start', async () => {
     const state = context.getAppState()
     if (!state.duetDataPath) throw new Error('App not configured')
-    await ensureBackendRunning(state.duetDataPath)
+    const migration = context.getMigrationStatus()
+    if (migration.critical) {
+      throw new Error(`Не могу запустить backend: ${migration.critical.description}`)
+    }
+    await ensureBackendRunning(state.duetDataPath, migration)
   })
 
   ipcMain.handle('backend:stop', async () => {
@@ -423,47 +458,54 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     return readCachedErrors(state.duetDataPath)
   })
 
-  // === Business Folders ===
+  // === Root Contexts ===
 
-  ipcMain.handle('business-folders:get', (): BusinessFolderEntry[] => {
-    return getResolvedBusinessFolders()
+  ipcMain.handle('root-contexts:get', (): RootContextEntry[] => {
+    return getResolvedRootContextFolders()
   })
 
-  ipcMain.handle('business-folders:save', (_event, folders: string[]): void => {
-    saveBusinessFolders(folders)
+  ipcMain.handle('root-contexts:save', async (_event, folders: string[]): Promise<void> => {
+    saveRootContextFolders(folders)
+    // Removing/reordering may clear unresolved-alias warnings; re-sweep so the renderer
+    // and tray see the fresh state. Idempotent on already-v2 files (review issue 6).
+    await context.runMigrations()
+    context.updateAppState()
   })
 
   ipcMain.handle(
-    'business-folders:add',
-    (_event, absolutePath: string): BusinessFolderEntry[] => {
-      return addBusinessFolder(absolutePath)
+    'root-contexts:add',
+    async (_event, absolutePath: string): Promise<RootContextEntry[]> => {
+      const result = addRootContextFolder(absolutePath)
+      // Sweep picks up legacy/future manifests inside the new folder and self-heals an
+      // empty root. Cheap on existing v2 roots. updateAppState pushes the new tray
+      // severity (review issue 6: previously skipped, leaving stale warning state).
+      await context.runMigrations()
+      context.updateAppState()
+      return result
     }
   )
 
-  ipcMain.handle(
-    'business-folders:set-root',
-    (_event, rootIndex: number): BusinessFolderEntry[] => {
-      const folders = getResolvedBusinessFolders()
-      setRootBusiness(folders, rootIndex)
-      return getResolvedBusinessFolders() // re-read with updated isRoot
-    }
-  )
-
-  ipcMain.handle('business-folders:scan', async (): Promise<ScanResult> => {
+  ipcMain.handle('root-contexts:scan', async (): Promise<ScanResult> => {
     const port = readPort()
     return triggerScan(port)
   })
 
-  ipcMain.handle('business-folders:get-cached-scan', (): ScanResult | null => {
+  ipcMain.handle('root-contexts:get-cached-scan', (): ScanResult | null => {
     const state = context.getAppState()
     if (!state.duetDataPath) return null
     return readCachedScan(state.duetDataPath)
   })
 
-  ipcMain.handle('business-folders:get-cached-streams', (): StreamsCache | null => {
+  ipcMain.handle('root-contexts:get-cached-contexts', (): ContextsCache | null => {
     const state = context.getAppState()
     if (!state.duetDataPath) return null
-    return readCachedStreams(state.duetDataPath)
+    return readCachedContexts(state.duetDataPath)
+  })
+
+  // === Schema migrations ===
+
+  ipcMain.handle('migrations:get-status', (): MigrationResult => {
+    return context.getMigrationStatus()
   })
 
   // === Instructions fix ===

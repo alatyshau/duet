@@ -188,7 +188,7 @@ class TestOrientationInstructions:
         """Orientation response includes instructions catalog."""
         builder = DuetDataBuilder(tmp_path)
         builder.with_instructions()
-        builder.add_business("Business")
+        builder.add_root_context("Root")
         builder.add_repo("Product")
         duet_data = builder.build(monkeypatch)
 
@@ -228,12 +228,12 @@ class TestOrientationInstructions:
 class TestMultiPathResolution:
     """Tests for multi-path entity resolution."""
 
-    async def test_multi_path_picks_root_business(self, tmp_path, monkeypatch):
-        """When multiple businesses in paths, root=true business wins."""
+    async def test_multi_path_picks_meta_context(self, tmp_path, monkeypatch):
+        """When multiple contexts in paths, the meta-context wins."""
         builder = DuetDataBuilder(tmp_path)
         builder.with_instructions()
-        builder.add_business("RegularBiz", "RegularBiz")
-        builder.add_business("RootBiz", "RootBiz", root=True)
+        builder.add_root_context("Regular", "Regular")
+        builder.add_root_context("Meta", "Meta", meta=True)
         duet_data = builder.build(monkeypatch)
 
         db = DatabaseManager(duet_data / "data" / "test.db")
@@ -249,72 +249,36 @@ class TestMultiPathResolution:
         app = create_app()
         transport = ASGITransport(app=app)
 
-        regular_path = str(builder.get_business_path(0))
-        root_path = str(builder.get_business_path(1))
+        regular_path = str(builder.get_root_context_path(0))
+        meta_path = str(builder.get_root_context_path(1))
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post("/orientation", json={"workspace_paths": [regular_path, root_path]})
+            response = await client.post(
+                "/orientation",
+                json={"workspace_paths": [regular_path, meta_path]},
+            )
 
         reset_services()
         db.close()
 
         assert response.status_code == 200
         data = response.json()
-        # Root business should win
-        assert data["context"]["chain"][0]["name"] == "RootBiz"
+        # Meta-context should win over regular context
+        assert data["context"]["chain"][0]["name"] == "Meta"
+        assert data["workspace"]["type"] == "context_meta"
 
-    async def test_multi_path_picks_higher_priority_type(self, tmp_path, monkeypatch):
-        """When mixed types in paths, higher priority type wins."""
+
+# === Tests for meta column in DB ===
+
+
+class TestMetaContext:
+    """Tests for `meta` field on context entities."""
+
+    def test_scanner_stores_meta_field(self, tmp_path, monkeypatch):
+        """Scanner reads `meta: true` from `context.json` and stores it in DB."""
         builder = DuetDataBuilder(tmp_path)
         builder.with_instructions()
-        builder.add_business("Business")
-        builder.add_repo("Product")
-        duet_data = builder.build(monkeypatch)
-
-        biz_path = builder.get_business_path(0)
-        product_path = biz_path / "Product"
-        product_path.mkdir()
-        ManifestBuilder.product(product_path, "Product")
-
-        db = DatabaseManager(duet_data / "data" / "test.db")
-        db.init()
-
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
-
-        workspace_service = WorkspaceService(db)
-        entities_service = EntitiesService(db)
-        init_services(workspace_service, entities_service, time.time())
-
-        app = create_app()
-        transport = ASGITransport(app=app)
-
-        biz_path_str = str(biz_path)
-        repo_path = str(builder.get_repo_path("Product"))
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post("/orientation", json={"workspace_paths": [repo_path, biz_path_str]})
-
-        reset_services()
-        db.close()
-
-        assert response.status_code == 200
-        data = response.json()
-        # Business should win over product (higher priority)
-        assert data["context"]["chain"][0]["name"] == "Business"
-        assert data["context"]["chain"][0]["type"] == "business"
-
-
-# === Tests for root column in DB ===
-
-
-class TestRootBusiness:
-    """Tests for root field in entities."""
-
-    def test_scanner_stores_root_field(self, tmp_path, monkeypatch):
-        """Scanner reads root:true from business.json and stores in DB."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.with_instructions()
-        builder.add_business("NormalBiz", "NormalBiz")
-        builder.add_business("RootBiz", "RootBiz", root=True)
+        builder.add_root_context("Plain", "Plain")
+        builder.add_root_context("Meta", "Meta", meta=True)
         duet_data = builder.build(monkeypatch)
 
         db = DatabaseManager(duet_data / "data" / "test.db")
@@ -323,17 +287,17 @@ class TestRootBusiness:
         scanner = Scanner(db, repos_path=builder.get_repos_path())
         scanner.scan()
 
-        normal = db.find_by_name("NormalBiz")
-        assert normal is not None
-        assert normal.root is False
+        plain = db.find_by_name("Plain")
+        assert plain is not None
+        assert plain.meta is False
 
-        root = db.find_by_name("RootBiz")
-        assert root is not None
-        assert root.root is True
+        meta = db.find_by_name("Meta")
+        assert meta is not None
+        assert meta.meta is True
 
-        root_from_db = db.find_root_business()
-        assert root_from_db is not None
-        assert root_from_db.name == "RootBiz"
+        meta_from_db = db.find_meta_context()
+        assert meta_from_db is not None
+        assert meta_from_db.name == "Meta"
 
         db.close()
 

@@ -13,17 +13,20 @@ from watchfiles import Change
 class TestManifestFilter:
     """Tests for ManifestFilter."""
 
-    def test_passes_business_json(self):
+    def test_passes_context_json(self):
         f = ManifestFilter()
-        assert f(Change.modified, "/some/path/business.json") is True
+        assert f(Change.modified, "/some/path/context.json") is True
 
-    def test_passes_stream_json(self):
+    def test_passes_nested_context_json(self):
         f = ManifestFilter()
-        assert f(Change.modified, "/some/path/stream.json") is True
+        assert f(Change.modified, "/root/sub/deep/context.json") is True
 
-    def test_passes_product_json(self):
+    def test_rejects_legacy_business_json(self):
+        """Legacy v1 manifest filenames are not watched in v2."""
         f = ManifestFilter()
-        assert f(Change.modified, "/some/path/product.json") is True
+        assert f(Change.modified, "/some/path/business.json") is False
+        assert f(Change.modified, "/some/path/stream.json") is False
+        assert f(Change.modified, "/some/path/product.json") is False
 
     def test_rejects_other_json(self):
         f = ManifestFilter()
@@ -34,31 +37,25 @@ class TestManifestFilter:
         assert f(Change.modified, "/some/path/README.md") is False
 
     def test_rejects_manifest_name_in_directory(self):
-        """business.json in dir name but file is something else."""
+        """context.json in dir name but file is something else."""
         f = ManifestFilter()
-        assert f(Change.modified, "/business.json/other.txt") is False
-
-    def test_passes_nested_manifest(self):
-        f = ManifestFilter()
-        assert f(Change.modified, "/root/sub/deep/stream.json") is True
+        assert f(Change.modified, "/context.json/other.txt") is False
 
     def test_passes_created_manifest(self):
         f = ManifestFilter()
-        assert f(Change.added, "/some/path/business.json") is True
+        assert f(Change.added, "/some/path/context.json") is True
 
     def test_passes_deleted_manifest(self):
         f = ManifestFilter()
-        assert f(Change.deleted, "/some/path/product.json") is True
+        assert f(Change.deleted, "/some/path/context.json") is True
 
     def test_rejects_manifest_in_git_dir(self):
-        """DefaultFilter exclusion: .git directory."""
         f = ManifestFilter()
-        assert f(Change.modified, "/some/.git/business.json") is False
+        assert f(Change.modified, "/some/.git/context.json") is False
 
     def test_rejects_manifest_in_pycache(self):
-        """DefaultFilter exclusion: __pycache__ directory."""
         f = ManifestFilter()
-        assert f(Change.modified, "/some/__pycache__/stream.json") is False
+        assert f(Change.modified, "/some/__pycache__/context.json") is False
 
 
 class TestManifestWatcher:
@@ -178,7 +175,7 @@ class TestManifestWatcher:
     @pytest.mark.asyncio
     async def test_scan_triggered_on_manifest_change(self, tmp_path: Path):
         """Integration test: manifest change triggers scan callback."""
-        folder = tmp_path / "business"
+        folder = tmp_path / "context"
         folder.mkdir()
 
         scan_count = 0
@@ -194,15 +191,12 @@ class TestManifestWatcher:
         # Give watcher time to initialize
         await asyncio.sleep(0.5)
 
-        # Write a manifest file
-        (folder / "business.json").write_text(
-            json.dumps({"name": "Test", "icon": "📁"}),
+        (folder / "context.json").write_text(
+            json.dumps({"version": 2, "name": "Test", "icon": "📁"}),
             encoding="utf-8",
         )
 
-        # Wait for debounce (watchfiles default debounce ~1.6s, we set 10s)
-        # For test speed, we'll just verify the watcher is running
-        # Full integration with debounce is too slow for unit tests
+        # Full integration with 10s debounce is too slow; just check watcher up.
         assert watcher.is_running
 
         watcher.stop()
@@ -225,11 +219,6 @@ class TestManifestWatcher:
 class TestManifestNames:
     """Verify MANIFEST_NAMES constant."""
 
-    def test_contains_expected(self):
-        assert "business.json" in MANIFEST_NAMES
-        assert "stream.json" in MANIFEST_NAMES
-        assert "product.json" in MANIFEST_NAMES
-
-    def test_no_project_json(self):
-        """project.json was removed — entity type no longer exists."""
-        assert "project.json" not in MANIFEST_NAMES
+    def test_contains_context_json_only(self):
+        """v2 watches `context.json` only; legacy v1 names are not tracked."""
+        assert MANIFEST_NAMES == frozenset({"context.json"})

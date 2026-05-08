@@ -2,7 +2,14 @@ import * as vscode from 'vscode';
 
 /**
  * Provides visual decorations for Duet tree items.
- * Uses custom URI scheme 'duet-tree:/<type>/<entityId>'
+ *
+ * Currently the only callers are `SeparatorItem` instances in
+ * `ContextTreeProvider`, which set `resourceUri = duet-tree:/separator/<index>`.
+ * The provider greys those rows so they read as visual gaps. Real context
+ * nodes (and any `?active` styling) are not wired through this provider —
+ * if/when colour decoration is needed for context nodes, both the call site
+ * (set `resourceUri` on the `TreeItem`) and a new branch here have to be
+ * added together.
  */
 export class TreeDecorationProvider implements vscode.FileDecorationProvider {
     private static readonly scheme = 'duet-tree';
@@ -12,25 +19,9 @@ export class TreeDecorationProvider implements vscode.FileDecorationProvider {
             return undefined;
         }
 
-        // Extract type from path: /business/123 -> business
+        // Extract type from path: /separator/123 -> separator
         const type = uri.path.split('/')[1];
-        const isActive = uri.query === 'active';
 
-        // Active (loaded) nodes — red/orange
-        if (isActive) {
-            return {
-                color: new vscode.ThemeColor('charts.red')
-            };
-        }
-
-        // Business nodes — blue
-        if (type === 'business') {
-            return {
-                color: new vscode.ThemeColor('charts.blue')
-            };
-        }
-
-        // Separator nodes — disabled/gray
         if (type === 'separator') {
             return {
                 color: new vscode.ThemeColor('disabledForeground')

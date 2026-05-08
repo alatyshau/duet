@@ -1,12 +1,12 @@
 /**
  * ContextProvider - TreeDataProvider for the КОНТЕКСТ section
  *
- * Shows the current VS Code window's position in the business hierarchy.
+ * Shows the current VS Code window's position in the context hierarchy.
  * Source: vscode.workspace.workspaceFolders (NOT active editor).
  *
  * Features:
  * - Displays hierarchy as expandable tree (collapsibleState.Expanded)
- * - Merges common ancestors when multiple folders from same business
+ * - Merges common ancestors when multiple folders share a root context
  * - Shows errors/warnings for orphan repos, external folders
  * - Listens to workspace folder changes for live updates
  */
@@ -14,7 +14,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { ContextBreadcrumb, ContextNode } from '../../core/tree/contextBreadcrumb';
-import { StreamEntity } from '../../core/api-client';
+import { ContextEntity } from '../../core/api-client';
 
 /**
  * TreeDataProvider for the КОНТЕКСТ section in sidebar.
@@ -29,9 +29,9 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
     private roots: ContextNode[] = [];
     private disposables: vscode.Disposable[] = [];
 
-    constructor(streams: StreamEntity[], reposPath: string) {
+    constructor(contexts: ContextEntity[], reposPath: string) {
         this.logic = new ContextBreadcrumb({
-            streams,
+            contexts,
             reposPath
         });
 
@@ -50,11 +50,11 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
     }
 
     /**
-     * Update streams data (after scan/refresh).
+     * Update contexts data (after scan/refresh).
      * Replaces dataset, rebuilds tree.
      */
-    updateStreams(streams: StreamEntity[]): void {
-        this.logic.updateStreams(streams);
+    updateContexts(contexts: ContextEntity[]): void {
+        this.logic.updateContexts(contexts);
         this.rebuildTree();
         this._onDidChangeTreeData.fire();
     }
@@ -206,15 +206,22 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
      * Get type label for description (shown on the right).
      */
     private getTypeLabel(node: ContextNode): string | undefined {
-        const labels: Record<string, string> = {
-            'business': 'бизнес',
-            'stream': 'дело',
-            'product': 'продукт',
-            'git': 'git-repo',
-            'external': 'внешняя'
-        };
-
-        return labels[node.type];
+        if (node.type === 'context') {
+            if (node.meta) {
+                return 'мета-контекст';
+            }
+            if (node.hasGit) {
+                return 'контекст [git]';
+            }
+            return 'контекст';
+        }
+        if (node.type === 'git') {
+            return 'git-repo';
+        }
+        if (node.type === 'external') {
+            return 'внешняя';
+        }
+        return undefined;
     }
 }
 
@@ -236,16 +243,16 @@ export async function showContextHelpCommand(node: ContextNode): Promise<void> {
 
     switch (node.errorCode) {
         case 'orphan':
-            message = `Репозиторий "${node.name}" не связан ни с одним продуктом в иерархии.\n\nЧтобы связать, добавьте product.json на Google Drive с таким же именем.`;
+            message = `Репозиторий "${node.name}" не связан ни с одним контекстом в иерархии.\n\nЧтобы связать, добавьте context.json с таким же именем и git_url на Google Drive.`;
             break;
         case 'name_conflict':
-            message = `Имя "${node.name}" уже занято другой сущностью (не продуктом).\n\nПереименуйте папку репозитория или измените имя в манифесте на Drive.`;
+            message = `Имя "${node.name}" уже занято другим контекстом без git-репозитория.\n\nПереименуйте папку репозитория или измените имя в манифесте на Drive.`;
             break;
         case 'outside_repos':
             message = `Репозиторий находится вне папки DuetData/repos/.\n\nПереместите его в ~/DuetData/repos/ для корректной работы.`;
             break;
         case 'outside_hierarchy':
-            message = `Папка не входит в бизнес-иерархию.\n\nДобавьте бизнес-папку через кнопку ➕ в секции ДЕЛА.`;
+            message = `Папка не входит в иерархию контекстов.\n\nДобавьте корневой контекст через кнопку ➕ в секции ДЕЛА.`;
             break;
         default:
             message = `Неизвестная ошибка для "${node.name}"`;

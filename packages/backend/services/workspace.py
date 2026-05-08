@@ -1,6 +1,6 @@
 """Workspace orientation service.
 
-Provides workspace context for AI agents and extension.
+Provides workspace context for AI agents and the extension.
 """
 
 import logging
@@ -8,48 +8,45 @@ import re
 from pathlib import Path
 
 from config import (
-    get_business_folders,
     get_duet_data_path,
     get_instructions_path,
     get_machine_config_path,
     get_repos_path,
+    get_root_context_folders,
 )
 from db import DatabaseManager, Entity
 from description import extract_description, find_spec_file
 from normalization import normalize_path
 from paths import is_path_inside
 from scanner import scan_components
-from services.manifest import read_reference_repos as _read_manifest_reference_repos
+from services.manifest import (
+    Manifest,
+    read_manifest,
+    read_reference_repos as _read_manifest_reference_repos,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# Topology strings per workspace type
+# Topology strings per workspace.type value.
 _TOPOLOGIES = {
-    "product_in_git": (
-        "Product with git repo. git_folder is the cloned repository — versioned product content. "
-        "drive_folder is the accompanying folder on Google Drive — management, work/, drafts/, "
-        "binaries, and other non-versioned files. "
-        "These are two separate locations on disk."
+    "context_meta": (
+        "Meta-context — top-level system workspace covering everything. "
+        "meta_context_folder is the default folder for paths. "
+        "root_context_folders lists every root context (top-level user contexts) "
+        "— your starting points for navigation. duet_data_folder contains repos, "
+        "instructions, and local data."
     ),
-    "product_on_drive": (
-        "Product without git repo. drive_folder contains everything — product content, "
-        "management, work/, drafts/, binaries. "
-        "All paths are within this single folder."
+    "context_with_products_in_git": (
+        "Context whose products live in a git repository. git_folder is the "
+        "cloned repo (developed inside the context). drive_folder is the "
+        "accompanying Google Drive folder — management, work/, drafts/, "
+        "binaries, and other non-versioned files. Two separate locations on disk."
     ),
-    "stream": (
-        "Stream folder on Google Drive. drive_folder contains stream.json, work/, "
-        "nested streams or products, and any stream-level resources (documents, notes, assets)."
-    ),
-    "business": (
-        "Business folder on Google Drive. drive_folder contains business.json, work/, "
-        "nested streams or products, and any business-level resources (documents, notes, assets)."
-    ),
-    "root_business": (
-        "Multi-root workspace for cross-business work. root_business_folder is the default folder "
-        "for paths. business_folders lists all business folders (root_business_folder is one of them) "
-        "— your starting points for navigation. duet_data_folder contains repos, instructions, "
-        "and local data."
+    "context": (
+        "Context folder on Google Drive. drive_folder contains context.json, "
+        "work/ (sagas), nested contexts, and any context-level resources "
+        "(products, documents, notes, assets)."
     ),
 }
 
@@ -74,11 +71,11 @@ class WorkspaceService:
            - Extract repo folder name (first segment after repos/)
            - Strip .wt-* suffix, ensure .git suffix
            - find_by_name(name) -> product_repo/reference_repo entity
-           - Navigate to parent (the product/stream/business that owns it)
+           - Navigate to parent (the context that owns it)
 
         2. Otherwise (Google Drive path):
-           - Find which business_folder is a prefix of the path
-           - Strip business_folder prefix -> relative_path
+           - Find which root context folder is a prefix of the path
+           - Strip prefix -> relative_path
            - Normalize slashes -> /
            - find_closest_entity(relative_path) -> entity
         """
@@ -106,18 +103,15 @@ class WorkspaceService:
                 return None
 
             repo_folder = parts[0]
-            # Strip worktree suffix, ensure .git suffix for DB lookup
             repo_name = re.sub(r"\.wt-[^/]*$", "", repo_folder)
             if not repo_name.endswith(".git"):
                 repo_name = repo_name + ".git"
 
-            # Direct DB lookup by repo entity name
             repo_entity = self.db.find_by_name(repo_name)
             if not repo_entity:
                 return None
 
             if repo_entity.type in ("product_repo", "reference_repo"):
-                # Navigate to parent entity (product/stream/business)
                 if repo_entity.parent_id:
                     return self.db.get_entity(repo_entity.parent_id)
                 return None
@@ -127,27 +121,21 @@ class WorkspaceService:
             return None
 
     def _resolve_from_drive(self, path_str: str) -> Entity | None:
-        """Resolve entity from Google Drive path.
-
-        Finds which business_folder is a prefix, strips it,
-        and searches for closest entity by relative path.
-        """
-        business_folders = get_business_folders()
-
+        """Resolve entity from Google Drive path."""
         path = Path(path_str)
-        for folder in business_folders:
+        for folder in get_root_context_folders():
             folder_path = Path(folder).resolve()
 
             if is_path_inside(path, folder_path):
                 try:
-                    business_name = folder_path.name
+                    root_name = folder_path.name
                     relative = path.relative_to(folder_path)
                     relative_str = str(relative).replace("\\", "/")
 
                     if relative_str == ".":
-                        full_relative = business_name
+                        full_relative = root_name
                     else:
-                        full_relative = f"{business_name}/{relative_str}"
+                        full_relative = f"{root_name}/{relative_str}"
 
                     return self.db.find_closest_entity(full_relative)
                 except ValueError:
@@ -156,7 +144,7 @@ class WorkspaceService:
         return None
 
     def _is_path_in_hierarchy(self, workspace_path: str) -> bool:
-        """Check if path is in repos/ or any business_folder."""
+        """Check if path is in repos/ or any root context folder."""
         workspace_path = normalize_path(workspace_path)
         path = Path(workspace_path).resolve()
 
@@ -164,7 +152,7 @@ class WorkspaceService:
         if repos_path and is_path_inside(path, repos_path.resolve()):
             return True
 
-        for folder in get_business_folders():
+        for folder in get_root_context_folders():
             if is_path_inside(path, Path(folder).resolve()):
                 return True
 
@@ -176,16 +164,15 @@ class WorkspaceService:
         """Resolve entity's drive_path to absolute filesystem path.
 
         Invariant: entity.drive_path is stored with `/` separator regardless
-        of host OS — Scanner normalizes via `replace("\\", "/")` (see
-        scanner._to_relative_path). Splitting on `/` here is therefore safe
-        on Windows. Do NOT pass raw OS paths into this string field.
+        of host OS — Scanner normalizes via `replace("\\", "/")`. Splitting
+        on `/` here is therefore safe on Windows.
         """
         if not entity.drive_path:
             return None
 
         first_segment = entity.drive_path.split("/")[0]
 
-        for folder in get_business_folders():
+        for folder in get_root_context_folders():
             folder_path = Path(folder)
             if normalize_path(folder_path.name) == first_segment:
                 return folder_path.parent / entity.drive_path
@@ -195,10 +182,10 @@ class WorkspaceService:
     def _get_entity_root_path(self, entity: Entity) -> Path | None:
         """Get absolute filesystem path for entity root.
 
-        Product with git_url -> repos/{name}.git
+        Context with `git_url` -> repos/{name}.git when present.
         Everything else -> resolved drive path.
         """
-        if entity.type == "product" and entity.git_url:
+        if entity.type == "context" and entity.git_url:
             repos_path = get_repos_path()
             if repos_path:
                 repo_path = repos_path / f"{entity.name}.git"
@@ -220,9 +207,9 @@ class WorkspaceService:
         if drive_path and drive_path.exists():
             return drive_path
 
-        business_folders = get_business_folders()
-        if business_folders and entity.drive_path:
-            for folder in business_folders:
+        root_folders = get_root_context_folders()
+        if root_folders and entity.drive_path:
+            for folder in root_folders:
                 full_path = Path(folder) / entity.drive_path
                 if full_path.exists():
                     return full_path
@@ -242,16 +229,24 @@ class WorkspaceService:
             entity = self._resolve_from_repos(path, repos_path)
             return ("git", entity)
 
-        manifest_names = ["business.json", "stream.json", "product.json"]
-        for manifest_name in manifest_names:
-            if (path / manifest_name).exists():
-                entity = self._resolve_from_drive(path_s)
-                return ("stream", entity)
+        if (path / "context.json").exists():
+            entity = self._resolve_from_drive(path_s)
+            return ("context", entity)
 
         return ("ignored", None)
 
     def _resolve_multi_path(self, workspace_paths: list[str]) -> Entity | None:
-        """Resolve best entity from multiple workspace paths."""
+        """Resolve best entity from multiple workspace paths.
+
+        Rule: if the meta-context (the user's top-level container) is among the resolved
+        entities — it wins; otherwise return the first resolved context.
+
+        First-come fallback also covers the case where the DB temporarily has no entity
+        with ``meta=true`` (e.g. between a Host meta-flag write and the next backend
+        scan, or when the user has manually edited a manifest). Host owns the invariant
+        — its startup/save sweep restores ``meta`` on the first folder — so Backend just
+        picks the first resolved entity and lets Host fix the source of truth.
+        """
         entities: list[Entity] = []
         for path_str in workspace_paths:
             _, entity = self._classify_path(path_str)
@@ -261,27 +256,20 @@ class WorkspaceService:
         if not entities:
             return None
 
-        root_business = self.db.find_root_business()
-        if root_business and root_business.id:
+        meta_context = self.db.find_meta_context()
+        if meta_context and meta_context.id:
             for e in entities:
-                if e.id == root_business.id:
+                if e.id == meta_context.id:
                     return e
 
-        type_priority = {"business": 1, "stream": 2, "product": 3}
-        entities.sort(key=lambda e: type_priority.get(e.type, 99))
         return entities[0]
 
-    # === Orientation response (formerly workspace_info v3) ===
+    # === Orientation response ===
 
     def get_orientation(
         self, workspace_path: str | None = None, workspace_paths: list[str] | None = None
     ) -> dict:
-        """Get full workspace orientation for AI agents.
-
-        Returns:
-            Dict with duet_paths, workspace, context,
-            key_files, components.
-        """
+        """Get full workspace orientation for AI agents."""
         duet_data = get_duet_data_path()
 
         # instructionsPath required — without it bootstrapper is not merged,
@@ -296,14 +284,12 @@ class WorkspaceService:
             },
         }
 
-        # Determine paths to use
         paths = workspace_paths or ([workspace_path] if workspace_path else [])
 
         if not paths:
             result["workspace"] = self._build_unknown_workspace("no_workspace_path", paths)
             return result
 
-        # Resolve entity
         if len(paths) > 1:
             entity = self._resolve_multi_path(paths)
         else:
@@ -320,19 +306,19 @@ class WorkspaceService:
         # --- Entity resolved ---
         chain = self.db.get_entity_chain(entity.id)
 
-        # context
         result["context"] = self._build_context(chain)
-
-        # workspace
         result["workspace"] = self._build_workspace(entity)
 
-        # key_files
         key_files = self._build_key_files(entity)
         if key_files:
             result["key_files"] = key_files
 
-        # components (if product in chain)
-        product = next((e for e in chain if e.type == "product"), None)
+        # `components` block is meaningful only when the resolved chain ends
+        # at a context with git_url (a product lives there).
+        product = next(
+            (e for e in chain if e.type == "context" and e.git_url),
+            None,
+        )
         if product:
             product_path = self._get_product_path(product)
             result["components"] = scan_components(product_path)
@@ -345,9 +331,9 @@ class WorkspaceService:
             topology = "No workspace paths provided."
         else:
             if len(paths) == 1:
-                topology = "The folder open in the workspace is outside of Duet business folders."
+                topology = "The folder open in the workspace is outside of Duet root context folders."
             else:
-                topology = "The folders open in the workspace are outside of Duet business folders."
+                topology = "The folders open in the workspace are outside of Duet root context folders."
 
         return {
             "type": "unknown",
@@ -377,8 +363,7 @@ class WorkspaceService:
 
         workspace: dict = {"type": ws_type}
 
-        # Type-specific attributes
-        if ws_type == "product_in_git":
+        if ws_type == "context_with_products_in_git":
             repos_path = get_repos_path()
             git_folder = repos_path / f"{entity.name}.git" if repos_path else None
             drive_folder = self._resolve_drive_path(entity)
@@ -387,31 +372,29 @@ class WorkspaceService:
             if drive_folder:
                 workspace["drive_folder"] = str(drive_folder)
 
-        elif ws_type == "product_on_drive":
+        elif ws_type == "context_meta":
             drive_folder = self._resolve_drive_path(entity)
             if drive_folder:
-                workspace["drive_folder"] = str(drive_folder)
-
-        elif ws_type == "root_business":
-            drive_folder = self._resolve_drive_path(entity)
-            if drive_folder:
-                workspace["root_business_folder"] = str(drive_folder)
-            # Build business_folders map: name -> path
-            all_businesses = [e for e in self.db.get_all_entities() if e.type == "business"]
-            business_folders_map: dict[str, str] = {}
-            for biz in all_businesses:
-                biz_path = self._resolve_drive_path(biz)
-                if biz_path:
-                    business_folders_map[biz.name] = str(biz_path)
-            workspace["business_folders"] = business_folders_map
+                workspace["meta_context_folder"] = str(drive_folder)
+            # Build root_context_folders map: name -> path. All top-level
+            # contexts (parent_id IS NULL) qualify, including the meta one.
+            root_contexts = [
+                e for e in self.db.get_all_entities()
+                if e.type == "context" and e.parent_id is None
+            ]
+            root_context_folders_map: dict[str, str] = {}
+            for ctx in root_contexts:
+                ctx_path = self._resolve_drive_path(ctx)
+                if ctx_path:
+                    root_context_folders_map[ctx.name] = str(ctx_path)
+            workspace["root_context_folders"] = root_context_folders_map
             workspace["duet_data_folder"] = str(get_duet_data_path().resolve())
 
-        elif ws_type in ("business", "stream"):
+        elif ws_type == "context":
             drive_folder = self._resolve_drive_path(entity)
             if drive_folder:
                 workspace["drive_folder"] = str(drive_folder)
 
-        # Reference repos from manifest (read from disk for freshness)
         ref_repos = self._read_reference_repos(entity)
         if ref_repos:
             workspace["reference_repos"] = ref_repos
@@ -426,8 +409,11 @@ class WorkspaceService:
 
         Returns map of {name.git: absolute_path} for existing clones.
         """
+        if entity.type != "context":
+            return None
+
         drive_path = self._resolve_drive_path(entity)
-        ref_repos_raw = _read_manifest_reference_repos(drive_path, entity.type)
+        ref_repos_raw = _read_manifest_reference_repos(drive_path)
         if not ref_repos_raw:
             return None
 
@@ -444,6 +430,14 @@ class WorkspaceService:
 
         return result if result else None
 
+    def _spec_lookup_category(self, entity: Entity) -> str:
+        """Map an entity to its spec-file fallback chain key."""
+        if entity.type == "context" and entity.git_url:
+            return "context_with_git"
+        if entity.type == "context":
+            return "context"
+        return "component"
+
     def _build_key_files(self, entity: Entity) -> dict | None:
         """Build key_files block for the resolved entity."""
         root_path = self._get_entity_root_path(entity)
@@ -452,7 +446,7 @@ class WorkspaceService:
 
         key_files: dict = {}
 
-        spec_path = find_spec_file(root_path, entity.type)
+        spec_path = find_spec_file(root_path, self._spec_lookup_category(entity))
         if spec_path:
             key_files["spec"] = str(spec_path)
 
@@ -464,23 +458,36 @@ class WorkspaceService:
 
     def _get_workspace_type(self, entity: Entity) -> str:
         """Determine workspace type from entity."""
-        if entity.type == "product":
-            if entity.git_url:
-                return "product_in_git"
-            return "product_on_drive"
-        elif entity.type == "stream":
-            return "stream"
-        elif entity.type == "business":
-            if entity.root:
-                return "root_business"
-            return "business"
-        return "unknown"
+        if entity.type != "context":
+            return "unknown"
+        if entity.meta:
+            return "context_meta"
+        if entity.git_url:
+            return "context_with_products_in_git"
+        return "context"
 
     def _get_entity_description(self, entity: Entity) -> str | None:
-        """Get description for entity from its README.md."""
+        """Get description for entity.
+
+        Priority: manifest's `description` field > first sentence of README.md.
+        """
         entity_path = self._get_entity_root_path(entity)
         if entity_path is None:
             return None
 
+        if entity.type == "context":
+            manifest = self._read_manifest_for(entity, entity_path)
+            if manifest and manifest.description:
+                return manifest.description.strip() or None
+
         readme_path = entity_path / "README.md"
         return extract_description(readme_path)
+
+    def _read_manifest_for(self, entity: Entity, entity_path: Path) -> Manifest | None:
+        """Read context manifest for an entity. Drive folder takes precedence
+        over the git_folder fallback, since `context.json` lives next to the
+        Drive folder, not inside the git repo."""
+        drive_path = self._resolve_drive_path(entity)
+        if drive_path and drive_path.exists():
+            return read_manifest(drive_path)
+        return read_manifest(entity_path)

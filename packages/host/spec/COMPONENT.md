@@ -58,7 +58,7 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 | Layer | Responsibility | Files |
 |-------|----------------|-------|
 | `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
-| `core/` | Config, app state, deploy, backend, AI clients, instructions, instructions download, business folders, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `instructions-download.ts`, `business-folders.ts`, `wizard-status.ts`, `apps.ts` |
+| `core/` | Config, app state, deploy, backend, AI clients, instructions, instructions download, root contexts, schema migrations, atomic JSON IO, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `instructions-download.ts`, `root-contexts.ts`, `schema-migrations.ts`, `json-io.ts`, `wizard-status.ts`, `apps.ts` |
 | `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
 | `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
 | `preload/` | Bridge main <-> renderer | `index.ts`, `index.d.ts` |
@@ -162,7 +162,7 @@ Host is the single owner of backend process lifecycle (start, stop, health monit
 
 **Auto-start on startup:** When `status === 'ready'` and VERSION file exists (`readDeployedVersion() !== null`) -> `ensureBackendRunning()`. Deploy warnings (channel mismatch, stale version) do NOT block auto-start — backend is functional with warnings.
 
-**Auto-scan on startup:** After backend auto-start succeeds, if `business_folders` is non-empty and `readCachedScan()` returns `null` (scan never ran) -> `triggerScan(port)`. Populates sidebar status for step 5 without manual visit.
+**Auto-scan on startup:** After backend auto-start succeeds, if `root_context_folders` is non-empty and `readCachedScan()` returns `null` (scan never ran) -> `triggerScan(port)`. Populates sidebar status for step 5 without manual visit.
 
 **Auto-merge instructions on startup:** After backend auto-start and auto-scan, if `instructionsPath` is configured and `readCachedErrors()` returns `null` (merge never ran) -> `triggerMerge()` -> `configureAllAgents()` on success. Both auto-scan and auto-merge finish with a single `updateAppState()` call.
 
@@ -234,27 +234,99 @@ Does NOT set `instructionsPath` — that's the caller's responsibility (renderer
 
 Implementation: `core/instructions-download.ts`
 
-## Business Folders
+## Root Contexts
 
-Manages business folder configuration (stored in `DuetConfig/settings.json`).
+Manages root-context folder configuration (stored in `DuetConfig/settings.json` under
+`root_context_folders`). A root context is a top-level folder in the user's bounded-context tree;
+zero or one of them may be marked `meta: true` in its `context.json` (e.g. `!БАЗА`).
 
 **Operations:**
-- `getBusinessFolders()` — read raw `business_folders` (list of `@aliases`) from `settings.json`
-- `getResolvedBusinessFolders()` — same, but each entry is `{raw, resolved, isRoot}` (resolves `@alias` via `{machine}.json` and reads `business.json/root` flag for each folder)
-- `addBusinessFolder(absolutePath)` — alias-aware add. Validates pointer (`duetConfigPath`, valid `machine`) and throws if missing. Creates `@<basename>` alias in `{machine}.json` (suffix `_2`, `_3` on collision; reuses if path already aliased). Appends alias to `business_folders` in `settings.json`. Maintains "exactly one root" invariant: if no folder is root after add, promotes position 0.
-- `saveBusinessFolders(folders)` — overwrite full `business_folders` array (used by reorder/remove). Throws if `settings.json` missing or invalid (no silent recreate that would lose `timestampTZ`).
-- `setRootBusiness(folders, rootIndex)` — toggle `root: true` on chosen folder, remove from others. Self-heals: creates `business.json` (with `{name: basename(folder), icon: '📁'}`) if missing, mirroring backend's scanner self-healing. Throws on invalid existing JSON (refuses to overwrite user data silently).
+- `getRootContextFolders()` — read raw `root_context_folders` (list of `@aliases`) from `settings.json`
+- `getResolvedRootContextFolders()` — same, but each entry is `{raw, resolved, isMeta}` (resolves `@alias` via `{machine}.json` and reads `context.json/meta` flag for each folder)
+- `addRootContextFolder(absolutePath)` — alias-aware add. Validates pointer (`duetConfigPath`, valid `machine`) and throws if missing. Creates `@<basename>` alias in `{machine}.json` (suffix `_2`, `_3` on collision; reuses if path already aliased). Appends alias to `root_context_folders` in `settings.json`. Calls `enforceMetaInvariant` after the append — when the list was empty, the new folder becomes meta automatically; otherwise the existing first stays meta. The IPC handler runs a scoped schema-migration sweep on the new folder to upgrade legacy `business.json/stream.json/product.json` and self-heal a missing manifest.
+- `resolveAliasPath(raw, machineConfig)` — resolves a `root_context_folders` entry: passes absolute paths through; looks up bare `@alias`; for `@alias/sub/path` splits, resolves alias, and joins the rest via `path.join`. Returns `null` when alias is missing — caller is responsible for surfacing as warning (see `getResolvedRootContextFolders` `unresolved: true`).
+- `saveRootContextFolders(folders)` — overwrite full `root_context_folders` array (used by reorder/remove). Throws if `settings.json` missing or invalid (no silent recreate that would lose `timestampTZ`). Calls `enforceMetaInvariant` afterwards so drag-to-position-0 and removing the current meta both atomically swap the meta flag on disk.
+- `enforceMetaInvariant(folders)` — restores the invariant «position 0 = meta-context». Idempotent on already-correct state. Tolerant: folders whose `context.json` is unparseable are skipped (the migration sweep already surfaces them as per-context errors). For atomicity when two manifests need to flip simultaneously, the function stages both `.tmp` files first and then renames in sequence; on a rename failure, earlier renames are rolled back from a backup of the previous content, so the disk never settles with «two metas» or «no metas» between successful invocations.
 - `normalizePath(p)` — NFC + strip trailing separators. Cross-platform: NFC fixes macOS NFD from native dialogs, on Windows is a no-op (NTFS already NFC). All path comparisons (alias reuse, dedup) and stored paths in `{machine}.json` go through this helper.
 - `triggerScan(port)` — calls Backend `POST /scan`, returns `ScanResult` with errors
 - `readCachedScan(duetDataPath)` — reads cached `DuetData/data/scan.json`. Used by main process for wizard status without IPC.
-- `readCachedStreams(duetDataPath)` — reads entity tree from `DuetData/data/streams.json`. Returns `StreamsCache` with flat entity list (build tree via `parent_id`).
+- `readCachedContexts(duetDataPath)` — reads entity tree from `DuetData/data/contexts.json`. Returns `ContextsCache` with flat entity list (build tree via `parent_id`).
 
-**Invariants:**
-- `business_folders` in `settings.json` always contains `@aliases` (never absolute paths) — required for cross-machine sync via Drive.
-- If ≥1 business folder configured, exactly one has `root: true` in its `business.json`. By convention, position 0 is root: drag-to-position-0 and remove-of-root in UI re-set root via `setRootBusiness(0)`; first-folder add auto-promotes.
+**Meta required (invariant):** When `root_context_folders` is non-empty, the context at position 0 has `meta: true` in its `context.json`, and no other listed context does. Semantically the meta-context is the **management layer above other contexts** — a single container for the user's top-level data spanning every domain context (personal task DB, ontology, AI instructions). Three mechanisms maintain the invariant:
+1. `addRootContextFolder` — adding the first folder auto-promotes it to meta. Adding to a non-empty list keeps the existing first as meta.
+2. `saveRootContextFolders` — after reorder, drag-to-position-0 swaps meta to the new first; after delete of the current meta, the new first inherits meta.
+3. Startup migration — `runMigrationsNow` calls `enforceMetaInvariant` after the manifest walk, so manual edits to `settings.json` or `context.json` files are normalised on the next Host start. Skipped when per-context errors are present (the user fixes those first).
+
+Drag-to-position-0 is the only UX mechanism for switching meta. The crown icon on `DuetPathsPage` is a read-only indicator of position 0 — not toggleable, no click handler, no `root-contexts:set-meta` IPC. Direct re-meta would create rule-bypass paths that disagreed with the saved order.
+
+**Other invariants:**
+- `root_context_folders` in `settings.json` always contains `@aliases` (never absolute paths) — required for cross-machine sync via Drive.
 - All path comparisons go through `normalizePath` so NFC/NFD and trailing-separator differences never produce false-distinct paths.
 
-Implementation: `core/business-folders.ts`
+Implementation: `core/root-contexts.ts`
+
+## Schema Migrations
+
+Host owns auto-upgrade of all on-disk Duet schemas (settings.json, `{machine}.json`, context manifests).
+Backend is a strict v2 reader — it never mutates files, never migrates. See unification design §6.
+
+**Module:** `core/schema-migrations.ts`. No Electron imports — testable with plain Node.
+
+**Schema specs:**
+| Schema | File(s) | v1 → v2 transform |
+|--------|---------|-------------------|
+| `settings` | `settings.json` | rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved. |
+| `machine` | `{machine}.json` | add `version: 2`. No field renames. |
+| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. |
+
+**Triggers:**
+1. **Host startup** — full sweep before backend spawn. Order: settings → machine → manifests under each root context. If settings or machine produces a critical error, the manifest walk is skipped and backend does not spawn.
+2. **`config:save-pointer`** with `duetConfigPath` or `machine` change → full sweep (settings/machine of new path may be legacy or future-version).
+3. **`root-contexts:add`** → full sweep (idempotent on already-v2 settings/machine; manifest walk picks up legacy/future files inside the new folder, self-heals on empty folder).
+4. **DuetConfig file watcher** — `main/index.ts` watches `duetConfigPath` for changes to `settings.json` and `{machine}.json` (debounce 500ms). On any change, runs the full sweep so a runtime corruption (user edit, Drive sync overwrite) escalates to the same critical-banner mechanism that protects startup, without rewriting the many `readConfig` callers.
+
+**Critical gate:** `MigrationResult.critical` is non-null iff the pointer file, `settings.json`, or `{machine}.json` is corrupted (`invalid_json`/`read_failed`) or future-version (`version > MAX_SUPPORTED`). While critical:
+- `ensureBackendRunning` refuses to start the backend, broadcasts `BackendStatus { state: 'error', error: <description> }`.
+- `backend:start` IPC throws.
+- DuetPathsPage renders a blocking error banner with the file path. Title and recovery hint branch on `reason_code` and `file`: "Update Duet" for `future_version`; "Restore from backup or delete" for `invalid_json` on the pointer; "Repair manually" for `invalid_json` on settings/machine.
+- Auto-start on whenReady is skipped.
+
+**Per-context errors:** all rendered red on DuetPathsPage — every per-context code marks data corruption (the affected context is unreachable until the user repairs it). Backend still spawns; the offending context's manifest is silently ignored by Backend (`unrecognized_manifest_version` log entry). All reason codes share severity `error`:
+
+| reason_code | Meaning |
+|-------------|---------|
+| `future_version` | `context.json` is `version > MAX_SUPPORTED`. Backend will skip this context. |
+| `invalid_json` | `context.json` is broken JSON or has missing/non-int `version`. File untouched. |
+| `migration_failed` | Legacy → v2 migration could not complete (rare; usually IO error mid-write). |
+| `unresolved_alias` | `root_context_folders` entry references an `@alias` that's not registered in this machine's `{machine}.json` — folder cannot be located. |
+
+**Atomic write:** `atomicWriteJson(path, data)` (in `core/json-io.ts`) writes `{path}.tmp` then `rename()`. On POSIX `rename(2)` is atomic on the same filesystem; a crash mid-write leaves either the original file or the new one — never a half-written file. For legacy → context migration the order is: write `context.json` → delete legacy. A crash between leaves both files; orphan resolution on the next sweep handles them.
+
+**All Host-owned JSON writes go through `atomicWriteJson`:** pointer file (`writeConfig`), settings.json (`setSettingsConfigKey`, `ensureConfigDefaults`), `{machine}.json` (`setMachineConfigKey`, `ensureConfigDefaults`), context manifests (migration + self-heal). `enforceMetaInvariant` adds a two-phase commit on top — both manifests are staged as `.tmp` first, then renamed in sequence with rollback-on-failure — to keep the meta-required invariant from observably breaking mid-swap. Same crash-safety contract whether the write originates in startup migration, a wizard click, or the runtime config watcher.
+
+**Pointer integrity:** `readPointerStrict()` distinguishes `missing` (legitimate first-run) from `invalid_json` / `read_failed` (recoverable corruption). Startup migration calls it before `readConfig()`'s graceful `{}` fallback would mask a corrupt pointer as no-config. A corrupt pointer surfaces as a `MigrationCriticalError { file: 'pointer' }` and blocks backend spawn until the user either restores the file or deletes it (then onboarding proceeds clean).
+
+**Orphan resolution (context.json + legacy file coexist):** `context.json` wins, the legacy is removed without comparison (design §7). The earlier equivalence-aware variant (rename to `<name>.legacy-conflict.json` + warning) was overengineering for a single-machine install — the multi-machine Drive-sync race it protected against isn't a scenario Duet ships for today. Decision recorded in `stabilize-taxonomy-migration` (rename-taxonomy saga).
+
+**Recursion rules** (mirror backend scanner):
+- Skip directories starting with `.` (`.git`, `.venv`, etc.).
+- Stop recursion at folders with `git_url` in their manifest (terminal context).
+
+**Forward-incompatibility handling:** A future Duet version that bumps schema to v3 leaves the v2-aware Host with `version > MAX_SUPPORTED`:
+- Settings/machine → critical → backend blocked → user updates Duet.
+- Context manifest → per-context warning → backend skips that context only.
+
+**No rollback:** First Host startup on an upgraded machine rewrites every legacy manifest in place. Original filename (`business/stream/product.json`) cannot be reconstructed from a v2 file. A pre-upgrade backup is recommended for users with significant data; Host does not back up automatically.
+
+**Multi-machine sync caveat:** Drive sync between an upgraded and not-yet-upgraded machine briefly produces files at higher version on the older machine. Forward-incompatibility handling above keeps both machines safe (no corruption, no infinite loops); the older machine just shows error UI until updated.
+
+**IPC:**
+| Channel | Direction | Purpose |
+|---------|-----------|---------|
+| `migrations:get-status` | renderer → main | Get cached `MigrationResult` from last sweep |
+| `migrations:status-changed` | main → renderer | Pushed after each sweep (startup + scoped triggers) |
+
+Implementation: `core/schema-migrations.ts`, wired in `main/index.ts:runMigrationsNow` and `main/ipc-handlers.ts`.
 
 ## IPC Channels
 
@@ -287,17 +359,18 @@ Implementation: `core/business-folders.ts`
 | `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
 | `instructions:download-template` | renderer -> main | Download Duet-Instructions zip from GitHub, extract to targetFolder |
 | `instructions:is-folder-empty` | renderer -> main | Check if folder is empty (ignoring system files) |
-| `business-folders:get` | renderer -> main | Get resolved business folders (raw alias + absolute path + isRoot) |
-| `business-folders:save` | renderer -> main | Overwrite business_folders array in settings.json (used by remove/reorder) |
-| `business-folders:add` | renderer -> main | Alias-aware add: creates `@<basename>` in `{machine}.json`, appends to `business_folders`, auto-promotes first folder to root |
-| `business-folders:set-root` | renderer -> main | Set `root: true` on folder at given index, clear on others. Self-heals missing `business.json` |
-| `business-folders:scan` | renderer -> main | Trigger POST /scan |
-| `business-folders:get-cached-scan` | renderer -> main | Read cached scan.json from DuetData/data/ |
-| `business-folders:get-cached-streams` | renderer -> main | Read cached streams.json (entity tree) from DuetData/data/ |
+| `root-contexts:get` | renderer -> main | Get resolved root contexts (raw alias + absolute path + isMeta) |
+| `root-contexts:save` | renderer -> main | Overwrite root_context_folders array in settings.json (used by remove/reorder); after save, enforces meta-required invariant so drag-to-position-0 and removing the current meta atomically flip the meta flag on disk |
+| `root-contexts:add` | renderer -> main | Alias-aware add: creates `@<basename>` in `{machine}.json`, appends to `root_context_folders`, runs scoped schema migration, enforces meta-required invariant |
+| `root-contexts:scan` | renderer -> main | Trigger POST /scan |
+| `root-contexts:get-cached-scan` | renderer -> main | Read cached scan.json from DuetData/data/ |
+| `root-contexts:get-cached-contexts` | renderer -> main | Read cached contexts.json (entity tree) from DuetData/data/ |
+| `migrations:get-status` | renderer -> main | Get cached `MigrationResult` from last schema-migration sweep |
+| `migrations:status-changed` | main -> renderer | Push fresh `MigrationResult` after each sweep |
 
 **Contract:** `config:save-pointer` supports partial updates — missing fields are preserved from existing config. Creates default DuetConfig files only when both `duetConfigPath` and `machine` are present (`ensureConfigDefaults`). Calls `updateAppState()`, returns new AppState. `deploy:start` runs async deploy, broadcasts status + log events. `config:set-deploy-channel` writes `deployChannel` to `{machine}.json`, calls `updateAppState()`, returns new AppState. `config:set-instructions-path` validates machine config is writable (throws if DuetConfig/machine not configured). `agents:configure` and `agents:fix-issue` call `updateAppState()` after mutations to refresh tray icon.
 
-**Config defaults:** `ensureConfigDefaults(duetConfigPath, machine)` — creates `settings.json` (`{ business_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
+**Config defaults:** `ensureConfigDefaults(duetConfigPath, machine)` — creates `settings.json` (`{ version: 2, root_context_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ version: 2, port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
 
 **Machine config write:** `setMachineConfigKey(key, value)` — read-modify-write single field in `{machine}.json`. Throws if pointer is incomplete, machine name is invalid, or the file is missing/contains invalid JSON. `setSettingsConfigKey(key, value)` mirrors this contract for `settings.json`. Both functions used to silently recreate the file from `{}` on missing/corrupt input — that path is removed because it lost sibling fields (`timestampTZ`, `port`, `instructionsPath`); failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover. Implementation: `core/config.ts`.
 
@@ -309,7 +382,7 @@ Implementation: `core/business-folders.ts`
 
 | # | Page | File | Key operations |
 |---|------|------|----------------|
-| 1 | Duet: пути | `DuetPathsPage.tsx` | DuetData/DuetConfig folder pickers, machine name input, business folders add/remove |
+| 1 | Duet: пути | `DuetPathsPage.tsx` | DuetData/DuetConfig folder pickers, machine name input, root contexts add/remove/reorder/set-meta, schema-migration status banner |
 | 2 | Python 3.10+ | `PythonPage.tsx` | Auto-detect on mount, manual file picker, `savePythonPath` |
 | 3 | Backend | `BackendPage.tsx` | Deploy status/button, channel toggle (visible when `hasDevBackendPath`), logs |
 | 4 | Воркспейсы | `WorkspacesPage.tsx` | Manual Scan button, entity tree, error table |
@@ -377,7 +450,7 @@ npm run typecheck    # tsc
 
 | Suite | Files | What |
 |-------|-------|------|
-| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, instructions-download, business-folders, wizard-status, mappers, navigation |
+| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, instructions-download, root-contexts, schema-migrations, wizard-status, mappers, navigation |
 | E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
 
 ### Testability
@@ -444,7 +517,9 @@ General model for any page (wizard, apps, future). Derived from page's `StatusIt
 | 4. Backend | Deploy error | error | "{error message}" |
 | 4. Backend | Channel mismatch | warning | "Установлена DEV-версия — переустановите для PROD" |
 | 4. Backend | Stale version | warning | "Версия устарела — переустановите" |
-| 5. Biz Folders | Scan error | error | "{description}" (per scan error) |
+| 1. Duet paths | Schema migration critical (settings/machine future-version or invalid) | error | "{description}" — backend blocked until resolved |
+| 1. Duet paths | Schema migration per-context error | error | "{description}" (one per offending context — all per-context codes are red) |
+| 5. Workspaces | Scan error | error | "{description}" (per scan error) |
 | 6. Instructions | Path not selected | error | "Выберите папку инструкций" |
 | 6. Instructions | Merge error | error | "{description}" (fixable for known types) |
 | 7. AI Agents | needs_setup | warning | "{agent}: не сконфигурирован" |

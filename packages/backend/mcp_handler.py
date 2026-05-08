@@ -115,8 +115,8 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
 
     Args:
         workspace_paths: List of all workspace paths available to the agent.
-            Multi-path resolution: classifies paths, picks highest priority entity
-            (root business > business > stream > product).
+            Multi-path resolution: classifies paths, picks the meta-context if
+            present, otherwise the first resolved context.
 
     Returns information about:
     - duet_paths: {duetDataPath, machineConfig, instructionsPath}
@@ -130,17 +130,17 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
 
 
 @mcp.tool()
-def streams() -> list[dict]:
-    """Find any entity in the user's hierarchy: businesses, streams, and products.
+def contexts() -> list[dict]:
+    """Find any context in the user's hierarchy.
 
-    Use this to locate a product by name, discover what exists, or navigate
-    the hierarchy tree. Prefer this over filesystem searches (find, ls, glob)
-    for discovering products and navigating the hierarchy.
+    Use this to locate a context (or its bound product repo) by name, discover
+    what exists, or navigate the context tree. Prefer this over filesystem
+    searches (find, ls, glob) for discovering contexts.
 
-    Each entity has: id, type, name, icon, path, parent_id.
+    Each entity has: id, type, name, icon, path, parent_id, meta, git_url.
     """
     service = _get_entities_service()
-    return service.get_streams()
+    return service.get_contexts()
 
 
 @mcp.tool()

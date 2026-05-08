@@ -11,7 +11,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AppState,
-  BusinessFolderEntry,
+  RootContextEntry,
   DeployStatus,
   BackendStatus,
   PythonStatus,
@@ -19,7 +19,8 @@ import type {
   InstructionsMergeResult,
   InstructionsError,
   ScanResult,
-  StreamsCache
+  ContextsCache,
+  MigrationResult
 } from '../shared/types'
 
 // Custom APIs for renderer
@@ -133,27 +134,38 @@ const api = {
   setInstructionsPath: (path: string): Promise<AppState> =>
     ipcRenderer.invoke('config:set-instructions-path', path),
 
-  // === Business Folders ===
+  // === Root Contexts ===
 
-  getBusinessFolders: (): Promise<BusinessFolderEntry[]> =>
-    ipcRenderer.invoke('business-folders:get'),
+  getRootContextFolders: (): Promise<RootContextEntry[]> =>
+    ipcRenderer.invoke('root-contexts:get'),
 
-  saveBusinessFolders: (folders: string[]): Promise<void> =>
-    ipcRenderer.invoke('business-folders:save', folders),
+  saveRootContextFolders: (folders: string[]): Promise<void> =>
+    ipcRenderer.invoke('root-contexts:save', folders),
 
-  addBusinessFolder: (absolutePath: string): Promise<BusinessFolderEntry[]> =>
-    ipcRenderer.invoke('business-folders:add', absolutePath),
+  addRootContextFolder: (absolutePath: string): Promise<RootContextEntry[]> =>
+    ipcRenderer.invoke('root-contexts:add', absolutePath),
 
-  setRootBusiness: (rootIndex: number): Promise<BusinessFolderEntry[]> =>
-    ipcRenderer.invoke('business-folders:set-root', rootIndex),
-
-  scanBusinessFolders: (): Promise<ScanResult> => ipcRenderer.invoke('business-folders:scan'),
+  scanContexts: (): Promise<ScanResult> => ipcRenderer.invoke('root-contexts:scan'),
 
   getCachedScan: (): Promise<ScanResult | null> =>
-    ipcRenderer.invoke('business-folders:get-cached-scan'),
+    ipcRenderer.invoke('root-contexts:get-cached-scan'),
 
-  getCachedStreams: (): Promise<StreamsCache | null> =>
-    ipcRenderer.invoke('business-folders:get-cached-streams'),
+  getCachedContexts: (): Promise<ContextsCache | null> =>
+    ipcRenderer.invoke('root-contexts:get-cached-contexts'),
+
+  // === Schema migrations ===
+
+  getMigrationStatus: (): Promise<MigrationResult> => ipcRenderer.invoke('migrations:get-status'),
+
+  onMigrationStatusChanged: (callback: (status: MigrationResult) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: MigrationResult): void => {
+      callback(status)
+    }
+    ipcRenderer.on('migrations:status-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('migrations:status-changed', handler)
+    }
+  },
 
   // === Instructions download ===
 
