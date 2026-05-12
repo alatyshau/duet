@@ -1,21 +1,20 @@
 """Hierarchy scanner for Duet entities.
 
-Backend is strict v2 reader: walks each root context folder, registers
-contexts that carry a valid `context.json` (v2). Host owns all
+Backend is strict v3 reader: walks each root context folder, registers
+contexts that carry a valid `context.json` (v3). Host owns all
 auto-upgrade and self-heal of legacy manifests.
 
 Key behaviors:
 - Single recursive function `_scan_context` for every level.
 - Global name uniqueness: priority-based (context > product_repo > reference_repo).
-- Terminal stop on `git_url`: scanner does not recurse inside.
+- Terminal stop on `git_repos`: a context with `git_repos` registers
+  N `product_repo` children (one per alias) and scanner does not recurse.
 - Deterministic order: readdir results sorted by name.
 """
 
 import os
 from pathlib import Path
 from typing import Callable
-
-from description import extract_description, find_spec_file
 
 from db import DatabaseManager, Entity
 from config import get_root_context_folders, get_repos_path
@@ -193,9 +192,10 @@ class Scanner:
     def _scan_context(self, folder_path: Path, parent_id: int | None) -> None:
         """Scan a folder as a context.
 
-        Strict v2: reads `context.json` only. Folders without a manifest are
+        Strict v3: reads `context.json` only. Folders without a manifest are
         silently traversed (recurse into children to find deeper contexts).
-        Folders with a `git_url` manifest are terminal — scanner stops.
+        Folders with `git_repos` are terminal — scanner stops and registers
+        one `product_repo` child per alias.
         """
         manifest_path = folder_path / "context.json"
         manifest = read_manifest(folder_path, self.errors)
@@ -213,7 +213,7 @@ class Scanner:
             return
 
         unique_name = self._resolve_unique_name(manifest.name, "context", manifest_path)
-        icon = manifest.icon or ("📦" if manifest.git_url else "📁")
+        icon = manifest.icon or ("📦" if manifest.git_repos else "📁")
         relative_path = self._to_relative_path(folder_path)
 
         context_id = self.db.insert_entity(
@@ -224,29 +224,31 @@ class Scanner:
                 icon=icon,
                 drive_path=relative_path,
                 parent_id=parent_id,
-                git_url=manifest.git_url,
+                git_url=None,
                 meta=manifest.meta,
             )
         )
 
         self._register_reference_repos(manifest, context_id, manifest_path)
 
-        if manifest.git_url:
-            repo_entity_name = f"{unique_name}.git"
-            resolved_repo_name = self._resolve_unique_name(
-                repo_entity_name, "product_repo", manifest_path
-            )
-            self.db.insert_entity(
-                Entity(
-                    id=None,
-                    type="product_repo",
-                    name=resolved_repo_name,
-                    icon="📂",
-                    drive_path=resolved_repo_name,
-                    parent_id=context_id,
-                    git_url=manifest.git_url,
+        if manifest.git_repos:
+            # Terminal: one product_repo per alias, no recursion.
+            for alias, url in manifest.git_repos.items():
+                repo_entity_name = f"{alias}.git"
+                resolved_repo_name = self._resolve_unique_name(
+                    repo_entity_name, "product_repo", manifest_path
                 )
-            )
+                self.db.insert_entity(
+                    Entity(
+                        id=None,
+                        type="product_repo",
+                        name=resolved_repo_name,
+                        icon="📂",
+                        drive_path=resolved_repo_name,
+                        parent_id=context_id,
+                        git_url=url,
+                    )
+                )
             return
 
         for entry in self._readdir_sorted(folder_path):
@@ -277,43 +279,3 @@ class Scanner:
                     git_url=ref_url,
                 )
             )
-
-
-def scan_components(product_path: Path) -> list[dict]:
-    """Scan a product directory for components (`packages/`).
-
-    For each component, finds spec file via fallback chain and extracts
-    description (first sentence) from it.
-
-    Args:
-        product_path: Path to product directory.
-
-    Returns:
-        List of component dicts with name, path, and optionally spec, description.
-    """
-    components = []
-
-    packages_dir = product_path / "packages"
-    if packages_dir.exists():
-        for entry in sorted(packages_dir.iterdir()):
-            if entry.is_dir() and not entry.name.startswith("."):
-                component: dict = {
-                    "name": entry.name,
-                    "path": f"packages/{entry.name}",
-                }
-
-                spec_path = find_spec_file(entry, "component")
-                if spec_path:
-                    try:
-                        rel_spec = spec_path.relative_to(product_path)
-                        component["spec"] = str(rel_spec).replace("\\", "/")
-                    except ValueError:
-                        component["spec"] = str(spec_path)
-
-                    desc = extract_description(spec_path)
-                    if desc:
-                        component["description"] = desc
-
-                components.append(component)
-
-    return components

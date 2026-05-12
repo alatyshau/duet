@@ -116,14 +116,14 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
     Args:
         workspace_paths: List of all workspace paths available to the agent.
             Multi-path resolution: classifies paths, picks the meta-context if
-            present, otherwise the first resolved context.
+            present, otherwise the first resolved context (multi-repo contexts
+            unify all `repos/<alias>.git` paths to one owner).
 
     Returns information about:
     - duet_paths: {duetDataPath, machineConfig, instructionsPath}
-    - workspace: {type, topology, typed attributes, reference_repos?}
+    - workspace: {kind, context_name, context_folder, git_folders[, reference_repos][, meta-only addons]}
     - context: {breadcrumb, chain with type/name/description?}
-    - key_files: {spec?, readme?} — absolute paths to read first (absent if no files found)
-    - components: List of components with name, path, spec?, description?
+    - products: [{name, path, spec?, description?, components[]}] — top-level array
     """
     service = _get_workspace_service()
     return service.get_orientation(workspace_paths=workspace_paths or [])

@@ -21,11 +21,12 @@ export interface TreeNode {
     isRoot: boolean;
     /** True for meta-context (e.g. !БАЗА). One per workspace. */
     meta: boolean;
-    /** True when context has an associated git repository (terminal). */
+    /** True when context has one or more `git_repos` aliases (terminal). */
     hasGit: boolean;
     hasChildren: boolean;
     entityId: number;
-    gitUrl?: string;
+    /** Map alias → git URL from `git_repos`. Empty when context is not terminal. */
+    gitRepos: Record<string, string>;
     referenceRepos?: Record<string, string>;
 }
 
@@ -103,6 +104,7 @@ export class ContextTree {
             return this.nodeCache.get(numId)!;
         }
 
+        const gitRepos = context.git_repos ?? {};
         const node: TreeNode = {
             id: context.absolute_path ?? context.path,
             label: context.name,
@@ -110,10 +112,10 @@ export class ContextTree {
             type: 'context',
             isRoot: context.parent_id === null,
             meta: context.meta,
-            hasGit: context.git_url !== null,
+            hasGit: Object.keys(gitRepos).length > 0,
             hasChildren: this.contexts.some(c => c.parent_id === context.id),
             entityId: numId,
-            gitUrl: context.git_url ?? undefined,
+            gitRepos,
             referenceRepos: context.reference_repos ?? undefined
         };
 

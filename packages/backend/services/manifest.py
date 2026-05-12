@@ -1,9 +1,12 @@
-"""Strict v2 context-manifest reader.
+"""Strict v3 context-manifest reader.
 
-Backend is a strict reader of `context.json` (schema v2). All migration —
-including upgrades from legacy `business.json` / `stream.json` /
-`product.json` and renames of fields like `root` → `meta` — is owned by
-Host on startup. Backend never writes manifests.
+Backend is a strict reader of `context.json` (schema v3). All migration —
+including upgrades from legacy v1 (`business.json` / `stream.json` /
+`product.json`) and v2 (`git_url` → `git_repos`) — is owned by Host on
+startup. Backend never writes manifests.
+
+v3 introduces multi-repo terminal contexts via the `git_repos` map
+(alias → URL). Single-string `git_url` is gone.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from pathlib import Path
 
 
 MANIFEST_FILENAME = "context.json"
-TARGET_VERSION = 2
+TARGET_VERSION = 3
 
 
 @dataclass
@@ -23,7 +26,7 @@ class Manifest:
     name: str
     icon: str | None = None
     meta: bool = False
-    git_url: str | None = None
+    git_repos: dict[str, str] | None = None
     reference_repos: dict[str, str] | None = None
     description: str | None = None
 
@@ -35,12 +38,12 @@ def read_manifest(
     """Read and parse `context.json` at `folder`.
 
     Returns:
-        Manifest on successful v2 parse.
-        None when file is absent (not an error), invalid JSON, or version != 2.
+        Manifest on successful v3 parse.
+        None when file is absent (not an error), invalid JSON, or version != 3.
 
     Errors (when `errors` list provided):
         - `invalid_manifest`: file present but not parseable as JSON / wrong shape.
-        - `unrecognized_manifest_version`: file present but `version` is not 2.
+        - `unrecognized_manifest_version`: file present but `version` is not 3.
 
     Backend never writes manifests; upgrades happen in Host.
     """
@@ -116,14 +119,6 @@ def read_manifest(
         )
         return None
 
-    git_url = data.get("git_url")
-    if git_url is not None and (not isinstance(git_url, str) or not git_url.strip()):
-        _record_invalid(
-            errors, manifest_path, folder,
-            f"`git_url` must be a non-empty string when present, got {git_url!r}",
-        )
-        return None
-
     description = data.get("description")
     if description is not None and not isinstance(description, str):
         _record_invalid(
@@ -158,12 +153,56 @@ def read_manifest(
         )
         return None
 
+    git_repos_raw = data.get("git_repos")
+    git_repos: dict[str, str] | None
+    if git_repos_raw is None:
+        git_repos = None
+    elif not isinstance(git_repos_raw, dict):
+        _record_invalid(
+            errors, manifest_path, folder,
+            "git_repos must be an object when present",
+        )
+        return None
+    elif not git_repos_raw:
+        _record_invalid(
+            errors, manifest_path, folder,
+            "git_repos must be non-empty when present",
+        )
+        return None
+    else:
+        for alias, url in git_repos_raw.items():
+            if not isinstance(alias, str) or not alias.strip():
+                _record_invalid(
+                    errors, manifest_path, folder,
+                    "git_repos keys must be non-empty strings",
+                )
+                return None
+            if not isinstance(url, str) or not url.strip():
+                _record_invalid(
+                    errors, manifest_path, folder,
+                    f"git_repos[{alias!r}] must be a non-empty string",
+                )
+                return None
+        # Shared-namespace check: alias must not overlap with reference_repos.
+        if ref_repos:
+            overlap = set(git_repos_raw).intersection(ref_repos)
+            if overlap:
+                alias = next(iter(overlap))
+                _record_invalid(
+                    errors, manifest_path, folder,
+                    f"alias '{alias}' is in both git_repos and reference_repos",
+                )
+                return None
+        # Preserve insertion order (Python 3.7+ dict invariant) — products[]
+        # order is the order keys appeared in the manifest.
+        git_repos = dict(git_repos_raw)
+
     return Manifest(
         version=version,
         name=name,
         icon=icon,
         meta=meta_raw,
-        git_url=git_url,
+        git_repos=git_repos,
         reference_repos=ref_repos,
         description=description,
     )
@@ -190,3 +229,11 @@ def read_reference_repos(folder: Path | str | None) -> dict[str, str] | None:
     if not manifest or not manifest.reference_repos:
         return None
     return dict(manifest.reference_repos)
+
+
+def read_git_repos(folder: Path | str | None) -> dict[str, str] | None:
+    """Return `{alias: url}` from the context's manifest, or None if absent."""
+    manifest = read_manifest(folder)
+    if not manifest or not manifest.git_repos:
+        return None
+    return dict(manifest.git_repos)

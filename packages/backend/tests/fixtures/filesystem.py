@@ -21,11 +21,14 @@ if TYPE_CHECKING:
 
 
 class ManifestBuilder:
-    """Builder for creating `context.json` v2 manifests.
+    """Builder for creating `context.json` v3 manifests.
 
     Usage:
-        ManifestBuilder.context(path, "Duet", icon="📦", git_url="https://...")
+        ManifestBuilder.context(path, "Duet", git_repos={"Duet": "https://..."})
         ManifestBuilder.context(path, "БАЗА", meta=True)
+        # Backwards-compat sugar: single-repo terminal context.
+        ManifestBuilder.context(path, "Duet", git_url="https://...")
+        # ↳ writes git_repos={"Duet": "https://..."} under the hood.
     """
 
     @staticmethod
@@ -40,24 +43,29 @@ class ManifestBuilder:
         folder: Path,
         name: str,
         icon: str | None = None,
+        git_repos: dict[str, str] | None = None,
         git_url: str | None = None,
         meta: bool = False,
         reference_repos: dict[str, str] | None = None,
         description: str | None = None,
-        version: int = 2,
+        version: int = 3,
         **extra,
     ) -> Path:
-        """Create `context.json` v2 manifest at `folder`.
+        """Create `context.json` v3 manifest at `folder`.
 
-        Pass `version` only to test version mismatch behavior.
+        `git_url=` is single-repo sugar for `git_repos={name: git_url}`,
+        kept so older single-repo test scenarios stay legible. Pass
+        `version` only to test version mismatch behavior.
         """
+        if git_repos is None and git_url is not None:
+            git_repos = {name: git_url}
         if icon is None:
-            icon = "📦" if git_url else "📁"
+            icon = "📦" if git_repos else "📁"
         data: dict = {"version": version, "name": name, "icon": icon}
         if meta:
             data["meta"] = True
-        if git_url is not None:
-            data["git_url"] = git_url
+        if git_repos is not None:
+            data["git_repos"] = git_repos
         if reference_repos is not None:
             data["reference_repos"] = reference_repos
         if description is not None:

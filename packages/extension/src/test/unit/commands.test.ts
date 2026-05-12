@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { openInCurrentWindow, openInNewWindow } from '../../vscode/commands/openFolder';
+import { openInCurrentWindow, openInNewWindow, buildGitCloneArgs, isSafeRepoName, findUnsafeAliases } from '../../vscode/commands/openFolder';
 import { refreshFromBackend } from '../../vscode/commands/refresh';
 import { TreeNode } from '../../core/tree/contextTree';
 import * as vscode from 'vscode';
@@ -61,7 +61,8 @@ describe('VS Code Commands', () => {
                 meta: false,
                 hasGit: false,
                 hasChildren: false,
-                entityId: 1
+                entityId: 1,
+                gitRepos: {}
             };
 
             await openInCurrentWindow(node);
@@ -84,7 +85,8 @@ describe('VS Code Commands', () => {
                 meta: false,
                 hasGit: false,
                 hasChildren: false,
-                entityId: 1
+                entityId: 1,
+                gitRepos: {}
             };
 
             await openInNewWindow(node);
@@ -106,7 +108,8 @@ describe('VS Code Commands', () => {
                 meta: false,
                 hasGit: false,
                 hasChildren: false,
-                entityId: 2
+                entityId: 2,
+                gitRepos: {}
             };
 
             await openInCurrentWindow(node);
@@ -126,7 +129,7 @@ describe('VS Code Commands', () => {
     describe('refreshFromBackend', () => {
         it('should call apiClient.scan and return contexts', async () => {
             const mockContexts = [
-                { id: '1', type: 'context', name: 'Biz1', icon: 'B', path: '', absolute_path: '/drive/biz1', parent_id: null, meta: false, git_url: null }
+                { id: '1', type: 'context', name: 'Biz1', icon: 'B', path: '', absolute_path: '/drive/biz1', parent_id: null, meta: false, git_repos: null }
             ];
             const apiClient = {
                 scan: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -143,6 +146,153 @@ describe('VS Code Commands', () => {
             expect(apiClient.scan).toHaveBeenCalled();
             expect(apiClient.contexts).toHaveBeenCalled();
             expect(result).toEqual(mockContexts);
+        });
+    });
+
+    describe('buildGitCloneArgs', () => {
+        it('uses `--` separator to disarm flag-like git URLs', () => {
+            const args = buildGitCloneArgs('git@x:y.git', '/tmp/y.git');
+            expect(args).toEqual(['clone', '--progress', '--', 'git@x:y.git', '/tmp/y.git']);
+            // Order matters: `--` MUST appear before the URL argument.
+            const dashDash = args.indexOf('--');
+            const urlIdx = args.indexOf('git@x:y.git');
+            expect(dashDash).toBeGreaterThanOrEqual(0);
+            expect(urlIdx).toBeGreaterThan(dashDash);
+        });
+
+        it('preserves a hostile leading-dash URL as a positional argument', () => {
+            // Without `--`, git would treat `-upload-pack=...` as a flag.
+            const args = buildGitCloneArgs('-evil', '/tmp/x');
+            expect(args).toContain('-evil');
+            expect(args.indexOf('--')).toBeLessThan(args.indexOf('-evil'));
+        });
+    });
+
+    describe('findUnsafeAliases', () => {
+        it('returns empty array for an all-safe map', () => {
+            expect(findUnsafeAliases({ Duet: 'a', 'Duet-Instructions': 'b' })).toEqual([]);
+        });
+
+        it('lists every unsafe alias it finds', () => {
+            const result = findUnsafeAliases({
+                Duet: 'a',
+                '../evil': 'b',
+                '.hidden': 'c',
+                'with/slash': 'd'
+            });
+            expect(result.sort()).toEqual(['../evil', '.hidden', 'with/slash'].sort());
+        });
+    });
+
+    describe('unsafe alias aborts open (regression #1)', () => {
+        it('aborts open and surfaces error when git_repos contains a traversal alias', async () => {
+            const node: TreeNode = {
+                id: '/drive/DuetLab',
+                label: 'DuetLab',
+                icon: '',
+                type: 'context',
+                isRoot: true,
+                meta: false,
+                hasGit: true,
+                hasChildren: false,
+                entityId: 1,
+                gitRepos: { Duet: 'git@x:y.git', '../evil': 'git@x:evil.git' }
+            };
+
+            await openInCurrentWindow(node);
+
+            // Pre-flight must surface a user-visible error...
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('Небезопасные имена')
+            );
+            // ...and MUST NOT trigger the workspace open. Without the fix,
+            // `cloneRepoSet` silently skipped `../evil` while
+            // `writeContextWithReposWorkspace` still wrote `../evil.git` into
+            // the .code-workspace folder list — escaping `repos/`.
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+                'vscode.openFolder',
+                expect.anything(),
+                expect.anything()
+            );
+        });
+
+        it('aborts open when reference_repos contains a traversal alias even if git_repos is clean', async () => {
+            const node: TreeNode = {
+                id: '/drive/Plain',
+                label: 'Plain',
+                icon: '',
+                type: 'context',
+                isRoot: true,
+                meta: false,
+                hasGit: false,
+                hasChildren: false,
+                entityId: 2,
+                gitRepos: {},
+                referenceRepos: { '..': 'git@x:dotdot.git' }
+            };
+
+            await openInCurrentWindow(node);
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('reference_repos')
+            );
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+                'vscode.openFolder',
+                expect.anything(),
+                expect.anything()
+            );
+        });
+
+        it('aborts open when a terminal context has safe git_repos but unsafe reference_repos (defense-in-depth)', async () => {
+            // Catches a future refactor that drops the reference_repos pre-flight
+            // branch while keeping the git_repos one — the two checks are sequential
+            // in `openNode`, so this guards both rails independently.
+            const node: TreeNode = {
+                id: '/drive/DuetLab',
+                label: 'DuetLab',
+                icon: '',
+                type: 'context',
+                isRoot: true,
+                meta: false,
+                hasGit: true,
+                hasChildren: false,
+                entityId: 3,
+                gitRepos: { Duet: 'git@x:Duet.git' },
+                referenceRepos: { '../evil': 'git@x:evil.git' }
+            };
+
+            await openInCurrentWindow(node);
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('reference_repos')
+            );
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+                'vscode.openFolder',
+                expect.anything(),
+                expect.anything()
+            );
+        });
+    });
+
+    describe('isSafeRepoName', () => {
+        it('accepts plain ascii and non-ascii aliases', () => {
+            expect(isSafeRepoName('Duet')).toBe(true);
+            expect(isSafeRepoName('Duet-Instructions')).toBe(true);
+            expect(isSafeRepoName('Альфа')).toBe(true);
+        });
+
+        it('rejects path-traversal attempts', () => {
+            expect(isSafeRepoName('.')).toBe(false);
+            expect(isSafeRepoName('..')).toBe(false);
+            expect(isSafeRepoName('../x')).toBe(false);
+            expect(isSafeRepoName('foo/bar')).toBe(false);
+            expect(isSafeRepoName('foo\\bar')).toBe(false);
+        });
+
+        it('rejects hidden / control-character names', () => {
+            expect(isSafeRepoName('')).toBe(false);
+            expect(isSafeRepoName('.hidden')).toBe(false);
+            expect(isSafeRepoName('foo\x00bar')).toBe(false);
         });
     });
 

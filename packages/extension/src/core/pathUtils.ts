@@ -68,3 +68,45 @@ export function formatAtReference(rootName: string, relativePath: string): strin
     const body = normalized ? `${rootName}/${normalized}` : rootName;
     return `\`@${body}\``;
 }
+
+/**
+ * Resolve a Duet @-reference to an absolute path.
+ *
+ * Naming convention from the design-doc:
+ *  - Git products use `@<alias>.git` (the `.git` echoes the on-disk folder
+ *    name `<reposDir>/<alias>.git`). The alias key in `gitFolders` is the
+ *    bare alias — so we strip a trailing `.git` from the head before lookup.
+ *  - Drive products use `@<context_name>` (or `@<context_name>/<sub>`),
+ *    resolved against `contextFolder`.
+ *
+ * Returns null when the head matches neither a known git alias nor the
+ * context name — caller decides how to surface that to the user.
+ */
+export function resolveAtRef(
+    atRef: string,
+    gitFolders: Record<string, string>,
+    contextName?: string,
+    contextFolder?: string
+): string | null {
+    if (!atRef.startsWith('@')) {
+        return null;
+    }
+    const stripped = atRef.slice(1);
+    const segments = stripped.split('/').filter(Boolean);
+    if (segments.length === 0) {
+        return null;
+    }
+    const [head, ...tail] = segments;
+
+    const aliasKey = head.endsWith('.git') ? head.slice(0, -4) : head;
+    const gitRoot = gitFolders[aliasKey];
+    if (gitRoot) {
+        return tail.length > 0 ? path.join(gitRoot, ...tail) : gitRoot;
+    }
+
+    if (contextName && contextFolder && head === contextName) {
+        return tail.length > 0 ? path.join(contextFolder, ...tail) : contextFolder;
+    }
+
+    return null;
+}

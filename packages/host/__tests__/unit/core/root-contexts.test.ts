@@ -196,11 +196,7 @@ describe('core/root-contexts', () => {
         JSON.stringify({ version: 2, name: 'A', meta: true }),
         'utf-8'
       )
-      writeFileSync(
-        join(b, 'context.json'),
-        JSON.stringify({ version: 2, name: 'B' }),
-        'utf-8'
-      )
+      writeFileSync(join(b, 'context.json'), JSON.stringify({ version: 2, name: 'B' }), 'utf-8')
       writeFileSync(
         join(ctx.duetConfigDir, 'test.json'),
         JSON.stringify({ version: 2, port: 19680, '@A': a, '@B': b }),
@@ -352,7 +348,7 @@ describe('core/root-contexts', () => {
 
       expect(existsSync(manifestPath)).toBe(true)
       const data = JSON.parse(readFileSync(manifestPath, 'utf-8'))
-      expect(data).toMatchObject({ version: 2, name: 'NoManifest', meta: true })
+      expect(data).toMatchObject({ version: 3, name: 'NoManifest', meta: true })
     })
 
     it('skips folders with invalid JSON without throwing (migration sweep already surfaces error)', () => {

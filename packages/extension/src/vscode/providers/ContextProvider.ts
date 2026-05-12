@@ -1,47 +1,90 @@
 /**
- * ContextProvider - TreeDataProvider for the КОНТЕКСТ section
+ * ContextProvider — TreeDataProvider for the КОНТЕКСТ section.
  *
- * Shows the current VS Code window's position in the context hierarchy.
- * Source: vscode.workspace.workspaceFolders (NOT active editor).
+ * Source of truth: backend `/orientation`. The provider renders the chain of
+ * contexts the current workspace folders resolve into, then top-level products
+ * declared in that context, then components nested under each product. The
+ * single artefact passed in is `OrientationResponse`; nothing is recomputed
+ * from the local workspace folder list.
  *
- * Features:
- * - Displays hierarchy as expandable tree (collapsibleState.Expanded)
- * - Merges common ancestors when multiple folders share a root context
- * - Shows errors/warnings for orphan repos, external folders
- * - Listens to workspace folder changes for live updates
+ * Refresh pathways:
+ *  - on `onDidChangeWorkspaceFolders` → call `refreshOrientation(paths)`
+ *  - explicit `updateOrientation(response)` (e.g. from the `duet.refresh` command)
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { ContextBreadcrumb, ContextNode } from '../../core/tree/contextBreadcrumb';
-import { ContextEntity } from '../../core/api-client';
+import { ChainItem, ComponentInfo, OrientationResponse, OrientationWorkspace, ProductInfo } from '../../core/api-client';
+import { resolveAtRef } from '../../core/pathUtils';
 
-/**
- * TreeDataProvider for the КОНТЕКСТ section in sidebar.
- *
- * Transforms ContextNode tree into VS Code TreeItems.
- */
-export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
-    private _onDidChangeTreeData = new vscode.EventEmitter<ContextNode | undefined | null | void>();
+type DisplayNode = ChainDisplayNode | ProductDisplayNode | ComponentDisplayNode | InfoNode;
+
+interface ChainDisplayNode {
+    kind: 'chain';
+    name: string;
+    icon: string;
+    description?: string;
+    isLast: boolean;
+    children: DisplayNode[];
+    tooltipPath?: string;
+}
+
+interface ProductDisplayNode {
+    kind: 'product';
+    name: string;
+    atRef: string;
+    absolutePath: string | null;
+    spec?: string;
+    description?: string;
+    components: ComponentDisplayNode[];
+}
+
+interface ComponentDisplayNode {
+    kind: 'component';
+    name: string;
+    relativePath: string;
+    absolutePath: string | null;
+    productAtRef: string;
+    spec?: string;
+    description?: string;
+}
+
+interface InfoNode {
+    kind: 'info';
+    message: string;
+    detail?: string;
+}
+
+export type ContextDisplayNode = DisplayNode;
+
+export type RefreshOrientationFn = (workspacePaths: string[]) => Promise<OrientationResponse | null>;
+
+function currentWorkspacePaths(): string[] {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
+        return [];
+    }
+    return folders.map(f => f.uri.fsPath);
+}
+
+export class ContextProvider implements vscode.TreeDataProvider<DisplayNode> {
+    private _onDidChangeTreeData = new vscode.EventEmitter<DisplayNode | undefined | null | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-    private readonly logic: ContextBreadcrumb;
-    private roots: ContextNode[] = [];
+    private roots: DisplayNode[] = [];
     private disposables: vscode.Disposable[] = [];
 
-    constructor(contexts: ContextEntity[], reposPath: string) {
-        this.logic = new ContextBreadcrumb({
-            contexts,
-            reposPath
-        });
+    constructor(
+        initial: OrientationResponse | null,
+        private readonly refreshOrientation: RefreshOrientationFn
+    ) {
+        this.rebuildFromOrientation(initial);
 
-        // Listen to workspace folder changes
         this.disposables.push(
-            vscode.workspace.onDidChangeWorkspaceFolders(() => this.refresh())
+            vscode.workspace.onDidChangeWorkspaceFolders(() => {
+                void this.refresh();
+            })
         );
-
-        // Initial build
-        this.rebuildTree();
     }
 
     dispose(): void {
@@ -50,178 +93,227 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
     }
 
     /**
-     * Update contexts data (after scan/refresh).
-     * Replaces dataset, rebuilds tree.
+     * Replace the orientation snapshot and fire a tree refresh.
+     * Called by external refresh flows (e.g. `duet.refresh` command).
      */
-    updateContexts(contexts: ContextEntity[]): void {
-        this.logic.updateContexts(contexts);
-        this.rebuildTree();
+    updateOrientation(response: OrientationResponse | null): void {
+        this.rebuildFromOrientation(response);
         this._onDidChangeTreeData.fire();
     }
 
     /**
-     * Refresh the tree. Called after workspace folder changes.
+     * Re-fetch orientation for the current workspace folders and rebuild.
      */
-    refresh(): void {
-        this.rebuildTree();
-        this._onDidChangeTreeData.fire();
-    }
-
-    /**
-     * Rebuild internal tree structure from current workspace folders.
-     */
-    private rebuildTree(): void {
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) {
-            this.roots = [];
-            return;
+    async refresh(): Promise<void> {
+        try {
+            const response = await this.refreshOrientation(currentWorkspacePaths());
+            this.rebuildFromOrientation(response);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.roots = [{ kind: 'info', message: 'Ошибка обновления контекста', detail: msg }];
         }
-
-        const paths = folders.map(f => f.uri.fsPath);
-        this.roots = this.logic.build(paths);
+        this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: ContextNode): vscode.TreeItem {
-        const hasChildren = element.children.length > 0;
-
-        // Always expanded for hierarchy visibility
+    getTreeItem(element: DisplayNode): vscode.TreeItem {
+        const hasChildren = this.getChildrenInternal(element).length > 0;
         const collapsibleState = hasChildren
             ? vscode.TreeItemCollapsibleState.Expanded
             : vscode.TreeItemCollapsibleState.None;
 
         const item = new vscode.TreeItem(this.formatLabel(element), collapsibleState);
-
-        // Use path as id for tree state stability
-        item.id = element.path;
+        item.id = this.nodeId(element);
         item.tooltip = this.formatTooltip(element);
-
-        // Set icon based on type (currently unused, returns undefined)
-        item.iconPath = this.getIcon(element);
-
-        // Set description (type label on the right)
-        item.description = this.getTypeLabel(element);
-
-        // Context value for menu filtering
-        item.contextValue = element.type;
-
-        // For error nodes, make them clickable to show help
-        // Only child error nodes are clickable, not parent folders with errorCode
-        if (element.type === 'error') {
-            item.command = {
-                command: 'duet.showContextHelp',
-                title: 'Show Help',
-                arguments: [element]
-            };
-        }
-
+        item.description = this.formatDescription(element);
+        item.contextValue = element.kind;
         return item;
     }
 
-    getChildren(element?: ContextNode): vscode.ProviderResult<ContextNode[]> {
+    getChildren(element?: DisplayNode): vscode.ProviderResult<DisplayNode[]> {
         if (!element) {
             return this.roots;
         }
-        return element.children;
+        return this.getChildrenInternal(element);
     }
 
-    getParent(element: ContextNode): vscode.ProviderResult<ContextNode> {
-        // Find parent by traversing the tree
+    getParent(element: DisplayNode): vscode.ProviderResult<DisplayNode> {
         return this.findParent(this.roots, element);
     }
 
-    /**
-     * Find parent node in tree.
-     */
-    private findParent(nodes: ContextNode[], target: ContextNode): ContextNode | null {
+    private getChildrenInternal(element: DisplayNode): DisplayNode[] {
+        switch (element.kind) {
+            case 'chain':
+                return element.children;
+            case 'product':
+                return element.components;
+            case 'component':
+            case 'info':
+                return [];
+        }
+    }
+
+    private findParent(nodes: DisplayNode[], target: DisplayNode): DisplayNode | null {
         for (const node of nodes) {
-            if (node.children.find(c => c.path === target.path)) {
+            const children = this.getChildrenInternal(node);
+            if (children.includes(target)) {
                 return node;
             }
-            const found = this.findParent(node.children, target);
-            if (found) {
-                return found;
+            const deeper = this.findParent(children, target);
+            if (deeper) {
+                return deeper;
             }
         }
         return null;
     }
 
-    /**
-     * Format display label for a node.
-     */
-    private formatLabel(node: ContextNode): string {
-        if (node.type === 'error') {
-            // Error nodes: emoji prefix + message
-            const prefix = node.icon === 'info' ? 'ℹ️' : '⚠️';
-            return `${prefix} ${node.name}`;
+    private rebuildFromOrientation(response: OrientationResponse | null): void {
+        if (!response) {
+            this.roots = [{ kind: 'info', message: 'Контекст не загружен' }];
+            return;
         }
-        // Git nodes: folder emoji + name
-        if (node.type === 'git') {
-            return `📁 ${node.name}`;
+
+        const workspace = response.workspace;
+        if (workspace.kind === 'unknown' || !response.context || response.context.chain.length === 0) {
+            this.roots = [{
+                kind: 'info',
+                message: 'Папка вне иерархии контекстов',
+                detail: workspace.context_folder ?? undefined
+            }];
+            return;
         }
-        // Entity types with icon from DB: emoji + name
-        if (node.icon) {
-            return `${node.icon} ${node.name}`;
-        }
-        // Others: just name
-        return node.name;
+
+        const productNodes = (response.products ?? []).map(p => this.buildProductNode(p, workspace));
+        const chainRoot = this.buildChainNodes(response.context.chain, productNodes);
+        this.roots = chainRoot ? [chainRoot] : [];
     }
 
-    /**
-     * Get human-readable error message.
-     */
-    private getErrorMessage(code?: string): string {
-        switch (code) {
-            case 'orphan':
-                return 'Репозиторий не связан';
-            case 'name_conflict':
-                return 'Имя занято';
-            case 'outside_repos':
-                return 'Репозиторий вне DuetData';
-            case 'outside_hierarchy':
-                return 'Папка вне иерархии';
-            default:
-                return 'Ошибка';
+    private buildChainNodes(chain: ChainItem[], products: ProductDisplayNode[]): ChainDisplayNode | null {
+        if (chain.length === 0) {
+            return null;
         }
+
+        let trailing: ChainDisplayNode | null = null;
+        for (let i = chain.length - 1; i >= 0; i--) {
+            const item = chain[i];
+            const isLast = i === chain.length - 1;
+            const children: DisplayNode[] = isLast
+                ? products
+                : (trailing ? [trailing] : []);
+            const node: ChainDisplayNode = {
+                kind: 'chain',
+                name: item.name,
+                icon: item.icon,
+                description: item.description,
+                isLast,
+                children
+            };
+            trailing = node;
+        }
+        return trailing;
     }
 
-    /**
-     * Format tooltip for a node.
-     */
-    private formatTooltip(node: ContextNode): string {
-        if (node.errorCode) {
-            return `${this.getErrorMessage(node.errorCode)}\n${node.path}`;
-        }
-        return node.path;
+    private buildProductNode(product: ProductInfo, workspace: OrientationWorkspace): ProductDisplayNode {
+        const absolutePath = resolveAtRef(
+            product.path,
+            workspace.git_folders,
+            workspace.context_name,
+            workspace.context_folder
+        );
+        const components = (product.components ?? []).map(c => this.buildComponentNode(c, product.path, absolutePath));
+        return {
+            kind: 'product',
+            name: product.name,
+            atRef: product.path,
+            absolutePath,
+            spec: product.spec,
+            description: product.description,
+            components
+        };
     }
 
-    /**
-     * Get icon for a node.
-     */
-    private getIcon(_node: ContextNode): vscode.ThemeIcon | undefined {
-        // No ThemeIcon - all nodes use emoji in label text
+    private buildComponentNode(
+        component: ComponentInfo,
+        productAtRef: string,
+        productAbsolutePath: string | null
+    ): ComponentDisplayNode {
+        const absolutePath = productAbsolutePath
+            ? path.join(productAbsolutePath, component.path)
+            : null;
+        return {
+            kind: 'component',
+            name: component.name,
+            relativePath: component.path,
+            absolutePath,
+            productAtRef,
+            spec: component.spec,
+            description: component.description
+        };
+    }
+
+    private formatLabel(element: DisplayNode): string {
+        if (element.kind === 'info') {
+            return `ℹ️ ${element.message}`;
+        }
+        if (element.kind === 'chain') {
+            return element.icon ? `${element.icon} ${element.name}` : element.name;
+        }
+        return element.name;
+    }
+
+    private formatDescription(element: DisplayNode): string | undefined {
+        if (element.kind === 'component') {
+            return 'comp';
+        }
         return undefined;
     }
 
-    /**
-     * Get type label for description (shown on the right).
-     */
-    private getTypeLabel(node: ContextNode): string | undefined {
-        if (node.type === 'context') {
-            if (node.meta) {
-                return 'мета-контекст';
-            }
-            if (node.hasGit) {
-                return 'контекст [git]';
-            }
-            return 'контекст';
+    private formatTooltip(element: DisplayNode): string | undefined {
+        if (element.kind === 'info') {
+            return element.detail;
         }
-        if (node.type === 'git') {
-            return 'git-repo';
+        if (element.kind === 'chain') {
+            return element.description ?? element.name;
         }
-        if (node.type === 'external') {
-            return 'внешняя';
+        if (element.kind === 'product') {
+            const lines: string[] = [element.atRef];
+            if (element.spec) {
+                lines.push(`spec: ${element.spec}`);
+            }
+            if (element.description) {
+                lines.push(element.description);
+            }
+            if (element.absolutePath) {
+                lines.push(element.absolutePath);
+            }
+            return lines.join('\n');
+        }
+        if (element.kind === 'component') {
+            const lines: string[] = [`${element.productAtRef}/${element.relativePath}`];
+            if (element.spec) {
+                lines.push(`spec: ${element.spec}`);
+            }
+            if (element.description) {
+                lines.push(element.description);
+            }
+            if (element.absolutePath) {
+                lines.push(element.absolutePath);
+            }
+            return lines.join('\n');
         }
         return undefined;
+    }
+
+    private nodeId(element: DisplayNode): string {
+        switch (element.kind) {
+            case 'chain':
+                return `chain:${element.name}`;
+            case 'product':
+                return `product:${element.atRef}`;
+            case 'component':
+                return `component:${element.productAtRef}/${element.relativePath}`;
+            case 'info':
+                return `info:${element.message}`;
+        }
     }
 }
 
@@ -231,32 +323,4 @@ export class ContextProvider implements vscode.TreeDataProvider<ContextNode> {
 export async function openDataFolderCommand(reposPath: string): Promise<void> {
     const dataFolder = path.dirname(reposPath);
     await vscode.env.openExternal(vscode.Uri.file(dataFolder));
-}
-
-/**
- * Command handler for context help (clicking on error nodes).
- */
-export async function showContextHelpCommand(node: ContextNode): Promise<void> {
-    // For now, show a simple message. In future, this could open an Editor Tab (WebView).
-    let message: string;
-    let actions: string[] = [];
-
-    switch (node.errorCode) {
-        case 'orphan':
-            message = `Репозиторий "${node.name}" не связан ни с одним контекстом в иерархии.\n\nЧтобы связать, добавьте context.json с таким же именем и git_url на Google Drive.`;
-            break;
-        case 'name_conflict':
-            message = `Имя "${node.name}" уже занято другим контекстом без git-репозитория.\n\nПереименуйте папку репозитория или измените имя в манифесте на Drive.`;
-            break;
-        case 'outside_repos':
-            message = `Репозиторий находится вне папки DuetData/repos/.\n\nПереместите его в ~/DuetData/repos/ для корректной работы.`;
-            break;
-        case 'outside_hierarchy':
-            message = `Папка не входит в иерархию контекстов.\n\nДобавьте корневой контекст через кнопку ➕ в секции ДЕЛА.`;
-            break;
-        default:
-            message = `Неизвестная ошибка для "${node.name}"`;
-    }
-
-    await vscode.window.showInformationMessage(message, ...actions);
 }

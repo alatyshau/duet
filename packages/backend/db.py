@@ -1,11 +1,13 @@
 """SQLite database manager for Duet entities.
 
 Stores three entity kinds:
-- `context`: bounded contexts on Drive (root, intermediate, or terminal-with-git).
-  Roles inferred from fields: `meta=1` (meta-context), `git_url IS NOT NULL`
-  (terminal), otherwise intermediate.
-- `product_repo`: registered for each context with `git_url`. Path-resolution
-  helper; not shown in tree.
+- `context`: bounded contexts on Drive (root, intermediate, or terminal-with-git_repos).
+  Roles inferred from manifest fields, not from a column: `meta=1` marks the
+  meta-context; presence of `git_repos` in the on-disk manifest makes a
+  context terminal. The `git_url` column is never populated on context rows.
+- `product_repo`: registered once per alias in a terminal context's
+  `git_repos` map. Entity name = `{alias}.git`, `git_url` = URL from the
+  manifest. Path-resolution helper; not shown in tree.
 - `reference_repo`: read-only clones declared via `reference_repos` map.
 """
 

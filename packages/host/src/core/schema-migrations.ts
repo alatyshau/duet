@@ -1,6 +1,6 @@
 /*
  * ЧТО: Schema migrations для всех Duet-конфигов и manifest'ов.
- * ЗАЧЕМ: Host — единственный owner авто-апгрейда форматов на диске. Backend читает только v2.
+ * ЗАЧЕМ: Host — единственный owner авто-апгрейда форматов на диске. Backend читает только v3 context.json.
  * КТО ИСПОЛЬЗУЕТ: main/index.ts (startup sweep), main/ipc-handlers.ts (scoped sweep при изменении путей и добавлении root-context).
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
@@ -15,11 +15,19 @@
  */
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'fs'
 import { basename, join } from 'path'
-import type { MigrationContextError, MigrationCriticalError, MigrationResult } from '../shared/types'
+import type {
+  MigrationContextError,
+  MigrationCriticalError,
+  MigrationResult
+} from '../shared/types'
 import { atomicWriteJson } from './json-io'
 
 // Re-export shared types so callers can keep a single import.
-export type { MigrationContextError, MigrationCriticalError, MigrationResult } from '../shared/types'
+export type {
+  MigrationContextError,
+  MigrationCriticalError,
+  MigrationResult
+} from '../shared/types'
 
 // Re-export atomic write so existing callers (root-contexts.ts) keep working with one import.
 export { atomicWriteJson } from './json-io'
@@ -105,14 +113,18 @@ export const MACHINE_SCHEMA: SchemaSpec = {
  * context.json schema:
  * - v1 (implicit): legacy `business.json` / `stream.json` / `product.json` files without `version`.
  * - v2: { version: 2, name, ... } in `context.json`. Field rename `root → meta` (only for legacy
- *   `business.json` with `root: true` — others did not have this field).
+ *   `business.json` with `root: true` — others did not have this field). Single-repo via
+ *   top-level `git_url`.
+ * - v3: { version: 3, name, git_repos?: { [alias]: url }, ... }. Multi-repo via map. The v2→v3
+ *   migration moves a single `git_url` into `git_repos: { [name]: git_url }` and drops the
+ *   `git_url` field. Backend reads only v3.
  *
  * Caller is responsible for the file rename + delete-of-legacy: this migration only transforms
  * the JSON payload.
  */
 export const CONTEXT_SCHEMA: SchemaSpec = {
-  targetVersion: 2,
-  maxSupportedVersion: 2,
+  targetVersion: 3,
+  maxSupportedVersion: 3,
   migrations: {
     1: (data) => {
       const next: Record<string, unknown> = { version: 2 }
@@ -130,6 +142,26 @@ export const CONTEXT_SCHEMA: SchemaSpec = {
         if (k in next || k === 'root') continue
         next[k] = v
       }
+      return next
+    },
+    2: (data) => {
+      // v2 → v3: collapse single-repo `git_url` into multi-repo `git_repos: { [name]: git_url }`.
+      // Edge cases:
+      //   - no git_url            → bump version only.
+      //   - git_url without name  → drop git_url, do not invent an alias (malformed v2 anyway).
+      //   - empty git_url string  → drop, no git_repos created.
+      const next: Record<string, unknown> = { ...data, version: 3 }
+      const url = data.git_url
+      const name = data.name
+      if (
+        typeof url === 'string' &&
+        url.length > 0 &&
+        typeof name === 'string' &&
+        name.length > 0
+      ) {
+        next.git_repos = { [name]: url }
+      }
+      delete next.git_url
       return next
     }
   }
@@ -161,7 +193,8 @@ export function applyMigrations(
 ):
   | { ok: true; data: Record<string, unknown>; fromVersion: number }
   | { ok: false; reason: 'future_version' | 'no_migration'; fromVersion: number } {
-  let fromVersion = typeof data.version === 'number' && Number.isInteger(data.version) ? data.version : 1
+  let fromVersion =
+    typeof data.version === 'number' && Number.isInteger(data.version) ? data.version : 1
   const initialVersion = fromVersion
 
   if (fromVersion > schema.maxSupportedVersion) {
@@ -196,9 +229,10 @@ export function applyMigrations(
  * Если файл отсутствует — возвращает null (это нормально для свежей установки до wizard step 1).
  * Caller (`ensureConfigDefaults`) сам создаст дефолтный v2-файл.
  */
-export function loadOrUpgradeSettings(
-  duetConfigPath: string
-): { critical: MigrationCriticalError | null; migrated: boolean } {
+export function loadOrUpgradeSettings(duetConfigPath: string): {
+  critical: MigrationCriticalError | null
+  migrated: boolean
+} {
   const filePath = join(duetConfigPath, 'settings.json')
   if (!existsSync(filePath)) {
     return { critical: null, migrated: false }
@@ -206,7 +240,12 @@ export function loadOrUpgradeSettings(
   const result = upgradeFile(filePath, SETTINGS_SCHEMA, {})
   if (result.kind === 'critical') {
     return {
-      critical: { file: 'settings', path: filePath, reason_code: result.reason, description: result.description },
+      critical: {
+        file: 'settings',
+        path: filePath,
+        reason_code: result.reason,
+        description: result.description
+      },
       migrated: false
     }
   }
@@ -230,7 +269,12 @@ export function loadOrUpgradeMachineConfig(
   const result = upgradeFile(filePath, MACHINE_SCHEMA, {})
   if (result.kind === 'critical') {
     return {
-      critical: { file: 'machine', path: filePath, reason_code: result.reason, description: result.description },
+      critical: {
+        file: 'machine',
+        path: filePath,
+        reason_code: result.reason,
+        description: result.description
+      },
       migrated: false
     }
   }
@@ -241,7 +285,11 @@ type UpgradeFileResult =
   | { kind: 'ok'; migrated: boolean }
   | { kind: 'critical'; reason: 'future_version' | 'invalid_json'; description: string }
 
-function upgradeFile(filePath: string, schema: SchemaSpec, ctx: MigrationContext): UpgradeFileResult {
+function upgradeFile(
+  filePath: string,
+  schema: SchemaSpec,
+  ctx: MigrationContext
+): UpgradeFileResult {
   let raw: string
   try {
     raw = readFileSync(filePath, 'utf-8')
@@ -305,28 +353,40 @@ function upgradeFile(filePath: string, schema: SchemaSpec, ctx: MigrationContext
 const LEGACY_MANIFEST_NAMES = ['business.json', 'stream.json', 'product.json'] as const
 const TARGET_MANIFEST_NAME = 'context.json'
 
+/** Mirrors the scanner's terminal-context check: `git_repos` must be a non-empty plain object. */
+function isNonEmptyObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value as Record<string, unknown>).length > 0
+  )
+}
+
 /**
- * Рекурсивно проходит по rootContextFolders и поднимает все manifest'ы до v2.
+ * Рекурсивно проходит по rootContextFolders и поднимает все manifest'ы до v3.
  *
  * Правила обхода (зеркалят backend scanner):
  * - Пропускаем dotted-папки (`.git`, `.venv`, etc.).
- * - Не рекурсируем внутрь папок с `git_url` (terminal context).
+ * - Не рекурсируем внутрь папок с непустым `git_repos` (terminal context).
  *
  * Действия в каждой папке:
- * - `context.json` v2 валидный → leave alone, не рекурсируем если есть `git_url`.
+ * - `context.json` v3 валидный → leave alone, не рекурсируем если есть `git_repos`.
+ * - `context.json` v1/v2 → миграция up to v3 (chain), запись через atomic write.
  * - `context.json` future-version (`> maxSupported`) → context-error, файл не трогаем.
  * - `context.json` невалидный JSON → context-error, файл не трогаем.
  * - Legacy file (`business.json` / `stream.json` / `product.json`) без `context.json` →
- *   atomic-upgrade в `context.json` v2, удалить legacy.
+ *   atomic-upgrade в `context.json` v3, удалить legacy.
  * - И `context.json`, и legacy → `context.json` побеждает, legacy удаляется без сравнения
  *   (по дизайну §7: «context.json wins, legacy silently removed» — equivalence-aware
  *   resolution был оверинжинирингом для одной машины и убран по решению пользователя).
- * - Ничего нет на root-папке (depth 0) → self-heal: создать `context.json` v2 без `meta`.
+ * - Ничего нет на root-папке (depth 0) → self-heal: создать `context.json` v3 без `meta`.
  * - Ничего нет внутри chain → пропуск, рекурсия в children.
  */
-export function loadOrUpgradeManifests(
-  rootContextFolders: string[]
-): { contextErrors: MigrationContextError[]; migratedCount: number } {
+export function loadOrUpgradeManifests(rootContextFolders: string[]): {
+  contextErrors: MigrationContextError[]
+  migratedCount: number
+} {
   const contextErrors: MigrationContextError[] = []
   let migratedCount = 0
 
@@ -349,14 +409,15 @@ function walkContext(
   bumpMigrated: (n: number) => void
 ): void {
   const targetPath = join(folderPath, TARGET_MANIFEST_NAME)
-  const legacyFiles = LEGACY_MANIFEST_NAMES.map((name) => ({ name, path: join(folderPath, name) })).filter((f) =>
-    existsSync(f.path)
-  )
+  const legacyFiles = LEGACY_MANIFEST_NAMES.map((name) => ({
+    name,
+    path: join(folderPath, name)
+  })).filter((f) => existsSync(f.path))
 
   let manifestData: Record<string, unknown> | null = null
 
   if (existsSync(targetPath)) {
-    // context.json exists — migrate it (no-op for valid v2). Coexisting legacy files lose:
+    // context.json exists — migrate it (no-op for valid v3). Coexisting legacy files lose:
     // context.json wins, legacy removed without comparison (design §7).
     const result = upgradeContextFile(targetPath, /*sourceFilename*/ undefined, folderPath)
     if (result.kind === 'error') {
@@ -405,8 +466,8 @@ function walkContext(
       }
     }
   } else if (isRoot) {
-    // Self-heal: create context.json v2 with name = basename(folder), without meta.
-    manifestData = { version: 2, name: basename(folderPath) }
+    // Self-heal: create context.json v3 with name = basename(folder), without meta.
+    manifestData = { version: 3, name: basename(folderPath) }
     try {
       atomicWriteJson(targetPath, manifestData)
       bumpMigrated(1)
@@ -422,9 +483,9 @@ function walkContext(
   }
 
   // Recursion decision:
-  // - If folder has git_url (terminal) → stop. Backend wouldn't recurse either.
+  // - If folder has non-empty git_repos (terminal) → stop. Backend wouldn't recurse either.
   // - Else → walk children (skip dot-folders).
-  if (manifestData && typeof manifestData.git_url === 'string' && manifestData.git_url.length > 0) {
+  if (manifestData && isNonEmptyObject(manifestData.git_repos)) {
     return
   }
 
@@ -534,7 +595,7 @@ function upgradeContextFile(
 /**
  * Migrate a legacy *.json file (business/stream/product) to context.json:
  * 1. Parse legacy.
- * 2. Apply v1→v2 migration.
+ * 2. Apply v1→v3 migration chain.
  * 3. Atomic-write context.json.
  * 4. Delete legacy file.
  *
@@ -577,7 +638,10 @@ function upgradeLegacyFile(
   }
   // Legacy files have no `version` field → treat as v1.
   delete data.version
-  const result = applyMigrations(CONTEXT_SCHEMA, data, { sourceFilename: legacyFilename, folderPath })
+  const result = applyMigrations(CONTEXT_SCHEMA, data, {
+    sourceFilename: legacyFilename,
+    folderPath
+  })
   if (!result.ok) {
     return {
       kind: 'error',

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 // src/test/unit/contextTree.test.ts
 import { describe, it, expect } from 'vitest';
 import { ContextTree } from '../../core/tree/contextTree';
@@ -11,7 +12,7 @@ function makeContext(overrides: Partial<ContextEntity> & { id: string; name: str
         absolute_path: null,
         parent_id: null,
         meta: false,
-        git_url: null,
+        git_repos: null,
         ...overrides,
     };
 }
@@ -38,15 +39,42 @@ describe('ContextTree', () => {
             makeContext({ id: '1', name: 'Biz', icon: 'B', absolute_path: '/b' }),
             makeContext({
                 id: '2', name: 'Duet', icon: 'D', absolute_path: '/b/Duet',
-                parent_id: '1', git_url: 'git@github.com:owner/duet.git'
+                parent_id: '1', git_repos: { Duet: 'git@github.com:owner/duet.git' }
             }),
         ];
         const tree = new ContextTree(contexts);
 
         const child = tree.getChildren(1)[0];
         expect(child.hasGit).toBe(true);
-        expect(child.gitUrl).toBe('git@github.com:owner/duet.git');
+        expect(child.gitRepos).toEqual({ Duet: 'git@github.com:owner/duet.git' });
         expect(child.isRoot).toBe(false);
+    });
+
+    it('should expose all git_repos entries for multi-repo terminal contexts', () => {
+        const contexts = [
+            makeContext({
+                id: '1', name: 'DuetLab', icon: 'L', absolute_path: '/lab',
+                git_repos: {
+                    Duet: 'git@github.com:owner/duet.git',
+                    'Duet-Instructions': 'git@github.com:owner/duet-instructions.git'
+                }
+            }),
+        ];
+        const tree = new ContextTree(contexts);
+
+        const root = tree.getRoots()[0];
+        expect(root.hasGit).toBe(true);
+        expect(Object.keys(root.gitRepos)).toEqual(['Duet', 'Duet-Instructions']);
+    });
+
+    it('should treat empty git_repos map as non-terminal', () => {
+        const contexts = [
+            makeContext({ id: '1', name: 'Empty', icon: 'E', absolute_path: '/e', git_repos: {} }),
+        ];
+        const tree = new ContextTree(contexts);
+        const root = tree.getRoots()[0];
+        expect(root.hasGit).toBe(false);
+        expect(root.gitRepos).toEqual({});
     });
 
     it('should propagate meta flag for meta-context', () => {
@@ -64,7 +92,7 @@ describe('ContextTree', () => {
         const contexts = [
             makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/b1' }),
             makeContext({ id: '2', name: 'Stream1', icon: 'S', absolute_path: '/b1/s1', parent_id: '1' }),
-            makeContext({ id: '3', name: 'Prod1', icon: 'P', absolute_path: '/b1/s1/p1', parent_id: '2', git_url: 'git@x:y.git' }),
+            makeContext({ id: '3', name: 'Prod1', icon: 'P', absolute_path: '/b1/s1/p1', parent_id: '2', git_repos: { Prod1: 'git@x:y.git' } }),
         ];
         const tree = new ContextTree(contexts);
 
@@ -189,13 +217,13 @@ describe('ContextTree', () => {
     it('sorts non-meta roots alphabetically; hasGit does not change position', () => {
         const contexts = [
             makeContext({ id: '1', name: 'Заря', icon: 'Z', absolute_path: '/z' }),
-            makeContext({ id: '2', name: 'Альфа', icon: 'A', absolute_path: '/a', git_url: 'git@x:a.git' }),
+            makeContext({ id: '2', name: 'Альфа', icon: 'A', absolute_path: '/a', git_repos: { 'Альфа': 'git@x:a.git' } }),
             makeContext({ id: '3', name: 'Браво', icon: 'B', absolute_path: '/b' }),
         ];
         const tree = new ContextTree(contexts);
 
         const roots = tree.getRoots();
-        // Альфа comes first alphabetically even though it has git_url.
+        // Альфа comes first alphabetically even though it has git_repos.
         expect(roots.map(r => r.label)).toEqual(['Альфа', 'Браво', 'Заря']);
     });
 

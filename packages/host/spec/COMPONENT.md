@@ -268,21 +268,21 @@ Implementation: `core/root-contexts.ts`
 ## Schema Migrations
 
 Host owns auto-upgrade of all on-disk Duet schemas (settings.json, `{machine}.json`, context manifests).
-Backend is a strict v2 reader — it never mutates files, never migrates. See unification design §6.
+Backend is a strict v3 reader for `context.json` (and strict v2 for settings/machine) — it never mutates files, never migrates. See unification design §6 and DuetLab design-doc §5.
 
 **Module:** `core/schema-migrations.ts`. No Electron imports — testable with plain Node.
 
 **Schema specs:**
-| Schema | File(s) | v1 → v2 transform |
-|--------|---------|-------------------|
-| `settings` | `settings.json` | rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved. |
-| `machine` | `{machine}.json` | add `version: 2`. No field renames. |
-| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. |
+| Schema | File(s) | Target | Migration chain |
+|--------|---------|--------|-----------------|
+| `settings` | `settings.json` | v2 | v1 → v2: rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved. |
+| `machine` | `{machine}.json` | v2 | v1 → v2: add `version: 2`. No field renames. |
+| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v3 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. All other fields preserved. |
 
 **Triggers:**
 1. **Host startup** — full sweep before backend spawn. Order: settings → machine → manifests under each root context. If settings or machine produces a critical error, the manifest walk is skipped and backend does not spawn.
 2. **`config:save-pointer`** with `duetConfigPath` or `machine` change → full sweep (settings/machine of new path may be legacy or future-version).
-3. **`root-contexts:add`** → full sweep (idempotent on already-v2 settings/machine; manifest walk picks up legacy/future files inside the new folder, self-heals on empty folder).
+3. **`root-contexts:add`** → full sweep (idempotent on already-current settings/machine/context manifests; manifest walk picks up legacy/future files inside the new folder, self-heals on empty folder).
 4. **DuetConfig file watcher** — `main/index.ts` watches `duetConfigPath` for changes to `settings.json` and `{machine}.json` (debounce 500ms). On any change, runs the full sweep so a runtime corruption (user edit, Drive sync overwrite) escalates to the same critical-banner mechanism that protects startup, without rewriting the many `readConfig` callers.
 
 **Critical gate:** `MigrationResult.critical` is non-null iff the pointer file, `settings.json`, or `{machine}.json` is corrupted (`invalid_json`/`read_failed`) or future-version (`version > MAX_SUPPORTED`). While critical:
@@ -297,7 +297,7 @@ Backend is a strict v2 reader — it never mutates files, never migrates. See un
 |-------------|---------|
 | `future_version` | `context.json` is `version > MAX_SUPPORTED`. Backend will skip this context. |
 | `invalid_json` | `context.json` is broken JSON or has missing/non-int `version`. File untouched. |
-| `migration_failed` | Legacy → v2 migration could not complete (rare; usually IO error mid-write). |
+| `migration_failed` | v1 → v2 → v3 migration chain could not complete (rare; usually IO error mid-write). |
 | `unresolved_alias` | `root_context_folders` entry references an `@alias` that's not registered in this machine's `{machine}.json` — folder cannot be located. |
 
 **Atomic write:** `atomicWriteJson(path, data)` (in `core/json-io.ts`) writes `{path}.tmp` then `rename()`. On POSIX `rename(2)` is atomic on the same filesystem; a crash mid-write leaves either the original file or the new one — never a half-written file. For legacy → context migration the order is: write `context.json` → delete legacy. A crash between leaves both files; orphan resolution on the next sweep handles them.
@@ -310,13 +310,13 @@ Backend is a strict v2 reader — it never mutates files, never migrates. See un
 
 **Recursion rules** (mirror backend scanner):
 - Skip directories starting with `.` (`.git`, `.venv`, etc.).
-- Stop recursion at folders with `git_url` in their manifest (terminal context).
+- Stop recursion at folders whose post-migration `context.json` has a non-empty `git_repos` map (terminal context). The check runs after the in-walk migration upgrade, so a pre-existing v2 manifest with `git_url` becomes a v3 manifest with `git_repos` before the recursion decision is taken.
 
-**Forward-incompatibility handling:** A future Duet version that bumps schema to v3 leaves the v2-aware Host with `version > MAX_SUPPORTED`:
+**Forward-incompatibility handling:** A future Duet version that bumps a schema beyond what this Host build supports (e.g. context to v4, settings to v3) leaves the older Host with `version > MAX_SUPPORTED`:
 - Settings/machine → critical → backend blocked → user updates Duet.
 - Context manifest → per-context warning → backend skips that context only.
 
-**No rollback:** First Host startup on an upgraded machine rewrites every legacy manifest in place. Original filename (`business/stream/product.json`) cannot be reconstructed from a v2 file. A pre-upgrade backup is recommended for users with significant data; Host does not back up automatically.
+**No rollback:** First Host startup on an upgraded machine rewrites every legacy manifest in place. Original filename (`business/stream/product.json`) cannot be reconstructed from a v3 file, and the v2 `git_url` field cannot be recovered after it has been folded into `git_repos`. A pre-upgrade backup is recommended for users with significant data; Host does not back up automatically.
 
 **Multi-machine sync caveat:** Drive sync between an upgraded and not-yet-upgraded machine briefly produces files at higher version on the older machine. Forward-incompatibility handling above keeps both machines safe (no corruption, no infinite loops); the older machine just shows error UI until updated.
 

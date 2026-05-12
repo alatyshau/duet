@@ -1,5 +1,7 @@
 # Duet Product Spec
 
+Система управления знаниями и делами, построенная на дуэте Человека и ИИ.
+
 > Read this FIRST when entering the monorepo. Component specs reference this file.
 
 ## Agent Rules
@@ -165,19 +167,19 @@ DuetConfig/
 meta-context (one per workspace, e.g. !БАЗА — meta: true)
 ├── root context (top-level user context, parent_id IS NULL)
 │   ├── context (intermediate, can nest)
-│   │   └── context with git_url (terminal — product lives in repo)
-│   └── context with git_url
+│   │   └── context with git_repos (terminal — products live in repos)
+│   └── context with git_repos
 └── ...
 ```
 
-A context is a folder on Drive carrying `context.json` v2. Roles are
+A context is a folder on Drive carrying `context.json` v3. Roles are
 inferred from manifest fields, not from a separate enum:
 
 | Role | How it's identified |
 |------|---------------------|
 | meta-context | `meta: true` in `context.json`. Exactly one per database whenever `root_context_folders` is non-empty |
 | root context | `parent_id IS NULL`, listed in `root_context_folders` |
-| terminal (with git) | `git_url` set; scanner stops recursing |
+| terminal (with git_repos) | `git_repos` present; scanner stops recursing, registers one `product_repo` per alias |
 | intermediate | none of the above |
 
 **Meta required.** When `root_context_folders` is non-empty, exactly one context in
@@ -195,33 +197,42 @@ Three entity types live in `entities.db`:
 
 | Type | Manifest | Tree? | Notes |
 |------|----------|-------|-------|
-| `context` | `context.json` v2 | yes | Bounded context on Drive |
-| `product_repo` | — | no | Auto-registered for each `context` with `git_url`. Path resolution helper |
+| `context` | `context.json` v3 | yes | Bounded context on Drive |
+| `product_repo` | — | no | Auto-registered for each alias in a context's `git_repos`. Entity name = `{alias}.git`. Path resolution helper |
 | `reference_repo` | — | no | Read-only clone declared via `reference_repos` |
 
 ### Manifest Format
 
 ```json
-{ "version": 2, "name": "Duet", "icon": "📦", "git_url": "git@github.com:owner/repo.git" }
-{ "version": 2, "name": "БАЗА", "icon": "🗂", "meta": true }
-{ "version": 2, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
+{ "version": 3, "name": "Duet", "icon": "📦", "git_repos": {"Duet": "git@github.com:owner/duet.git"} }
+{ "version": 3, "name": "DuetLab", "icon": "🎭",
+  "git_repos": {"Duet": "git@github.com:owner/duet.git",
+                "Duet-Instructions": "git@github.com:owner/duet-instructions.git"} }
+{ "version": 3, "name": "БАЗА", "icon": "🗂", "meta": true }
+{ "version": 3, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
 ```
 
 | Field | Type | Required? | Meaning |
 |-------|------|-----------|---------|
-| `version` | int | required | Schema version. `2` for current backend; `version != 2` is ignored with warning |
+| `version` | int | required | Schema version. `3` for current backend; `version != 3` is ignored with `unrecognized_manifest_version` warning |
 | `name` | string | required | Globally unique entity name |
-| `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_url` present |
-| `meta` | bool | optional | `true` marks the meta-context. Renamed from v1's `root` (Host migrates) |
-| `git_url` | string | optional | If set, scanner stops recursing; product lives in this repo |
+| `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_repos` present |
+| `meta` | bool | optional | `true` marks the meta-context. Host migrates v1's `root` field |
+| `git_repos` | map | optional | `{alias: url}` map declaring product clones. **Present → context is terminal** (scanner registers N `product_repo` children, one per alias, and does not recurse). Key insertion order is preserved and surfaces in `products[]` order |
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
 | `description` | string | optional | Used for `chain[].description` in orientation; takes priority over README first sentence |
 
-**Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). Backend reads only; Host owns all upgrades.
+**Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). Backend reads only; Host owns all upgrades (v1→v2→v3).
+
+**v3 validation (manifest reader, §1.2 of design-doc):**
+- `git_repos` must be an object when present, and non-empty
+- alias must be a non-empty string; URL must be a non-empty string
+- aliases live in a shared namespace with `reference_repos` — overlap is rejected as `invalid_manifest`
+- No regex/Windows-reserved-name/URL-leading-`-` guards: manifests are user-written, this is intentional
 
 ### Reference Repos
 
-`reference_repos` field in any `context.json` declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space).
+`reference_repos` field in any `context.json` declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space, shared with `git_repos` aliases).
 
 ### Name Uniqueness (CRITICAL)
 
@@ -237,12 +248,20 @@ When two contexts collide on name (rare in practice), the second-comer gets the 
 
 ### Self-Healing
 
-Backend does not self-heal. **Host** owns all manifest upgrades on startup
-(legacy `business.json` / `stream.json` / `product.json` → `context.json` v2,
-including `root → meta` rename) and creates a default `context.json` v2 for
-empty root context folders. Backend reads the upgraded result; folders with
-`version != 2` are silently skipped with an `unrecognized_manifest_version`
-warning in scan errors.
+Backend does not self-heal. **Host** owns all manifest upgrades on startup —
+v1 → v2 → v3 chain in `CONTEXT_SCHEMA` migrations:
+
+- v1 (`business.json` / `stream.json` / `product.json`) → v2 with `root → meta` rename
+- v2 (`git_url: "..."`) → v3 with `git_url` converted to `git_repos: {<name>: <url>}`
+
+Host also creates a default `context.json` v3 for empty root context folders.
+Backend reads the upgraded result; folders with `version != 3` are silently
+skipped with an `unrecognized_manifest_version` warning in scan errors.
+
+**Multi-machine note:** Drive synchronises between machines. A v3-aware
+machine converts every manifest to v3 on startup; an older machine sees
+`version: 3` it doesn't recognise and surfaces the unrecognised-version
+error, prompting an update.
 
 ## Database Schema
 
@@ -256,11 +275,16 @@ CREATE TABLE entities (
     icon TEXT,
     drive_path TEXT UNIQUE,
     parent_id INTEGER REFERENCES entities(id),
-    git_url TEXT,
+    git_url TEXT,     -- populated only on product_repo / reference_repo rows
     meta INTEGER DEFAULT 0  -- 1 = meta-context (e.g. !БАЗА)
 );
 CREATE UNIQUE INDEX idx_name ON entities(name);
 ```
+
+**v3 note:** `git_url` is no longer set on `context` rows (the URL lives in
+the `git_repos` map on disk and on the `product_repo` children). The column
+stays on `product_repo` / `reference_repo` rows as the per-clone URL. No
+`components_repo` column is introduced.
 
 ## Cross-Component Contracts
 
@@ -298,32 +322,35 @@ AI agents call `orientation(workspace_paths=[<all working dirs>])` at session st
 
 **Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint)
 
-**Multi-path resolution:** Classifies each path (gitFolder / contextFolder / ignored), resolves entities. If the meta-context is among them, it wins; otherwise the first resolved context is used (also covers the brief window when the DB hasn't caught up with a fresh Host meta-flag write — Host's startup/save sweep owns the invariant and surfaces real failures in red on the wizard's path page).
+**Multi-path resolution:** Classifies each path (gitFolder / contextFolder / ignored), resolves entities. If the meta-context is among them, it wins; otherwise the first resolved context is used. For a multi-repo context like DuetLab, each `repos/<alias>.git` path resolves via its `product_repo` entity to the same owning context — all paths unify to one owner. The first-come fallback also covers the brief window when the DB hasn't caught up with a fresh Host meta-flag write (Host's startup/save sweep owns the invariant and surfaces real failures in red on the wizard's path page).
 
-**Response blocks:**
+**Response blocks (v3 shape):**
 
 | Block | Purpose | Always present? |
 |-------|---------|----------------|
-| `duet_paths` | duetDataPath, machineConfig | Yes |
-| `instructions` | basePath, personas[], skills[] (dynamic catalog from YAML frontmatter) | Yes |
-| `workspace` | type, topology, typed attributes, reference_repos | Yes |
+| `duet_paths` | duetDataPath, machineConfig, instructionsPath | Yes |
+| `workspace` | kind, context_name, context_folder, git_folders (map), [reference_repos], [meta-only addons] | Yes |
 | `context` | breadcrumb + chain (type, name, description) | When entity resolved |
-| `key_files` | Absolute paths to spec and readme | When files exist |
-| `components` | Product's packages with spec path and description | When product in chain |
+| `products` | Top-level array; each product has `name`, `path` (@-ref), `spec?`, `description?`, `components[]` | When entity resolved |
+
+Legacy fields removed in v3: `workspace.type`, `workspace.topology`,
+`workspace.git_folder` (singular), top-level `components[]`, top-level
+`key_files`.
 
 **Contract:** Detailed format in `packages/backend/spec/COMPONENT.md` → Orientation.
 
 ### Spec File Naming Convention
 
-| Lookup category | Standard spec file |
-|-----------------|--------------------|
-| context with git_url (terminal — a product) | `spec/PRODUCT.md` |
-| context without git_url | `spec/CONTEXT.md` |
-| component | `spec/COMPONENT.md` |
+The v3 orientation algorithm uses **single canonical spec files** — no fallback chain. A missing canonical file means the entity has no spec; orientation falls back to `README*.md` only for product/component description (never as the spec path).
 
-Fallback: if standard file absent, orientation searches next in chain. For context-without-git the chain still keeps `BUSINESS.md` and `STREAM.md` as legacy fallbacks for files the user has not renamed yet. Full chains in `packages/backend/spec/COMPONENT.md` → Spec File Fallback.
+| Where | Canonical spec file |
+|-------|---------------------|
+| product (alias from `git_repos`) | `<repo>/spec/PRODUCT.md` |
+| product (context-as-product, rule B) | `<context>/spec/PRODUCT.md` |
+| product (subfolder, rule C) | `<sub>/spec/PRODUCT.md` |
+| component | `<…>/<comp>/spec/COMPONENT.md` |
 
-**COMPONENT.md** merges what was previously ARCHITECTURE.md + DOMAIN.md. First sentence of COMPONENT.md becomes component `description` in orientation response.
+First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `description` in orientation. If the spec file is absent, orientation tries `README*.md` (exact `README.md` wins; otherwise alphabetically first) — that yields a description but no `spec` field. Full algorithm: design-doc §2.
 
 ### Who Reads What
 
@@ -433,10 +460,28 @@ Per-package details:
 
 | Pattern | Meaning |
 |---------|---------|
-| `{Name}.git` | Main clone of product |
-| `{Name}.wt-N` | Worktree N (planned) |
+| `{alias}.git` | Main clone of a product (alias from `git_repos` or reference name) |
+| `{alias}.wt-N` | Worktree N (planned) |
+
+Aliases from `git_repos` live in a global `{alias}.git` namespace shared
+with `reference_repos`. Manifest validation rejects within-manifest
+overlap; cross-manifest collisions surface as `repo_collision` scan errors.
 
 Lookup: strip suffix → find entity by name.
+
+**Manifest alias vs. Duet-ontology slug.** The key in `git_repos`
+(e.g. `"Duet"`) is the **github repo name** — short, user-facing,
+without `.git`. Everywhere this product surfaces inside Duet — the clone
+folder (`DuetData/repos/Duet.git/`), the `product_repo.name` row in
+`entities.db`, `orientation.products[*].name` (`"Duet.git"`),
+and `orientation.products[*].path` (`"@Duet.git"`) — uses the derived
+slug `{alias}.git`. The `.git` suffix is added by backend during
+derivation; it is **not** stored in the manifest.
+
+Drive-products (rules B/C/D in the Orientation algorithm — context as
+product, subfolder as product, README fallback) have no git repo. Their
+slug is just the context/subfolder name without `.git`, since there is
+no clone to suffix.
 
 ## Timestamp Format
 

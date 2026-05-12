@@ -7,7 +7,6 @@ import { WorkspaceManager } from '../../core/workspace';
 import { Paths } from '../../core/paths';
 import { readPointer } from '../../core/pointer';
 
-// Output channel for git operations
 let gitOutputChannel: vscode.OutputChannel | undefined;
 
 function getGitOutputChannel(): vscode.OutputChannel {
@@ -17,9 +16,6 @@ function getGitOutputChannel(): vscode.OutputChannel {
     return gitOutputChannel;
 }
 
-/**
- * Check if directory exists
- */
 async function dirExists(dirPath: string): Promise<boolean> {
     try {
         const stat = await fs.stat(dirPath);
@@ -31,11 +27,12 @@ async function dirExists(dirPath: string): Promise<boolean> {
 
 /**
  * Run git clone with progress reporting.
- * Returns true on success, false on failure/cancel.
  *
- * Uses a resolved flag to prevent duplicate finalization when:
- * - User cancels (cancelListener fires before process closes)
- * - Process errors (error event may fire before/after close)
+ * The `--` separator guards against option-injection: a git URL beginning with
+ * `-` (e.g. someone's mistyped manifest) would otherwise be interpreted as a
+ * flag.
+ *
+ * Uses a `resolved` flag so concurrent close/error/cancel events don't double-log.
  */
 async function gitClone(
     gitUrl: string,
@@ -63,11 +60,10 @@ async function gitClone(
             resolve(success);
         };
 
-        const proc = spawn('git', ['clone', '--progress', gitUrl, targetDir], {
+        const proc = spawn('git', buildGitCloneArgs(gitUrl, targetDir), {
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
-        // Handle cancellation
         const cancelListener = token.onCancellationRequested(() => {
             proc.kill('SIGTERM');
             finalize(false, '\n[Cancelled by user]');
@@ -78,7 +74,6 @@ async function gitClone(
         });
 
         proc.stderr?.on('data', (data: Buffer) => {
-            // Git sends progress to stderr
             outputChannel.append(data.toString());
         });
 
@@ -96,54 +91,73 @@ async function gitClone(
     });
 }
 
-/**
- * Get repo path in DuetData/repos/ for a repo name.
- * Format: {Name}.git
- */
 function getRepoPath(reposDir: string, name: string): string {
     return path.join(reposDir, `${name}.git`);
 }
 
 /**
- * Validate that a reference repo name is safe to use as a folder name.
- * Reference repo names come from manifest JSON keys (user-authored), so
- * we guard against path traversal or illegal characters before joining.
+ * Build argv for `git clone`. The `--` separator is mandatory — without it a
+ * git URL beginning with `-` (typo in a manifest, hostile input) gets parsed
+ * as a flag.
+ *
+ * Exported for unit-testing; production code uses `gitClone()` below.
  */
-function isSafeRepoName(name: string): boolean {
+export function buildGitCloneArgs(gitUrl: string, targetDir: string): string[] {
+    return ['clone', '--progress', '--', gitUrl, targetDir];
+}
+
+/**
+ * Validate that an alias from a manifest is safe to use as a folder name.
+ * Aliases come from user-authored JSON keys, so we guard against path traversal
+ * or illegal characters before joining with `reposDir`.
+ *
+ * Exported for unit-testing.
+ */
+export function isSafeRepoName(name: string): boolean {
     if (!name || name === '.' || name === '..') {
         return false;
     }
-    // Reject anything that tries to escape the reposDir or hide as a dotfile.
     return !/[\\/]|^\.|[\x00-\x1f]/.test(name);
 }
 
 /**
- * Clone reference repos declared in the node's manifest into paths.reposPath.
- * Skips entries that already exist on disk.
+ * Return all aliases in `repos` that fail `isSafeRepoName`. Used by the
+ * pre-flight in `openNode` to abort the whole open if any name would escape
+ * `reposPath` — both the clone target and the generated workspace folder
+ * paths share the same alias namespace, so one validation must cover both.
  *
- * Semantics match the main `git_url` flow: any failure (clone error or user
- * cancel) aborts the whole open. If a reference repo is unreachable, the user
- * must remove/comment it out of the manifest — we do not silently proceed
- * with a partial environment.
- *
- * Returns true if all pending clones completed successfully (or none were
- * needed), false on failure/cancel.
+ * Exported for unit-testing.
  */
-async function cloneReferenceRepos(
-    referenceRepos: Record<string, string>,
-    reposDir: string
-): Promise<boolean> {
-    const entries = Object.entries(referenceRepos);
-    const pending: Array<{ name: string; url: string; target: string }> = [];
-    const outputChannel = getGitOutputChannel();
+export function findUnsafeAliases(repos: Record<string, string>): string[] {
+    return Object.keys(repos).filter(name => !isSafeRepoName(name));
+}
 
-    for (const [name, url] of entries) {
-        if (!isSafeRepoName(name)) {
-            outputChannel.appendLine(
-                `[Skipping reference repo with unsafe name: "${name}"]`
-            );
-            continue;
-        }
+function reportUnsafeAliases(unsafe: string[], origin: string): void {
+    const quoted = unsafe.map(n => `"${n}"`).join(', ');
+    vscode.window.showErrorMessage(
+        `Небезопасные имена в ${origin}: ${quoted}. Исправь манифест и открой контекст снова.`
+    );
+}
+
+/**
+ * Clone a set of aliased repos into `reposDir`. Skips entries that already exist.
+ *
+ * Same semantics as the main launcher clone: any failure or user cancel aborts
+ * the entire batch. The caller must not proceed with a partial environment.
+ *
+ * Contract: all aliases in `repos` are assumed safe (pre-flight validated in
+ * `openNode` via `findUnsafeAliases`). The function trusts its input — silent
+ * skipping of unsafe names here would diverge from the workspace generator
+ * downstream and leave a `.code-workspace` referencing escaped paths.
+ */
+async function cloneRepoSet(
+    repos: Record<string, string>,
+    reposDir: string,
+    progressTitle: string
+): Promise<boolean> {
+    const pending: Array<{ name: string; url: string; target: string }> = [];
+
+    for (const [name, url] of Object.entries(repos)) {
         const target = getRepoPath(reposDir, name);
         if (!(await dirExists(target))) {
             pending.push({ name, url, target });
@@ -157,7 +171,7 @@ async function cloneReferenceRepos(
     return await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: 'Cloning reference repos...',
+            title: progressTitle,
             cancellable: true
         },
         async (progress, token) => {
@@ -170,9 +184,7 @@ async function cloneReferenceRepos(
                     return false;
                 }
                 const { name, url, target } = pending[i];
-                progress.report({
-                    message: `${name} (${i + 1}/${pending.length})`
-                });
+                progress.report({ message: `${name} (${i + 1}/${pending.length})` });
                 const ok = await gitClone(url, target, name, token);
                 if (!ok) {
                     return false;
@@ -185,8 +197,8 @@ async function cloneReferenceRepos(
 
 /**
  * Open a context node.
- * For git-backed contexts: clone if needed, generate workspace, open.
- * For others: just open the Drive folder.
+ * For terminal contexts (have `git_repos`): clone all aliases, generate
+ * multi-root workspace, open it. For others: open the Drive folder directly.
  */
 async function openNode(
     node: TreeNode,
@@ -198,9 +210,6 @@ async function openNode(
         return;
     }
 
-    // Guard: node.id must be an absolute path (from backend absolute_path).
-    // If backend returned null absolute_path, node.id falls back to relative drive_path
-    // which is meaningless for filesystem operations.
     if (!path.isAbsolute(node.id)) {
         vscode.window.showErrorMessage(
             `Cannot open "${node.label}": backend returned relative path. Check settings.json root_context_folders and reposPath.`
@@ -208,17 +217,33 @@ async function openNode(
         return;
     }
 
-    // For git-backed contexts: handle git clone and workspace
-    if (node.hasGit && node.gitUrl) {
-        await openContextWithGit(node, forceNewWindow, paths);
+    // Pre-flight: any unsafe alias in either `git_repos` or `reference_repos`
+    // aborts the whole open. Clone and workspace generation share the same
+    // alias namespace, so one validation must cover both.
+    const isTerminal = node.hasGit && Object.keys(node.gitRepos).length > 0;
+    if (isTerminal) {
+        const unsafeGit = findUnsafeAliases(node.gitRepos);
+        if (unsafeGit.length > 0) {
+            reportUnsafeAliases(unsafeGit, `${node.label}.git_repos`);
+            return;
+        }
+    }
+    if (node.referenceRepos) {
+        const unsafeRef = findUnsafeAliases(node.referenceRepos);
+        if (unsafeRef.length > 0) {
+            reportUnsafeAliases(unsafeRef, `${node.label}.reference_repos`);
+            return;
+        }
+    }
+
+    if (isTerminal) {
+        await openContextWithRepos(node, forceNewWindow, paths);
         return;
     }
 
-    // For non-git contexts: clone any reference repos first, then open the
-    // Drive folder. Clone failures or cancellation abort the open
-    // (symmetric to the main git_url clone flow).
+    // Non-terminal context: clone any reference repos first, then open Drive folder.
     if (node.referenceRepos) {
-        const ok = await cloneReferenceRepos(node.referenceRepos, paths.reposPath);
+        const ok = await cloneRepoSet(node.referenceRepos, paths.reposPath, 'Cloning reference repos...');
         if (!ok) {
             return;
         }
@@ -229,63 +254,35 @@ async function openNode(
 }
 
 /**
- * Open a git-backed context.
- * Clones if needed, generates workspace, opens workspace file.
+ * Open a terminal context that declares `git_repos`.
+ * Clones all missing aliases, then generates and opens a multi-root workspace.
  */
-async function openContextWithGit(
+async function openContextWithRepos(
     node: TreeNode,
     forceNewWindow: boolean,
     paths: Paths
 ): Promise<void> {
-    const repoPath = getRepoPath(paths.reposPath, node.label);
-    const repoExists = await dirExists(repoPath);
+    const aliases = Object.keys(node.gitRepos);
 
-    // Clone if repo doesn't exist
-    if (!repoExists) {
-        const shouldClone = await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: `Cloning ${node.label}...`,
-                cancellable: true
-            },
-            async (progress, token) => {
-                // Ensure repos directory exists
-                try {
-                    await fs.mkdir(paths.reposPath, { recursive: true });
-                } catch { /* ignore if exists */ }
-
-                progress.report({ message: 'Running git clone...' });
-                return await gitClone(node.gitUrl!, repoPath, node.label, token);
-            }
-        );
-
-        if (!shouldClone) {
-            // Cancelled or failed
-            return;
-        }
+    const ok = await cloneRepoSet(node.gitRepos, paths.reposPath, `Cloning ${node.label}...`);
+    if (!ok) {
+        return;
     }
 
-    // Clone reference repos (if any). Failures or cancel abort the open —
-    // user must fix the manifest before reopening.
     if (node.referenceRepos) {
-        const ok = await cloneReferenceRepos(node.referenceRepos, paths.reposPath);
-        if (!ok) {
+        const refOk = await cloneRepoSet(node.referenceRepos, paths.reposPath, 'Cloning reference repos...');
+        if (!refOk) {
             return;
         }
     }
 
-    // Generate/update workspace file
     const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
-    const workspacePath = await workspaceManager.writeContextWithGitWorkspace(node.label, node.id);
+    const workspacePath = await workspaceManager.writeContextWithReposWorkspace(node.label, aliases, node.id);
 
-    // Open workspace
     const uri = vscode.Uri.file(workspacePath);
     await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });
 }
 
-/**
- * Command: Open in current window (button [↵])
- */
 export async function openInCurrentWindow(node: TreeNode): Promise<void> {
     const pointer = readPointer();
     const dataFolder = pointer?.duetDataPath;
@@ -298,9 +295,6 @@ export async function openInCurrentWindow(node: TreeNode): Promise<void> {
     await openNode(node, false, paths);
 }
 
-/**
- * Command: Open in new window (button [→])
- */
 export async function openInNewWindow(node: TreeNode): Promise<void> {
     const pointer = readPointer();
     const dataFolder = pointer?.duetDataPath;
@@ -313,9 +307,6 @@ export async function openInNewWindow(node: TreeNode): Promise<void> {
     await openNode(node, true, paths);
 }
 
-/**
- * Dispose output channel (call on extension deactivate)
- */
 export function disposeGitOutputChannel(): void {
     gitOutputChannel?.dispose();
     gitOutputChannel = undefined;

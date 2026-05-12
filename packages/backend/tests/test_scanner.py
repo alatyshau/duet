@@ -1,4 +1,4 @@
-"""Tests for scanner.py - hierarchy scanner (strict v2 reader)."""
+"""Tests for scanner.py — strict v3 reader, multi-repo terminals."""
 
 import json
 from pathlib import Path
@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db import DatabaseManager
-from scanner import Scanner, scan_components
+from scanner import Scanner
 
 from tests.fixtures import ManifestBuilder
 
@@ -72,7 +72,7 @@ class TestScanner:
         assert db.find_meta_context() == meta
 
     def test_scan_hierarchy(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Scans full hierarchy: root → mid → terminal-with-git."""
+        """Scans full hierarchy: root → mid → terminal-with-git_repos."""
         root_path = tmp_path / "Root"
         root_path.mkdir()
         ManifestBuilder.context(root_path, "Root")
@@ -83,7 +83,10 @@ class TestScanner:
 
         product_path = mid_path / "Product"
         product_path.mkdir()
-        ManifestBuilder.context(product_path, "Product", git_url="https://example.com/p.git")
+        ManifestBuilder.context(
+            product_path, "Product",
+            git_repos={"Product": "https://example.com/p.git"},
+        )
 
         monkeypatch.setattr(
             "scanner.get_root_context_folders",
@@ -108,24 +111,89 @@ class TestScanner:
         assert root.parent_id is None
         assert mid.parent_id == root.id
         assert product.parent_id == mid.id
-        assert product.git_url == "https://example.com/p.git"
         assert product_repo is not None
         assert product_repo.type == "product_repo"
         assert product_repo.parent_id == product.id
+        assert product_repo.git_url == "https://example.com/p.git"
+
+    def test_scan_multi_repo_context_registers_n_product_repos(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A context with two `git_repos` aliases yields two product_repo children."""
+        root_path = tmp_path / "Lab"
+        root_path.mkdir()
+        ManifestBuilder.context(
+            root_path, "Lab",
+            git_repos={
+                "Duet": "https://github.com/owner/duet.git",
+                "Duet-Instructions": "https://github.com/owner/duet-instructions.git",
+            },
+        )
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        result = Scanner(db).scan()
+        assert result["status"] == "completed"
+        # 1 context + 2 product_repos
+        assert result["entities_count"] == 3
+
+        lab = db.find_by_name("Lab")
+        duet = db.find_by_name("Duet.git")
+        di = db.find_by_name("Duet-Instructions.git")
+
+        assert lab is not None
+        for repo, expected_url in (
+            (duet, "https://github.com/owner/duet.git"),
+            (di, "https://github.com/owner/duet-instructions.git"),
+        ):
+            assert repo is not None
+            assert repo.type == "product_repo"
+            assert repo.parent_id == lab.id
+            assert repo.git_url == expected_url
+
+    def test_multi_repo_terminal_does_not_recurse(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A context with `git_repos` is terminal — children with their own
+        `context.json` are not scanned in."""
+        root_path = tmp_path / "Lab"
+        root_path.mkdir()
+        ManifestBuilder.context(
+            root_path, "Lab",
+            git_repos={"Duet": "https://duet.git"},
+        )
+
+        # Nested folder that *would* register if recursion happened.
+        deep = root_path / "DeepChild"
+        deep.mkdir()
+        ManifestBuilder.context(deep, "DeepChild")
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        Scanner(db).scan()
+        assert db.find_by_name("DeepChild") is None
 
     def test_terminal_with_git_does_not_recurse(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:
-        """Context with git_url is terminal — scanner stops, even if children have manifests."""
+        """Single-repo terminal (legacy single-alias) also stops recursion."""
         root_path = tmp_path / "Root"
         root_path.mkdir()
         ManifestBuilder.context(root_path, "Root")
 
         product_path = root_path / "Product"
         product_path.mkdir()
-        ManifestBuilder.context(product_path, "Product", git_url="https://example.com/p.git")
+        ManifestBuilder.context(
+            product_path, "Product",
+            git_repos={"Product": "https://example.com/p.git"},
+        )
 
-        # A folder inside the terminal that *would* be scanned if recursion happened.
         deep = product_path / "DeepChild"
         deep.mkdir()
         ManifestBuilder.context(deep, "DeepChild")
@@ -152,10 +220,10 @@ class TestScanner:
 
         product_path = root_path / "Product"
         product_path.mkdir()
-        ManifestBuilder.context(product_path, "Product", git_url="https://example.com/p.git")
-        prod_projects = product_path / "projects"
-        prod_projects.mkdir()
-        (prod_projects / "ProjectB").mkdir()
+        ManifestBuilder.context(
+            product_path, "Product",
+            git_repos={"Product": "https://example.com/p.git"},
+        )
 
         monkeypatch.setattr(
             "scanner.get_root_context_folders",
@@ -296,14 +364,14 @@ class TestScannerEdgeCases:
     def test_malformed_manifest_no_silent_repair(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:
-        """Manifest with `version: 2` but missing `name` must not register
+        """Manifest with `version: 3` but missing `name` must not register
         a context under the folder name. Strict reader rejects malformed
         shape with `invalid_manifest`; scanner skips.
         """
         ctx_path = tmp_path / "MyFolder"
         ctx_path.mkdir()
         (ctx_path / "context.json").write_text(
-            json.dumps({"version": 2}),  # no `name`
+            json.dumps({"version": 3}),  # no `name`
             encoding="utf-8",
         )
 
@@ -324,7 +392,7 @@ class TestScannerEdgeCases:
     def test_unrecognized_version_skipped(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:
-        """`version != 2` produces unrecognized_manifest_version warning, no entity created."""
+        """`version != 3` produces unrecognized_manifest_version warning, no entity created."""
         ctx_path = tmp_path / "Future"
         ctx_path.mkdir()
         (ctx_path / "context.json").write_text(
@@ -371,7 +439,8 @@ class TestScannerEdgeCases:
         product_path = intermediate / "DeepProduct"
         product_path.mkdir()
         ManifestBuilder.context(
-            product_path, "DeepProduct", git_url="https://example.com/d.git",
+            product_path, "DeepProduct",
+            git_repos={"DeepProduct": "https://example.com/d.git"},
         )
 
         monkeypatch.setattr(
@@ -451,9 +520,12 @@ class TestScanErrors:
             reference_repos={"Lib": "https://github.com/test/lib-ref"},
         )
 
-        p1 = root_path / "Lib"
+        p1 = root_path / "Inner"
         p1.mkdir()
-        ManifestBuilder.context(p1, "Lib", git_url="https://github.com/test/lib")
+        ManifestBuilder.context(
+            p1, "Inner",
+            git_repos={"Lib": "https://github.com/test/lib"},
+        )
 
         monkeypatch.setattr(
             "scanner.get_root_context_folders",
@@ -483,111 +555,3 @@ class TestScanErrors:
         result = Scanner(db).scan()
 
         assert result["errors"] == []
-
-
-class TestScanComponents:
-    """Tests for scan_components() function."""
-
-    def test_empty_when_no_packages(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        product_path.mkdir()
-
-        result = scan_components(product_path)
-        assert result == []
-
-    def test_scans_packages_directory(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-        packages_path.mkdir(parents=True)
-
-        (packages_path / "component-a").mkdir()
-        (packages_path / "component-b").mkdir()
-
-        result = scan_components(product_path)
-
-        assert len(result) == 2
-        names = {c["name"] for c in result}
-        assert names == {"component-a", "component-b"}
-
-    def test_detects_spec_file(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-
-        comp_with_spec = packages_path / "with-spec"
-        comp_with_spec.mkdir(parents=True)
-        spec_dir = comp_with_spec / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "COMPONENT.md").write_text("# With Spec\n\nA component.")
-
-        comp_without_spec = packages_path / "without-spec"
-        comp_without_spec.mkdir(parents=True)
-
-        result = scan_components(product_path)
-
-        by_name = {c["name"]: c for c in result}
-        assert "spec" in by_name["with-spec"]
-        assert by_name["with-spec"]["description"] == "A component."
-        assert "spec" not in by_name["without-spec"]
-
-    def test_returns_relative_paths(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-        (packages_path / "my-component").mkdir(parents=True)
-
-        result = scan_components(product_path)
-
-        assert result[0]["path"] == "packages/my-component"
-
-    def test_sorted_by_name(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-        packages_path.mkdir(parents=True)
-
-        for name in ["zebra", "apple", "mango"]:
-            (packages_path / name).mkdir()
-
-        result = scan_components(product_path)
-        names = [c["name"] for c in result]
-
-        assert names == ["apple", "mango", "zebra"]
-
-    def test_skips_files(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-        packages_path.mkdir(parents=True)
-
-        (packages_path / "real-component").mkdir()
-        (packages_path / "README.md").write_text("# Packages")
-
-        result = scan_components(product_path)
-
-        assert len(result) == 1
-        assert result[0]["name"] == "real-component"
-
-    def test_skips_hidden_directories(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-        packages_path.mkdir(parents=True)
-
-        (packages_path / "visible-component").mkdir()
-        (packages_path / ".hidden-component").mkdir()
-
-        result = scan_components(product_path)
-
-        assert len(result) == 1
-        assert result[0]["name"] == "visible-component"
-
-    def test_spec_without_description(self, tmp_path: Path) -> None:
-        product_path = tmp_path / "product"
-        packages_path = product_path / "packages"
-        comp_path = packages_path / "my-comp"
-        comp_path.mkdir(parents=True)
-        spec_dir = comp_path / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "COMPONENT.md").write_text("## No H1 heading\n\nSome text.")
-
-        result = scan_components(product_path)
-
-        assert len(result) == 1
-        assert "spec" in result[0]
-        assert "description" not in result[0]

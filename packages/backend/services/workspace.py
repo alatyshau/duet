@@ -1,6 +1,20 @@
 """Workspace orientation service.
 
-Provides workspace context for AI agents and the extension.
+Builds the orientation response for AI agents and the Extension. Top-level
+shape (design-doc §3):
+
+    {
+      "duet_paths": {...},                # always
+      "context": {"chain": [...]},        # when entity resolved
+      "workspace": {kind, context_name,
+                    context_folder,
+                    git_folders, ...},    # always
+      "products": [...]                   # when entity resolved
+    }
+
+Workspace block has four canonical fields (§3.1) plus per-shape addons
+(`reference_repos`, meta-context's `root_context_folders` /
+`duet_data_folder`). The old `type`/`topology`/`git_folder` fields are gone.
 """
 
 import logging
@@ -15,44 +29,17 @@ from config import (
     get_root_context_folders,
 )
 from db import DatabaseManager, Entity
-from description import extract_description, find_spec_file
+from description import extract_description
 from normalization import normalize_path
 from paths import is_path_inside
-from scanner import scan_components
 from services.manifest import (
     Manifest,
     read_manifest,
     read_reference_repos as _read_manifest_reference_repos,
 )
+from services.products import build_products
 
 logger = logging.getLogger(__name__)
-
-
-# Topology strings per workspace.type value.
-_TOPOLOGIES = {
-    "context_meta": (
-        "Meta-context — top-level system workspace covering everything. "
-        "meta_context_folder is the default folder for paths. "
-        "root_context_folders lists every root context (top-level user contexts) "
-        "— your starting points for navigation. duet_data_folder contains repos, "
-        "instructions, and local data."
-    ),
-    "context_with_products_in_git": (
-        "Context whose products live in a git repository. git_folder is the "
-        "cloned repo (developed inside the context). drive_folder is the "
-        "accompanying Google Drive folder — management, work/, drafts/, "
-        "binaries, and other non-versioned files. Two separate locations on disk."
-    ),
-    "context": (
-        "Context folder on Google Drive. drive_folder contains context.json, "
-        "work/ (sagas), nested contexts, and any context-level resources "
-        "(products, documents, notes, assets)."
-    ),
-}
-
-_REFERENCE_REPOS_TOPOLOGY_ADDON = (
-    "Reference repos are read-only clones for context — do not modify or commit to them."
-)
 
 
 class WorkspaceService:
@@ -179,43 +166,6 @@ class WorkspaceService:
 
         return None
 
-    def _get_entity_root_path(self, entity: Entity) -> Path | None:
-        """Get absolute filesystem path for entity root.
-
-        Context with `git_url` -> repos/{name}.git when present.
-        Everything else -> resolved drive path.
-        """
-        if entity.type == "context" and entity.git_url:
-            repos_path = get_repos_path()
-            if repos_path:
-                repo_path = repos_path / f"{entity.name}.git"
-                if repo_path.exists():
-                    return repo_path
-
-        return self._resolve_drive_path(entity)
-
-    def _get_product_path(self, entity: Entity) -> Path:
-        """Get filesystem path to product for scanning components."""
-        repos_path = get_repos_path()
-
-        if repos_path:
-            repo_path = repos_path / f"{entity.name}.git"
-            if repo_path.exists():
-                return repo_path
-
-        drive_path = self._resolve_drive_path(entity)
-        if drive_path and drive_path.exists():
-            return drive_path
-
-        root_folders = get_root_context_folders()
-        if root_folders and entity.drive_path:
-            for folder in root_folders:
-                full_path = Path(folder) / entity.drive_path
-                if full_path.exists():
-                    return full_path
-
-        return Path(entity.drive_path)
-
     # === Multi-path entity resolution ===
 
     def _classify_path(self, path_str: str) -> tuple[str, Entity | None]:
@@ -240,6 +190,11 @@ class WorkspaceService:
 
         Rule: if the meta-context (the user's top-level container) is among the resolved
         entities — it wins; otherwise return the first resolved context.
+
+        For multi-repo contexts (DuetLab), this also unifies several `repos/<alias>.git`
+        paths to a single owning context — each path resolves via the corresponding
+        `product_repo` entity to the same parent context, so the result is the same
+        regardless of which path the agent opened.
 
         First-come fallback also covers the case where the DB temporarily has no entity
         with ``meta=true`` (e.g. between a Host meta-flag write and the next backend
@@ -287,7 +242,7 @@ class WorkspaceService:
         paths = workspace_paths or ([workspace_path] if workspace_path else [])
 
         if not paths:
-            result["workspace"] = self._build_unknown_workspace("no_workspace_path", paths)
+            result["workspace"] = self._build_unknown_workspace("no_workspace_path")
             return result
 
         if len(paths) > 1:
@@ -300,7 +255,7 @@ class WorkspaceService:
                 self._is_path_in_hierarchy(p) for p in paths
             )
             reason = "entity_not_in_db" if any_in_hierarchy else "path_not_in_hierarchy"
-            result["workspace"] = self._build_unknown_workspace(reason, paths)
+            result["workspace"] = self._build_unknown_workspace(reason)
             return result
 
         # --- Entity resolved ---
@@ -308,44 +263,38 @@ class WorkspaceService:
 
         result["context"] = self._build_context(chain)
         result["workspace"] = self._build_workspace(entity)
-
-        key_files = self._build_key_files(entity)
-        if key_files:
-            result["key_files"] = key_files
-
-        # `components` block is meaningful only when the resolved chain ends
-        # at a context with git_url (a product lives there).
-        product = next(
-            (e for e in chain if e.type == "context" and e.git_url),
-            None,
-        )
-        if product:
-            product_path = self._get_product_path(product)
-            result["components"] = scan_components(product_path)
+        result["products"] = self._build_products(entity)
 
         return result
 
-    def _build_unknown_workspace(self, reason: str, paths: list[str]) -> dict:
-        """Build workspace block for unknown/unresolved workspace."""
-        if reason == "no_workspace_path":
-            topology = "No workspace paths provided."
-        else:
-            if len(paths) == 1:
-                topology = "The folder open in the workspace is outside of Duet root context folders."
-            else:
-                topology = "The folders open in the workspace are outside of Duet root context folders."
+    def _build_unknown_workspace(self, reason: str) -> dict:
+        """Build workspace block for unknown/unresolved workspace.
 
+        Same canonical four fields as a resolved workspace, with
+        `kind="unknown"` and a `reason` discriminator.
+        """
         return {
-            "type": "unknown",
+            "kind": "unknown",
             "reason": reason,
-            "topology": topology,
+            "context_name": None,
+            "context_folder": None,
+            "git_folders": {},
         }
 
     def _build_context(self, chain: list[Entity]) -> dict:
-        """Build context block with breadcrumb and chain."""
+        """Build context block with breadcrumb and chain.
+
+        `icon` is the entity's emoji from the manifest (or scanner default —
+        `📚` meta, `📦` terminal, `📁` intermediate). Always present, mirroring
+        the `icon` field on `ContextEntity` returned by `GET /contexts`.
+        """
         chain_items = []
         for entity in chain:
-            item: dict = {"type": entity.type, "name": entity.name}
+            item: dict = {
+                "type": entity.type,
+                "name": entity.name,
+                "icon": entity.icon,
+            }
             desc = self._get_entity_description(entity)
             if desc:
                 item["description"] = desc
@@ -357,52 +306,77 @@ class WorkspaceService:
         }
 
     def _build_workspace(self, entity: Entity) -> dict:
-        """Build workspace block with type, topology, and typed attributes."""
-        ws_type = self._get_workspace_type(entity)
-        topology = _TOPOLOGIES.get(ws_type, "")
+        """Build workspace block per §3.1.
 
-        workspace: dict = {"type": ws_type}
+        Always has the four canonical fields: kind, context_name,
+        context_folder, git_folders. Adds `reference_repos` when the
+        manifest declares any with existing clones. Adds meta-context
+        addons (`root_context_folders`, `duet_data_folder`) for the
+        meta-context.
+        """
+        drive_folder = self._resolve_drive_path(entity)
+        git_folders = self._build_git_folders(entity)
 
-        if ws_type == "context_with_products_in_git":
-            repos_path = get_repos_path()
-            git_folder = repos_path / f"{entity.name}.git" if repos_path else None
-            drive_folder = self._resolve_drive_path(entity)
-            if git_folder:
-                workspace["git_folder"] = str(git_folder)
-            if drive_folder:
-                workspace["drive_folder"] = str(drive_folder)
-
-        elif ws_type == "context_meta":
-            drive_folder = self._resolve_drive_path(entity)
-            if drive_folder:
-                workspace["meta_context_folder"] = str(drive_folder)
-            # Build root_context_folders map: name -> path. All top-level
-            # contexts (parent_id IS NULL) qualify, including the meta one.
-            root_contexts = [
-                e for e in self.db.get_all_entities()
-                if e.type == "context" and e.parent_id is None
-            ]
-            root_context_folders_map: dict[str, str] = {}
-            for ctx in root_contexts:
-                ctx_path = self._resolve_drive_path(ctx)
-                if ctx_path:
-                    root_context_folders_map[ctx.name] = str(ctx_path)
-            workspace["root_context_folders"] = root_context_folders_map
-            workspace["duet_data_folder"] = str(get_duet_data_path().resolve())
-
-        elif ws_type == "context":
-            drive_folder = self._resolve_drive_path(entity)
-            if drive_folder:
-                workspace["drive_folder"] = str(drive_folder)
+        workspace: dict = {
+            "kind": "context",
+            "context_name": entity.name,
+            "context_folder": str(drive_folder) if drive_folder else None,
+            "git_folders": git_folders,
+        }
 
         ref_repos = self._read_reference_repos(entity)
         if ref_repos:
             workspace["reference_repos"] = ref_repos
-            topology += " " + _REFERENCE_REPOS_TOPOLOGY_ADDON
 
-        workspace["topology"] = topology
+        if entity.meta:
+            # Meta-context addons — preserve the wide-angle view used by
+            # Host UI and existing tooling. Not in §3.1 canonical fields,
+            # but explicitly retained as meta-only addons.
+            workspace["duet_data_folder"] = str(get_duet_data_path().resolve())
+            root_contexts = [
+                e for e in self.db.get_all_entities()
+                if e.type == "context" and e.parent_id is None
+            ]
+            root_map: dict[str, str] = {}
+            for ctx in root_contexts:
+                ctx_path = self._resolve_drive_path(ctx)
+                if ctx_path:
+                    root_map[ctx.name] = str(ctx_path)
+            workspace["root_context_folders"] = root_map
 
         return workspace
+
+    def _build_git_folders(self, entity: Entity) -> dict[str, str]:
+        """Map alias → expected absolute git clone path.
+
+        Read from the manifest on disk (fresh state). Includes **every**
+        declared alias regardless of whether the clone exists on disk —
+        the path is the expected location (`{repos}/{alias}.git`).
+        Consumers (Extension, AI agents) decide whether to clone by
+        checking `Path(git_folders[alias]).exists()`. Order matches the
+        manifest's insertion order (Python dict invariant). Returns `{}`
+        for contexts without `git_repos`.
+        """
+        if entity.type != "context":
+            return {}
+        drive_path = self._resolve_drive_path(entity)
+        manifest = read_manifest(drive_path) if drive_path else None
+        if not manifest or not manifest.git_repos:
+            return {}
+
+        repos_path = get_repos_path()
+        if not repos_path:
+            return {}
+
+        return {alias: str(repos_path / f"{alias}.git") for alias in manifest.git_repos}
+
+    def _build_products(self, entity: Entity) -> list[dict]:
+        """Build the top-level products[] array (§3.2)."""
+        if entity.type != "context":
+            return []
+        context_folder = self._resolve_drive_path(entity)
+        git_folders = self._build_git_folders(entity)
+        return build_products(entity.name, context_folder, git_folders)
 
     def _read_reference_repos(self, entity: Entity) -> dict[str, str] | None:
         """Read reference_repos from entity's manifest on disk.
@@ -430,64 +404,20 @@ class WorkspaceService:
 
         return result if result else None
 
-    def _spec_lookup_category(self, entity: Entity) -> str:
-        """Map an entity to its spec-file fallback chain key."""
-        if entity.type == "context" and entity.git_url:
-            return "context_with_git"
-        if entity.type == "context":
-            return "context"
-        return "component"
-
-    def _build_key_files(self, entity: Entity) -> dict | None:
-        """Build key_files block for the resolved entity."""
-        root_path = self._get_entity_root_path(entity)
-        if root_path is None:
-            return None
-
-        key_files: dict = {}
-
-        spec_path = find_spec_file(root_path, self._spec_lookup_category(entity))
-        if spec_path:
-            key_files["spec"] = str(spec_path)
-
-        readme_path = root_path / "README.md"
-        if readme_path.exists():
-            key_files["readme"] = str(readme_path)
-
-        return key_files if key_files else None
-
-    def _get_workspace_type(self, entity: Entity) -> str:
-        """Determine workspace type from entity."""
-        if entity.type != "context":
-            return "unknown"
-        if entity.meta:
-            return "context_meta"
-        if entity.git_url:
-            return "context_with_products_in_git"
-        return "context"
-
     def _get_entity_description(self, entity: Entity) -> str | None:
-        """Get description for entity.
+        """Get description for chain item.
 
-        Priority: manifest's `description` field > first sentence of README.md.
+        Priority: manifest's `description` field > first sentence of
+        README.md at the context's Drive folder.
         """
-        entity_path = self._get_entity_root_path(entity)
-        if entity_path is None:
+        drive_path = self._resolve_drive_path(entity)
+        if drive_path is None:
             return None
 
         if entity.type == "context":
-            manifest = self._read_manifest_for(entity, entity_path)
+            manifest = read_manifest(drive_path)
             if manifest and manifest.description:
                 return manifest.description.strip() or None
 
-        readme_path = entity_path / "README.md"
+        readme_path = drive_path / "README.md"
         return extract_description(readme_path)
-
-    def _read_manifest_for(self, entity: Entity, entity_path: Path) -> Manifest | None:
-        """Read context manifest for an entity. Drive folder takes precedence
-        over the git_folder fallback, since `context.json` lives next to the
-        Drive folder, not inside the git repo."""
-        drive_path = self._resolve_drive_path(entity)
-        if drive_path and drive_path.exists():
-            return read_manifest(drive_path)
-        return read_manifest(entity_path)

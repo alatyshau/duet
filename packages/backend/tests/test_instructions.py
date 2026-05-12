@@ -264,7 +264,10 @@ class TestMultiPathResolution:
         data = response.json()
         # Meta-context should win over regular context
         assert data["context"]["chain"][0]["name"] == "Meta"
-        assert data["workspace"]["type"] == "context_meta"
+        ws = data["workspace"]
+        assert ws["kind"] == "context"
+        assert ws["context_name"] == "Meta"
+        assert "root_context_folders" in ws  # meta-context addon
 
 
 # === Tests for meta column in DB ===

@@ -1,29 +1,53 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import * as path from 'path';
 import {
-    generateContextWithGitWorkspace,
+    generateContextWithReposWorkspace,
     generateRootContextsWorkspace,
     WorkspaceManager
 } from '../../core/workspace';
 import { createMockFs } from '../../core/fs';
 
 describe('workspace', () => {
-    describe('generateContextWithGitWorkspace', () => {
-        it('should create workspace with repo and drive paths', () => {
-            const result = generateContextWithGitWorkspace(
-                '../repos/Duet.git',
-                '/Users/test/Drive/МетаЛаб/ТехноЛаб/Duet'
+    describe('generateContextWithReposWorkspace', () => {
+        it('should create workspace with multiple repos and drive path', () => {
+            const result = generateContextWithReposWorkspace(
+                ['Duet', 'Duet-Instructions'],
+                '/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab'
+            );
+
+            expect(result.folders).toHaveLength(3);
+            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
+            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
+            expect(result.folders[2].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab');
+        });
+
+        it('should work with a single alias', () => {
+            const result = generateContextWithReposWorkspace(
+                ['Duet'],
+                '/Users/test/Drive/Duet'
             );
 
             expect(result.folders).toHaveLength(2);
-            expect(result.folders[0].path).toBe('../repos/Duet.git');
-            expect(result.folders[1].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/Duet');
+            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
+            expect(result.folders[1].path).toBe('/Users/test/Drive/Duet');
         });
 
-        it('should not include names by default', () => {
-            const result = generateContextWithGitWorkspace(
-                '../repos/Test.git',
-                '/path/to/drive'
+        it('should preserve alias order from the manifest', () => {
+            const result = generateContextWithReposWorkspace(
+                ['Zeta', 'Alpha', 'Mu'],
+                '/drive/x'
             );
+
+            expect(result.folders.map(f => f.path)).toEqual([
+                path.join('..', 'repos', 'Zeta.git'),
+                path.join('..', 'repos', 'Alpha.git'),
+                path.join('..', 'repos', 'Mu.git'),
+                '/drive/x'
+            ]);
+        });
+
+        it('should not assign names by default', () => {
+            const result = generateContextWithReposWorkspace(['Test'], '/path/to/drive');
 
             expect(result.folders[0].name).toBeUndefined();
             expect(result.folders[1].name).toBeUndefined();
@@ -88,36 +112,63 @@ describe('workspace', () => {
             );
         });
 
-        describe('getContextWithGitWorkspacePath', () => {
+        describe('getContextWithReposWorkspacePath', () => {
             it('should return correct path', () => {
-                const path = manager.getContextWithGitWorkspacePath('Duet');
-                expect(path).toBe('/Users/test/DuetData/workspaces/Duet.code-workspace');
+                const p = manager.getContextWithReposWorkspacePath('DuetLab');
+                expect(p).toBe(path.join('/Users/test/DuetData/workspaces', 'DuetLab.code-workspace'));
             });
         });
 
-        describe('writeContextWithGitWorkspace', () => {
-            it('should write workspace file with correct content', async () => {
-                const result = await manager.writeContextWithGitWorkspace(
-                    'Duet',
-                    '/Users/test/Drive/МетаЛаб/ТехноЛаб/Duet'
+        describe('writeContextWithReposWorkspace', () => {
+            it('should write workspace file with multiple repos + drive folder', async () => {
+                const result = await manager.writeContextWithReposWorkspace(
+                    'DuetLab',
+                    ['Duet', 'Duet-Instructions'],
+                    '/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab'
                 );
 
-                expect(result).toBe('/Users/test/DuetData/workspaces/Duet.code-workspace');
+                expect(result).toBe(path.join('/Users/test/DuetData/workspaces', 'DuetLab.code-workspace'));
 
                 const content = writtenFiles.get(result);
                 expect(content).toBeDefined();
 
                 const parsed = JSON.parse(content!);
+                expect(parsed.folders).toHaveLength(3);
+                expect(parsed.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
+                expect(parsed.folders[1].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
+                expect(parsed.folders[2].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab');
+            });
+
+            it('should work with a single alias (size-1 map)', async () => {
+                const result = await manager.writeContextWithReposWorkspace(
+                    'Duet',
+                    ['Duet'],
+                    '/drive/Duet'
+                );
+                const content = writtenFiles.get(result);
+                const parsed = JSON.parse(content!);
                 expect(parsed.folders).toHaveLength(2);
-                expect(parsed.folders[0].path).toBe('../repos/Duet.git');
-                expect(parsed.folders[1].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/Duet');
+                expect(parsed.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
+                expect(parsed.folders[1].path).toBe('/drive/Duet');
+            });
+
+            it('should produce platform-normalized repo paths', async () => {
+                const result = await manager.writeContextWithReposWorkspace(
+                    'Test',
+                    ['Test'],
+                    '/drive'
+                );
+                const parsed = JSON.parse(writtenFiles.get(result)!);
+                // path.join handles separator per-platform; either '../repos/Test.git'
+                // or '..\\repos\\Test.git'. Both forms must round-trip through path.normalize.
+                expect(parsed.folders[0].path).toBe(path.normalize('../repos/Test.git'));
             });
 
             it('should create workspaces directory if not exists', async () => {
                 let mkdirCalled = false;
                 const fsWithNoDir = createMockFs({
-                    access: async (path) => {
-                        if (path.includes('workspaces')) {
+                    access: async (p) => {
+                        if (p.includes('workspaces')) {
                             throw new Error('ENOENT');
                         }
                     },
@@ -125,8 +176,8 @@ describe('workspace', () => {
                         mkdirCalled = true;
                         return undefined;
                     },
-                    writeFile: async (path, data) => {
-                        writtenFiles.set(path, data);
+                    writeFile: async (p, data) => {
+                        writtenFiles.set(p, data);
                     }
                 });
 
@@ -136,14 +187,14 @@ describe('workspace', () => {
                     fsWithNoDir
                 );
 
-                await managerWithNoDir.writeContextWithGitWorkspace('Test', '/drive/path');
+                await managerWithNoDir.writeContextWithReposWorkspace('Test', ['Test'], '/drive/path');
                 expect(mkdirCalled).toBe(true);
             });
         });
 
-        describe('contextWithGitWorkspaceExists', () => {
+        describe('contextWithReposWorkspaceExists', () => {
             it('should return true if file exists', async () => {
-                const exists = await manager.contextWithGitWorkspaceExists('Duet');
+                const exists = await manager.contextWithReposWorkspaceExists('DuetLab');
                 expect(exists).toBe(true);
             });
 
@@ -160,7 +211,7 @@ describe('workspace', () => {
                     fsNoFile
                 );
 
-                const exists = await managerNoFile.contextWithGitWorkspaceExists('NonExistent');
+                const exists = await managerNoFile.contextWithReposWorkspaceExists('NonExistent');
                 expect(exists).toBe(false);
             });
         });

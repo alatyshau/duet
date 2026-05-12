@@ -32,7 +32,8 @@ export interface ContextEntity {
     absolute_path: string | null;
     parent_id: string | null;
     meta: boolean;
-    git_url: string | null;
+    description?: string | null;
+    git_repos: Record<string, string> | null;
     reference_repos?: Record<string, string> | null;
 }
 
@@ -41,8 +42,8 @@ export interface ContextsResponse {
 }
 
 export interface ChainItem {
-    type: string;
     name: string;
+    icon: string;
     description?: string;
 }
 
@@ -53,16 +54,19 @@ export interface ComponentInfo {
     description?: string;
 }
 
+export interface ProductInfo {
+    name: string;
+    path: string;
+    spec?: string;
+    description?: string;
+    components: ComponentInfo[];
+}
+
 export interface OrientationWorkspace {
-    type: string;
-    topology: string;
-    reason?: string;
-    git_folder?: string;
-    drive_folder?: string;
-    meta_context_folder?: string;
-    root_context_folders?: Record<string, string>;
-    duet_data_folder?: string;
-    reference_repos?: Record<string, string>;
+    kind: 'context' | 'unknown';
+    context_name?: string;
+    context_folder?: string;
+    git_folders: Record<string, string>;
 }
 
 export interface OrientationResponse {
@@ -73,14 +77,9 @@ export interface OrientationResponse {
     };
     workspace: OrientationWorkspace;
     context?: {
-        breadcrumb: string;
         chain: ChainItem[];
     };
-    key_files?: {
-        spec?: string;
-        readme?: string;
-    };
-    components?: ComponentInfo[];
+    products: ProductInfo[];
 }
 
 export interface ScanResponse {

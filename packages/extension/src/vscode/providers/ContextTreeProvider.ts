@@ -32,11 +32,8 @@ class SeparatorItem {
 
 type TreeElement = TreeNode | VisualRoot | PlaceholderItem | SeparatorItem;
 
-function describeContext(node: TreeNode): string {
-    if (node.meta) {
-        return 'мета-контекст';
-    }
-    return node.hasGit ? 'контекст [git]' : 'контекст';
+function describeContext(node: TreeNode): string | undefined {
+    return node.hasGit ? '[git]' : undefined;
 }
 
 export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement> {
@@ -83,7 +80,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             }
         }
         // Also check git contexts (their folders sit in repos/, not under root path).
-        // A root is active if any of its terminal git-contexts is open.
+        // A root is active if any of its terminal git-contexts has an open alias.
         if (this.currentGitContextNames.size > 0) {
             const root = this.tree.getRoots().find(r => normalizePath(r.id) === normalizedAncestor);
             if (root) {
@@ -96,10 +93,14 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
 
     /**
      * Recursively check if any descendant is currently active (open).
+     * For terminal contexts: match any `git_repos` alias against currently
+     * open `<alias>.git` folder basenames — the context label itself need
+     * not equal the repo alias (e.g. context "DuetLab" holds aliases
+     * "Duet" and "Duet-Instructions").
      */
     private hasActiveDescendant(nodes: TreeNode[]): boolean {
         for (const node of nodes) {
-            if (node.hasGit && this.currentGitContextNames.has(node.label)) {
+            if (node.hasGit && this.hasOpenAlias(node)) {
                 return true;
             }
             if (this.currentOpenPaths.has(normalizePath(node.id))) {
@@ -110,6 +111,15 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
                 if (this.hasActiveDescendant(children)) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private hasOpenAlias(node: TreeNode): boolean {
+        for (const alias of Object.keys(node.gitRepos)) {
+            if (this.currentGitContextNames.has(alias)) {
+                return true;
             }
         }
         return false;
@@ -209,11 +219,12 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None;
 
-        // Check if this node is currently open (git-context by name, or Drive folder by path).
-        // Skip marker for roots if all roots are open (marker is on [МОИ ДЕЛА]).
+        // Check if this node is currently open (terminal context by alias match,
+        // or Drive folder by path). Skip marker for roots if all roots are open
+        // (marker is on [МОИ ДЕЛА]).
         const isCurrent =
             !this.allRootsOpen &&
-            ((node.hasGit && this.currentGitContextNames.has(node.label)) ||
+            ((node.hasGit && this.hasOpenAlias(node)) ||
             this.currentOpenPaths.has(normalizePath(node.id)));
 
         // For roots, check if any open path is inside this root.

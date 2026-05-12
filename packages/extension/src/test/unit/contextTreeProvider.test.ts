@@ -52,7 +52,7 @@ function makeContext(overrides: Partial<ContextEntity> & { id: string; name: str
         absolute_path: null,
         parent_id: null,
         meta: false,
-        git_url: null,
+        git_repos: null,
         ...overrides,
     };
 }
@@ -153,7 +153,7 @@ describe('ContextTreeProvider', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
-                makeContext({ id: '2', name: 'MyProduct', icon: 'P', absolute_path: '/drive/biz1/product', parent_id: '1', git_url: 'git@github.com:user/MyProduct.git' }),
+                makeContext({ id: '2', name: 'MyProduct', icon: 'P', absolute_path: '/drive/biz1/product', parent_id: '1', git_repos: { MyProduct: 'git@github.com:user/MyProduct.git' } }),
             ];
 
             setWorkspaceFolders([path.join(reposPath, 'MyProduct.git')]);
@@ -168,7 +168,7 @@ describe('ContextTreeProvider', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
-                makeContext({ id: '2', name: 'MyProduct', icon: 'P', absolute_path: '/drive/biz1/product', parent_id: '1', git_url: 'git@github.com:user/MyProduct.git' }),
+                makeContext({ id: '2', name: 'MyProduct', icon: 'P', absolute_path: '/drive/biz1/product', parent_id: '1', git_repos: { MyProduct: 'git@github.com:user/MyProduct.git' } }),
             ];
 
             setWorkspaceFolders([path.join(reposPath, 'MyProduct.git')]);
@@ -183,6 +183,56 @@ describe('ContextTreeProvider', () => {
                 const item = provider.getTreeItem(product as never);
                 expect(item.label).toContain('🟠'); // Orange = active
             }
+        });
+
+        it('should highlight terminal context when any of its aliases is open (multi-repo)', () => {
+            const reposPath = path.join(TEMP_DIR, 'repos');
+            const contexts = [
+                makeContext({ id: '1', name: 'МетаЛаб', icon: 'M', absolute_path: '/drive/metalab' }),
+                makeContext({
+                    id: '2', name: 'DuetLab', icon: 'L', absolute_path: '/drive/metalab/duetlab',
+                    parent_id: '1',
+                    git_repos: {
+                        Duet: 'git@x:Duet.git',
+                        'Duet-Instructions': 'git@x:Duet-Instructions.git'
+                    }
+                }),
+            ];
+
+            // Open only ONE of the two aliases — the context label "DuetLab" does
+            // not match any opened folder basename. Pre-multi-repo highlight broke
+            // here because the matcher compared `node.label` instead of aliases.
+            setWorkspaceFolders([path.join(reposPath, 'Duet.git')]);
+            provider = new ContextTreeProvider(contexts, reposPath);
+
+            const root = provider.getRoots()[0];
+            const children = (provider.getChildren(root) as unknown[])
+                .filter((c: unknown) => 'entityId' in (c as object)) as { entityId: number }[];
+            const duetLab = children.find(c => c.entityId === 2);
+
+            expect(duetLab).toBeDefined();
+            const item = provider.getTreeItem(duetLab as never);
+            expect(item.label).toContain('🟠');
+        });
+
+        it('should treat root as active when one of its terminal aliases is open', () => {
+            const reposPath = path.join(TEMP_DIR, 'repos');
+            const contexts = [
+                makeContext({ id: '1', name: 'МетаЛаб', icon: 'M', absolute_path: '/drive/metalab' }),
+                makeContext({
+                    id: '2', name: 'DuetLab', icon: 'L', absolute_path: '/drive/metalab/duetlab',
+                    parent_id: '1',
+                    git_repos: {
+                        Duet: 'git@x:Duet.git',
+                        'Duet-Instructions': 'git@x:Duet-Instructions.git'
+                    }
+                }),
+            ];
+
+            setWorkspaceFolders([path.join(reposPath, 'Duet-Instructions.git')]);
+            provider = new ContextTreeProvider(contexts, reposPath);
+
+            expect(provider.getActiveRootId()).toBe(1);
         });
 
         it('should show white marker for inactive nested context', () => {
@@ -209,7 +259,7 @@ describe('ContextTreeProvider', () => {
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
                 makeContext({ id: '2', name: 'ParentStream', icon: 'S', absolute_path: '/drive/biz1/stream', parent_id: '1' }),
-                makeContext({ id: '3', name: 'ChildProduct', icon: 'P', absolute_path: '/drive/biz1/stream/product', parent_id: '2', git_url: 'git@github.com:user/ChildProduct.git' }),
+                makeContext({ id: '3', name: 'ChildProduct', icon: 'P', absolute_path: '/drive/biz1/stream/product', parent_id: '2', git_repos: { ChildProduct: 'git@github.com:user/ChildProduct.git' } }),
             ];
 
             setWorkspaceFolders([path.join(reposPath, 'ChildProduct.git')]);

@@ -28,10 +28,7 @@ import {
 import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
 import { triggerMerge, readCachedErrors, fixInstructionsError } from '../core/instructions'
-import {
-  downloadInstructionsTemplate,
-  isFolderEmpty
-} from '../core/instructions-download'
+import { downloadInstructionsTemplate, isFolderEmpty } from '../core/instructions-download'
 import {
   addRootContextFolder,
   getResolvedRootContextFolders,
@@ -343,7 +340,14 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
         readBuildSha(resourcesPath),
         backendSourcePath
       )
-      setDeployStatus({ state: 'deployed', version: deployedVersion, ...(postDeployReason ? { warningReason: postDeployReason } : {}) }, context)
+      setDeployStatus(
+        {
+          state: 'deployed',
+          version: deployedVersion,
+          ...(postDeployReason ? { warningReason: postDeployReason } : {})
+        },
+        context
+      )
       context.updateAppState() // Refresh tray icon (clear deploy warning)
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
@@ -467,7 +471,8 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
   ipcMain.handle('root-contexts:save', async (_event, folders: string[]): Promise<void> => {
     saveRootContextFolders(folders)
     // Removing/reordering may clear unresolved-alias warnings; re-sweep so the renderer
-    // and tray see the fresh state. Idempotent on already-v2 files (review issue 6).
+    // and tray see the fresh state. Idempotent on already-current files (settings/machine v2,
+    // context.json v3) — review issue 6.
     await context.runMigrations()
     context.updateAppState()
   })
@@ -477,8 +482,8 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     async (_event, absolutePath: string): Promise<RootContextEntry[]> => {
       const result = addRootContextFolder(absolutePath)
       // Sweep picks up legacy/future manifests inside the new folder and self-heals an
-      // empty root. Cheap on existing v2 roots. updateAppState pushes the new tray
-      // severity (review issue 6: previously skipped, leaving stale warning state).
+      // empty root. Cheap on existing v3 context.json roots. updateAppState pushes the new
+      // tray severity (review issue 6: previously skipped, leaving stale warning state).
       await context.runMigrations()
       context.updateAppState()
       return result
@@ -523,10 +528,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
   ipcMain.handle(
     'instructions:download-template',
-    async (
-      _event,
-      targetFolder: string
-    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    async (_event, targetFolder: string): Promise<{ ok: true } | { ok: false; error: string }> => {
       try {
         await downloadInstructionsTemplate(targetFolder)
         return { ok: true }
@@ -536,12 +538,9 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     }
   )
 
-  ipcMain.handle(
-    'instructions:is-folder-empty',
-    (_event, folderPath: string): boolean => {
-      return isFolderEmpty(folderPath)
-    }
-  )
+  ipcMain.handle('instructions:is-folder-empty', (_event, folderPath: string): boolean => {
+    return isFolderEmpty(folderPath)
+  })
 
   // === Instructions path ===
 

@@ -9,10 +9,12 @@ Python HTTP backend serving REST API and MCP endpoint for Duet.
 | Term | Definition |
 |------|------------|
 | **Entity** | Node in DB: `context`, `product_repo`, or `reference_repo` |
-| **Context** | Bounded folder on Drive carrying `context.json` v2 |
-| **Manifest** | `context.json` v2 — strict reader; Host owns upgrades |
+| **Context** | Bounded folder on Drive carrying `context.json` v3 |
+| **Manifest** | `context.json` v3 — strict reader; Host owns upgrades |
 | **Chain** | Path from meta/root context down to the current context |
-| **Component** | Package in a product's `packages/` with optional `spec/` |
+| **Alias** | Key in a context's `git_repos` map — the github repo name (e.g. `Duet`), no `.git`. The Duet-ontology slug for the product is `{alias}.git` — same string on disk (`DuetData/repos/{alias}.git/`), in DB (`product_repo.name`), and in orientation (`product.name`, `product.path` = `@{alias}.git`) |
+| **Product** | Top-level unit in orientation, discovered by four rules (§2.2 of design-doc): A `git_repos` alias, B `<context>/spec/PRODUCT.md`, C `<sub>/spec/PRODUCT.md` without sub's own `context.json`, D README fallback |
+| **Component** | Nested unit inside a product. Marker is `spec/COMPONENT.md` or `README*.md`, found one level deep (four-path priority §2.3) |
 
 Entity hierarchy, manifests, name uniqueness, ownership of self-heal (Host): see PRODUCT.md
 
@@ -24,10 +26,11 @@ server.py (entry point, lifecycle)
     +-- mcp_handler.py (MCP tools, service getters)
     |
     +-- services/
-    |   +-- workspace.py (WorkspaceService)
-    |   +-- entities.py (EntitiesService)
+    |   +-- workspace.py (WorkspaceService — orientation response)
+    |   +-- entities.py (EntitiesService — /contexts, /scan)
+    |   +-- products.py (products/components discovery, §2 algorithm)
     |
-    +-- scanner.py (hierarchy scan, strict v2 reader)
+    +-- scanner.py (hierarchy scan, strict v3 reader)
     +-- watcher.py (manifest file watcher, auto-rescan)
     +-- description.py (extract_description, find_spec_file)
     +-- db.py (SQLite operations)
@@ -50,7 +53,8 @@ server.py (entry point, lifecycle)
 | `server.py` | HTTP routes, lifecycle, DI init, logging setup | Business logic |
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
-| `scanner.py` | Hierarchy scan (strict v2 reader), scan_components | HTTP, config writes, manifest upgrades |
+| `scanner.py` | Hierarchy scan (strict v3 reader), terminal `git_repos` → N product_repo | HTTP, config writes, manifest upgrades, products/components discovery |
+| `services/products.py` | Build orientation `products[]` array + components (§2 algorithm) | DB writes, HTTP |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Scan instructions workspace, parse YAML frontmatter | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file fallback chains | DB, HTTP |
@@ -78,8 +82,8 @@ server.py (entry point, lifecycle)
 | POST | `/stop` | Returns `{ status: "stopping" }`, triggers shutdown |
 | GET | `/timestamp` | Returns `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | Returns `{ path: "/absolute/path" }` |
-| POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, instructions, workspace, context, key_files, components |
-| GET | `/contexts` | Returns `{ contexts: [...] }` — `type='context'` entities. Each entity includes `absolute_path`, `git_url`, `meta`, `reference_repos` (map `{name: url}` read from manifest, or `null`) |
+| POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, workspace, context, products[] (v3 shape — see Orientation section) |
+| GET | `/contexts` | Returns `{ contexts: [...] }` — `type='context'` entities. Each entity includes `absolute_path`, `git_url`, `git_repos` (map `{alias: url}` read from manifest or `null`), `meta`, `reference_repos`, `description` |
 | POST | `/scan` | Returns `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core + skills table → one file per agent. Returns `{ status, paths: { agent_name: path }, errors[] }` |
 
@@ -112,7 +116,7 @@ Watches root context folders for changes to `context.json` manifests. On change 
 
 **Debounce:** 10s (watchfiles `debounce` parameter). Collects burst of filesystem events, fires one scan. On top of `EntitiesService` 5s debounce (10s > 5s, always passes).
 
-**Data flow:** Manifest changed → watcher → scan → scan.json/streams.json updated → Host file watcher on `DuetData/data/` → UI refresh. No new IPC or endpoints.
+**Data flow:** Manifest changed → watcher → scan → `scan.json` and `contexts.json` updated → Host file watcher on `DuetData/data/` → UI refresh. No new IPC or endpoints.
 
 **Filter:** `ManifestFilter` — only passes changes to files named `context.json`. All other filesystem events ignored.
 
@@ -159,40 +163,75 @@ MCP tool: `orientation(workspace_paths: list[str])` — accepts all workspace pa
 
 **Multi-path entity resolution:**
 
-1. Classify each path: `gitFolders` (under DuetData/repos/) or `contextFolders` (contains `context.json`) or ignored
+1. Classify each path: `git` (under DuetData/repos/) or `context` (contains `context.json`) or ignored
 2. Resolve entities from classified paths
 3. If the meta-context (`meta=true`) is among the resolved entities, it wins; otherwise the first resolved context is used.
 
-`meta: true` — field in `context.json`. Identifies the meta-context (e.g. БАЗА) in all-contexts workspace. Renamed from v1's `root` (Host migrates).
+Multi-repo contexts (`git_repos` with N aliases) unify all `repos/<alias>.git` paths to one owner: each path resolves through its `product_repo` entity to the same parent context. Opening `[repos/Duet.git, repos/Duet-Instructions.git, DuetLab Drive]` returns the same DuetLab context regardless of which path the agent opened.
 
-**Response (entity resolved):**
+`meta: true` — field in `context.json`. Identifies the meta-context (e.g. БАЗА) in all-contexts workspace.
+
+**Response (v3 shape):**
 
 | Block | Fields | When |
 |-------|--------|------|
 | `duet_paths` | duetDataPath, machineConfig, instructionsPath | Always (422 if instructionsPath not configured) |
-| `workspace` | type, topology, typed attributes, reference_repos? | Always |
-| `context` | breadcrumb, chain[{type, name, description?}] | When entity resolved |
-| `key_files` | spec?, readme? | When files exist |
-| `components` | [{name, path, spec?, description?}] | When chain ends at a context with `git_url` |
+| `workspace` | kind, context_name, context_folder, git_folders[, addons] | Always |
+| `context` | breadcrumb, chain[{type, name, icon, description?}] | When entity resolved |
+| `products` | [{name, path, spec?, description?, components: [...]}] | When entity resolved |
 
-**workspace.type values:** `context_with_products_in_git` | `context_meta` | `context` | `unknown`
+**`workspace` fields (§3.1):**
 
-**workspace.type-specific attributes:**
+| Field | Type | Value |
+|-------|------|-------|
+| `kind` | string | `"context"` for a resolved entity, `"unknown"` for unresolved paths |
+| `context_name` | string \| null | Current context name (= last `context.chain[]` entry) |
+| `context_folder` | string \| null | Absolute path to the context's Drive folder |
+| `git_folders` | map | `{alias: expected_absolute_path}` for every alias declared in the context's `git_repos` map. The path is always `{repos}/{alias}.git` regardless of whether the clone exists on disk — consumers check `Path(...).exists()` to detect a missing clone. Empty `{}` when the context has no `git_repos`. Order matches manifest insertion |
+| `reference_repos` | map, optional | `{name.git: absolute_path}` for existing reference clones (addon when manifest declares any) |
 
-| Type | Attributes |
-|------|------------|
-| `context_with_products_in_git` | `git_folder`, `drive_folder` |
-| `context_meta` | `meta_context_folder`, `root_context_folders` (map name→path of all top-level contexts), `duet_data_folder` |
-| `context` | `drive_folder` |
-| `unknown` | `reason` (`no_workspace_path` \| `path_not_in_hierarchy` \| `entity_not_in_db`) |
+**Meta-context addons** (only when `entity.meta=true`):
 
-**workspace.topology:** Human-readable description of workspace layout. Appended with reference repos addon when applicable.
+| Field | Value |
+|-------|-------|
+| `root_context_folders` | Map `{name: absolute_path}` of every top-level context |
+| `duet_data_folder` | Absolute path to DuetData |
 
-**workspace.reference_repos:** Map `{name.git: absolute_path}` of existing reference repo clones. Read from entity's manifest on disk (fresh data, no DB).
+Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_in_hierarchy` \| `entity_not_in_db`) and the four canonical fields with empty / null values.
 
-**chain[].description priority:** `context.json::description` field (when present and non-empty) > first sentence of `README.md`.
+**`products[*]` fields (§3.2):**
 
-**Path conventions:** `key_files` contains absolute paths (for direct agent use). `components[].path` and `components[].spec` are relative to product git_folder/drive_folder (compact, resolved by consumer).
+| Field | Type | Value |
+|-------|------|-------|
+| `name` | string | Duet-ontology slug. Rule A: `{alias}.git` (alias from `git_repos` + `.git` derived suffix — matches clone folder and `product_repo.name` in DB). Rules B/D: context name. Rule C: subfolder name. No `.git` on drive-products since they have no clone. |
+| `path` | string | @-ref. Git: `@<alias>.git`; Drive (B/D): `@<context_name>`; Drive (C): `@<context_name>/<sub>` |
+| `spec` | string, optional | Relative path to spec file (e.g. `spec/PRODUCT.md`). Absent when description came from README |
+| `description` | string, optional | First sentence from the spec or README |
+| `components` | array | `[{name, path, spec?, description?}]`, see §3.3 |
+
+**`products[*].components[*]` fields (§3.3):**
+
+| Field | Type | Value |
+|-------|------|-------|
+| `name` | string | Subfolder name |
+| `path` | string | Relative to `product.path`. E.g. `packages/backend` or `MetaMathematics` |
+| `spec` | string, optional | Relative to `component.path`. E.g. `spec/COMPONENT.md` |
+| `description` | string, optional | First sentence from the spec or README |
+
+**Discovery rules** (normative source: design-doc §2):
+
+- Products: A — `git_repos` aliases; B — `<context>/spec/PRODUCT.md`; C — `<sub>/spec/PRODUCT.md` without `<sub>/context.json`; D — README fallback when A/B/C all empty.
+- Components: per-product, one level deep, four ordered paths: `packages/<comp>/spec/COMPONENT.md` → `packages/<comp>/README*.md` → `<comp>/spec/COMPONENT.md` → `<comp>/README*.md`.
+- Skip-list (`drafts`, `work`, `archive`, `ARCHIVE`, `bin`, `out`, `dist`, `build`, `node_modules`, `target`, `__pycache__`, `.venv`, `venv`, `src`, `spec`, `docs`, `tests`, `test`, `examples`, hidden dotfiles) applies at every level. `packages` is the monorepo container, never itself a component.
+- README*.md priority: exact `README.md` wins; otherwise alphabetically first `README*.md`.
+
+**Path conventions (§3.4):** Absolute paths only in `workspace` (`context_folder`, `git_folders[*]`). Inside `products[]` and `components[]` — @-ref or relative. Consumers resolve via `workspace.git_folders[alias]` (strip `@` and `.git` suffix) or `workspace.context_folder`. `product.spec` is relative to `product.path`; `component.spec` is relative to `component.path`. Optional fields are omitted when absent (no `null` placeholders); empty collections are explicit (`components: []`, `git_folders: {}`).
+
+**chain[].description priority:** `context.json::description` field (when present and non-empty) > first sentence of `README.md` at the context's Drive folder.
+
+**chain[].icon:** always present, mirrors `Entity.icon` (set by Scanner from the manifest, or the default — `📚` meta, `📦` terminal with `git_repos`, `📁` intermediate). Same field as `ContextEntity.icon` returned by `GET /contexts`; orientation now carries it through so КОНТЕКСТ-view in Extension can render the emoji label without an extra round-trip.
+
+**Algorithm:** see design-doc §2 (normative). This spec carries only the contract surface; the algorithm lives in `services/products.py`.
 
 **REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII characters). Returns result directly (not wrapped).
 
@@ -228,19 +267,18 @@ Extracts description from markdown — first sentence of first paragraph after H
 
 Used by: `context.chain[].description` (from README.md), `components[].description` (from spec file).
 
-## Spec File Fallback (`description.py`)
+## Spec File Lookup
 
-`find_spec_file(root_path, lookup_category)` — searches `spec/` for first existing file:
+The v3 orientation algorithm (§2 of design-doc) uses **single canonical files** for spec discovery:
 
-| Lookup category | Chain |
-|-----------------|-------|
-| context_with_git | PRODUCT.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
-| context | CONTEXT.md > BUSINESS.md > STREAM.md > COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
-| component | COMPONENT.md > ARCHITECTURE.md > README.md > INDEX.md |
+| Where | Spec file |
+|-------|-----------|
+| product (git, rule A) | `<git>/spec/PRODUCT.md` (else README*.md fallback) |
+| product (drive, rule B) | `<context>/spec/PRODUCT.md` |
+| product (drive, rule C) | `<sub>/spec/PRODUCT.md` |
+| component | `<…>/<comp>/spec/COMPONENT.md` (else README*.md fallback) |
 
-`BUSINESS.md` and `STREAM.md` remain as legacy fallbacks for users who have not yet renamed their per-context spec files to `CONTEXT.md`.
-
-Used by: `key_files.spec`, `components[].spec`.
+The legacy `find_spec_file()` fallback chain (`ARCHITECTURE.md`, `INDEX.md`, `BUSINESS.md`, `STREAM.md`) is no longer consulted by orientation — those names lingered from the pre-rename taxonomy. `description.py:find_spec_file()` is currently retained as a utility but is not on the orientation hot path.
 
 ## Business Rules
 
@@ -248,7 +286,7 @@ Used by: `key_files.spec`, `components[].spec`.
 
 - Reads `root_context_folders` from `DuetConfig/settings.json`
 - Resolves `@aliases` via `{machine}.json` (see PRODUCT.md -> @Alias Resolution)
-- Strict v2 reader: never writes manifests; folders without `context.json` v2 are silently skipped
+- Strict v3 reader: never writes manifests; folders without `context.json` v3 are silently skipped; `version != 3` produces `unrecognized_manifest_version` error
 - Stores results in `DuetData/data/entities.db` (native sqlite3)
 
 ### Config Reading Order
@@ -285,7 +323,7 @@ DuetData/backend.log  <- RotatingFileHandler
 5. db.init()
 6. Create services (DI)
 7. init_services()
-8. Initial scan + start manifest watcher (if business_folders non-empty)
+8. Initial scan + start manifest watcher (if `root_context_folders` non-empty)
 9. write_pid_file()
 10. Start uvicorn
 ```
@@ -376,9 +414,9 @@ tests/
 | Entity listing | `services/entities.py` |
 | Hierarchy scan | `scanner.py:_scan_context()` |
 | Manifest reader | `services/manifest.py:read_manifest()` |
-| Component scan | `scanner.py:scan_components()` |
+| Products/components discovery | `services/products.py:build_products()` |
 | Description extraction | `description.py:extract_description()` |
-| Spec file fallback | `description.py:find_spec_file()` |
+| Spec file fallback (legacy) | `description.py:find_spec_file()` |
 | Instructions scanning | `instructions.py:scan_instructions()` |
 | Merge pipeline | `instructions.py:merge_duet_instructions()` |
 | Frontmatter parsing | `instructions.py:parse_frontmatter()` |

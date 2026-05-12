@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.30",
+    "version": "0.0.33",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.104.0"
@@ -56,11 +56,6 @@
                 "command": "duet.openDataFolder",
                 "title": "Открыть папку DuetData",
                 "icon": "$(folder-opened)",
-                "category": "Duet"
-            },
-            {
-                "command": "duet.showContextHelp",
-                "title": "Показать справку",
                 "category": "Duet"
             },
             {
@@ -163,7 +158,7 @@
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.30",
+                    "title": "Duet 0.0.33",
                     "icon": "resources/duet-icon.svg"
                 }
             ]

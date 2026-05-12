@@ -43,48 +43,60 @@ Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.m
 ## Data Flow
 
 ```
-activation -> apiClient.contexts() -> ContextEntity[]
-           -> pass to ContextTreeProvider, ContextProvider
+activation -> apiClient.contexts()    -> ContextEntity[]    -> ContextTreeProvider (ДЕЛА view)
+           -> apiClient.orientation() -> OrientationResponse -> ContextProvider (КОНТЕКСТ view)
 
-refresh    -> apiClient.scan() + apiClient.contexts() -> new ContextEntity[]
-           -> updateContexts() on all providers -> fire onDidChangeTreeData
+refresh    -> apiClient.scan()
+           -> apiClient.contexts()    -> updateContexts()    on ContextTreeProvider
+           -> apiClient.orientation() -> updateOrientation() on ContextProvider
 ```
 
-Tree providers work synchronously over `ContextEntity[]` (filter, find, sort).
-Each entity carries `meta` (boolean), `git_url` (nullable string), and
-`parent_id` (nullable string) — all role differences (meta-context, root
-context, terminal git-backed context, regular context) are derived from these
-fields rather than from a `type` enum.
+Both providers are synchronous wrappers around a snapshot:
 
-**Tree sort order:** the meta-context appears first; everything else is sorted
-alphabetically by `name` at every nesting level. `git_url` controls icon and
-decoration only — it does not change ordering, so a terminal context like `Duet`
-mixes with intermediate siblings purely by name. Implementation lives in
-`core/tree/contextTree.ts:compareTreeNodes` and `core/tree/contextBreadcrumb.ts:bucketOrder`.
+- **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full
+  list of contexts loaded once on activation. Each entity carries `meta`,
+  `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences
+  (meta-context, root context, terminal context, regular context) are derived
+  from these fields rather than from a `type` enum. A context is terminal iff
+  `git_repos` has one or more aliases.
+
+- **КОНТЕКСТ view** (`ContextProvider`) works over a single
+  `OrientationResponse` — the backend already resolved the current workspace
+  folders into a chain, products, and components. The provider renders that
+  shape directly. On workspace folder change it calls a `refreshOrientation`
+  callback to fetch a fresh response.
+
+**Tree sort order (ДЕЛА view):** the meta-context appears first; everything
+else is sorted alphabetically by `name` at every nesting level. `git_repos`
+controls icon and decoration only — it does not change ordering, so a terminal
+context mixes with intermediate siblings purely by name. Implementation lives in
+`core/tree/contextTree.ts:compareTreeNodes`.
 
 ## Launcher (openFolder.ts)
 
 | Context flavor | Action |
 |----------------|--------|
-| Context without `git_url` | Open Drive folder directly |
-| Context with `git_url` | Clone if needed -> generate workspace -> open workspace |
+| Context without `git_repos` | Open Drive folder directly |
+| Terminal context (`git_repos` non-empty) | Clone every aliased repo into `paths.reposPath/<alias>.git` -> generate multi-root workspace -> open workspace |
 
-For any entity whose manifest declares `reference_repos`, any missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open (symmetric to the main `git_url` clone) — an unreachable reference repo must be removed from the manifest before the context can be opened. Reference repo names are validated against path traversal before being joined with `reposPath`.
+For any context whose manifest declares `reference_repos`, missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open — an unreachable repo must be removed from the manifest before the context can be opened. Alias names are validated against path traversal before being joined with `reposPath` (`isSafeRepoName`).
 
 Git clone UX:
 - `withProgress` notification (cancellable)
 - Output to "Duet Git" channel
-- Uses `--progress` flag for real-time output
+- `git clone --progress -- <url> <target>` — the `--` separator disarms URLs that begin with `-`. Built by `buildGitCloneArgs`.
 - Finalize pattern: single `resolved` flag prevents duplicate logs on cancel/error/close race
 
 Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
 
 ## Workspace Generation
 
-| Workspace | When Generated | Where |
-|-----------|----------------|-------|
-| `{Context}.code-workspace` | On each git-backed context open | `openFolder.ts` |
-| `root-contexts.code-workspace` | After scan completes (lists all root contexts) | `refresh.ts` |
+| Workspace | When Generated | Folders |
+|-----------|----------------|---------|
+| `{Context}.code-workspace` | On open of a terminal context | One folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved) + Drive folder of the context |
+| `root-contexts.code-workspace` | After scan completes | All root context folders + `DuetData` |
+
+The single entry point is `WorkspaceManager.writeContextWithReposWorkspace(name, aliases, drivePath)` — there is no single-repo variant. A terminal context with one alias produces a 2-folder workspace (one repo + drive); two aliases produce three folders; etc.
 
 ## Copy @-Path Command (`duet.copyAtPath`)
 
@@ -134,6 +146,15 @@ unique inside one workspace.
 **Shell**: `vscode/commands/copyAtPath.ts` (resolves `getWorkspaceFolder`, writes
 clipboard, surfaces warnings).
 
+## Tree Views
+
+| View | Provider | Data source | Renders |
+|------|----------|-------------|---------|
+| ДЕЛА (`duet.contexts`) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and their descendants. Terminal contexts highlighted when any of their `git_repos` aliases is open in a workspace folder. |
+| КОНТЕКСТ (`duet.context`) | `ContextProvider` | `apiClient.orientation(currentFolderPaths)` (`OrientationResponse`) | The chain of contexts the current workspace folders resolve into → top-level products of the current context → components under each product. `workspace.kind === 'unknown'` → single info node "Папка вне иерархии контекстов". |
+
+Product `path` (`@<alias>.git` for git-products, `@<context_name>[/<sub>]` for drive-products) is resolved against `workspace.git_folders` / `workspace.context_folder` via `core/pathUtils.ts:resolveAtRef`. Components carry paths relative to their product.
+
 ## Tree Decorations
 
 `TreeDecorationProvider.ts` is a `FileDecorationProvider`. It currently has a single responsibility: grey out separator rows so the line/spacer items read as visual gaps rather than active items.
@@ -153,7 +174,7 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 | 1. Read pointer | `readPointer()` -> `duetDataPath`, set `duet.hasPointer` |
 | 2. Read port | `readPort()` -> port (default 19680), create `DuetApiClient` |
 | 3. Set initializing | `duet.initializing=true`, `duet.ready=false` -> spinner in status view |
-| 4. Load contexts | `apiClient.contexts()` -> `ContextEntity[]` |
+| 4. Load contexts + orientation | `apiClient.contexts()` -> `ContextEntity[]`; `apiClient.orientation(currentFolderPaths)` -> `OrientationResponse` |
 | 5. Register providers | Create and register all tree providers |
 | 6. Set ready | `duet.ready=true`, `duet.initializing=false` -> main views appear |
 
@@ -165,7 +186,7 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 - No spawn, no venv, no install — all managed by Host
 - Single check on activation (no polling, no retry command)
 - `duet.ready=true` set AFTER providers registered (prevents "no data provider" flash)
-- Backend-independent commands (`openDataFolder`, `showContextHelp`) work regardless of backend state
+- Backend-independent command `openDataFolder` works regardless of backend state
 
 ## Build & Release
 
@@ -196,13 +217,13 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 | Pointer reading (sync) | `core/pointer.ts` |
 | DuetData paths | `core/paths.ts` |
 | Backend API client | `core/api-client.ts` |
-| Context tree logic | `core/tree/contextTree.ts` |
-| Context breadcrumb | `core/tree/contextBreadcrumb.ts` |
+| Context tree logic (ДЕЛА view) | `core/tree/contextTree.ts` |
+| КОНТЕКСТ view (orientation-driven) | `vscode/providers/ContextProvider.ts` |
+| @-ref resolver | `core/pathUtils.ts` (`resolveAtRef`) |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
-| Workspace generation | `core/workspace.ts` |
+| Workspace generation | `core/workspace.ts` (`writeContextWithReposWorkspace`) |
 | Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatAtReference`) |
 | Entity types, markers | Backend `scanner.py` |
 | Name conflict resolution | Backend `scanner.py` |
 | DB schema (name unique) | Backend `db.py` |
-| Entity data in Extension | `api-client.ts` -> `ContextEntity` type |
-| Tree navigation | `core/tree/contextTree.ts`, `contextBreadcrumb.ts` |
+| Entity data in Extension | `api-client.ts` -> `ContextEntity` type (with `git_repos` map) |

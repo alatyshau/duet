@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { formatAtReference } from '../../core/pathUtils';
+import { formatAtReference, resolveAtRef } from '../../core/pathUtils';
 
 // We need to mock process.platform for Windows tests
 // Import the module after setting up mocks
@@ -151,6 +152,50 @@ describe('pathUtils', () => {
         it('handles workspace folders that contain spaces', () => {
             expect(formatAtReference('My Folder', 'sub/file.txt'))
                 .toBe('`@My Folder/sub/file.txt`');
+        });
+    });
+
+    describe('resolveAtRef', () => {
+        const gitFolders = {
+            Duet: '/abs/DuetData/repos/Duet.git',
+            'Duet-Instructions': '/abs/DuetData/repos/Duet-Instructions.git'
+        };
+
+        it('resolves a bare git-alias ref to the cloned repo root', () => {
+            expect(resolveAtRef('@Duet.git', gitFolders, 'DuetLab', '/drive/DuetLab'))
+                .toBe('/abs/DuetData/repos/Duet.git');
+        });
+
+        it('appends trailing segments to the git folder', () => {
+            expect(resolveAtRef('@Duet.git/packages/backend', gitFolders, 'DuetLab', '/drive/DuetLab'))
+                .toBe(path.join('/abs/DuetData/repos/Duet.git', 'packages', 'backend'));
+        });
+
+        it('resolves a context-name ref against context_folder', () => {
+            expect(resolveAtRef('@OntoCore', {}, 'OntoCore', '/drive/OntoCore'))
+                .toBe('/drive/OntoCore');
+        });
+
+        it('resolves a context-name ref with trailing segments', () => {
+            expect(resolveAtRef('@OntoCore/LangLab', {}, 'OntoCore', '/drive/OntoCore'))
+                .toBe(path.join('/drive/OntoCore', 'LangLab'));
+        });
+
+        it('prefers git alias when a context name shares the alias', () => {
+            // Edge case: alias "DuetLab" exists AND context_name is "DuetLab".
+            // gitFolders wins — that's the design-doc precedence.
+            const overlap = { DuetLab: '/abs/repos/DuetLab.git' };
+            expect(resolveAtRef('@DuetLab', overlap, 'DuetLab', '/drive/DuetLab'))
+                .toBe('/abs/repos/DuetLab.git');
+        });
+
+        it('returns null when the head matches neither alias nor context_name', () => {
+            expect(resolveAtRef('@Unknown', gitFolders, 'DuetLab', '/drive/DuetLab')).toBeNull();
+        });
+
+        it('returns null for malformed refs (no @, empty body)', () => {
+            expect(resolveAtRef('Duet.git', gitFolders)).toBeNull();
+            expect(resolveAtRef('@', gitFolders)).toBeNull();
         });
     });
 });

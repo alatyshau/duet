@@ -176,7 +176,7 @@ class TestWorkspaceServiceNormalization:
         nfd_path = unicodedata.normalize("NFD", str(product_path))
         result = service.get_orientation(nfd_path)
 
-        assert result["workspace"]["type"] != "unknown"
+        assert result["workspace"]["kind"] == "context"
         chain = result["context"]["chain"]
         assert len(chain) == 3
         assert chain[0]["name"] == "СЕМЬЯ"

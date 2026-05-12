@@ -2,13 +2,13 @@ import * as vscode from 'vscode';
 import { ContextTreeProvider } from './providers/ContextTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
 import { AccordionController } from './providers/AccordionController';
-import { ContextProvider, openDataFolderCommand, showContextHelpCommand } from './providers/ContextProvider';
+import { ContextProvider, openDataFolderCommand } from './providers/ContextProvider';
 import { readPointer, readPort } from '../core/pointer';
 import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { copyAtPath } from './commands/copyAtPath';
 import { Paths } from '../core/paths';
-import { DuetApiClient } from '../core/api-client';
+import { DuetApiClient, OrientationResponse } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
 
 let backendOutputChannel: vscode.OutputChannel | null = null;
@@ -80,10 +80,19 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
             vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths.reposPath)),
             vscode.commands.registerCommand('duet.openDataFolder', () => openDataFolderCommand(paths.reposPath)),
-            vscode.commands.registerCommand('duet.showContextHelp', showContextHelpCommand),
             // Noop command — used in TreeItem.command to prevent toggle on label click
             vscode.commands.registerCommand('duet.selectNode', () => {})
         );
+
+        const fetchOrientation = async (workspacePaths: string[]): Promise<OrientationResponse | null> => {
+            try {
+                return await apiClient.orientation(workspacePaths);
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                backendOutputChannel?.appendLine(`orientation() failed: ${msg}`);
+                return null;
+            }
+        };
 
         try {
             await sidebarState.setInitializing('Подключение к backend...');
@@ -92,8 +101,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
             backendOutputChannel.appendLine(`Backend OK: ${contexts.length} contexts loaded`);
 
+            const initialWorkspacePaths = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+            const initialOrientation = await fetchOrientation(initialWorkspacePaths);
+
             const contextTreeProvider = new ContextTreeProvider(contexts, paths.reposPath);
-            const contextProvider = new ContextProvider(contexts, paths.reposPath);
+            const contextProvider = new ContextProvider(initialOrientation, fetchOrientation);
             context.subscriptions.push(
                 vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
             );
@@ -126,7 +138,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         try {
                             const newContexts = await refreshFromBackend(apiClient, paths);
                             contextTreeProvider.updateContexts(newContexts);
-                            contextProvider.updateContexts(newContexts);
+                            const currentPaths = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+                            const orientation = await fetchOrientation(currentPaths);
+                            contextProvider.updateOrientation(orientation);
                         } catch (error) {
                             vscode.window.showErrorMessage(`Scan failed: ${error}`);
                         }

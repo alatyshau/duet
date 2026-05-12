@@ -126,7 +126,7 @@ class TestOrientationEndpoint:
         assert response.status_code == 200
 
         data = response.json()
-        assert data["workspace"]["type"] == "unknown"
+        assert data["workspace"]["kind"] == "unknown"
         assert data["workspace"]["reason"] == "no_workspace_path"
         assert data["duet_paths"]["duetDataPath"] == str(duet_data)
 
@@ -164,7 +164,7 @@ class TestOrientationEndpoint:
         assert response.status_code == 200
 
         data = response.json()
-        assert data["workspace"]["type"] != "unknown"
+        assert data["workspace"]["kind"] == "context"
         chain = data["context"]["chain"]
         assert len(chain) == 3
         assert [c["name"] for c in chain] == ["Root", "Mid", "Product"]

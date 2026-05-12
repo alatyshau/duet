@@ -7,9 +7,9 @@
  * Терминология (см. unification-design):
  * - root context = top-level папка в `root_context_folders` без флага `meta`.
  * - meta context = папка с `meta: true` в `context.json` (например `!БАЗА`). Уникальна на DB.
- * - Manifest на диске — `context.json` v2.
+ * - Manifest на диске — `context.json` v3.
  *
- * Self-heal манифестов и rename legacy → v2 — прерогатива core/schema-migrations.ts. Этот модуль
+ * Self-heal манифестов и rename legacy → v3 — прерогатива core/schema-migrations.ts. Этот модуль
  * только пишет минимальные новые манифесты при изменении meta-флага и читает текущий meta-флаг.
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
@@ -43,7 +43,13 @@ export function normalizePath(p: string): string {
 }
 
 // Re-export types
-export type { RootContextEntry, ScanError, ScanResult, ContextEntity, ContextsCache } from '../shared/types'
+export type {
+  RootContextEntry,
+  ScanError,
+  ScanResult,
+  ContextEntity,
+  ContextsCache
+} from '../shared/types'
 
 // =============================================================================
 // ROOT CONTEXTS CRUD
@@ -144,7 +150,7 @@ function readManifestMeta(folderPath: string): boolean {
  *
  * Идемпотентен: если состояние диска уже правильное, ничего не пишется.
  *
- * Self-healing: отсутствующий context.json создаётся с `{version: 2, name: basename(folder)}`.
+ * Self-healing: отсутствующий context.json создаётся с `{version: 3, name: basename(folder)}`.
  * Невалидный JSON бросает ошибку — пользовательский манифест нельзя молча затирать.
  *
  * Атомарность two-write при смене meta. Когда нужно одновременно убрать meta у одной
@@ -193,7 +199,7 @@ export function enforceMetaInvariant(folders: RootContextEntry[]): void {
         continue
       }
     } else {
-      data = { version: 2, name: basename(folderPath) }
+      data = { version: 3, name: basename(folderPath) }
     }
 
     const currentMeta = data.meta === true
@@ -202,7 +208,7 @@ export function enforceMetaInvariant(folders: RootContextEntry[]): void {
     } else {
       delete data.meta
     }
-    if (typeof data.version !== 'number') data.version = 2
+    if (typeof data.version !== 'number') data.version = 3
 
     const needsWrite =
       prevRaw === null || // self-heal

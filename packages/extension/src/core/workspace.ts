@@ -12,19 +12,20 @@ export interface WorkspaceFile {
 }
 
 /**
- * Generates .code-workspace file content for a context that has a git repo.
- * Combines git repo (relative) with Drive folder (absolute).
+ * Generates `.code-workspace` content for a context that declares one or more
+ * git repos (`git_repos` map). Produces N folders pointing at each cloned repo
+ * (relative path `../repos/<alias>.git` from the workspaces dir) followed by
+ * the Drive folder (absolute path).
  *
- * @param repoPath - Relative path to git repo from workspaces dir (e.g., "../repos/Duet.git")
- * @param drivePath - Absolute path to context's Drive folder
+ * Aliases keep their declared order so the multi-root layout in VS Code is
+ * deterministic across machines.
  */
-export function generateContextWithGitWorkspace(repoPath: string, drivePath: string): WorkspaceFile {
-    return {
-        folders: [
-            { path: repoPath },
-            { path: drivePath }
-        ]
-    };
+export function generateContextWithReposWorkspace(aliases: string[], drivePath: string): WorkspaceFile {
+    const folders: WorkspaceFolder[] = aliases.map(alias => ({
+        path: path.join('..', 'repos', `${alias}.git`)
+    }));
+    folders.push({ path: drivePath });
+    return { folders };
 }
 
 /**
@@ -65,39 +66,40 @@ export class WorkspaceManager {
     }
 
     /**
-     * Gets path to workspace file for a context-with-git.
+     * Gets path to workspace file for a context-with-repos.
      */
-    getContextWithGitWorkspacePath(contextName: string): string {
+    getContextWithReposWorkspacePath(contextName: string): string {
         return path.join(this.workspacesDir, `${contextName}.code-workspace`);
     }
 
     /**
-     * Creates or updates a context-with-git workspace file.
+     * Creates or updates a context-with-repos workspace file.
      * Returns path to the workspace file.
      *
-     * @param contextName - Context name (e.g., "Duet")
-     * @param drivePath - Absolute path to context's Drive folder
+     * @param contextName - Context name (e.g., "DuetLab"); used as workspace file basename.
+     * @param aliases - `git_repos` keys in declared order; each becomes a folder pointing at `../repos/<alias>.git`.
+     * @param drivePath - Absolute path to the context's Drive folder; added as the last folder.
      */
-    async writeContextWithGitWorkspace(contextName: string, drivePath: string): Promise<string> {
+    async writeContextWithReposWorkspace(
+        contextName: string,
+        aliases: string[],
+        drivePath: string
+    ): Promise<string> {
         await this.ensureDir();
 
-        const workspacePath = this.getContextWithGitWorkspacePath(contextName);
-
-        // Relative path from workspaces/ to repos/
-        const repoPath = path.join('..', 'repos', `${contextName}.git`);
-
-        const workspace = generateContextWithGitWorkspace(repoPath, drivePath);
+        const workspacePath = this.getContextWithReposWorkspacePath(contextName);
+        const workspace = generateContextWithReposWorkspace(aliases, drivePath);
         await this.fs.writeFile(workspacePath, JSON.stringify(workspace, null, 2), 'utf8');
 
         return workspacePath;
     }
 
     /**
-     * Checks if context-with-git workspace file exists.
+     * Checks if context-with-repos workspace file exists.
      */
-    async contextWithGitWorkspaceExists(contextName: string): Promise<boolean> {
+    async contextWithReposWorkspaceExists(contextName: string): Promise<boolean> {
         try {
-            await this.fs.access(this.getContextWithGitWorkspacePath(contextName));
+            await this.fs.access(this.getContextWithReposWorkspacePath(contextName));
             return true;
         } catch {
             return false;
