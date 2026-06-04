@@ -277,7 +277,13 @@ async function openContextWithRepos(
     }
 
     const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
-    const workspacePath = await workspaceManager.writeContextWithReposWorkspace(node.label, aliases, node.id);
+    const primaryFolder = node.workspaceConfig?.primaryFolder ?? 'git';
+    const workspacePath = await workspaceManager.writeContextWithReposWorkspace(
+        node.label,
+        aliases,
+        node.id,
+        primaryFolder
+    );
 
     const uri = vscode.Uri.file(workspacePath);
     await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });

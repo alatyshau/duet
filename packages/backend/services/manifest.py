@@ -19,6 +19,17 @@ from pathlib import Path
 MANIFEST_FILENAME = "context.json"
 TARGET_VERSION = 3
 
+# `workspace_config.primary_folder` values. `git` keeps the historical layout
+# (cloned repos first, Drive folder last); `context` puts the Drive folder
+# first. Unknown values are rejected; absent field defaults to `git`.
+PRIMARY_FOLDER_VALUES = ("context", "git")
+
+
+@dataclass
+class WorkspaceConfig:
+    """UX hints affecting how Extension assembles the multi-root workspace."""
+    primary_folder: str = "git"
+
 
 @dataclass
 class Manifest:
@@ -29,6 +40,7 @@ class Manifest:
     git_repos: dict[str, str] | None = None
     reference_repos: dict[str, str] | None = None
     description: str | None = None
+    workspace_config: WorkspaceConfig | None = None
 
 
 def read_manifest(
@@ -197,6 +209,30 @@ def read_manifest(
         # order is the order keys appeared in the manifest.
         git_repos = dict(git_repos_raw)
 
+    workspace_config_raw = data.get("workspace_config")
+    workspace_config: WorkspaceConfig | None
+    if workspace_config_raw is None:
+        workspace_config = None
+    elif not isinstance(workspace_config_raw, dict):
+        _record_invalid(
+            errors, manifest_path, folder,
+            f"`workspace_config` must be an object when present, got {type(workspace_config_raw).__name__}",
+        )
+        return None
+    else:
+        # Lenient on unknown sub-keys (forward-compat: a future Host may add
+        # `workspace_config.foo` that older backend should not reject). Strict
+        # on the value of every known sub-key.
+        primary_folder = workspace_config_raw.get("primary_folder", "git")
+        if not isinstance(primary_folder, str) or primary_folder not in PRIMARY_FOLDER_VALUES:
+            _record_invalid(
+                errors, manifest_path, folder,
+                f"`workspace_config.primary_folder` must be one of "
+                f"{list(PRIMARY_FOLDER_VALUES)!r}, got {primary_folder!r}",
+            )
+            return None
+        workspace_config = WorkspaceConfig(primary_folder=primary_folder)
+
     return Manifest(
         version=version,
         name=name,
@@ -205,6 +241,7 @@ def read_manifest(
         git_repos=git_repos,
         reference_repos=ref_repos,
         description=description,
+        workspace_config=workspace_config,
     )
 
 

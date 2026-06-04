@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { FileSystem, nodeFs } from './fs';
+import { PrimaryFolder } from './api-client';
 
 export interface WorkspaceFolder {
     path: string;
@@ -14,17 +15,29 @@ export interface WorkspaceFile {
 /**
  * Generates `.code-workspace` content for a context that declares one or more
  * git repos (`git_repos` map). Produces N folders pointing at each cloned repo
- * (relative path `../repos/<alias>.git` from the workspaces dir) followed by
- * the Drive folder (absolute path).
+ * (relative path `../repos/<alias>.git` from the workspaces dir) plus the
+ * Drive folder (absolute path).
+ *
+ * Folder order is controlled by `primaryFolder` (from `workspace_config` in
+ * `context.json`):
+ *   - `'git'` (default): cloned repos first (in declared alias order), Drive last.
+ *   - `'context'`: Drive first, cloned repos after (in declared alias order).
  *
  * Aliases keep their declared order so the multi-root layout in VS Code is
  * deterministic across machines.
  */
-export function generateContextWithReposWorkspace(aliases: string[], drivePath: string): WorkspaceFile {
-    const folders: WorkspaceFolder[] = aliases.map(alias => ({
+export function generateContextWithReposWorkspace(
+    aliases: string[],
+    drivePath: string,
+    primaryFolder: PrimaryFolder = 'git'
+): WorkspaceFile {
+    const repoFolders: WorkspaceFolder[] = aliases.map(alias => ({
         path: path.join('..', 'repos', `${alias}.git`)
     }));
-    folders.push({ path: drivePath });
+    const driveFolder: WorkspaceFolder = { path: drivePath };
+    const folders: WorkspaceFolder[] = primaryFolder === 'context'
+        ? [driveFolder, ...repoFolders]
+        : [...repoFolders, driveFolder];
     return { folders };
 }
 
@@ -78,17 +91,19 @@ export class WorkspaceManager {
      *
      * @param contextName - Context name (e.g., "DuetLab"); used as workspace file basename.
      * @param aliases - `git_repos` keys in declared order; each becomes a folder pointing at `../repos/<alias>.git`.
-     * @param drivePath - Absolute path to the context's Drive folder; added as the last folder.
+     * @param drivePath - Absolute path to the context's Drive folder.
+     * @param primaryFolder - From `workspace_config.primary_folder`. `'git'` (default) puts repos first, `'context'` puts Drive first.
      */
     async writeContextWithReposWorkspace(
         contextName: string,
         aliases: string[],
-        drivePath: string
+        drivePath: string,
+        primaryFolder: PrimaryFolder = 'git'
     ): Promise<string> {
         await this.ensureDir();
 
         const workspacePath = this.getContextWithReposWorkspacePath(contextName);
-        const workspace = generateContextWithReposWorkspace(aliases, drivePath);
+        const workspace = generateContextWithReposWorkspace(aliases, drivePath, primaryFolder);
         await this.fs.writeFile(workspacePath, JSON.stringify(workspace, null, 2), 'utf8');
 
         return workspacePath;

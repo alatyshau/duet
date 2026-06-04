@@ -52,6 +52,49 @@ describe('workspace', () => {
             expect(result.folders[0].name).toBeUndefined();
             expect(result.folders[1].name).toBeUndefined();
         });
+
+        it('should default to git-first order (third arg omitted)', () => {
+            const result = generateContextWithReposWorkspace(['Duet'], '/drive/x');
+            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
+            expect(result.folders[1].path).toBe('/drive/x');
+        });
+
+        it('should put Drive first when primaryFolder is "context"', () => {
+            const result = generateContextWithReposWorkspace(
+                ['Duet', 'Duet-Instructions'],
+                '/drive/lab',
+                'context'
+            );
+            expect(result.folders).toHaveLength(3);
+            expect(result.folders[0].path).toBe('/drive/lab');
+            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet.git'));
+            expect(result.folders[2].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
+        });
+
+        it('should put repos first when primaryFolder is "git" (explicit)', () => {
+            const result = generateContextWithReposWorkspace(
+                ['Duet', 'Duet-Instructions'],
+                '/drive/lab',
+                'git'
+            );
+            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
+            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
+            expect(result.folders[2].path).toBe('/drive/lab');
+        });
+
+        it('should preserve alias order regardless of primaryFolder', () => {
+            const result = generateContextWithReposWorkspace(
+                ['Zeta', 'Alpha', 'Mu'],
+                '/drive/x',
+                'context'
+            );
+            expect(result.folders.map(f => f.path)).toEqual([
+                '/drive/x',
+                path.join('..', 'repos', 'Zeta.git'),
+                path.join('..', 'repos', 'Alpha.git'),
+                path.join('..', 'repos', 'Mu.git'),
+            ]);
+        });
     });
 
     describe('generateRootContextsWorkspace', () => {
@@ -150,6 +193,19 @@ describe('workspace', () => {
                 expect(parsed.folders).toHaveLength(2);
                 expect(parsed.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
                 expect(parsed.folders[1].path).toBe('/drive/Duet');
+            });
+
+            it('should honor primaryFolder="context" in written file', async () => {
+                const result = await manager.writeContextWithReposWorkspace(
+                    'Igor.cockpit',
+                    ['Igor.source'],
+                    '/drive/Igor.cockpit',
+                    'context'
+                );
+                const parsed = JSON.parse(writtenFiles.get(result)!);
+                expect(parsed.folders).toHaveLength(2);
+                expect(parsed.folders[0].path).toBe('/drive/Igor.cockpit');
+                expect(parsed.folders[1].path).toBe(path.join('..', 'repos', 'Igor.source.git'));
             });
 
             it('should produce platform-normalized repo paths', async () => {

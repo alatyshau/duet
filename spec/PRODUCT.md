@@ -221,6 +221,7 @@ Three entity types live in `entities.db`:
 | `git_repos` | map | optional | `{alias: url}` map declaring product clones. **Present → context is terminal** (scanner registers N `product_repo` children, one per alias, and does not recurse). Key insertion order is preserved and surfaces in `products[]` order |
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
 | `description` | string | optional | Used for `chain[].description` in orientation; takes priority over README first sentence |
+| `workspace_config` | object | optional | UX hints for `.code-workspace` assembly. See [Workspace Config](#workspace-config) below |
 
 **Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). Backend reads only; Host owns all upgrades (v1→v2→v3).
 
@@ -228,7 +229,32 @@ Three entity types live in `entities.db`:
 - `git_repos` must be an object when present, and non-empty
 - alias must be a non-empty string; URL must be a non-empty string
 - aliases live in a shared namespace with `reference_repos` — overlap is rejected as `invalid_manifest`
+- `workspace_config` must be an object when present; `workspace_config.primary_folder` must be `"context"` or `"git"` when present
 - No regex/Windows-reserved-name/URL-leading-`-` guards: manifests are user-written, this is intentional
+
+### Workspace Config
+
+```json
+{ "version": 3, "name": "Igor.cockpit", "git_repos": {"Igor.source": "..."},
+  "workspace_config": { "primary_folder": "context" } }
+```
+
+`workspace_config` is an optional object on a terminal context (has `git_repos`) that controls
+how Extension assembles the multi-root `.code-workspace` when opening the context. Currently
+one field is supported:
+
+| Field | Type | Required? | Meaning |
+|-------|------|-----------|---------|
+| `primary_folder` | `"context"` \| `"git"` | optional, default `"git"` | Which folder appears first in `folders[]`. `"git"` (historical) puts cloned repos first (in `git_repos` order), Drive folder last. `"context"` puts the Drive folder first, cloned repos after. The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers |
+
+**Lenient on unknown sub-keys.** A future Host may add `workspace_config.<new_field>`. Older
+backends ignore unknown sub-keys (forward-compat); only the values of *known* sub-keys are
+validated strictly.
+
+**No-op on non-terminal contexts.** `workspace_config` is meaningful only when `git_repos` is
+present — for non-terminal contexts Extension opens the Drive folder directly (no
+`.code-workspace` is generated). Specifying the field on a non-terminal context is not an
+error; it is silently ignored.
 
 ### Reference Repos
 

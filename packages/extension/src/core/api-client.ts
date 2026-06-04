@@ -23,6 +23,12 @@ export interface DuetDataPathResponse {
     path: string;
 }
 
+export type PrimaryFolder = 'context' | 'git';
+
+export interface WorkspaceConfig {
+    primary_folder: PrimaryFolder;
+}
+
 export interface ContextEntity {
     id: string;
     type: 'context';
@@ -35,6 +41,7 @@ export interface ContextEntity {
     description?: string | null;
     git_repos: Record<string, string> | null;
     reference_repos?: Record<string, string> | null;
+    workspace_config?: WorkspaceConfig | null;
 }
 
 export interface ContextsResponse {

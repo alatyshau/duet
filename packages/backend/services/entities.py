@@ -120,6 +120,7 @@ class EntitiesService:
         - `git_repos` — alias→URL map; `null` when manifest has none.
         - `reference_repos` — name→URL map; `null` when manifest has none.
         - `description` — chain-item description (manifest > README first sentence).
+        - `workspace_config` — UX hints for workspace assembly; `null` when manifest omits.
         """
         absolute_path = None
         if path_lookup is not None:
@@ -130,6 +131,7 @@ class EntitiesService:
         git_repos: dict[str, str] | None = None
         ref_repos: dict[str, str] | None = None
         description: str | None = None
+        workspace_config: dict[str, str] | None = None
 
         if entity.type == "context" and absolute_path:
             manifest = read_manifest(absolute_path)
@@ -140,6 +142,10 @@ class EntitiesService:
                     ref_repos = dict(manifest.reference_repos)
                 if manifest.description and manifest.description.strip():
                     description = manifest.description.strip()
+                if manifest.workspace_config:
+                    workspace_config = {
+                        "primary_folder": manifest.workspace_config.primary_folder,
+                    }
             if description is None:
                 readme = Path(absolute_path) / "README.md"
                 description = extract_description(readme)
@@ -161,4 +167,5 @@ class EntitiesService:
             "meta": entity.meta,
             "reference_repos": ref_repos,
             "description": description,
+            "workspace_config": workspace_config,
         }

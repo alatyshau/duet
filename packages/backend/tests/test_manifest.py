@@ -16,6 +16,7 @@ from services.manifest import (
     MANIFEST_FILENAME,
     TARGET_VERSION,
     Manifest,
+    WorkspaceConfig,
     read_manifest,
     read_reference_repos,
     read_git_repos,
@@ -276,6 +277,81 @@ class TestGitReposValidation:
         manifest = read_manifest(tmp_path)
         assert manifest is not None
         assert manifest.git_repos is None
+
+
+class TestWorkspaceConfigValidation:
+    """`workspace_config` is optional; when present must be an object whose
+    known sub-keys are validated strictly. Unknown sub-keys are ignored
+    (forward-compat). Absent field means `primary_folder` defaults to `git`."""
+
+    def test_absent_workspace_config(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 3, "name": "X"})
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.workspace_config is None
+
+    def test_primary_folder_context(self, tmp_path: Path) -> None:
+        _write(tmp_path, {
+            "version": 3, "name": "X",
+            "workspace_config": {"primary_folder": "context"},
+        })
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.workspace_config == WorkspaceConfig(primary_folder="context")
+
+    def test_primary_folder_git_explicit(self, tmp_path: Path) -> None:
+        _write(tmp_path, {
+            "version": 3, "name": "X",
+            "workspace_config": {"primary_folder": "git"},
+        })
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.workspace_config == WorkspaceConfig(primary_folder="git")
+
+    def test_empty_object_defaults_to_git(self, tmp_path: Path) -> None:
+        """`workspace_config: {}` is equivalent to absent for every known
+        sub-key — `primary_folder` defaults to `git`."""
+        _write(tmp_path, {"version": 3, "name": "X", "workspace_config": {}})
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.workspace_config == WorkspaceConfig(primary_folder="git")
+
+    def test_workspace_config_not_object(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 3, "name": "X", "workspace_config": "context"})
+        errors: list[dict] = []
+        assert read_manifest(tmp_path, errors) is None
+        assert errors[0]["reason_code"] == "invalid_manifest"
+        assert "workspace_config" in errors[0]["description"]
+
+    def test_primary_folder_invalid_value(self, tmp_path: Path) -> None:
+        _write(tmp_path, {
+            "version": 3, "name": "X",
+            "workspace_config": {"primary_folder": "drive"},
+        })
+        errors: list[dict] = []
+        assert read_manifest(tmp_path, errors) is None
+        assert errors[0]["reason_code"] == "invalid_manifest"
+        assert "primary_folder" in errors[0]["description"]
+
+    def test_primary_folder_non_string(self, tmp_path: Path) -> None:
+        _write(tmp_path, {
+            "version": 3, "name": "X",
+            "workspace_config": {"primary_folder": 42},
+        })
+        errors: list[dict] = []
+        assert read_manifest(tmp_path, errors) is None
+        assert errors[0]["reason_code"] == "invalid_manifest"
+
+    def test_unknown_sub_keys_ignored(self, tmp_path: Path) -> None:
+        """Lenient on unknown sub-keys for forward-compat: a future Host may
+        add `workspace_config.<new_field>` that older backend should not reject."""
+        _write(tmp_path, {
+            "version": 3, "name": "X",
+            "workspace_config": {"primary_folder": "context", "future_hint": True},
+        })
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.workspace_config == WorkspaceConfig(primary_folder="context")
 
 
 class TestReadReferenceRepos:
