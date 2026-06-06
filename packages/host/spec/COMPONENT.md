@@ -1,40 +1,70 @@
 # Host
 
-Electron tray app that writes pointer file, deploys backend and AI instructions to DuetData, and configures AI clients.
+Electron tray app that writes the pointer file, deploys backend to DuetData, and configures AI clients.
 
-> Shared model (pointer file format, DuetData, DuetConfig): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
->
-> See also: [UI.md](UI.md)
+> Domain model (contexts, manifests, invariants), pointer file, file ownership, cross-component contracts (backend spawn, schema migration policy): see [/spec/PRODUCT.md](/spec/PRODUCT.md). UI navigation and per-page contracts: see [UI.md](UI.md). This file documents what Host itself owns.
 
-## Domain
+## Purpose
 
-### Role in Ecosystem
+Host is the **single writer** of system configuration and the **owner of backend lifecycle**. Three responsibilities:
 
-Host is the **only writer** of the pointer file. Extension and Backend only read it. See PRODUCT.md -> Pointer File.
+1. **Pointer + config.** Writes `~/.org.ve68.duet`. Writes and migrates `DuetConfig/settings.json` and `{machine}.json`. Writes and migrates context manifests on disk. Enforces structural invariants (meta-context at position 0).
+2. **Deployment.** Deploys backend Python code from bundled `extraResources` to `DuetData/backend/`, manages venv + dependencies, writes `VERSION`, owns process spawn / stop / health monitoring.
+3. **AI client integration.** Reads merged per-agent instructions from `DuetData/duet-{agent}.md` and writes them into Claude Code / Codex / Antigravity config locations.
+
+Everything in this file describes how Host fulfils these three roles. UI surfaces (tray, wizard, pages) — see [UI.md](UI.md).
+
+## Architecture
+
+### Layers
+
+| Layer | Responsibility | Files |
+|-------|----------------|-------|
+| `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
+| `core/` | Config, app state, deploy, backend, AI clients, instructions, instructions download, root contexts, schema migrations, atomic JSON IO, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `instructions-download.ts`, `root-contexts.ts`, `schema-migrations.ts`, `json-io.ts`, `wizard-status.ts`, `apps.ts` |
+| `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
+| `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
+| `preload/` | Bridge main ↔ renderer | `index.ts`, `index.d.ts` |
+| `renderer/` | React UI | `App.tsx`, `pages/wizard/*.tsx`, `pages/apps/BackendAppPage.tsx`, `components/` |
+
+### Engineering Principles
+
+| Principle | Rule |
+|-----------|------|
+| **Thin shell** | `main/`, `platform/`, `preload/` — only wiring. All non-trivial logic in `core/`. If logic in shell grows beyond a one-liner → extract to `core/` |
+| **No framework imports in core/** | `core/` has zero Electron imports. Testable with plain Node.js |
+| **Shared types** | `shared/types.ts` is the single source of truth for all types crossing process boundary (IPC). Core modules re-export from shared. No type duplication |
+| **Unit tests for core/ only** | Don't mock Electron. Test pure `core/` functions directly. Shell is validated by TypeScript + E2E |
+| **Pure functions over state** | Prefer pure functions with explicit args over closures capturing module state |
+| **Spec-driven** | Code + spec changes in same commit. Read `spec/` before changes, update after |
 
 ### AppState
 
-Single source of truth for application status.
+Single source of truth for application status. Derived by `checkAppState()` reading pointer → checking fields → checking `existsSync()`.
 
 | Status | Condition |
 |--------|-----------|
-| `no_config` | Pointer file missing, or any of 3 required fields empty |
+| `no_config` | Pointer missing, or any of 3 required fields empty |
 | `path_lost` | All fields present, but `duetDataPath` or `duetConfigPath` doesn't exist on disk |
 | `ready` | All fields present AND both directories exist |
 
-**Derivation:** `checkAppState()` reads pointer -> checks fields -> checks `existsSync()` -> returns status.
+```
++----------------+
+|   no_config    | ← pointer missing OR fields incomplete
++-------+--------+
+        | user fills all 3 fields
+        v
++----------------+
+|     ready      | ← both paths exist on disk
++-------+--------+
+        | folder deleted/moved
+        v
++----------------+
+|   path_lost    | ← fields set but paths don't exist
++----------------+
+```
 
-### AppState Extended Fields
-
-Beyond core status/path fields, AppState exposes machine config values needed by wizard pages:
-
-| Field | Source | Purpose |
-|-------|--------|---------|
-| `pythonPath` | `{machine}.json` | Python interpreter path (step 3) |
-| `instructionsPath` | `{machine}.json` | Duet-Instructions repo path (step 6) |
-| `hasDevBackendPath` | `{machine}.json` | Controls DEV/PROD toggle visibility (step 4) |
-
-### Config Interface
+**Config interface:**
 
 ```typescript
 interface Config {
@@ -44,78 +74,118 @@ interface Config {
 }
 ```
 
-Operations:
-- `readConfig()` — reads pointer file, returns `{}` if missing or broken
-- `writeConfig(config)` — writes pointer file (JSON, 2-space indent)
-- `getConfigFile()` — returns pointer path (`DUET_CONFIG_FILE` env overrides for tests)
+Operations: `readConfig()` (returns `{}` if missing/broken), `writeConfig(config)` (JSON, 2-space indent), `getConfigFile()` (returns pointer path; `DUET_CONFIG_FILE` env overrides for tests).
+
+**AppState extended fields** — beyond core status/path fields, exposes machine-config values needed by wizard pages:
+
+| Field | Source | Purpose |
+|-------|--------|---------|
+| `pythonPath` | `{machine}.json` | Python interpreter path (wizard step 2) |
+| `instructionsPath` | `{machine}.json` | Duet-Instructions repo path (wizard step 5) |
+| `hasDevBackendPath` | `{machine}.json` | Controls DEV/PROD toggle visibility (wizard step 3) |
+| `deployChannel` | `{machine}.json` | `'dev' \| 'prod'` (default `'prod'`) — controls whether deploy uses bundled resources or dev override paths |
+
+Implementation: `core/app-state.ts:checkAppState()`.
 
 ### Single Instance
 
 Host uses Electron `requestSingleInstanceLock()`. Second instance shows window of the first and exits.
 
-## Layers
+## Surface
 
-| Layer | Responsibility | Files |
-|-------|----------------|-------|
-| `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
-| `core/` | Config, app state, deploy, backend, AI clients, instructions, instructions download, root contexts, schema migrations, atomic JSON IO, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `instructions-download.ts`, `root-contexts.ts`, `schema-migrations.ts`, `json-io.ts`, `wizard-status.ts`, `apps.ts` |
-| `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
-| `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
-| `preload/` | Bridge main <-> renderer | `index.ts`, `index.d.ts` |
-| `renderer/` | React UI | `App.tsx`, `pages/wizard/*.tsx` (7 wizard steps), `pages/apps/BackendAppPage.tsx`, `components/` |
+### IPC Channels
 
-## Engineering Principles
+| Channel | Direction | Purpose |
+|---------|-----------|---------|
+| `app:get-state` | renderer → main | Get current AppState |
+| `app-state-changed` | main → renderer | Push state updates |
+| `dialog:select-folder` | renderer → main | Open system folder picker |
+| `dialog:select-file` | renderer → main | Open system file picker |
+| `config:save-pointer` | renderer → main | Save pointer file (partial updates supported — missing fields preserved). Creates default DuetConfig files when both `duetConfigPath` and `machine` are present. Calls `updateAppState()`, returns new AppState |
+| `shell:open-path` | renderer → main | Open path in Finder/Explorer |
+| `config:set-deploy-channel` | renderer → main | Set deploy channel (dev/prod) in machine config; calls `updateAppState()`, returns new AppState |
+| `config:set-instructions-path` | renderer → main | Save `instructionsPath` to `{machine}.json`. Throws if machine config not writable |
+| `deploy:get-status` | renderer → main | Get deploy status |
+| `deploy:start` | renderer → main | Start deploy (async). Broadcasts status + log events |
+| `deploy:status-changed` | main → renderer | Push deploy status updates |
+| `deploy:log` | main → renderer | Push deploy log messages |
+| `python:detect` | renderer → main | Auto-detect Python 3.10+ (checks saved path first) |
+| `python:validate` | renderer → main | Validate a specific Python path |
+| `python:save` | renderer → main | Save `pythonPath` to `{machine}.json` |
+| `backend:get-status` | renderer → main | Get backend status (stopped/starting/running/error) |
+| `backend:start` | renderer → main | Start backend |
+| `backend:stop` | renderer → main | Stop backend |
+| `backend:status-changed` | main → renderer | Push backend status updates |
+| `agents:detect` | renderer → main | Detect installed AI clients |
+| `agents:configure` | renderer → main | Configure all AI clients |
+| `agents:fix-issue` | renderer → main | Fix specific agent issue (by `agentId` + `reasonCode`) |
+| `instructions:merge` | renderer → main | Trigger `POST /merge-duet-instructions` |
+| `instructions:get-errors` | renderer → main | Read cached instruction errors |
+| `instructions:fix-error` | renderer → main | Auto-fix instruction error (by `relativePath` + `reasonCode`) |
+| `instructions:download-template` | renderer → main | Download Duet-Instructions zip from GitHub, extract to `targetFolder` |
+| `instructions:is-folder-empty` | renderer → main | Check if folder is empty (ignoring system files) |
+| `root-contexts:get` | renderer → main | Get resolved root contexts (raw alias + absolute path + isMeta) |
+| `root-contexts:save` | renderer → main | Overwrite `root_context_folders` array in `settings.json` (used by remove/reorder); after save, enforces meta-required invariant |
+| `root-contexts:add` | renderer → main | Alias-aware add: creates `@<basename>` in `{machine}.json`, appends to `root_context_folders`, runs scoped schema migration, enforces meta-required invariant |
+| `root-contexts:scan` | renderer → main | Trigger `POST /scan` |
+| `root-contexts:get-cached-scan` | renderer → main | Read cached `scan.json` from `DuetData/data/` |
+| `root-contexts:get-cached-contexts` | renderer → main | Read cached `contexts.json` (entity tree) from `DuetData/data/` |
+| `migrations:get-status` | renderer → main | Get cached `MigrationResult` from last sweep |
+| `migrations:status-changed` | main → renderer | Push fresh `MigrationResult` after each sweep |
 
-| Principle | Rule |
-|-----------|------|
-| **Thin shell** | `main/`, `platform/`, `preload/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner -> extract to `core/`. |
-| **No framework imports in core/** | `core/` has zero Electron imports. Testable with plain Node.js. |
-| **Shared types** | `shared/types.ts` — single source of truth for all types crossing process boundary (IPC). Core modules re-export from shared. No type duplication. |
-| **Unit tests for core/ only** | Don't mock Electron. Test pure `core/` functions directly. Shell is validated by TypeScript + E2E. |
-| **Pure functions over state** | Prefer pure functions with explicit args over closures capturing module state. Makes testing trivial. |
-| **Spec-driven** | Code + spec changes go in same commit. Read `spec/` before changes, update after. |
+**Mutation contract:** `agents:configure`, `agents:fix-issue`, and config writers call `updateAppState()` after mutations to refresh tray icon. `deploy:start` runs async deploy, broadcasts status + log events.
 
-## AppState Machine
+**Config defaults** (`ensureConfigDefaults(duetConfigPath, machine)`): creates `settings.json` (`{ version: 2, root_context_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ version: 2, port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
 
-```
-+----------------+
-|   no_config    | <- pointer missing OR fields incomplete
-+-------+--------+
-        | user fills all 3 fields
-        v
-+----------------+
-|     ready      | <- both paths exist on disk
-+-------+--------+
-        | folder deleted/moved
-        v
-+----------------+
-|   path_lost    | <- fields set but paths don't exist
-+----------------+
-```
+**Machine config write** (`setMachineConfigKey(key, value)`): read-modify-write single field in `{machine}.json`. Throws if pointer incomplete, machine name invalid, or file missing/invalid JSON. `setSettingsConfigKey(key, value)` mirrors this for `settings.json`. Silent-recreate-from-`{}` paths are gone — they used to lose sibling fields (`timestampTZ`, `port`, `instructionsPath`). Failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover.
 
-**deployChannel:** AppState includes `deployChannel: 'dev' | 'prod'` (default `'prod'`). Read from `{machine}.json`. Controls whether deploy uses bundled resources (`prod`) or dev override paths (`dev`).
+### Pages
 
-Implementation: `core/app-state.ts:checkAppState()`
+Full per-page UX, sidebar status icons, wizard step list: see [UI.md](UI.md). High-level mapping:
 
-## Deploy Service
+| Tab | Pages |
+|-----|-------|
+| Settings (⚙) | 6-step wizard: Duet: пути → Python → Backend → Воркспейсы → Инструкции → AI Агенты |
+| Apps (▶) | `app:duet-backend` — process card for Duet Backend |
+
+### Tray
+
+Full icon table and behavior: see [UI.md](UI.md). Severity-driven: tray icon reflects `maxSeverity(deploySeverity, settingsSeverity)` when `AppStatus === 'ready'`; otherwise forced to warning. Apps-tab severity appears next to the tab button in the sidebar but is **not** aggregated into the tray icon — the tray reflects setup + deploy state only. Severity model: see Behaviors → Severity Framework.
+
+### Window Behavioral Contracts
+
+| Behavior | Contract |
+|----------|----------|
+| Window close | Hides window, does NOT quit app |
+| First run (no pointer file) | Shows window for onboarding |
+| Status `path_lost` | Shows window (needs attention) |
+| Status `ready` | Silent in tray, no window |
+| macOS Dock | Hidden by default, visible when window shown |
+| Second instance | Shows window of first instance, second exits |
+| Production | Cmd/Ctrl+R reload disabled |
+| External links | Opened in system browser (not in-app) |
+
+## Behaviors
+
+### Deploy Service
 
 Deploys backend from bundled resources to DuetData.
 
 | Component | Source (extraResources) | Target | Method |
 |-----------|------------------------|--------|--------|
-| Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered) (.new -> rename -> .old -> delete) |
+| Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered): `.new` → rename → `.old` → delete |
 
 AI instructions are user-owned (separate git repo, configured via `instructionsPath` in machine.json). Host does not deploy them.
 
-**Deploy filter:** Copy operations exclude dev artifact directories: `.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`. This prevents copying dev environment into DuetData when deploying from source (`devBackendPath`).
+**Deploy filter:** copy operations exclude dev artifact directories (`.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`). Prevents copying dev environment when deploying from source (`devBackendPath`).
 
-**Deploy channel:** When `deployChannel === 'dev'` in `{machine}.json`, deploy uses `devBackendPath` from machine config instead of bundled resources. Toggle via IPC `config:set-deploy-channel`.
+**Deploy channel:** when `deployChannel === 'dev'` in `{machine}.json`, deploy uses `devBackendPath` from machine config instead of bundled resources. Toggle via IPC `config:set-deploy-channel`.
 
-**Version comparison:** Uses `compareSemver(appVersion, deployed)` — strips build metadata per semver spec before comparing. Deploy only when app version is newer (not on downgrade or same version).
+**Version comparison:** uses `compareSemver(appVersion, deployed)` — strips build metadata per semver spec before comparing. Deploy only when app version is newer (not on downgrade or same version).
 
-**PROD deploy guard:** When `deployChannel === 'prod'` and Electron is not packaged (`!app.isPackaged`), deploy checks if bundled backend exists. If not -> throws human-readable error: "PROD-деплой недоступен в dev-режиме. Соберите приложение или переключитесь на DEV." Prevents cryptic "Backend source not found" errors in development.
+**PROD deploy guard:** when `deployChannel === 'prod'` and Electron is not packaged (`!app.isPackaged`), deploy checks if bundled backend exists. If not → throws human-readable error: "PROD-деплой недоступен в dev-режиме. Соберите приложение или переключитесь на DEV." Prevents cryptic "Backend source not found" errors in development.
 
-**Flow:** PROD guard -> VERSION check (semver) -> skip if not newer -> **stop backend** (POST /stop -> SIGTERM -> SIGKILL) -> deploy backend (atomic swap) -> Python check -> venv + pip -> write VERSION (only on full success).
+**Flow:** PROD guard → VERSION check (semver) → skip if not newer → **stop backend** (POST `/stop` + grace sleep — no SIGTERM/SIGKILL because deploy has no process reference, see *Backend stop before deploy* below) → deploy backend (atomic swap) → Python check → venv + pip → write VERSION (only on full success).
 
 **VERSION file:** `DuetData/backend/VERSION` contains version with build metadata:
 
@@ -130,197 +200,183 @@ SHA (PROD): `git rev-parse --short HEAD` at build time → `resources/BUILD_SHA`
 VERSION is NOT written if any step fails (Python not found, pip failed, etc.).
 
 **Deploy warning** (`isDeployWarning`): channel-aware staleness check for tray icon.
-- PROD: warns on dev version deployed, SHA mismatch, or semver upgrade needed
-- DEV: warns on prod version deployed, semver change, or source .py files newer than deploy timestamp
-- Backward compatible: plain semver (no metadata) falls back to semver-only check
+- PROD: warns on dev version deployed, SHA mismatch, or semver upgrade needed.
+- DEV: warns on prod version deployed, semver change, or source `.py` files newer than deploy timestamp.
+- Backward compatible: plain semver (no metadata) falls back to semver-only check.
 
-**Backend stop before deploy:** `stopBackend(port, proc)` — POST `/stop` (2s timeout) -> SIGTERM -> SIGKILL fallback. Errors don't abort deploy (backend may not be running).
+**Backend stop before deploy:** `stopBackend(port, null, opts)` — deploy passes `null` for `proc` (the process reference doesn't survive across the IPC boundary), so the deploy stop path is POST `/stop` (2s timeout) + blind `sleep(STOP_GRACE_PERIOD_MS)`, no SIGTERM/SIGKILL. The grace sleep is enough for backend's own `SHUTDOWN_TIMEOUT_S` plus a 1s margin; if backend was already dead, the fetch fails silently and we proceed to file operations. Errors don't abort deploy.
 
-**Pure functions (extracted from Electron shell):**
-- `resolveDeployStatus(appState, appVersion, activeStatus)` -> DeployStatus — used by IPC handler `deploy:get-status`
-- `isDeployWarning(appState, appVersion, buildSha?, devBackendPath?)` -> boolean — used by `main/index.ts` for tray icon
-- `parseVersionMeta(version)` -> VersionMeta — parse `semver+channel_identifier`
-- `readBuildSha(resourcesPath)` -> string | null — read bundled BUILD_SHA
+**Pure functions** (extracted from Electron shell):
+- `resolveDeployStatus(appState, appVersion, activeStatus)` → `DeployStatus` — used by IPC handler `deploy:get-status`
+- `isDeployWarning(appState, appVersion, buildSha?, devBackendPath?)` → boolean — used by `main/index.ts` for tray icon
+- `parseVersionMeta(version)` → `VersionMeta` — parse `semver+channel_identifier`
+- `readBuildSha(resourcesPath)` → `string | null` — read bundled BUILD_SHA
 - `formatDeployTimestamp(date?)` / `parseDeployTimestamp(ts)` — YYMMDDHHMM format
-- `isSourceNewer(dirPath, since)` -> boolean — check if .py files changed after deploy (DEV mode)
+- `isSourceNewer(dirPath, since)` → boolean — check if `.py` files changed after deploy (DEV mode)
 
-Implementation: `core/deploy.ts`
+Implementation: `core/deploy.ts`.
 
-## Backend Lifecycle
+### Backend Lifecycle
 
 Host is the single owner of backend process lifecycle (start, stop, health monitoring).
 
-**Start:** `startBackend(duetDataPath, port)` — spawn venv Python with `server.py`, detached + stdio: 'ignore' + unref. Poll `/health` until ready. Kill process if health check fails after all retries.
+**Start:** `startBackend(duetDataPath, port)` — spawn venv Python with `server.py`, attached child (no `detached`, no `unref`) so the backend dies with Host. `stdio: ['ignore', 'ignore', 'pipe']` — stderr is piped for diagnostics during startup so a crash surfaces in `BackendStatus.error`; the pipe is closed after `/health` confirms the backend is up (backend logs to file from there). Poll `/health` until ready. Kill process if health check fails after all retries.
 
-**Stop:** `stopBackend(port, proc?, opts?)` — graceful: POST `/stop` -> wait -> SIGTERM -> SIGKILL. No PID file — uses process reference from `startBackend`. Never throws (backend may not be running).
+**Stop:** `stopBackend(port, proc?, opts?)` — POST `/stop` (2s timeout) → wait grace period (`waitForExit` when `proc` provided, blind `sleep` when it isn't). If `proc` is null (e.g. deploy path, where the process reference is not available across IPC boundary) the function returns here — no SIGTERM/SIGKILL fallback. When `proc` is provided (normal shutdown, `before-quit`) it continues: SIGTERM → grace → SIGKILL. No PID file. Never throws (backend may not be running).
 
 **Health:** `checkHealth(port)` — GET `/health` with 2s timeout. Returns `{version, uptime}` or null.
 
-**Status:** `getBackendStatus(duetDataPath, port)` -> `BackendStatus` (stopped | starting | running | stopping | error).
+**Status:** `getBackendStatus(duetDataPath, port)` → `BackendStatus` (stopped | starting | running | stopping | error).
 
-**File watcher:** `main/index.ts` watches `DuetData/data/` via `fs.watch` (debounce 500ms). Detects external changes (Backend CLI scan/merge) and triggers `updateAppState()` → tray icon refresh. Lifecycle managed by `updateAppState()`: starts when `duetDataPath` appears, restarts on path change, retries when `data/` directory appears after deploy. Stopped on quit. Non-critical: silently handles missing directory or watch errors.
+**File watcher:** `main/index.ts` watches `DuetData/data/` via `fs.watch` (debounce 500ms). Detects external changes (Backend scan/merge) and triggers `updateAppState()` → tray icon refresh. Lifecycle managed by `updateAppState()`: starts when `duetDataPath` appears, restarts on path change, retries when `data/` directory appears after deploy. Stopped on quit. Non-critical: silently handles missing directory or watch errors.
 
-**Auto-start on startup:** When `status === 'ready'` and VERSION file exists (`readDeployedVersion() !== null`) -> `ensureBackendRunning()`. Deploy warnings (channel mismatch, stale version) do NOT block auto-start — backend is functional with warnings.
+**Auto-start on startup:** when `status === 'ready'` and VERSION file exists (`readDeployedVersion() !== null`) → `ensureBackendRunning()`. Deploy warnings (channel mismatch, stale version) do NOT block auto-start — backend is functional with warnings.
 
-**Auto-scan on startup:** After backend auto-start succeeds, if `root_context_folders` is non-empty and `readCachedScan()` returns `null` (scan never ran) -> `triggerScan(port)`. Populates sidebar status for step 5 without manual visit.
+**Auto-scan on startup:** after backend auto-start succeeds, if `root_context_folders` is non-empty and `readCachedScan()` returns `null` (scan never ran) → `triggerScan(port)`. Populates sidebar status for wizard step 4 without manual visit.
 
-**Auto-merge instructions on startup:** After backend auto-start and auto-scan, if `instructionsPath` is configured and `readCachedErrors()` returns `null` (merge never ran) -> `triggerMerge()` -> `configureAllAgents()` on success. Both auto-scan and auto-merge finish with a single `updateAppState()` call.
+**Auto-merge instructions on startup:** after backend auto-start and auto-scan, if `instructionsPath` is configured and `readCachedErrors()` returns `null` (merge never ran) → `triggerMerge()` → `configureAllAgents()` on success. Both auto-scan and auto-merge finish with a single `updateAppState()` call.
 
 **Auto-start after deploy:** `runDeploy()` calls `startBackend()` after writing VERSION.
 
 **Stop on quit:** `before-quit` handler calls `ensureBackendStopped()` with re-entrance guard.
 
-**Concurrent start guard:** In-memory `isStarting` flag in `ipc-handlers.ts` prevents race between auto-start and user click (single-instance lock guarantees one Host process).
+**Concurrent start guard:** in-memory `isStarting` flag in `ipc-handlers.ts` prevents race between auto-start and user click (single-instance lock guarantees one Host process).
 
 **IPC push:** `backend:status-changed` broadcasts `BackendStatus` during start/stop operations.
 
-Implementation: `core/backend.ts`
+Implementation: `core/backend.ts`.
 
-## AI Clients
+### AI Clients
 
 Detects and configures AI clients via direct file writes (no CLI). Backend produces one merged file per agent declared in `index.json.agents` (e.g. `DuetData/duet-executor.md`, `DuetData/duet-vizir.md`). Host reads them and deploys per platform.
 
 | Client | Config files | What |
 |--------|-------------|------|
-| Claude Code | `~/.claude/output-styles/duet-executor.md` | Executor merged content as output style (system prompt) — frontmatter `name: duet-executor`, `keep-coding-instructions: true` |
+| Claude Code | `~/.claude/output-styles/duet-executor.md` | Executor merged content as output style. Frontmatter `name: duet-executor`, `keep-coding-instructions: true` |
 | Claude Code | `~/.claude/agents/duet-executor.md` | Executor as custom subagent (kebab-case `name`, separate frontmatter without `keep-coding-instructions`) |
 | Claude Code | `~/.claude/agents/duet-vizir.md` | Vizir as custom subagent |
 | Claude Code | `~/.claude/settings.json` | `outputStyle: "duet-executor"` |
-| Claude Code | `~/.claude.json` | MCP server (mcpServers.duet, HTTP) |
+| Claude Code | `~/.claude.json` | MCP server (`mcpServers.duet`, HTTP) |
 | Codex | `~/.codex/duet_instructions.md` | Host-managed instructions file |
 | Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp_servers.duet]` |
 | Antigravity | `~/.gemini/GEMINI.md` | Host-managed instructions file |
-| Antigravity | `~/.gemini/antigravity/mcp_config.json` | MCP server (mcpServers.duet, HTTP) |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` | MCP server (`mcpServers.duet`, HTTP) |
 
-**Platform asymmetry:** Custom subagents are deployed only for Claude Code. Codex and Antigravity use one instructions file.
+**Platform asymmetry:** custom subagents are deployed only for Claude Code. Codex and Antigravity use one instructions file.
 
 **Host knows two agents:** the deployment logic is hard-coded for `executor` and `vizir` (`MergedAgents = { executor, vizir }`). Backend (`merge_duet_instructions`) accepts any agent set declared in `index.json.agents`, but additional agents would be merged to disk and ignored by host. If/when a third agent is added, host needs to be extended to read the agent set dynamically from the backend response.
 
-**Pattern:** read per-agent merged content from disk (`DuetData/duet-{agent}.md`) -> detect (config dir exists?) -> configure (write files) -> show result. Not found = info, not error. Content not generated = MCP configured, instructions skipped (needs_setup).
+**Pattern:** read per-agent merged content from disk (`DuetData/duet-{agent}.md`) → detect (config dir exists?) → configure (write files) → show result. Not found = info, not error. Content not generated = MCP configured, instructions skipped (`needs_setup`).
 
-**Content freshness (per-file):** for each Claude Code file, detect compares the on-disk content against the expected wrapper (frontmatter + body) for that file. Output style and each custom agent have **different** frontmatters wrapping (potentially) different bodies — staleness in any one file flips its `checkedFile.ok` to `false`.
+**Content freshness (per-file):** for each Claude Code file, detect compares on-disk content against the expected wrapper (frontmatter + body) for that file. Output style and each custom agent have **different** frontmatters wrapping (potentially) different bodies — staleness in any one file flips its `checkedFile.ok` to `false`.
 
-**Issues:** `AgentIssue[]` — actionable problems beyond basic config (e.g. `additionalDirectories` in Claude Code settings.json). Each issue has `reason_code`, `description`, `fixable`. Fix via `fixAgentIssue(agentId, reasonCode)`.
+**Issues:** `AgentIssue[]` — actionable problems beyond basic config (e.g. `additionalDirectories` in Claude Code `settings.json`). Each issue has `reason_code`, `description`, `fixable`. Fix via `fixAgentIssue(agentId, reasonCode)`.
 
-**additionalDirectories check:** Claude Code settings.json may contain `additionalDirectories` which pollutes VS Code multi-root workspace, breaking orientation. Detect reports issue with `reason_code: "additional_directories"`, fixable by removing the key.
+**`additionalDirectories` check:** Claude Code `settings.json` may contain `additionalDirectories`, which pollutes VS Code multi-root workspace and breaks orientation. Detect reports issue with `reason_code: "additional_directories"`, fixable by removing the key.
 
-**Legacy uborka:** `cleanupLegacyClaudeFiles(duetDataPath)` removes pre-multi-agent artifacts (`~/.claude/output-styles/duet.md`, `~/.claude/agents/duet.md`, `DuetData/duet-instructions.md`). Idempotent. Does **not** touch user-personal `~/.claude/agents/vizir.md` or any non-Duet files. Currently held behind a manual gate — runs only after end-to-end verification of new layout (see migration plan).
+**Legacy uborka:** `cleanupLegacyClaudeFiles(duetDataPath)` removes pre-multi-agent artifacts (`~/.claude/output-styles/duet.md`, `~/.claude/agents/duet.md`, `DuetData/duet-instructions.md`). Idempotent. Does **not** touch user-personal `~/.claude/agents/vizir.md` or any non-Duet files. **Runs automatically** at the end of every successful Claude Code configure pass — immediately after the three new files (`duet-executor.md` output-style + executor/vizir custom agents) are written. Safe-by-construction: the cleanup runs only after the new files exist on disk, so users have no migration window where both old and new are missing. Failed deletions surface in the agent's `details` string for the wizard.
 
-Implementation: `core/ai-clients.ts`
+Implementation: `core/ai-clients.ts`.
 
-## Instructions
+### Instructions
 
 Manages merged AI instructions lifecycle. Backend generates per-agent `DuetData/duet-{agent}.md` via `POST /merge-duet-instructions`.
 
 **Operations:**
-- `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult` (`{ status, paths: { agent → path }, errors }`)
-- `readMergedAgent(duetDataPath, agent)` — reads one agent's merged file from disk; returns `null` if missing
-- `readMergedAgents(duetDataPath)` — reads both agents into a `MergedAgents` bag (`{ executor, vizir }`)
-- `readCachedErrors(duetDataPath)` — reads errors from `DuetData/data/duet-instructions-errors.json`
+- `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult` (`{ status, paths: { agent → path }, errors }`).
+- `readMergedAgent(duetDataPath, agent)` — reads one agent's merged file from disk; returns `null` if missing.
+- `readMergedAgents(duetDataPath)` — reads both agents into a `MergedAgents` bag (`{ executor, vizir }`).
+- `readCachedErrors(duetDataPath)` — reads errors from `DuetData/data/duet-instructions-errors.json`.
 - `fixInstructionsError(instructionsPath, relativePath, reasonCode)` — auto-fix source file (add/replace frontmatter, add missing fields). Returns true if fix applied.
 - `isFixableError(reasonCode)` — check if error can be auto-fixed. Fixable: `no_frontmatter`, `invalid_yaml`, `missing_fields`.
 
-Implementation: `core/instructions.ts`
+Implementation: `core/instructions.ts`.
 
-## Instructions Download
+**Template download** (`core/instructions-download.ts`):
+- `downloadInstructionsTemplate(targetFolder)` — fetches zip from GitHub (`/archive/refs/heads/main.zip`), extracts to `targetFolder`. Uses global `fetch` (Chromium network stack in Electron ≥28 — proxy, redirects). Extraction: `unzip` on macOS, `tar -xf` on Windows. No new dependencies.
+- `isFolderEmpty(folderPath)` — checks if folder is empty, ignoring system files (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `.gitkeep`). Returns true for non-existent folders.
+- Does NOT set `instructionsPath` — that's the caller's responsibility (renderer calls `setInstructionsPath` + `mergeInstructions` after successful download).
 
-Downloads Duet-Instructions template from GitHub for onboarding (users without existing instructions).
+### Root Contexts
 
-**Operations:**
-- `downloadInstructionsTemplate(targetFolder)` — fetches zip from GitHub (`/archive/refs/heads/main.zip`), extracts to targetFolder. Uses global `fetch` (Chromium network stack in Electron ≥28 — proxy, redirects). Extraction: `unzip` on macOS, `tar -xf` on Windows. No new dependencies.
-- `isFolderEmpty(folderPath)` — checks if folder is empty, ignoring system files (.DS_Store, Thumbs.db, desktop.ini, .gitkeep). Returns true for non-existent folders.
-
-Does NOT set `instructionsPath` — that's the caller's responsibility (renderer calls `setInstructionsPath` + `mergeInstructions` after successful download).
-
-Implementation: `core/instructions-download.ts`
-
-## Root Contexts
-
-Manages root-context folder configuration (stored in `DuetConfig/settings.json` under
-`root_context_folders`). A root context is a top-level folder in the user's bounded-context tree;
-zero or one of them may be marked `meta: true` in its `context.json` (e.g. `!БАЗА`).
+Manages root-context folder configuration in `DuetConfig/settings.json` under `root_context_folders`. Domain semantics (order is load-bearing, position 0 = meta-context) — see /spec/PRODUCT.md → Invariants. This section documents Host's implementation.
 
 **Operations:**
-- `getRootContextFolders()` — read raw `root_context_folders` (list of `@aliases`) from `settings.json`
-- `getResolvedRootContextFolders()` — same, but each entry is `{raw, resolved, isMeta}` (resolves `@alias` via `{machine}.json` and reads `context.json/meta` flag for each folder)
+- `getRootContextFolders()` — read raw `root_context_folders` (list of `@aliases`) from `settings.json`.
+- `getResolvedRootContextFolders()` — same, but each entry is `{raw, resolved, isMeta}` (resolves `@alias` via `{machine}.json` and reads `context.json/meta` flag for each folder).
 - `addRootContextFolder(absolutePath)` — alias-aware add. Validates pointer (`duetConfigPath`, valid `machine`) and throws if missing. Creates `@<basename>` alias in `{machine}.json` (suffix `_2`, `_3` on collision; reuses if path already aliased). Appends alias to `root_context_folders` in `settings.json`. Calls `enforceMetaInvariant` after the append — when the list was empty, the new folder becomes meta automatically; otherwise the existing first stays meta. The IPC handler runs a scoped schema-migration sweep on the new folder to upgrade legacy `business.json/stream.json/product.json` and self-heal a missing manifest.
-- `resolveAliasPath(raw, machineConfig)` — resolves a `root_context_folders` entry: passes absolute paths through; looks up bare `@alias`; for `@alias/sub/path` splits, resolves alias, and joins the rest via `path.join`. Returns `null` when alias is missing — caller is responsible for surfacing as warning (see `getResolvedRootContextFolders` `unresolved: true`).
+- `resolveAliasPath(raw, machineConfig)` — resolves a `root_context_folders` entry: passes absolute paths through; looks up bare `@alias`; for `@alias/sub/path` splits, resolves alias, joins the rest via `path.join`. Returns `null` when alias is missing.
 - `saveRootContextFolders(folders)` — overwrite full `root_context_folders` array (used by reorder/remove). Throws if `settings.json` missing or invalid (no silent recreate that would lose `timestampTZ`). Calls `enforceMetaInvariant` afterwards so drag-to-position-0 and removing the current meta both atomically swap the meta flag on disk.
-- `enforceMetaInvariant(folders)` — restores the invariant «position 0 = meta-context». Idempotent on already-correct state. Tolerant: folders whose `context.json` is unparseable are skipped (the migration sweep already surfaces them as per-context errors). For atomicity when two manifests need to flip simultaneously, the function stages both `.tmp` files first and then renames in sequence; on a rename failure, earlier renames are rolled back from a backup of the previous content, so the disk never settles with «two metas» or «no metas» between successful invocations.
-- `normalizePath(p)` — NFC + strip trailing separators. Cross-platform: NFC fixes macOS NFD from native dialogs, on Windows is a no-op (NTFS already NFC). All path comparisons (alias reuse, dedup) and stored paths in `{machine}.json` go through this helper.
-- `triggerScan(port)` — calls Backend `POST /scan`, returns `ScanResult` with errors
+- `enforceMetaInvariant(folders)` — restores the invariant «position 0 = meta-context». Idempotent on already-correct state. Tolerant: folders whose `context.json` is unparseable are skipped (migration sweep surfaces them as per-context errors). For atomicity when two manifests need to flip simultaneously, stages both `.tmp` files first and then renames in sequence; on a rename failure, earlier renames are rolled back from a backup of previous content, so the disk never settles with «two metas» or «no metas».
+- `normalizePath(p)` — NFC + strip trailing separators. Cross-platform: NFC fixes macOS NFD from native dialogs, on Windows is a no-op. All path comparisons (alias reuse, dedup) and stored paths in `{machine}.json` go through this helper.
+- `triggerScan(port)` — calls Backend `POST /scan`, returns `ScanResult` with errors.
 - `readCachedScan(duetDataPath)` — reads cached `DuetData/data/scan.json`. Used by main process for wizard status without IPC.
 - `readCachedContexts(duetDataPath)` — reads entity tree from `DuetData/data/contexts.json`. Returns `ContextsCache` with flat entity list (build tree via `parent_id`).
 
-**Meta required (invariant):** When `root_context_folders` is non-empty, the context at position 0 has `meta: true` in its `context.json`, and no other listed context does. Semantically the meta-context is the **management layer above other contexts** — a single container for the user's top-level data spanning every domain context (personal task DB, ontology, AI instructions). Three mechanisms maintain the invariant:
-1. `addRootContextFolder` — adding the first folder auto-promotes it to meta. Adding to a non-empty list keeps the existing first as meta.
+**Three mechanisms maintain the meta invariant** (see /spec/PRODUCT.md → Invariants):
+1. `addRootContextFolder` — adding the first folder auto-promotes to meta. Adding to a non-empty list keeps the existing first as meta.
 2. `saveRootContextFolders` — after reorder, drag-to-position-0 swaps meta to the new first; after delete of the current meta, the new first inherits meta.
-3. Startup migration — `runMigrationsNow` calls `enforceMetaInvariant` after the manifest walk, so manual edits to `settings.json` or `context.json` files are normalised on the next Host start. Skipped when per-context errors are present (the user fixes those first).
+3. Startup migration — `runMigrationsNow` calls `enforceMetaInvariant` after the manifest walk. Skipped when per-context errors are present (user fixes those first).
 
 Drag-to-position-0 is the only UX mechanism for switching meta. The crown icon on `DuetPathsPage` is a read-only indicator of position 0 — not toggleable, no click handler, no `root-contexts:set-meta` IPC. Direct re-meta would create rule-bypass paths that disagreed with the saved order.
 
-**Other invariants:**
-- `root_context_folders` in `settings.json` always contains `@aliases` (never absolute paths) — required for cross-machine sync via Drive.
+**Other invariants on `root_context_folders`:**
+- Always contains `@aliases` (never absolute paths) — required for cross-machine sync via Drive.
 - All path comparisons go through `normalizePath` so NFC/NFD and trailing-separator differences never produce false-distinct paths.
 
-Implementation: `core/root-contexts.ts`
+Implementation: `core/root-contexts.ts`.
 
-## Schema Migrations
+### Schema Migrations
 
-Host owns auto-upgrade of all on-disk Duet schemas (settings.json, `{machine}.json`, context manifests).
-Backend is a strict v3 reader for `context.json` (and strict v2 for settings/machine) — it never mutates files, never migrates. See unification design §6 and DuetLab design-doc §5.
+Host owns auto-upgrade of all on-disk Duet schemas. Policy and migration chain summary: /spec/PRODUCT.md → Schema Migration Policy. This section documents Host's implementation.
 
 **Module:** `core/schema-migrations.ts`. No Electron imports — testable with plain Node.
 
-**Schema specs:**
+**Schema specs (full chains):**
+
 | Schema | File(s) | Target | Migration chain |
 |--------|---------|--------|-----------------|
-| `settings` | `settings.json` | v2 | v1 → v2: rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved. |
-| `machine` | `{machine}.json` | v2 | v1 → v2: add `version: 2`. No field renames. |
-| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v3 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. All other fields preserved. |
+| `settings` | `settings.json` | v2 | v1 → v2: rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved |
+| `machine` | `{machine}.json` | v2 | v1 → v2: add `version: 2`. No field renames |
+| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v3 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. All other fields preserved |
 
 **Triggers:**
 1. **Host startup** — full sweep before backend spawn. Order: settings → machine → manifests under each root context. If settings or machine produces a critical error, the manifest walk is skipped and backend does not spawn.
 2. **`config:save-pointer`** with `duetConfigPath` or `machine` change → full sweep (settings/machine of new path may be legacy or future-version).
 3. **`root-contexts:add`** → full sweep (idempotent on already-current settings/machine/context manifests; manifest walk picks up legacy/future files inside the new folder, self-heals on empty folder).
-4. **DuetConfig file watcher** — `main/index.ts` watches `duetConfigPath` for changes to `settings.json` and `{machine}.json` (debounce 500ms). On any change, runs the full sweep so a runtime corruption (user edit, Drive sync overwrite) escalates to the same critical-banner mechanism that protects startup, without rewriting the many `readConfig` callers.
+4. **DuetConfig file watcher** — `main/index.ts` watches `duetConfigPath` for changes to `settings.json` and `{machine}.json` (debounce 500ms). On any change, runs the full sweep so a runtime corruption (user edit, Drive sync overwrite) escalates to the same critical-banner mechanism that protects startup.
 
 **Critical gate:** `MigrationResult.critical` is non-null iff the pointer file, `settings.json`, or `{machine}.json` is corrupted (`invalid_json`/`read_failed`) or future-version (`version > MAX_SUPPORTED`). While critical:
 - `ensureBackendRunning` refuses to start the backend, broadcasts `BackendStatus { state: 'error', error: <description> }`.
 - `backend:start` IPC throws.
-- DuetPathsPage renders a blocking error banner with the file path. Title and recovery hint branch on `reason_code` and `file`: "Update Duet" for `future_version`; "Restore from backup or delete" for `invalid_json` on the pointer; "Repair manually" for `invalid_json` on settings/machine.
-- Auto-start on whenReady is skipped.
+- `DuetPathsPage` renders a blocking error banner with the file path. Title and recovery hint branch on `reason_code` and `file`: "Update Duet" for `future_version`; "Restore from backup or delete" for `invalid_json` on pointer; "Repair manually" for `invalid_json` on settings/machine.
+- Auto-start on `whenReady` is skipped.
 
-**Per-context errors:** all rendered red on DuetPathsPage — every per-context code marks data corruption (the affected context is unreachable until the user repairs it). Backend still spawns; the offending context's manifest is silently ignored by Backend (`unrecognized_manifest_version` log entry). All reason codes share severity `error`:
+**Per-context errors:** all rendered red on `DuetPathsPage` — every per-context code marks data corruption (affected context is unreachable until the user repairs it). Backend still spawns; the offending context's manifest is silently ignored by Backend (`unrecognized_manifest_version` log entry). All reason codes share severity `error`:
 
 | reason_code | Meaning |
 |-------------|---------|
-| `future_version` | `context.json` is `version > MAX_SUPPORTED`. Backend will skip this context. |
-| `invalid_json` | `context.json` is broken JSON or has missing/non-int `version`. File untouched. |
-| `migration_failed` | v1 → v2 → v3 migration chain could not complete (rare; usually IO error mid-write). |
-| `unresolved_alias` | `root_context_folders` entry references an `@alias` that's not registered in this machine's `{machine}.json` — folder cannot be located. |
+| `future_version` | `context.json` is `version > MAX_SUPPORTED`. Backend will skip this context |
+| `invalid_json` | `context.json` is broken JSON or has missing/non-int `version`. File untouched |
+| `migration_failed` | v1 → v2 → v3 migration chain could not complete (rare; usually IO error mid-write) |
+| `unresolved_alias` | `root_context_folders` entry references an `@alias` not registered in this machine's `{machine}.json` |
 
 **Atomic write:** `atomicWriteJson(path, data)` (in `core/json-io.ts`) writes `{path}.tmp` then `rename()`. On POSIX `rename(2)` is atomic on the same filesystem; a crash mid-write leaves either the original file or the new one — never a half-written file. For legacy → context migration the order is: write `context.json` → delete legacy. A crash between leaves both files; orphan resolution on the next sweep handles them.
 
-**All Host-owned JSON writes go through `atomicWriteJson`:** pointer file (`writeConfig`), settings.json (`setSettingsConfigKey`, `ensureConfigDefaults`), `{machine}.json` (`setMachineConfigKey`, `ensureConfigDefaults`), context manifests (migration + self-heal). `enforceMetaInvariant` adds a two-phase commit on top — both manifests are staged as `.tmp` first, then renamed in sequence with rollback-on-failure — to keep the meta-required invariant from observably breaking mid-swap. Same crash-safety contract whether the write originates in startup migration, a wizard click, or the runtime config watcher.
+**All Host-owned JSON writes go through `atomicWriteJson`:** pointer file (`writeConfig`), `settings.json` (`setSettingsConfigKey`, `ensureConfigDefaults`), `{machine}.json` (`setMachineConfigKey`, `ensureConfigDefaults`), context manifests (migration + self-heal). `enforceMetaInvariant` adds a two-phase commit on top — both manifests staged as `.tmp` first, then renamed in sequence with rollback-on-failure. Same crash-safety contract whether the write originates in startup migration, a wizard click, or the runtime config watcher.
 
-**Pointer integrity:** `readPointerStrict()` distinguishes `missing` (legitimate first-run) from `invalid_json` / `read_failed` (recoverable corruption). Startup migration calls it before `readConfig()`'s graceful `{}` fallback would mask a corrupt pointer as no-config. A corrupt pointer surfaces as a `MigrationCriticalError { file: 'pointer' }` and blocks backend spawn until the user either restores the file or deletes it (then onboarding proceeds clean).
+**Pointer integrity:** `readPointerStrict()` distinguishes `missing` (legitimate first-run) from `invalid_json` / `read_failed` (recoverable corruption). Startup migration calls it before `readConfig()`'s graceful `{}` fallback would mask a corrupt pointer as no-config. A corrupt pointer surfaces as a `MigrationCriticalError { file: 'pointer' }` and blocks backend spawn until the user either restores the file or deletes it.
 
-**Orphan resolution (context.json + legacy file coexist):** `context.json` wins, the legacy is removed without comparison (design §7). The earlier equivalence-aware variant (rename to `<name>.legacy-conflict.json` + warning) was overengineering for a single-machine install — the multi-machine Drive-sync race it protected against isn't a scenario Duet ships for today. Decision recorded in `stabilize-taxonomy-migration` (rename-taxonomy saga).
+**Orphan resolution (context.json + legacy file coexist):** `context.json` wins, the legacy is removed without comparison. The earlier equivalence-aware variant (rename to `<name>.legacy-conflict.json` + warning) was overengineering for a single-machine install — the multi-machine Drive-sync race it protected against isn't a scenario Duet ships for today. Decision recorded in `stabilize-taxonomy-migration` (rename-taxonomy saga).
 
 **Recursion rules** (mirror backend scanner):
 - Skip directories starting with `.` (`.git`, `.venv`, etc.).
 - Stop recursion at folders whose post-migration `context.json` has a non-empty `git_repos` map (terminal context). The check runs after the in-walk migration upgrade, so a pre-existing v2 manifest with `git_url` becomes a v3 manifest with `git_repos` before the recursion decision is taken.
 
-**Forward-incompatibility handling:** A future Duet version that bumps a schema beyond what this Host build supports (e.g. context to v4, settings to v3) leaves the older Host with `version > MAX_SUPPORTED`:
-- Settings/machine → critical → backend blocked → user updates Duet.
-- Context manifest → per-context warning → backend skips that context only.
-
-**No rollback:** First Host startup on an upgraded machine rewrites every legacy manifest in place. Original filename (`business/stream/product.json`) cannot be reconstructed from a v3 file, and the v2 `git_url` field cannot be recovered after it has been folded into `git_repos`. A pre-upgrade backup is recommended for users with significant data; Host does not back up automatically.
-
-**Multi-machine sync caveat:** Drive sync between an upgraded and not-yet-upgraded machine briefly produces files at higher version on the older machine. Forward-incompatibility handling above keeps both machines safe (no corruption, no infinite loops); the older machine just shows error UI until updated.
+**Forward-incompatibility** is documented at the policy level in /spec/PRODUCT.md → Schema Migration Policy. No rollback: first Host startup on an upgraded machine rewrites every legacy manifest in place.
 
 **IPC:**
+
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
 | `migrations:get-status` | renderer → main | Get cached `MigrationResult` from last sweep |
@@ -328,170 +384,32 @@ Backend is a strict v3 reader for `context.json` (and strict v2 for settings/mac
 
 Implementation: `core/schema-migrations.ts`, wired in `main/index.ts:runMigrationsNow` and `main/ipc-handlers.ts`.
 
-## IPC Channels
-
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `app:get-state` | renderer -> main | Get current AppState |
-| `app-state-changed` | main -> renderer | Push state updates |
-| `dialog:select-folder` | renderer -> main | Open system folder picker |
-| `dialog:select-file` | renderer -> main | Open system file picker |
-| `config:save-pointer` | renderer -> main | Save pointer file (all 3 fields) |
-| `shell:open-path` | renderer -> main | Open path in Finder/Explorer |
-| `config:set-deploy-channel` | renderer -> main | Set deploy channel (dev/prod) in machine config |
-| `config:set-instructions-path` | renderer -> main | Save instructionsPath to machine.json |
-| `deploy:get-status` | renderer -> main | Get deploy status (idle/up_to_date/deploying/etc.) |
-| `deploy:start` | renderer -> main | Start deploy (async) |
-| `deploy:status-changed` | main -> renderer | Push deploy status updates |
-| `deploy:log` | main -> renderer | Push deploy log messages |
-| `python:detect` | renderer -> main | Auto-detect Python 3.10+ (checks saved path first) |
-| `python:validate` | renderer -> main | Validate a specific Python path |
-| `python:save` | renderer -> main | Save pythonPath to machine.json |
-| `backend:get-status` | renderer -> main | Get backend status (stopped/starting/running/error) |
-| `backend:start` | renderer -> main | Start backend |
-| `backend:stop` | renderer -> main | Stop backend |
-| `backend:status-changed` | main -> renderer | Push backend status updates |
-| `agents:detect` | renderer -> main | Detect installed AI clients |
-| `agents:configure` | renderer -> main | Configure all AI clients |
-| `agents:fix-issue` | renderer -> main | Fix specific agent issue (by agentId + reasonCode) |
-| `instructions:merge` | renderer -> main | Trigger POST /merge-duet-instructions (writes per-agent merged files in DuetData) |
-| `instructions:get-errors` | renderer -> main | Read cached instruction errors |
-| `instructions:fix-error` | renderer -> main | Auto-fix instruction error (by relativePath + reasonCode) |
-| `instructions:download-template` | renderer -> main | Download Duet-Instructions zip from GitHub, extract to targetFolder |
-| `instructions:is-folder-empty` | renderer -> main | Check if folder is empty (ignoring system files) |
-| `root-contexts:get` | renderer -> main | Get resolved root contexts (raw alias + absolute path + isMeta) |
-| `root-contexts:save` | renderer -> main | Overwrite root_context_folders array in settings.json (used by remove/reorder); after save, enforces meta-required invariant so drag-to-position-0 and removing the current meta atomically flip the meta flag on disk |
-| `root-contexts:add` | renderer -> main | Alias-aware add: creates `@<basename>` in `{machine}.json`, appends to `root_context_folders`, runs scoped schema migration, enforces meta-required invariant |
-| `root-contexts:scan` | renderer -> main | Trigger POST /scan |
-| `root-contexts:get-cached-scan` | renderer -> main | Read cached scan.json from DuetData/data/ |
-| `root-contexts:get-cached-contexts` | renderer -> main | Read cached contexts.json (entity tree) from DuetData/data/ |
-| `migrations:get-status` | renderer -> main | Get cached `MigrationResult` from last schema-migration sweep |
-| `migrations:status-changed` | main -> renderer | Push fresh `MigrationResult` after each sweep |
-
-**Contract:** `config:save-pointer` supports partial updates — missing fields are preserved from existing config. Creates default DuetConfig files only when both `duetConfigPath` and `machine` are present (`ensureConfigDefaults`). Calls `updateAppState()`, returns new AppState. `deploy:start` runs async deploy, broadcasts status + log events. `config:set-deploy-channel` writes `deployChannel` to `{machine}.json`, calls `updateAppState()`, returns new AppState. `config:set-instructions-path` validates machine config is writable (throws if DuetConfig/machine not configured). `agents:configure` and `agents:fix-issue` call `updateAppState()` after mutations to refresh tray icon.
-
-**Config defaults:** `ensureConfigDefaults(duetConfigPath, machine)` — creates `settings.json` (`{ version: 2, root_context_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ version: 2, port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
-
-**Machine config write:** `setMachineConfigKey(key, value)` — read-modify-write single field in `{machine}.json`. Throws if pointer is incomplete, machine name is invalid, or the file is missing/contains invalid JSON. `setSettingsConfigKey(key, value)` mirrors this contract for `settings.json`. Both functions used to silently recreate the file from `{}` on missing/corrupt input — that path is removed because it lost sibling fields (`timestampTZ`, `port`, `instructionsPath`); failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover. Implementation: `core/config.ts`.
-
-## Pages
-
-### Wizard Pages (Settings tab)
-
-6 self-contained pages in `pages/wizard/`. Each manages its own state, calls `window.api` directly, and reports status via `onStatusChange` callback to App.tsx.
-
-| # | Page | File | Key operations |
-|---|------|------|----------------|
-| 1 | Duet: пути | `DuetPathsPage.tsx` | DuetData/DuetConfig folder pickers, machine name input, root contexts add/remove/reorder/set-meta, schema-migration status banner |
-| 2 | Python 3.10+ | `PythonPage.tsx` | Auto-detect on mount, manual file picker, `savePythonPath` |
-| 3 | Backend | `BackendPage.tsx` | Deploy status/button, channel toggle (visible when `hasDevBackendPath`), logs |
-| 4 | Воркспейсы | `WorkspacesPage.tsx` | Manual Scan button, entity tree, error table |
-| 5 | Инструкции | `InstructionsPage.tsx` | Two states: onboarding (download template / pick existing folder) and configured (path display, Regenerate, error table). Auto-configure agents on successful merge |
-| 6 | AI Агенты | `AgentsPage.tsx` | Agent detection cards, Configure All, Fix issue buttons |
-
-### BackendAppPage (Apps tab)
-
-Per-application page with process cards. Navigate via sidebar → Приложения → {app name} (route: `app:{app-id}`).
-
-Process card shows: state badge, version, uptime, Start/Stop/Restart buttons. States: stopped, starting, running, stopping, error.
-
-Currently only Duet Backend (builtin, one HTTP process on port 19680). Types: `AppInfo`, `ProcessInfo`, `ProcessStatus` in `shared/types.ts`. Mapper: `backendStatusToProcessStatus()` in `shared/mappers.ts`. Registry: `BUILTIN_APPS` in `core/apps.ts`.
-
-## Behavioral Contracts
-
-| Behavior | Contract |
-|----------|----------|
-| Window close | Hides window, does NOT quit app |
-| First run (no pointer file) | Shows window for onboarding |
-| Status `path_lost` | Shows window (needs attention) |
-| Status `ready` | Silent in tray, no window |
-| Tray icon | Severity-based: error (red dot, non-template on macOS), warning (template), normal |
-| macOS Dock | Hidden by default, visible when window shown |
-| Second instance | Shows window of first instance, second exits |
-| Production | Cmd/Ctrl+R reload disabled |
-
-## Development
-
-```bash
-npm run dev   # electron-vite dev — запускает Vite dev server + Electron
-```
-
-Electron GUI требует доступ к оконной системе macOS. AI-агенты: запускать с `dangerouslyDisableSandbox: true` (sandbox блокирует GUI-процессы).
-
-## Build & Release
-
-> Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) -> Build & Release
-
-```bash
-npm run release [-- --mac|--win|--linux]   # default: --mac
-```
-
-`build-release.cjs`: bump patch -> write `resources/BUILD_SHA` (git short SHA) -> `electron-vite build` -> `electron-builder` -> `dist/Duet-{version}.dmg`
-
-| Tool | Role |
-|------|------|
-| electron-vite | Bundle main/preload/renderer |
-| electron-builder | Platform installer (DMG/NSIS/AppImage) |
-
-Config: `electron-builder.yml`
-- appId: `org.ve68.duet`
-- macOS: DMG, no code signing, no notarize
-- Windows: NSIS installer
-- extraResources: `resources/` (tray icons), `backend/`
-
-CI: `build-host.yml` builds all 3 platforms on push to main (if `packages/host/` changed).
-
-## Testing
-
-```bash
-npm run test:run     # vitest (unit)
-npm run typecheck    # tsc
-```
-
-| Suite | Files | What |
-|-------|-------|------|
-| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, instructions-download, root-contexts, schema-migrations, wizard-status, mappers, navigation |
-| E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
-
-### Testability
-
-| Module | Testable without Electron |
-|--------|--------------------------|
-| `core/config.ts` | Yes — pure fs, env override via `DUET_CONFIG_FILE` |
-| `core/app-state.ts` | Yes — pure functions, depends only on config + fs |
-| `platform/tray.ts` | No — requires Electron (manual testing) |
-| `main/window.ts` | No — requires Electron |
-
-## Severity Framework
+### Severity Framework
 
 Единая модель статусов на все 4 уровня UI: страница → sidebar → таб → tray.
 
-### Severity — два уровня серьёзности
-
-`Severity = 'error' | 'warning'` — first-class type in `shared/types.ts`.
+**Severity** — `'error' | 'warning'`, first-class type in `shared/types.ts`:
 
 | Severity | Meaning | Examples |
-|----------|---------|---------|
+|----------|---------|----------|
 | `error` | Cannot function, needs action | Step not configured, backend crashed, broken manifests |
 | `warning` | Works, but not ideal | Deploy channel mismatch, agent not configured, stale version |
 
-### StatusItem — единица проблемы на странице
+**StatusItem** — единица проблемы на странице:
 
 ```typescript
 interface StatusItem {
-  severity: Severity        // error | warning
-  message: string           // "Python не найден", "Установлена DEV-версия"
-  fixable?: boolean         // есть автоматическое исправление?
+  severity: Severity      // error | warning
+  message: string         // "Python не найден", "Установлена DEV-версия"
+  fixable?: boolean
 }
 ```
 
-Each page produces `StatusItem[]` — single source of truth for all levels above. Rendered via shared `<StatusTable />` component.
+Each page produces `StatusItem[]` — single source of truth for all levels above. Rendered via shared `<StatusTable />`.
 
-### PageStatus — статус страницы
+**PageStatus** — статус страницы:
 
-`PageStatus = 'ok' | 'error' | 'warning' | 'skipped' | null`
-
-General model for any page (wizard, apps, future). Derived from page's `StatusItem[]`.
+`PageStatus = 'ok' | 'error' | 'warning' | 'skipped' | null`. General model for any page (wizard, apps, future). Derived from the page's `StatusItem[]`.
 
 | PageStatus | Sidebar icon | Meaning | Severity at aggregation |
 |-----------|-------------|---------|------------------------|
@@ -503,29 +421,26 @@ General model for any page (wizard, apps, future). Derived from page's `StatusIt
 
 **Key:** `null` and `error` are visually different in sidebar (gray vs red), but both aggregate as severity `error` to tab and tray.
 
-### Page StatusItem Sources
+**Per-page StatusItem sources:**
 
 | Page | Situation | Severity | Message |
 |------|-----------|----------|---------|
-| 1. DuetData | Path not selected | error | "Выберите папку DuetData" |
-| 2. DuetConfig | Path not selected | error | "Выберите папку DuetConfig" |
-| 2. DuetConfig | Machine not set | error | "Укажите имя машины" |
-| 2. DuetConfig | Invalid machine name | error | "Недопустимое имя: ..." |
-| 3. Python | Not found | error | "Python 3.10+ не найден" |
-| 3. Python | Version < 3.10 | error | "Python {version} — нужен 3.10+" |
-| 4. Backend | Not deployed | error | "Backend не установлен" |
-| 4. Backend | Deploy error | error | "{error message}" |
-| 4. Backend | Channel mismatch | warning | "Установлена DEV-версия — переустановите для PROD" |
-| 4. Backend | Stale version | warning | "Версия устарела — переустановите" |
-| 1. Duet paths | Schema migration critical (settings/machine future-version or invalid) | error | "{description}" — backend blocked until resolved |
-| 1. Duet paths | Schema migration per-context error | error | "{description}" (one per offending context — all per-context codes are red) |
-| 5. Workspaces | Scan error | error | "{description}" (per scan error) |
-| 6. Instructions | Path not selected | error | "Выберите папку инструкций" |
-| 6. Instructions | Merge error | error | "{description}" (fixable for known types) |
-| 7. AI Agents | needs_setup | warning | "{agent}: не сконфигурирован" |
-| 7. AI Agents | Issue | warning | "{description}" (fixable issues) |
+| 1. Duet paths | DuetData / DuetConfig / machine not set | error | "Выберите папку…" / "Укажите имя машины" |
+| 1. Duet paths | Schema migration critical | error | `{description}` — backend blocked until resolved |
+| 1. Duet paths | Schema migration per-context error | error | `{description}` (one per offending context) |
+| 2. Python | Not found / version < 3.10 | error | "Python 3.10+ не найден" / "Python {version} — нужен 3.10+" |
+| 3. Backend | Not deployed | error | "Backend не установлен" |
+| 3. Backend | Deploy error | error | `{error message}` |
+| 3. Backend | Channel mismatch | warning | "Установлена DEV-версия — переустановите для PROD" |
+| 3. Backend | Stale version | warning | "Версия устарела — переустановите" |
+| 4. Workspaces | Scan error — `invalid_manifest`, `unrecognized_manifest_version`, other unknown codes | error | `{description}` (per scan error) |
+| 4. Workspaces | Scan error — `name_collision`, `repo_collision`, `missing_manifest` | warning | `{description}` (scanner auto-heals; informational). Code: `SCAN_WARNING_CODES` in `core/wizard-status.ts` |
+| 5. Instructions | Path not selected | error | "Выберите папку инструкций" |
+| 5. Instructions | Merge error | error | `{description}` (fixable for known types) |
+| 6. AI Agents | needs_setup | warning | "{agent}: не сконфигурирован" |
+| 6. AI Agents | Issue | warning | `{description}` (fixable issues) |
 
-### Four-Level Aggregation
+**Four-level aggregation:**
 
 ```
 Level 1: Page
@@ -546,7 +461,9 @@ Level 3: Tab
 
 Level 4: Tray
   AppStatus != ready → warning (forced)
-  AppStatus == ready → maxSeverity(settingsSeverity, appsSeverity, deploySeverity)
+  AppStatus == ready → maxSeverity(settingsSeverity, deploySeverity)
+                        (apps-tab severity NOT included here — visible in
+                         sidebar tab indicator only)
   | Severity | Icon            |
   |----------|-----------------|
   | error    | Red dot         |
@@ -554,49 +471,94 @@ Level 4: Tray
   | null     | Normal          |
 ```
 
-### computePageStatuses
+**`computePageStatuses`** — pure function in `core/wizard-status.ts`. Computes sidebar `PageStatus` from system state. Used by renderer (`App.tsx`) and main process (tray).
 
-Pure function in `core/wizard-status.ts`. Computes sidebar PageStatus from system state. Used by renderer (App.tsx) and main process (tray).
+| Page | Source | PageStatus |
+|------|--------|-----------|
+| 1 (Duet paths) | AppState (duetDataPath, duetConfigPath, machine) | `null` (not configured) or `ok` |
+| 2 (Python) | AppState (`pythonPath` from machine.json) | `null` or `ok` |
+| 3 (Backend) | DeployStatus + `hasDeployWarning` | `null` (not deployed), `warning` (mismatch/stale), or `ok` |
+| 4 (Workspaces) | Cached `scan.json` (errors count, severity per code) | `error` (broken manifests) / `warning` (collisions) / `ok` |
+| 5 (Instructions) | Cached instruction errors (errors count) | `error` (broken files) or `ok` |
+| 6 (AI Agents) | Agent detection (needs_setup vs configured) | `warning` (works but not configured) or `ok` |
 
-**Input sources:**
-| Pages | Source | PageStatus |
-|-------|--------|-----------|
-| 1-2 | AppState (duetDataPath, duetConfigPath, machine) | `null` (not configured) or `ok` |
-| 3 | AppState (pythonPath from machine.json) | `null` or `ok` |
-| 4 | DeployStatus + hasDeployWarning | `null` (not deployed), `warning` (channel mismatch/stale), or `ok` |
-| 5 | Cached scan.json (errors count) | `error` (broken manifests) or `ok` |
-| 6 | Cached instruction errors (errors count) | `error` (broken files) or `ok` |
-| 7 | Agent detection (needs_setup vs configured) | `warning` (works but not configured) or `ok` |
+Pages 4-6 also report status dynamically via `onStatusChange` callbacks, which override computed values.
 
-Pages 5-7 also report status dynamically via `onStatusChange` callbacks, which override computed values.
-
-### Key Functions
-
-All pure, in `core/wizard-status.ts`:
+**Key functions** (all pure, in `core/wizard-status.ts`):
 - `maxSeverity(severities[])` — pick highest (error > warning > null). Single aggregation primitive for all levels.
-- `pageStatusToSeverity(status)` — error→error, **null→error**, warning→warning, ok/skipped→null
-- `processStateToSeverity(state)` — error→error, rest→null
-- `getSettingsSeverity(statuses)` — aggregate all wizard pages
+- `pageStatusToSeverity(status)` — error→error, **null→error**, warning→warning, ok/skipped→null.
+- `processStateToSeverity(state)` — error→error, rest→null.
+- `getSettingsSeverity(statuses)` — aggregate all wizard pages.
 
-### Tray Integration
+**Tray integration** in `main/index.ts`:
+- `deploySeverity` — from `isDeployWarning()` (VERSION mismatch → warning).
+- `settingsSeverity` — from `getSettingsSeverity(computePageStatuses(...))`.
+- `overallSeverity = maxSeverity([deploySeverity, settingsSeverity])`.
+- `updateTrayIcon(appStatus, overallSeverity)` — AppStatus != ready forces warning; otherwise uses severity.
 
-`main/index.ts`:
-- `deploySeverity` — from `isDeployWarning()` (VERSION mismatch → warning)
-- `settingsSeverity` — from `getSettingsSeverity(computePageStatuses(...))`
-- `overallSeverity = maxSeverity([deploySeverity, settingsSeverity])`
-- `updateTrayIcon(appStatus, overallSeverity)` — AppStatus != ready forces warning; otherwise uses severity
+Implementation: `core/wizard-status.ts`, `platform/tray.ts`.
 
-Implementation: `core/wizard-status.ts`, `platform/tray.ts`
+## Engineering
 
-## File Map
+### Development
 
-Quick lookup for concepts not obvious from file names. For layer responsibilities see [Layers](#layers).
+```bash
+npm run dev   # electron-vite dev — Vite dev server + Electron
+```
+
+Electron GUI требует доступ к оконной системе macOS. AI-агенты: запускать с `dangerouslyDisableSandbox: true` (sandbox блокирует GUI-процессы).
+
+### Build & Release
+
+Per-package pipeline (full release contract: see /spec/PRODUCT.md → Pre-commit Verification):
+
+```bash
+npm run release [-- --mac|--win|--linux]   # default: --mac
+```
+
+`build-release.cjs`: bump patch → write `resources/BUILD_SHA` (git short SHA) → `electron-vite build` → `electron-builder` → `dist/Duet-{version}.dmg`.
+
+| Tool | Role |
+|------|------|
+| electron-vite | Bundle main/preload/renderer |
+| electron-builder | Platform installer (DMG/NSIS/AppImage) |
+
+Config: `electron-builder.yml`.
+- `appId`: `org.ve68.duet`.
+- macOS: DMG, no code signing, no notarize.
+- Windows: NSIS installer.
+- `extraResources`: `resources/` (tray icons), `backend/` (bundled Python backend deployed at runtime).
+
+**CI:** `build-host.yml` builds all 3 platforms on push to main (if `packages/host/` changed). No auto-publish — artifacts downloaded manually from Actions → GitHub Release.
+
+### Testing
+
+```bash
+npm run test:run     # vitest (unit)
+npm run typecheck    # tsc
+```
+
+| Suite | Files | What |
+|-------|-------|------|
+| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, instructions-download, root-contexts, schema-migrations, wizard-status, mappers, navigation |
+| E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
+
+**Testability:**
+
+| Module | Testable without Electron |
+|--------|--------------------------|
+| `core/config.ts` | Yes — pure fs, env override via `DUET_CONFIG_FILE` |
+| `core/app-state.ts` | Yes — pure functions, depends only on config + fs |
+| `platform/tray.ts` | No — requires Electron (manual testing) |
+| `main/window.ts` | No — requires Electron |
+
+### File Map
 
 | When you need to find… | Look in |
 |------------------------|---------|
 | All IPC types (single source of truth) | `shared/types.ts` |
 | Severity type, StatusItem, PageStatus | `shared/types.ts` (types), `core/wizard-status.ts` (functions) |
-| VERSION metadata parsing + writing | `core/deploy.ts` (parseVersionMeta, writeVersion, readBuildSha) |
+| VERSION metadata parsing + writing | `core/deploy.ts` (`parseVersionMeta`, `writeVersion`, `readBuildSha`) |
 | Deploy warning logic (channel-aware) | `core/deploy.ts:isDeployWarning()` |
 | Instructions template download | `core/instructions-download.ts` |
 | Pointer file path / machine config | `core/config.ts` |
@@ -608,4 +570,3 @@ Quick lookup for concepts not obvious from file names. For layer responsibilitie
 | Severity icons (unified) | `renderer/src/components/ui/severity-icon.tsx` |
 | Status table for pages | `renderer/src/components/ui/status-table.tsx` |
 | Tray icon file selection (per platform) | `platform/tray.ts:getTrayIconPath()` |
-

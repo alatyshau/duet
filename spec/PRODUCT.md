@@ -2,60 +2,160 @@
 
 Система управления знаниями и делами, построенная на дуэте Человека и ИИ.
 
-> Read this FIRST when entering the monorepo. Component specs reference this file.
+> Read this FIRST when entering the monorepo. Component specs reference this file and never duplicate the domain.
 
 ## Agent Rules
 
 - **NEVER make git commits.** All commits are done by the user manually.
-- **NEVER make destructive git operations** (checkout, reset, force push, etc.)
+- **NEVER make destructive git operations** (checkout, reset, force push, etc.).
 
 ## Components
 
 ```
-┌─────────────────┐     writes      ┌──────────────────┐
-│  Host (Electron) │ ──────────────→ │ ~/.org.ve68.duet │
-│  Tray app, UI    │                 │   (pointer file) │
-└────────┬────────┘                 └────────┬─────────┘
-  spawns │                            reads  │  reads
-         │                    ┌──────────────┴──────────────┐
-         ▼                    ▼                              ▼
-┌──────────────────┐          ┌──────────────────┐
-│ Backend (Python)  │◀──HTTP──│ Extension (VSCode)│
-│ HTTP API + MCP    │         │ UI (tree views)   │
-└──────────────────┘          └──────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│             AI Clients (external, MCP consumers)                │
+│           Claude Code  ·  Codex  ·  Antigravity                 │
+└──────▲────────────────────────────────────────────▲─────────────┘
+       │ MCP (HTTP)                                 │ reads configs
+       │                                            │ + merged
+       │                                            │ instructions
+       │                                            │ (written by Host)
+┌──────┴──────────────┐                  ┌──────────┴──────────────┐
+│ Backend (Python)    │ ◀── spawns ──────│ Host (Electron tray)    │
+│ HTTP API + MCP      │     + deploys    │ Wizard + deployer       │
+│ Owns entities.db    │                  │ Single writer of every  │
+│ Strict reader of    │                  │ config (pointer,        │
+│ configs & manifests │                  │ DuetConfig, manifests,  │
+└──────▲──────────────┘                  │ AI client files)        │
+       │ HTTP                            └─────────────────────────┘
+       │
+┌──────┴──────────────┐
+│ Extension (VS Code) │
+│ Tree views, commands│
+│ Thin HTTP client    │
+└─────────────────────┘
 ```
 
-| Component | Package | Language | Role |
-|-----------|---------|----------|------|
-| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend. Configures AI clients |
-| **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Thin client — all data from Backend HTTP API. Reads pointer for port |
-| **Backend** | `packages/backend` | Python/FastAPI | HTTP API + MCP. Owns DB. Reads pointer + DuetConfig |
+| Component | Package | Language | Role | Spec |
+|-----------|---------|----------|------|------|
+| **Host** | `packages/host` | TypeScript/Electron | Tray app. Writes pointer file. Deploys backend. Configures AI clients | [`spec/COMPONENT.md`](../packages/host/spec/COMPONENT.md) |
+| **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Thin client over Backend HTTP API | [`spec/COMPONENT.md`](../packages/extension/spec/COMPONENT.md) |
+| **Backend** | `packages/backend` | Python | HTTP API + MCP. Owns DB. Strict reader of config and manifests | [`spec/COMPONENT.md`](../packages/backend/spec/COMPONENT.md) |
 
-## AI Instructions (Duet-Instructions)
+**Sibling product — Duet-Instructions.** AI-инструкции вынесены из Duet в отдельный git-репозиторий, которым владеет пользователь. Duet их не деплоит и не бандлит — Host читает merged-файлы из `DuetData/duet-{agent}.md` и развозит по AI-клиентам (Claude Code, Codex, Antigravity). Полный спек: `Duet-Instructions.git/spec/PRODUCT.md`. Подключение: `instructionsPath` в `{machine}.json`.
 
-AI-инструкции вынесены из Duet в отдельный git-репозиторий **Duet-Instructions**, которым владеет пользователь. Duet не деплоит и не бандлит инструкции — только предоставляет платформенный bootstrapper и инструменты для работы с ними.
+## Domain
 
-**Структура Duet-Instructions:**
-- `index.json` — объявляет per-agent core-файлы (`agents.executor`, `agents.vizir`), путь к персонам и skill-каталогам
-- `agents/executor.md`, `agents/vizir.md` — пользовательские инструкции для каждого агента (L7, spec-driven, project management — у Executor; orchestration loop — у Vizir)
-- `personas/` — персоны (Socrates, Hephaestus, Ariadna, etc.)
-- `skills/` — скиллы по категориям (coding, modes, stances, tandem, tools, workflows)
+### Glossary
 
-**Подключение:** `instructionsPath` в `{machine}.json` указывает абсолютный путь к Duet-Instructions.
+| Term | Definition |
+|------|------------|
+| **Entity** | Node in `entities.db`: `context`, `product_repo`, or `reference_repo` |
+| **Context** | Bounded folder on Drive carrying `context.json` v3. Roles inferred from manifest fields, not from a separate enum |
+| **Manifest** | `context.json` v3 inside a context folder |
+| **Chain** | Path from meta/root context down to the current context |
+| **Alias** | Key in a context's `git_repos` map — the github repo name (e.g. `Duet`), no `.git` suffix |
+| **Product** | Top-level unit in orientation, discovered by four rules (see [Spec File Naming](#spec-file-naming)) |
+| **Component** | Nested unit inside a product. Marker is `spec/COMPONENT.md` or `README*.md`, one level deep |
 
-**Merge pipeline (multi-agent):** Backend компонует `bootstrapper.md` (платформенный, в packages/backend) с core-файлом каждого агента из `agents/` + общую таблицу скиллов через `POST /merge-duet-instructions`. Один merged-файл на агента: `DuetData/duet-executor.md`, `DuetData/duet-vizir.md` (atomic write). Host читает per-agent файлы с диска и развозит по AI-клиентам.
+### Contexts and Hierarchy
 
-**AI-клиенты (конфигурируемые Host):**
+```
+meta-context (one per workspace, e.g. !БАЗА — meta: true)
+├── root context (top-level, parent_id IS NULL, listed in root_context_folders)
+│   ├── context (intermediate, can nest)
+│   │   └── context with git_repos (terminal — products live in repos)
+│   └── context with git_repos
+└── ...
+```
 
-| Client | Config | Content |
-|--------|--------|---------|
-| Claude Code | `~/.claude/output-styles/duet-executor.md` + `~/.claude/agents/duet-executor.md` + `~/.claude/agents/duet-vizir.md` | Output style (executor) + 2 custom subagents |
-| Codex | `~/.codex/duet_instructions.md` | Host-managed instructions file |
-| Antigravity | `~/.gemini/GEMINI.md` | Host-managed instructions file |
+A context is a folder on Drive carrying `context.json` v3. Roles are inferred from manifest fields:
 
-**Platform asymmetry:** Claude Code supports custom subagents. Codex and Antigravity use one instructions file.
+| Role | How it's identified |
+|------|---------------------|
+| meta-context | `meta: true` in `context.json`. Exactly one per database whenever `root_context_folders` is non-empty |
+| root context | `parent_id IS NULL`, listed in `root_context_folders` |
+| terminal (with git_repos) | `git_repos` present; scanner stops recursing and registers one `product_repo` per alias |
+| intermediate | none of the above |
 
-## Pointer File
+The meta-context is the **управляющий уровень над контекстами** — a container for the user's top-level data that spans every other context: the personal task DB, the ontology, the AI instructions repo. Other root contexts hold domain data (businesses, streams); the meta-context holds the operating layer over them.
+
+Three entity types live in `entities.db`:
+
+| Type | Manifest | Tree? | Notes |
+|------|----------|-------|-------|
+| `context` | `context.json` v3 | yes | Bounded context on Drive |
+| `product_repo` | — | no | Auto-registered for each alias in a context's `git_repos`. Entity name = `{alias}.git`. Path-resolution helper |
+| `reference_repo` | — | no | Read-only clone declared via `reference_repos` |
+
+### Manifests
+
+`context.json` v3 carries the on-disk declaration of a context. Backend is a strict reader — Host owns every migration (v1 → v2 → v3). Examples:
+
+```json
+{ "version": 3, "name": "Duet", "icon": "📦", "git_repos": {"Duet": "git@github.com:owner/duet.git"} }
+{ "version": 3, "name": "DuetLab", "icon": "🎭",
+  "git_repos": {"Duet": "git@github.com:owner/duet.git",
+                "Duet-Instructions": "git@github.com:owner/duet-instructions.git"} }
+{ "version": 3, "name": "БАЗА", "icon": "🗂", "meta": true }
+{ "version": 3, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
+```
+
+| Field | Type | Required? | Meaning |
+|-------|------|-----------|---------|
+| `version` | int | required | Schema version. `3` for current backend; `version != 3` ignored with `unrecognized_manifest_version` warning |
+| `name` | string | required | Globally unique entity name |
+| `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_repos` present |
+| `meta` | bool | optional | `true` marks the meta-context (see Invariants). Host migrates v1's `root` field |
+| `git_repos` | map | optional | `{alias: url}` declaring product clones. **Present → context is terminal** (scanner registers N `product_repo` children, no recursion). Insertion order preserved and surfaces in `products[]` order |
+| `reference_repos` | map | optional | `{name: url}` for read-only clones |
+| `description` | string | optional | Surfaces in orientation's `chain[].description`; takes priority over README first sentence |
+| `workspace_config` | object | optional | UX hints for `.code-workspace` assembly (see below) |
+
+**Validation rules** (strict v3 reader; implementation `packages/backend/services/manifest.py:read_manifest`):
+- Keys are `snake_case`. `name` globally unique (see Invariants).
+- `git_repos` must be a non-empty object when present; alias and URL must be non-empty strings.
+- `reference_repos` shares the alias namespace with `git_repos` — within-manifest overlap is rejected as `invalid_manifest`.
+- `workspace_config` must be an object when present; `workspace_config.primary_folder` must be `"context"` or `"git"`.
+- Lenient on unknown sub-keys of `workspace_config` (forward-compat); strict on known sub-keys.
+- No regex / Windows-reserved-name / URL-leading-`-` guards: manifests are user-written, this is intentional.
+
+**`workspace_config`** controls how Extension assembles the multi-root `.code-workspace` when opening a terminal context:
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `primary_folder` | `"context"` \| `"git"` | `"git"` | Which folder appears first in `folders[]`. `"git"` puts cloned repos first (in `git_repos` order), Drive folder last. `"context"` puts the Drive folder first |
+
+The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers. Field is no-op on non-terminal contexts (silently ignored).
+
+**`reference_repos`** declares read-only clones. Key = clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space, shared with `git_repos` aliases).
+
+### Invariants
+
+These rules must hold across the system. Violating any of them means the data is corrupted.
+
+**`root_context_folders` is an ordered list — order is load-bearing in two ways.**
+
+1. **Position 0 = meta-context (structural invariant).** Exactly one context in `entities.db` has `meta=1`, and it is the first element of `root_context_folders`. The state «list non-empty, no meta» is impossible — neither through Host UI (drag-to-position-0 is the only re-meta mechanism, the crown icon on `DuetPathsPage` is a read-only indicator) nor through direct edits to `settings.json` or `context.json` (Host's startup migration restores the invariant on the next sweep via atomic two-phase commit, see [`host/spec/COMPONENT.md` § Root Contexts](../packages/host/spec/COMPONENT.md)).
+2. **List order = display order across all UI.** Backend's `/contexts` response delivers root contexts in this order; Extension's ДЕЛА sidebar preserves it without re-sorting. Non-root siblings are sorted alphabetically by `name`. The user controls display order via drag-to-position in Host's wizard, which writes back to `settings.json` and atomically rewrites both the order and the `meta` flags. Direct edits to `settings.json` are normalised on next Host start.
+
+**Single-writer for config files.** Host is the only writer of `settings.json` and `{machine}.json`. Backend and Extension only read. Adding/removing/reordering root context folders, creating `@alias` mappings — all flows go through Host UI. Extension has no write path; before any root context edit it directs the user to Host.
+
+**Name uniqueness.** Entity names are globally unique. Conflict resolution by priority (lower number = higher priority):
+
+| Type | Priority | Behavior on collision |
+|------|----------|----------------------|
+| context | 2 | Claims name; existing `reference_repo` gets suffixed |
+| product_repo | 3 | Suffixed if collides with a `context` |
+| reference_repo | 5 | Suffixed (`Name (1)`) — lowest priority |
+
+When two contexts collide on name (rare), the second-comer gets the `(N)` suffix.
+
+**Manifest ownership.** Backend never writes manifests. Host owns all upgrades (v1 → v2 → v3) and self-heal of empty root context folders. Backend folders with `version != 3` are silently skipped with an `unrecognized_manifest_version` warning. See [Schema Migration Policy](#schema-migration-policy).
+
+## On-disk Layout
+
+### Pointer File
 
 Path: `~/.org.ve68.duet` — flat JSON file (NOT a directory).
 
@@ -73,44 +173,44 @@ Path: `~/.org.ve68.duet` — flat JSON file (NOT a directory).
 | `duetDataPath` | string | Absolute path to local cache |
 | `duetConfigPath` | string | Absolute path to cloud-synced config |
 
-**Contracts:**
-- Host is the ONLY writer. Extension and Backend only read
-- All 3 fields required. Missing field = not configured
-- Test override: `DUET_POINTER_FILE` (Backend), `DUET_CONFIG_FILE` (Host)
+All 3 fields required. Missing field = not configured. Test overrides: `DUET_POINTER_FILE` (Backend), `DUET_CONFIG_FILE` (Host).
 
-## DuetData Directory
+### DuetData
 
 Local cache. Fully recoverable — can be deleted and rebuilt.
 
 ```
 DuetData/
 ├── data/
-│   └── entities.db                 # Backend's SQLite (native sqlite3)
+│   ├── entities.db                # Backend's SQLite (native sqlite3)
+│   ├── scan.json                  # Last scan result (atomic write)
+│   ├── contexts.json              # Entity tree cache (atomic write)
+│   └── duet-instructions-errors.json
 ├── repos/
-│   └── {Product}.git/              # cloned repositories
+│   └── {alias}.git/               # cloned repositories
 ├── workspaces/
-│   └── {Product}.code-workspace    # multi-root: repo + Drive folder
+│   └── {Context}.code-workspace   # multi-root: repos + Drive folder
 ├── backend/
-│   ├── VERSION                     # installed backend version
-│   ├── server.py                   # backend code (deployed by Host)
+│   ├── VERSION                    # installed backend version (written by Host)
+│   ├── server.py                  # backend code (deployed by Host)
 │   └── requirements.txt
-├── .venv/                          # Python virtual environment
-├── .pid                            # backend PID lockfile
-├── backend.log                     # backend log (RotatingFileHandler)
+├── duet-{agent}.md                # merged per-agent instructions (Backend writes)
+├── .venv/                         # Python virtual environment
+├── backend.log                    # backend log (RotatingFileHandler)
 └── root-contexts.code-workspace   # multi-root for all root contexts
 ```
 
-## DuetConfig Directory
+### DuetConfig
 
-Cloud-synced (e.g. Google Drive). Shared across machines.
+Cloud-synced (e.g. Google Drive). Shared across machines via `settings.json`; machine-local values live in `{machine}.json`.
 
 ```
 DuetConfig/
-├── settings.json                   # shared across machines
-└── {machine}.json                  # per-machine config
+├── settings.json                  # shared across machines (v2)
+└── {machine}.json                 # per-machine config (v2)
 ```
 
-### settings.json
+**`settings.json`** (shared):
 
 ```json
 {
@@ -122,14 +222,15 @@ DuetConfig/
 
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
-| `root_context_folders` | Backend | List of top-level context folders (may use @aliases). Renamed from `business_folders` in v1; Host owns startup migration |
-| `timestampTZ` | Backend | Timezone for timestamps |
-| `version` | Host | Schema version. Host owns auto-upgrade |
+| `root_context_folders` | Backend | Ordered list of top-level context folders (`@aliases`). Order is load-bearing — see Invariants. Renamed from `business_folders` in v1; Host owns startup migration |
+| `timestampTZ` | Backend | Timezone for timestamps; `id` becomes the suffix in `YYMMDD_HHMMSS<id>` |
+| `version` | Host | Schema version for Host's startup migration |
 
-### {machine}.json
+**`{machine}.json`** (per-machine, NOT cloud-synced):
 
 ```json
 {
+  "version": 2,
   "port": 19680,
   "instructionsPath": "/Users/.../Duet-Instructions.git",
   "@БАЗА": "/Users/.../!БАЗА",
@@ -141,11 +242,12 @@ DuetConfig/
 |-------|-----------|---------|
 | `port` | Extension, Backend | HTTP port for backend |
 | `instructionsPath` | Backend | Absolute path to Duet-Instructions repo |
-| `@alias` keys | Backend | Machine-specific path resolution |
+| `pythonPath`, `deployChannel`, `devBackendPath` | Host | Host-specific machine settings |
+| `@alias` keys | Backend | Machine-specific path resolution (see @Alias Resolution) |
 
-## @Alias Resolution
+### @Alias Resolution
 
-`root_context_folders` in settings.json use `@aliases` resolved via `{machine}.json`:
+`root_context_folders` entries use `@aliases` resolved via `{machine}.json`:
 
 ```
 "@БАЗА/subfolder" → split → alias "@БАЗА" + rest "subfolder"
@@ -159,162 +261,24 @@ DuetConfig/
 | `@БАЗА/sub` | `/abs/path/to/БАЗА/sub` |
 | `/absolute/path` | `/absolute/path` (unchanged) |
 
-**Contract:** Unresolved alias → error (fail fast, not silent fallback).
+**Contract:** unresolved alias → error (fail fast, not silent fallback). All path comparisons normalize through NFC (macOS NFD vs NTFS NFC).
 
-## Entity Hierarchy
+### Repository Naming
 
-```
-meta-context (one per workspace, e.g. !БАЗА — meta: true)
-├── root context (top-level user context, parent_id IS NULL)
-│   ├── context (intermediate, can nest)
-│   │   └── context with git_repos (terminal — products live in repos)
-│   └── context with git_repos
-└── ...
-```
+| Pattern | Meaning |
+|---------|---------|
+| `{alias}.git` | Main clone of a product (alias from `git_repos` or `reference_repos` name) |
+| `{alias}.wt-N` | Worktree N (planned) |
 
-A context is a folder on Drive carrying `context.json` v3. Roles are
-inferred from manifest fields, not from a separate enum:
+Aliases from `git_repos` live in a global `{alias}.git` namespace shared with `reference_repos`. Manifest validation rejects within-manifest overlap; cross-manifest collisions surface as `repo_collision` scan errors.
 
-| Role | How it's identified |
-|------|---------------------|
-| meta-context | `meta: true` in `context.json`. Exactly one per database whenever `root_context_folders` is non-empty |
-| root context | `parent_id IS NULL`, listed in `root_context_folders` |
-| terminal (with git_repos) | `git_repos` present; scanner stops recursing, registers one `product_repo` per alias |
-| intermediate | none of the above |
+**Manifest alias vs. Duet-ontology slug.** The key in `git_repos` (e.g. `"Duet"`) is the **github repo name** — short, user-facing, no `.git`. Everywhere this product surfaces inside Duet — the clone folder (`DuetData/repos/Duet.git/`), `product_repo.name` in DB, `orientation.products[*].name` (`"Duet.git"`), `orientation.products[*].path` (`"@Duet.git"`) — uses the derived slug `{alias}.git`. The `.git` suffix is added by backend during derivation; it is **not** stored in the manifest.
 
-**Meta required.** When `root_context_folders` is non-empty, exactly one context in
-`entities.db` has `meta=1`, and it is **the first element** of `root_context_folders`.
-The state «list non-empty, no meta» is impossible — neither through Host UI (drag-to-
-position-0 is the only re-meta mechanism) nor through direct edits to `settings.json`
-or `context.json` (Host's startup migration restores the invariant on the next sweep).
-
-The meta-context is the **управляющий уровень над контекстами** — a container for the
-user's top-level data that spans every other context: the personal task DB, the ontology,
-the AI instructions repo. Other root contexts hold domain data (businesses, streams);
-the meta-context holds the operating layer over them.
-
-Three entity types live in `entities.db`:
-
-| Type | Manifest | Tree? | Notes |
-|------|----------|-------|-------|
-| `context` | `context.json` v3 | yes | Bounded context on Drive |
-| `product_repo` | — | no | Auto-registered for each alias in a context's `git_repos`. Entity name = `{alias}.git`. Path resolution helper |
-| `reference_repo` | — | no | Read-only clone declared via `reference_repos` |
-
-### Manifest Format
-
-```json
-{ "version": 3, "name": "Duet", "icon": "📦", "git_repos": {"Duet": "git@github.com:owner/duet.git"} }
-{ "version": 3, "name": "DuetLab", "icon": "🎭",
-  "git_repos": {"Duet": "git@github.com:owner/duet.git",
-                "Duet-Instructions": "git@github.com:owner/duet-instructions.git"} }
-{ "version": 3, "name": "БАЗА", "icon": "🗂", "meta": true }
-{ "version": 3, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
-```
-
-| Field | Type | Required? | Meaning |
-|-------|------|-----------|---------|
-| `version` | int | required | Schema version. `3` for current backend; `version != 3` is ignored with `unrecognized_manifest_version` warning |
-| `name` | string | required | Globally unique entity name |
-| `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_repos` present |
-| `meta` | bool | optional | `true` marks the meta-context. Host migrates v1's `root` field |
-| `git_repos` | map | optional | `{alias: url}` map declaring product clones. **Present → context is terminal** (scanner registers N `product_repo` children, one per alias, and does not recurse). Key insertion order is preserved and surfaces in `products[]` order |
-| `reference_repos` | map | optional | `{name: url}` for read-only clones |
-| `description` | string | optional | Used for `chain[].description` in orientation; takes priority over README first sentence |
-| `workspace_config` | object | optional | UX hints for `.code-workspace` assembly. See [Workspace Config](#workspace-config) below |
-
-**Contract:** Keys are `snake_case`. `name` globally unique (see Name Uniqueness). Backend reads only; Host owns all upgrades (v1→v2→v3).
-
-**v3 validation (manifest reader, §1.2 of design-doc):**
-- `git_repos` must be an object when present, and non-empty
-- alias must be a non-empty string; URL must be a non-empty string
-- aliases live in a shared namespace with `reference_repos` — overlap is rejected as `invalid_manifest`
-- `workspace_config` must be an object when present; `workspace_config.primary_folder` must be `"context"` or `"git"` when present
-- No regex/Windows-reserved-name/URL-leading-`-` guards: manifests are user-written, this is intentional
-
-### Workspace Config
-
-```json
-{ "version": 3, "name": "Igor.cockpit", "git_repos": {"Igor.source": "..."},
-  "workspace_config": { "primary_folder": "context" } }
-```
-
-`workspace_config` is an optional object on a terminal context (has `git_repos`) that controls
-how Extension assembles the multi-root `.code-workspace` when opening the context. Currently
-one field is supported:
-
-| Field | Type | Required? | Meaning |
-|-------|------|-----------|---------|
-| `primary_folder` | `"context"` \| `"git"` | optional, default `"git"` | Which folder appears first in `folders[]`. `"git"` (historical) puts cloned repos first (in `git_repos` order), Drive folder last. `"context"` puts the Drive folder first, cloned repos after. The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers |
-
-**Lenient on unknown sub-keys.** A future Host may add `workspace_config.<new_field>`. Older
-backends ignore unknown sub-keys (forward-compat); only the values of *known* sub-keys are
-validated strictly.
-
-**No-op on non-terminal contexts.** `workspace_config` is meaningful only when `git_repos` is
-present — for non-terminal contexts Extension opens the Drive folder directly (no
-`.code-workspace` is generated). Specifying the field on a non-terminal context is not an
-error; it is silently ignored.
-
-### Reference Repos
-
-`reference_repos` field in any `context.json` declares read-only reference clones. Key = explicit clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space, shared with `git_repos` aliases).
-
-### Name Uniqueness (CRITICAL)
-
-Entity names globally unique. Conflict resolution by priority:
-
-| Type | Priority | Unique? |
-|------|----------|---------|
-| context | 2 (claims name on collision over `(reference_repo)` only) | globally |
-| product_repo | 3 | globally |
-| reference_repo | 5 (lowest — gets `Name (1)`) | globally |
-
-When two contexts collide on name (rare in practice), the second-comer gets the `(N)` suffix.
-
-### Self-Healing
-
-Backend does not self-heal. **Host** owns all manifest upgrades on startup —
-v1 → v2 → v3 chain in `CONTEXT_SCHEMA` migrations:
-
-- v1 (`business.json` / `stream.json` / `product.json`) → v2 with `root → meta` rename
-- v2 (`git_url: "..."`) → v3 with `git_url` converted to `git_repos: {<name>: <url>}`
-
-Host also creates a default `context.json` v3 for empty root context folders.
-Backend reads the upgraded result; folders with `version != 3` are silently
-skipped with an `unrecognized_manifest_version` warning in scan errors.
-
-**Multi-machine note:** Drive synchronises between machines. A v3-aware
-machine converts every manifest to v3 on startup; an older machine sees
-`version: 3` it doesn't recognise and surfaces the unrecognised-version
-error, prompting an update.
-
-## Database Schema
-
-Backend's SQLite schema (`entities.db`, native sqlite3):
-
-```sql
-CREATE TABLE entities (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT,        -- 'context' | 'product_repo' | 'reference_repo'
-    name TEXT,        -- globally unique
-    icon TEXT,
-    drive_path TEXT UNIQUE,
-    parent_id INTEGER REFERENCES entities(id),
-    git_url TEXT,     -- populated only on product_repo / reference_repo rows
-    meta INTEGER DEFAULT 0  -- 1 = meta-context (e.g. !БАЗА)
-);
-CREATE UNIQUE INDEX idx_name ON entities(name);
-```
-
-**v3 note:** `git_url` is no longer set on `context` rows (the URL lives in
-the `git_repos` map on disk and on the `product_repo` children). The column
-stays on `product_repo` / `reference_repo` rows as the per-clone URL. No
-`components_repo` column is introduced.
+Drive-products (rules B/C/D in the Orientation algorithm — context-as-product, subfolder-as-product, README fallback) have no git repo. Their slug is just the context/subfolder name without `.git`.
 
 ## Cross-Component Contracts
 
-### Version Flow
+### Backend Spawn & Version Flow
 
 ```
 Host (app.getVersion())
@@ -327,143 +291,83 @@ Host (isDeployNeeded: app version > deployed → redeploy)
 Extension (checks /health → detects when backend is up)
 ```
 
-### Backend Spawn
+- **Host** is the single owner of backend process lifecycle (start, stop, health).
+- `spawn(venvPython, [server.py], { stdio: ['ignore', 'ignore', 'pipe'] })` — attached child (no `detached`, no `unref`), dies with Host. stderr piped during startup for diagnostics; closed once `/health` confirms ready.
+- Auto-start on Host startup (when ready + deployed). Auto-start after deploy. Stop on Host quit.
+- **Extension** checks `/health` once on activation (no polling). Port read from `DuetConfig/{machine}.json` (default 19680).
+- Host writes its version to `DuetData/backend/VERSION` after successful deploy; Backend returns it via `/health`; Host checks for mismatch and redeploys on upgrade.
 
-```
-Host → spawn(venvPython, [serverPath]) → Backend
-Extension → checks /health → detects when backend is up
-```
+### Orientation
 
-- Host is the single owner of backend lifecycle (start, stop, health)
-- `spawn(venvPython, [server.py], { stdio: 'ignore' })` — attached child, dies with Host
-- Auto-start on Host startup (when ready + deployed)
-- Auto-start after deploy
-- Stop on Host quit (`before-quit` handler)
-- Extension checks `/health` once on activation (no polling)
-- Port read from `DuetConfig/{machine}.json` (default: 19680)
+AI agents call `orientation(workspace_paths=[<all working dirs>])` at session start. Backend resolves workspace paths to an entity via multi-path resolution and returns structured context.
 
-### Orientation (AI Agent Orientation)
+**Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint).
 
-AI agents call `orientation(workspace_paths=[<all working dirs>])` at session start. Backend resolves workspace paths to entity via multi-path resolution and returns structured context.
-
-**Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint)
-
-**Multi-path resolution:** Classifies each path (gitFolder / contextFolder / ignored), resolves entities. If the meta-context is among them, it wins; otherwise the first resolved context is used. For a multi-repo context like DuetLab, each `repos/<alias>.git` path resolves via its `product_repo` entity to the same owning context — all paths unify to one owner. The first-come fallback also covers the brief window when the DB hasn't caught up with a fresh Host meta-flag write (Host's startup/save sweep owns the invariant and surfaces real failures in red on the wizard's path page).
+**Multi-path resolution:** classifies each path (gitFolder / contextFolder / ignored), resolves entities. If the meta-context is among them, it wins; otherwise the first resolved context is used. Multi-repo contexts (DuetLab-style) unify all `repos/<alias>.git` paths to one owner — each path resolves through its `product_repo` entity to the same parent context. The first-come fallback also covers the brief window when the DB hasn't caught up with a fresh Host meta-flag write.
 
 **Response blocks (v3 shape):**
 
 | Block | Purpose | Always present? |
 |-------|---------|----------------|
-| `duet_paths` | duetDataPath, machineConfig, instructionsPath | Yes |
-| `workspace` | kind, context_name, context_folder, git_folders (map), [reference_repos], [meta-only addons] | Yes |
-| `context` | breadcrumb + chain (type, name, description) | When entity resolved |
+| `duet_paths` | `duetDataPath`, `machineConfig`, `instructionsPath` | Yes |
+| `workspace` | `kind`, `context_name`, `context_folder`, `git_folders` (map), `[reference_repos]`, `[meta-only addons]` | Yes |
+| `context` | breadcrumb + chain (`type`, `name`, `icon`, `description?`) | When entity resolved |
 | `products` | Top-level array; each product has `name`, `path` (@-ref), `spec?`, `description?`, `components[]` | When entity resolved |
 
-Legacy fields removed in v3: `workspace.type`, `workspace.topology`,
-`workspace.git_folder` (singular), top-level `components[]`, top-level
-`key_files`.
+Detailed shape: [`packages/backend/spec/COMPONENT.md` → Orientation](../packages/backend/spec/COMPONENT.md). Algorithm implementation: `packages/backend/services/products.py:build_products` — code is the normative source.
 
-**Contract:** Detailed format in `packages/backend/spec/COMPONENT.md` → Orientation.
+### Spec File Naming
 
-### Spec File Naming Convention
-
-The v3 orientation algorithm uses **single canonical spec files** — no fallback chain. A missing canonical file means the entity has no spec; orientation falls back to `README*.md` only for product/component description (never as the spec path).
+The v3 orientation algorithm uses **single canonical spec files** — no fallback chain. A missing canonical file means the entity has no spec; orientation falls back to `README*.md` only for description (never as the spec path).
 
 | Where | Canonical spec file |
 |-------|---------------------|
-| product (alias from `git_repos`) | `<repo>/spec/PRODUCT.md` |
+| product (alias from `git_repos`, rule A) | `<repo>/spec/PRODUCT.md` |
 | product (context-as-product, rule B) | `<context>/spec/PRODUCT.md` |
 | product (subfolder, rule C) | `<sub>/spec/PRODUCT.md` |
 | component | `<…>/<comp>/spec/COMPONENT.md` |
 
-First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `description` in orientation. If the spec file is absent, orientation tries `README*.md` (exact `README.md` wins; otherwise alphabetically first) — that yields a description but no `spec` field. Full algorithm: design-doc §2.
+First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `description` in orientation. If the spec file is absent, orientation tries `README*.md` (exact `README.md` wins; otherwise alphabetically first) — that yields a description but no `spec` field.
 
-### Who Reads What
+### File Ownership
 
 | File | Host | Extension | Backend | AI Agents |
 |------|------|-----------|---------|-----------|
 | `~/.org.ve68.duet` | **writes** | reads | reads | — |
-| `DuetConfig/settings.json` | reads+writes (root_context_folders, defaults) | — | reads | — |
-| `DuetConfig/{machine}.json` | reads+writes (port, instructionsPath, pythonPath, deployChannel, @aliases, defaults) | reads (port) | reads (port, @aliases) | — |
-| `DuetData/backend/VERSION` | writes | — | reads | — |
-| `DuetData/backend.log` | — | — | writes | — |
-| `DuetData/.pid` | reads | — | writes | — |
+| `DuetConfig/settings.json` | **writes** | — | reads | — |
+| `DuetConfig/{machine}.json` | **writes** | reads (port) | reads (port, instructionsPath, @aliases) | — |
+| Context `context.json` manifests | **writes** (migrations, self-heal) | — | reads (strict v3) | — |
+| `DuetData/backend/VERSION` | **writes** | — | reads | — |
+| `DuetData/backend.log` | — | — | **writes** | — |
+| `DuetData/data/entities.db` | — | — | **writes** | — |
+| `DuetData/data/{scan,contexts}.json` | reads (wizard, file watcher) | — | **writes** | — |
+| `DuetData/duet-{agent}.md` | reads → AI client configs | — | **writes** | — |
 
-**Single-writer invariant:** Host is the only writer of `settings.json` and `{machine}.json`. Backend strictly reads. Adding/removing/reordering root context folders, creating `@alias` mappings — all flows go through Host UI. Extension does not have its own write path; before any root context folder edit it must direct the user to Host.
+**Single-writer invariant** for `settings.json` and `{machine}.json` (see Invariants): Host is the only writer. Extension does not have its own write path; before any root context folder edit it must direct the user to Host.
 
-## Build & Release
+### Schema Migration Policy
 
-### Workflow
+Host owns auto-upgrade of all on-disk Duet schemas (settings.json, `{machine}.json`, context manifests). Backend never mutates files and never migrates. **Strictness asymmetry:** Backend is a strict v3 reader for `context.json` — it validates `version: 3` explicitly and emits `unrecognized_manifest_version` for anything else. For `settings.json` and `{machine}.json` Backend does not validate the `version` field; it reads required fields by name (`root_context_folders`, `timestampTZ`, `port`, etc.) and fails fast if their shape is wrong. Schema-version enforcement for these two files is Host's responsibility (migration sweep + critical gate). Implementation lives in Host: [`packages/host/spec/COMPONENT.md` → Schema Migrations](../packages/host/spec/COMPONENT.md).
 
-```
-1. Code changes ready, verify passes
-2. npm run release (Host) / npm run vsix (Extension)
-   — bumps version in package.json
-   — builds artifact (.dmg / .vsix)
-   — Host also writes resources/BUILD_SHA
-3. Commit: code changes + bumped version + BUILD_SHA
-4. Push
-```
+**Migration chain summary:**
 
-Release **before** commit: build scripts modify working tree (version bump, BUILD_SHA). These changes go into the commit together with the code. Agent never commits — only prepares the message.
+| Schema | File(s) | Target | Chain |
+|--------|---------|--------|-------|
+| settings | `settings.json` | v2 | v1 → v2 (rename `business_folders → root_context_folders`, add `version`) |
+| machine | `{machine}.json` | v2 | v1 → v2 (add `version`) |
+| context | `business.json`/`stream.json`/`product.json` → `context.json` | v3 | v1 → v2 (rename file, `root → meta`); v2 → v3 (`git_url` → `git_repos: {<name>: <url>}`) |
 
-### Artifacts
+**Forward-incompatibility.** A future Duet version that bumps schemas beyond what this Host build supports (e.g. context v4) leaves the older Host with `version > MAX_SUPPORTED`:
+- Settings/machine → critical → backend blocked → user must update Duet.
+- Context manifest → per-context warning → backend skips that context only.
 
-| Component | Command | Artifact | Version bump |
-|-----------|---------|----------|--------------|
-| **Host** | `cd packages/host && npm run release` | `dist/Duet-{ver}.dmg` (or `.exe`, `.AppImage`) | Auto patch bump |
-| **Extension** | `cd packages/extension && npm run vsix` | `dist/duet-{ver}.vsix` | Auto patch bump |
-| **Backend** | — | No standalone artifact. Bundled into Host (extraResources) | Inherits Host version (at deploy) |
+**Multi-machine sync caveat.** Drive sync between an upgraded and not-yet-upgraded machine briefly produces files at higher version on the older machine. The handling above keeps both machines safe (no corruption, no infinite loops); the older machine shows error UI until updated.
 
-### Host Release (`packages/host/build-release.cjs`)
+**No rollback.** First Host startup on an upgraded machine rewrites every legacy manifest in place. Pre-upgrade backup is recommended for users with significant data; Host does not back up automatically.
 
-```
-npm run release [-- --mac|--win|--linux]   # default: --mac
-  1. Bump patch in package.json (0.1.1 → 0.1.2)
-  2. electron-vite build (typecheck + bundle)
-  3. electron-builder --{platform}
-  → dist/Duet-{version}.dmg
-```
+### Pre-commit Verification
 
-Tools: electron-vite (bundle), electron-builder (installer).
-
-**extraResources** (bundled alongside app, deployed to DuetData at runtime via `deploy.ts`):
-- `packages/backend/` → `backend/` (excludes tests, `__pycache__`)
-
-### Extension Release (`packages/extension/build-vsix.js`)
-
-```
-npm run vsix
-  1. Bump patch in package.json (0.0.8 → 0.0.9)
-  2. Update viewContainer title → "Duet {version}"
-  3. npm run package (typecheck + lint + esbuild --production)
-  4. vsce package → dist/duet-{version}.vsix
-```
-
-Extension is a thin UI client — no backend bundling. Host handles backend deployment via `deploy.ts`.
-
-### CI/CD (GitHub Actions)
-
-| Workflow | Trigger | What |
-|----------|---------|------|
-| `build-host.yml` | Push to main (if `packages/host/` changed) + manual | Build Host for macOS/Windows/Linux in parallel. Upload artifacts (90 days) |
-| `host-test.yml` | Push to main (if `packages/host/` changed) + manual | Run vitest. E2E disabled (monorepo symlink issues) |
-
-**No auto-publish.** Artifacts downloaded manually from Actions → GitHub Release.
-
-### Version Tracking
-
-```
-Host: packages/host/package.json → "version"
-Extension: packages/extension/package.json → "version"
-Backend: DuetData/backend/VERSION (written by Host at deploy time)
-```
-
-Host writes its version to `DuetData/backend/VERSION` after successful deploy → Backend returns it via `/health` → Host checks for version mismatch → redeploy if upgrade. Extension reads VERSION to verify backend is installed. See "Version Flow" above.
-
-## Pre-commit Checks
-
-Run **before every commit**:
+Run before every commit:
 
 ```bash
 npm run verify          # all packages
@@ -472,47 +376,21 @@ npm run verify:extension # check-types + lint + vitest
 npm run verify:backend  # pytest
 ```
 
-Per-package details:
-
 | Package | Type Check | Lint | Tests |
 |---------|-----------|------|-------|
 | **Host** | `npm run typecheck` (tsc node + web) | `npm run lint` (eslint) | `npm run test:run` (vitest) |
 | **Extension** | `npm run check-types` (tsc) | `npm run lint` (eslint) | `npm run test` (vitest) |
 | **Backend** | — | — | `pytest` |
 
-**Important:** `electron-vite build` uses esbuild which skips TypeScript checks (`noUnusedLocals`, etc.). Always run `npm run typecheck` separately.
+**Important:** `electron-vite build` uses esbuild which skips TypeScript checks (`noUnusedLocals` etc.). Always run `npm run typecheck` separately.
 
-## Repository Naming
+**Release-before-commit rule.** Build scripts modify the working tree (`package.json` version bump, `resources/BUILD_SHA`). The release commands MUST run before staging the commit so those edits are part of the same commit as the code changes. Sequence:
 
-| Pattern | Meaning |
-|---------|---------|
-| `{alias}.git` | Main clone of a product (alias from `git_repos` or reference name) |
-| `{alias}.wt-N` | Worktree N (planned) |
+1. Make code changes; ensure `npm run verify` passes.
+2. `cd packages/host && npm run release` (or `cd packages/extension && npm run vsix` for Extension).
+3. Commit: code + bumped `version` + `BUILD_SHA` together.
+4. Push.
 
-Aliases from `git_repos` live in a global `{alias}.git` namespace shared
-with `reference_repos`. Manifest validation rejects within-manifest
-overlap; cross-manifest collisions surface as `repo_collision` scan errors.
+Agent never commits — only prepares the message.
 
-Lookup: strip suffix → find entity by name.
-
-**Manifest alias vs. Duet-ontology slug.** The key in `git_repos`
-(e.g. `"Duet"`) is the **github repo name** — short, user-facing,
-without `.git`. Everywhere this product surfaces inside Duet — the clone
-folder (`DuetData/repos/Duet.git/`), the `product_repo.name` row in
-`entities.db`, `orientation.products[*].name` (`"Duet.git"`),
-and `orientation.products[*].path` (`"@Duet.git"`) — uses the derived
-slug `{alias}.git`. The `.git` suffix is added by backend during
-derivation; it is **not** stored in the manifest.
-
-Drive-products (rules B/C/D in the Orientation algorithm — context as
-product, subfolder as product, README fallback) have no git repo. Their
-slug is just the context/subfolder name without `.git`, since there is
-no clone to suffix.
-
-## Timestamp Format
-
-Format: `YYMMDD_HHMMSS<tz_id>`
-
-Examples: `260131_143052M` (Moscow), `260131_103052Z` (UTC)
-
-Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` is the suffix.
+Per-package build & release pipelines: each component's `Engineering` chapter. CI workflows: `.github/workflows/build-host.yml` (build artifacts for macOS/Windows/Linux on push to main if `packages/host/` changed) and `.github/workflows/host-test.yml` (vitest on the same trigger; E2E disabled — monorepo symlink issues). No auto-publish — artifacts are downloaded manually from Actions → GitHub Release.

@@ -47,12 +47,34 @@ class EntitiesService:
     def get_contexts(self) -> list[dict]:
         """Get all context entities (excludes product_repo, reference_repo).
 
-        Returns flat list for sidebar tree view. Client computes hasChildren
-        from parent_id relations.
+        Returns flat list in canonical UI order, assembled here (not at the
+        DB layer — `id` is identity, not order):
+        - roots emitted in `root_context_folders` order (settings.json is
+          the declarative source — we walk it and pick each matching root);
+        - everything else appended alphabetically by `name`.
+
+        Clients filter by `parent_id` and preserve the API order.
         """
         entities = self.db.get_contexts()
         path_lookup = self._build_path_lookup()
-        return [self._entity_to_dict(e, path_lookup) for e in entities]
+
+        by_drive_path = {e.drive_path: e for e in entities}
+        ordered: list[Entity] = []
+        emitted_ids: set[int] = set()
+
+        for folder in get_root_context_folders():
+            root = by_drive_path.get(Path(folder).name)
+            if root is not None and root.parent_id is None and root.id is not None:
+                ordered.append(root)
+                emitted_ids.add(root.id)
+
+        remainder = sorted(
+            (e for e in entities if e.id not in emitted_ids),
+            key=lambda e: e.name,
+        )
+        ordered.extend(remainder)
+
+        return [self._entity_to_dict(e, path_lookup) for e in ordered]
 
     def run_scan(self) -> dict:
         """Run full hierarchy scan.

@@ -1,216 +1,247 @@
 # Extension
 
-VS Code extension — tree views, commands, and workspace management as thin client over Backend HTTP API.
+VS Code extension — tree views, commands, and workspace management as a thin client over Backend HTTP API.
 
-> Shared model (pointer, DuetData, DuetConfig, entities): see [/spec/PRODUCT.md](/spec/PRODUCT.md)
->
-> See also: [DATA_MODEL.md](DATA_MODEL.md), [UI.md](UI.md)
+> Domain model (contexts, manifests, invariants, root_context_folders order), pointer file, file ownership: see [/spec/PRODUCT.md](/spec/PRODUCT.md). UI layout and per-view contracts: see [UI.md](UI.md). This file documents what Extension itself owns.
 
-## Domain
+## Purpose
 
-Entity hierarchy, manifests, name uniqueness, self-healing: see [/spec/PRODUCT.md](/spec/PRODUCT.md)
+Extension is a **passive view** over the entities and orientation that Backend exposes via HTTP. It never writes config, never owns process lifecycle, never re-derives domain rules. Its job is to:
 
-## Layer Separation
+1. Read pointer file → discover Backend port.
+2. Pull `/contexts` and `/orientation` from Backend.
+3. Render two tree views (ДЕЛА, КОНТЕКСТ) — see [UI.md](UI.md).
+4. Open contexts as multi-root VS Code workspaces (clone repos when needed).
+5. Provide one editor command: Copy @-Path.
+
+Anything beyond that — root-context editing, schema migrations, AI client configuration — lives in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
+
+## Architecture
+
+### Layer Separation
 
 | Layer | Rule | Why |
 |-------|------|-----|
 | `core/` | No vscode imports | Testable with vitest, no VS Code runtime |
-| `vscode/` | Wraps core/ with VS Code APIs | Thin glue layer |
+| `vscode/` | Wraps `core/` with VS Code APIs | Thin glue layer |
 
-## Engineering Principles
+### Engineering Principles
 
 | Principle | Rule |
 |-----------|------|
-| **Thin shell** | `vscode/` — only wiring. All non-trivial logic lives in `core/`. If logic in shell grows beyond a one-liner -> extract to `core/`. |
-| **No framework imports in core/** | `core/` has zero VS Code imports. Testable with plain Node.js + vitest. |
-| **Unit tests for core/ only** | Don't mock VS Code APIs. Test pure `core/` functions directly. Shell is validated by TypeScript + integration tests. |
-| **Pure functions over state** | Prefer pure functions with explicit args over closures capturing module state. Makes testing trivial. |
-| **FileSystem DI** | `core/` uses `FileSystem` interface for all file I/O. Tests inject mock FS — no disk access. |
-| **Spec-driven** | Code + spec changes go in same commit. Read `spec/` before changes, update after. |
+| **Thin shell** | `vscode/` is only wiring. All non-trivial logic in `core/`. Logic in shell beyond a one-liner → extract to `core/` |
+| **No framework imports in core/** | `core/` has zero VS Code imports. Testable with plain Node.js + vitest |
+| **Unit tests for core/ only** | Don't mock VS Code APIs. Test pure `core/` functions directly. Shell is validated by TypeScript + integration tests |
+| **Pure functions over state** | Prefer explicit args over closures capturing module state |
+| **FileSystem DI** | `core/` uses `FileSystem` interface for all file I/O. Tests inject mock FS |
+| **Spec-driven** | Code + spec changes in same commit. Read `spec/` before changes, update after |
 
-## Key Decisions
+### Key Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| Pointer-based config (`pointer.ts`) | Reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
-| Backend HTTP API as data source | `DuetApiClient` -> all entity data via `/contexts`, `/scan` |
+| Pointer-based config | `pointer.ts` reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
+| Backend HTTP API as data source | `DuetApiClient` — all entity data via `/contexts`, `/scan`, `/orientation` |
 | `ContextEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
-| FileSystem interface (`fs.ts`) | Dependency injection for testing without mocks |
-| Deterministic scan order | Backend scanner: `readdir` sorted by name for reproducible results |
+| FileSystem interface (`fs.ts`) | DI for testing without mocks |
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
 | Workspace files | Multi-root workspace for repo + Drive folder |
 
-## Data Flow
+### Data Sources
+
+Extension does NOT read `settings.json`. It only reads pointer + machine config:
+
+| File | Reader | What Extension uses |
+|------|--------|---------------------|
+| `~/.org.ve68.duet` | `pointer.ts:readPointer()` | `duetDataPath`, `duetConfigPath`, `machine` |
+| `DuetConfig/{machine}.json` | `pointer.ts:readMachineConfig()` | `port` (for backend API) |
+
+All entity data flows from Backend:
+
+| Source | Method | Data |
+|--------|--------|------|
+| `GET /contexts` | `apiClient.contexts()` | All `context` entities with `absolute_path`, `meta`, optional `git_repos` map |
+| `POST /orientation` | `apiClient.orientation(paths)` | `workspace` block, `context.chain`, `products[]` with nested `components[]` |
+| `POST /scan` | `apiClient.scan()` | Triggers backend rescan |
+
+`ContextEntity[]` (from `/contexts`) is kept in memory and feeds the ДЕЛА view. The single `OrientationResponse` (from `/orientation`) feeds the КОНТЕКСТ view and is re-fetched on workspace folder change. Both refresh on `duet.refresh`.
+
+**Root context configuration is Host-only.** Extension intentionally has no add/remove/reorder commands and no write path to `settings.json` or `{machine}.json` (see /spec/PRODUCT.md → File Ownership). All edits go through the Host wizard.
+
+### Data Flow
 
 ```
-activation -> apiClient.contexts()    -> ContextEntity[]    -> ContextTreeProvider (ДЕЛА view)
-           -> apiClient.orientation() -> OrientationResponse -> ContextProvider (КОНТЕКСТ view)
+activation → apiClient.contexts()    → ContextEntity[]     → ContextTreeProvider (ДЕЛА view)
+           → apiClient.orientation() → OrientationResponse → ContextProvider (КОНТЕКСТ view)
 
-refresh    -> apiClient.scan()
-           -> apiClient.contexts()    -> updateContexts()    on ContextTreeProvider
-           -> apiClient.orientation() -> updateOrientation() on ContextProvider
+refresh    → apiClient.scan()
+           → apiClient.contexts()    → updateContexts()    on ContextTreeProvider
+           → apiClient.orientation() → updateOrientation() on ContextProvider
 ```
 
 Both providers are synchronous wrappers around a snapshot:
 
-- **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full
-  list of contexts loaded once on activation. Each entity carries `meta`,
-  `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences
-  (meta-context, root context, terminal context, regular context) are derived
-  from these fields rather than from a `type` enum. A context is terminal iff
-  `git_repos` has one or more aliases.
+- **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full list of contexts loaded once on activation. Each entity carries `meta`, `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences (meta / root / terminal / regular) are derived from these fields rather than from a `type` enum. A context is terminal iff `git_repos` has one or more aliases.
+- **КОНТЕКСТ view** (`ContextProvider`) works over a single `OrientationResponse` — backend already resolved the current workspace folders into a chain, products, and components. The provider renders that shape directly. On workspace folder change it calls a `refreshOrientation` callback.
 
-- **КОНТЕКСТ view** (`ContextProvider`) works over a single
-  `OrientationResponse` — the backend already resolved the current workspace
-  folders into a chain, products, and components. The provider renders that
-  shape directly. On workspace folder change it calls a `refreshOrientation`
-  callback to fetch a fresh response.
+**Tree order:** owned by Backend's `/contexts` response (see /spec/PRODUCT.md → Invariants). `core/tree/contextTree.ts` is a passive view that preserves API order and never re-sorts.
 
-**Tree sort order (ДЕЛА view):** the meta-context appears first; everything
-else is sorted alphabetically by `name` at every nesting level. `git_repos`
-controls icon and decoration only — it does not change ordering, so a terminal
-context mixes with intermediate siblings purely by name. Implementation lives in
-`core/tree/contextTree.ts:compareTreeNodes`.
+## Surface
 
-## Launcher (openFolder.ts)
+### Tree Views
+
+| View ID | Provider | Data source | Renders |
+|---------|----------|-------------|---------|
+| `duet.contexts` (ДЕЛА) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. Terminal contexts highlighted when any of their `git_repos` aliases is open in a workspace folder |
+| `duet.context` (КОНТЕКСТ) | `ContextProvider` | `apiClient.orientation(currentFolderPaths)` (`OrientationResponse`) | Chain of contexts the current workspace folders resolve into → top-level products → components. `workspace.kind === 'unknown'` → single info node |
+
+Product `path` (`@<alias>.git` for git-products, `@<context_name>[/<sub>]` for drive-products) resolves against `workspace.git_folders` / `workspace.context_folder` via `core/pathUtils.ts:resolveAtRef`. Components carry paths relative to their product. Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md](UI.md).
+
+### Commands
+
+#### `duet.openFolder` — open a context
 
 | Context flavor | Action |
 |----------------|--------|
 | Context without `git_repos` | Open Drive folder directly |
-| Terminal context (`git_repos` non-empty) | Clone every aliased repo into `paths.reposPath/<alias>.git` -> generate multi-root workspace -> open workspace |
+| Terminal context (`git_repos` non-empty) | Clone every aliased repo into `paths.reposPath/<alias>.git` → generate multi-root workspace → open workspace |
 
-For any context whose manifest declares `reference_repos`, missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open — an unreachable repo must be removed from the manifest before the context can be opened. Alias names are validated against path traversal before being joined with `reposPath` (`isSafeRepoName`).
+For any context whose manifest declares `reference_repos`, missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open — an unreachable repo must be removed from the manifest before the context can be opened. Alias names are validated against path traversal (`isSafeRepoName`).
 
-Git clone UX:
-- `withProgress` notification (cancellable)
-- Output to "Duet Git" channel
+**Git clone UX:**
+- `withProgress` notification (cancellable).
+- Output to "Duet Git" channel.
 - `git clone --progress -- <url> <target>` — the `--` separator disarms URLs that begin with `-`. Built by `buildGitCloneArgs`.
-- Finalize pattern: single `resolved` flag prevents duplicate logs on cancel/error/close race
+- Finalize pattern: single `resolved` flag prevents duplicate logs on cancel/error/close race.
 
-Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`
+Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`.
 
-## Workspace Generation
+#### `duet.copyAtPath` — copy `@`-reference
 
-| Workspace | When Generated | Folders |
-|-----------|----------------|---------|
-| `{Context}.code-workspace` | On open of a terminal context | One folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved) + Drive folder of the context |
-| `root-contexts.code-workspace` | After scan completes | All root context folders + `DuetData` |
+User-facing command in the Explorer right-click menu (group `6_copypath`). Copies the resource as `` `@<rootFolder>/<relative>` ``.
 
-The single entry point is `WorkspaceManager.writeContextWithReposWorkspace(name, aliases, drivePath)` — there is no single-repo variant. A terminal context with one alias produces a 2-folder workspace (one repo + drive); two aliases produce three folders; etc.
+Example: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace folder copies as `` `@Duet.git/packages/host/spec/COMPONENT.md` ``.
 
-## Copy @-Path Command (`duet.copyAtPath`)
+**Why it exists:**
+1. **Multi-root disambiguation.** Native VS Code Copy Relative Path strips the workspace root, so `packages/host` could come from any open folder. Including the root folder name removes that ambiguity.
+2. **Matches Duet's `@`-style.** Throughout Duet, paths relative to a context folder are written with a leading `@` and the context name as the first segment. Reusing this syntax keeps a single visual convention across hand-written notes, AI prompts, and Explorer-copied references.
 
-User-facing command in the Explorer right-click menu (group `6_copypath`, next
-to native Copy Path / Copy Relative Path). Copies the resource as a Duet
-`@`-reference: `` `@<rootFolder>/<relative>` ``.
-
-Example: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace
-folder copies as `` `@Duet.git/packages/host/spec/COMPONENT.md` ``.
-
-### Why this exists
-
-1. **Multi-root disambiguation.** Native VS Code Copy Relative Path strips the
-   workspace root, so in a multi-root workspace the resulting path doesn't
-   say *which* root it is relative to — `packages/host` could come from any
-   open folder. Including the root folder name removes that ambiguity.
-2. **Matches Duet's `@`-style for context-relative paths.** Throughout Duet,
-   paths relative to a context folder are written with a leading `@` and the
-   context name as the first segment.
-   Reusing that syntax for workspace-relative paths keeps a single visual
-   convention across hand-written notes, AI prompts, and Explorer-copied
-   references.
-
-### Decisions
+**Decisions:**
 
 | Decision | Rationale |
 |----------|-----------|
-| Root name = `path.basename(workspaceFolder.uri.fsPath)` | The on-disk folder name is what the user actually has on the filesystem and recognises across machines. Workspace files (`*.code-workspace`) can override the display label via the `name` field, but the `@`-reference is meant to point at the filesystem — basename stays stable regardless of UI renaming. Falls back to `folder.name` for filesystem roots (`/`, `C:\`) where basename is empty. |
-| Forward slashes always | The `@`-reference is platform-agnostic. `path.relative` on Windows returns `\` — `formatAtReference` normalizes both `/` and `\` to `/`. |
-| Empty relative → `` `@<root>` `` | When the resource IS the workspace root, the trailing `/` is dropped. |
-| No success notification | Native Copy Path is silent; multi-select would otherwise spam toasts. |
-| Multi-select: newline-joined | Matches native Copy Relative Path behavior. VS Code Explorer passes `(resource, resources)`. |
-| Resources outside workspace: skip with warning | A single warning aggregates all skipped resources (`+N more`). The clipboard receives only the resolvable subset; if nothing resolves, the clipboard is left untouched. |
-| Hidden from Command Palette | The command needs a resource argument — invoking it from the palette has no useful effect, so `commandPalette` is `when: false`. |
-| `when: workspaceFolderCount > 0` | Hides the menu item in single-file windows where there is no workspace folder to compute a relative path against. |
-| Keybinding `Cmd+Shift+C` (mac) / `Alt+Shift+C` (win/linux) | Active in either the Explorer tree or an editor (`(filesExplorerFocus \|\| editorTextFocus) && !inputFocus`). Semantics: **copies the @-reference of the current editor file**. VS Code does not expose Explorer selection to keybindings (only context-menu invocations receive `(resource, resources)`), so the command resolves the target via `activeTextEditor` → active tab input. **Folders are out of reach for the keybinding** because they don't open in an editor — for folders, use the right-click menu. The shortcut also pairs with system mouse remappers (Karabiner / AutoHotkey) for a middle-click workflow. |
-| Registered before `if (dataFolder)` guard | Command does not depend on pointer or backend — works even when Duet Host is not configured. |
+| Root name = `path.basename(workspaceFolder.uri.fsPath)` | On-disk folder name is what the user has on the filesystem. `*.code-workspace` `name` field can override the display label, but `@`-reference points at the filesystem — basename stays stable. Falls back to `folder.name` for filesystem roots where basename is empty |
+| Forward slashes always | The `@`-reference is platform-agnostic; `formatAtReference` normalizes `\` → `/` |
+| Empty relative → `` `@<root>` `` | When the resource IS the workspace root, trailing `/` dropped |
+| No success notification | Native Copy Path is silent; multi-select would otherwise spam toasts |
+| Multi-select: newline-joined | Matches native Copy Relative Path. VS Code Explorer passes `(resource, resources)` |
+| Resources outside workspace: skip with warning | Single aggregated warning (`+N more`). Clipboard receives the resolvable subset; if nothing resolves, clipboard untouched |
+| Hidden from Command Palette | Command needs a resource argument — no useful effect from palette (`commandPalette: when: false`) |
+| `when: workspaceFolderCount > 0` | Hides menu in single-file windows |
+| Keybinding `Cmd+Shift+C` (mac) / `Alt+Shift+C` (win/linux) | Active in either Explorer tree or editor. Resolves target via `activeTextEditor`. Folders out of reach for keybinding — use right-click menu |
+| Registered before pointer guard | Works even when Duet Host is not configured |
 
-**Known limitation**: in a multi-root workspace where two folders share the
-same basename (e.g. `frontend/spec` and `backend/spec` added as roots), the
-resulting `@spec/...` reference is ambiguous — it defeats the multi-root
-disambiguation that's the whole point of including the root name. We do not
-detect or rename collisions; the user is expected to keep root basenames
-unique inside one workspace.
+**Known limitation:** in a multi-root workspace where two folders share the same basename (e.g. `frontend/spec` and `backend/spec` added as roots), `@spec/...` is ambiguous. No detection — user expected to keep root basenames unique.
 
-**Pure logic**: `core/pathUtils.ts` → `formatAtReference(rootName, relativePath)`.
-**Shell**: `vscode/commands/copyAtPath.ts` (resolves `getWorkspaceFolder`, writes
-clipboard, surfaces warnings).
+Pure logic: `core/pathUtils.ts:formatAtReference(rootName, relativePath)`. Shell: `vscode/commands/copyAtPath.ts`.
 
-## Tree Views
+### Workspace Files
 
-| View | Provider | Data source | Renders |
-|------|----------|-------------|---------|
-| ДЕЛА (`duet.contexts`) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and their descendants. Terminal contexts highlighted when any of their `git_repos` aliases is open in a workspace folder. |
-| КОНТЕКСТ (`duet.context`) | `ContextProvider` | `apiClient.orientation(currentFolderPaths)` (`OrientationResponse`) | The chain of contexts the current workspace folders resolve into → top-level products of the current context → components under each product. `workspace.kind === 'unknown'` → single info node "Папка вне иерархии контекстов". |
+Two generated artifacts:
 
-Product `path` (`@<alias>.git` for git-products, `@<context_name>[/<sub>]` for drive-products) is resolved against `workspace.git_folders` / `workspace.context_folder` via `core/pathUtils.ts:resolveAtRef`. Components carry paths relative to their product.
+| Workspace | Location | When Generated | Folders |
+|-----------|----------|----------------|---------|
+| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a terminal context | One folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved) + Drive folder of the context. Order between repos and Drive folder controlled by `workspace_config.primary_folder` (see /spec/PRODUCT.md → Manifests → workspace_config) |
+| `root-contexts.code-workspace` | `DuetData/` (root) | After scan completes | All root context folders + `DuetData` |
 
-## Tree Decorations
+```json
+{
+  "folders": [
+    { "path": "../repos/Duet.git" },
+    { "path": "../repos/Duet-Instructions.git" },
+    { "path": "/absolute/path/to/Drive/DuetLab" }
+  ]
+}
+```
 
-`TreeDecorationProvider.ts` is a `FileDecorationProvider`. It currently has a single responsibility: grey out separator rows so the line/spacer items read as visual gaps rather than active items.
+| Aspect | Value |
+|--------|-------|
+| Context workspace location | `DuetData/workspaces/{Context}.code-workspace` |
+| Root-contexts workspace location | `DuetData/root-contexts.code-workspace` (NOT under `workspaces/`) |
+| Repo paths | Relative from `workspaces/` (one per `git_repos` alias) |
+| Drive path | Absolute (not portable) |
+| Context-workspace builder | `core/workspace.ts:writeContextWithReposWorkspace(name, aliases, drivePath, primaryFolder?)` |
 
-| URI Scheme | Format | Decoration |
-|------------|--------|------------|
-| `duet-tree` | `duet-tree:/separator/<index>` | `disabledForeground` colour |
+The builder's 4th argument is the `primaryFolder: PrimaryFolder = 'git'` ordering hint sourced from the context's manifest:
+- `'git'` (default, historical): cloned repos first in declared alias order, Drive folder last.
+- `'context'`: Drive folder first, cloned repos after.
 
-`SeparatorItem` in `ContextTreeProvider` is the only call site setting `resourceUri` with this scheme. Active-node / root-context colouring is **not** wired today — node labels carry their own emoji-based status (🔹/🟦/🔸/🟧 for roots, 🟠/◻️ for nested). If colour decoration becomes needed, both the provider and the matching `resourceUri` assignment in the tree provider have to land together.
+The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — manifests use `primary_folder: "context"` when the user wants the Drive folder to be the terminal default. Single entry point — no separate single-repo variant. A terminal context with one alias produces a 2-folder workspace; two aliases produce three folders; etc.
 
-## Backend Health Monitoring
+**Alias safety:** aliases originate from user-authored manifest JSON. Before opening a terminal context, `openFolder.ts:findUnsafeAliases` checks every alias in both `git_repos` and `reference_repos`; if any name fails `isSafeRepoName` (path separators, dots-only, control characters, leading dot), the open is **aborted** with a user-visible error — no clone, no workspace file.
+
+## Behaviors
+
+### Backend Health Monitoring
 
 Host owns the full backend lifecycle (start, stop, health). Extension is a pure consumer:
 
 | Step | What |
 |------|------|
-| 1. Read pointer | `readPointer()` -> `duetDataPath`, set `duet.hasPointer` |
-| 2. Read port | `readPort()` -> port (default 19680), create `DuetApiClient` |
-| 3. Set initializing | `duet.initializing=true`, `duet.ready=false` -> spinner in status view |
-| 4. Load contexts + orientation | `apiClient.contexts()` -> `ContextEntity[]`; `apiClient.orientation(currentFolderPaths)` -> `OrientationResponse` |
+| 1. Read pointer | `readPointer()` → `duetDataPath`, set `duet.hasPointer` |
+| 2. Read port | `readPort()` → port (default 19680), create `DuetApiClient` |
+| 3. Set initializing | `duet.initializing=true`, `duet.ready=false` → spinner |
+| 4. Load contexts + orientation | `apiClient.contexts()`, `apiClient.orientation(currentFolderPaths)` |
 | 5. Register providers | Create and register all tree providers |
-| 6. Set ready | `duet.ready=true`, `duet.initializing=false` -> main views appear |
+| 6. Set ready | `duet.ready=true`, `duet.initializing=false` → main views appear |
 
 **On failure** (no pointer, no port, backend offline):
-- `duet.ready=false` -> status view shows "Установите и запустите Duet Host"
-- User clicks "Перезагрузить окно" -> `workbench.action.reloadWindow`
+- `duet.ready=false` → status view shows "Установите и запустите Duet Host".
+- User clicks "Перезагрузить окно" → `workbench.action.reloadWindow`.
 
-**Extension contracts:**
-- No spawn, no venv, no install — all managed by Host
-- Single check on activation (no polling, no retry command)
-- `duet.ready=true` set AFTER providers registered (prevents "no data provider" flash)
-- Backend-independent command `openDataFolder` works regardless of backend state
+**Contracts:**
+- No spawn, no venv, no install — all managed by Host.
+- Single check on activation (no polling, no retry command).
+- `duet.ready=true` set AFTER providers registered (prevents "no data provider" flash).
+- Backend-independent command `openDataFolder` works regardless of backend state.
 
-## Build & Release
+### Tree Decorations
 
-> Full pipeline: see [/spec/PRODUCT.md](/spec/PRODUCT.md) -> Build & Release
+`TreeDecorationProvider.ts` is a `FileDecorationProvider`. Single responsibility today: grey out separator rows so the line/spacer items read as visual gaps rather than active items.
+
+| URI Scheme | Format | Decoration |
+|------------|--------|------------|
+| `duet-tree` | `duet-tree:/separator/<index>` | `disabledForeground` colour |
+
+`SeparatorItem` in `ContextTreeProvider` is the only call site setting `resourceUri` with this scheme. Active-node / root-context colouring is NOT wired here — node labels carry their own emoji-based status (see UI.md). If colour decoration becomes needed, both the provider and the matching `resourceUri` assignment have to land together.
+
+## Engineering
+
+### Build & Release
+
+Per-package pipeline (full release contract: see /spec/PRODUCT.md → Pre-commit Verification):
 
 ```bash
-npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
+npm run vsix   # bump + build + package → dist/duet-{version}.vsix
 ```
 
-`build-vsix.js`: bump patch -> update UI title -> esbuild --production -> vsce package
+`build-vsix.js`: bump patch → update UI title → esbuild --production → vsce package.
 
 | Script | What |
 |--------|------|
 | `esbuild.js` | Bundle extension to `dist/extension.js` |
 | `build-vsix.js` | Orchestrates: version bump + package + vsce |
 
-## Testing
+Extension is a thin UI client — no backend bundling. Host handles backend deployment via `deploy.ts`.
+
+### Testing
 
 | Layer | Tool | Approach |
 |-------|------|----------|
-| `core/` | vitest | Unit tests with mock ContextEntity[] and DuetApiClient |
+| `core/` | vitest | Unit tests with mock `ContextEntity[]` and `DuetApiClient` |
 | `vscode/` | @vscode/test-electron | Integration tests (planned) |
 
-## Navigation
+### File Map
 
 | Concept | File |
 |---------|------|
@@ -223,7 +254,6 @@ npm run vsix   # bump + build + package -> dist/duet-{version}.vsix
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` (`writeContextWithReposWorkspace`) |
 | Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatAtReference`) |
-| Entity types, markers | Backend `scanner.py` |
-| Name conflict resolution | Backend `scanner.py` |
-| DB schema (name unique) | Backend `db.py` |
-| Entity data in Extension | `api-client.ts` -> `ContextEntity` type (with `git_repos` map) |
+| Tree decorations | `vscode/providers/TreeDecorationProvider.ts` |
+| Accordion controller | `core/tree/AccordionController.ts` |
+| Entity types in Extension | `core/api-client.ts` → `ContextEntity` type |

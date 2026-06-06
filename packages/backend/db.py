@@ -278,7 +278,11 @@ class DatabaseManager:
         return row[0] if row else 0
 
     def get_contexts(self) -> list[Entity]:
-        """Get all context entities (excludes product_repo, reference_repo)."""
+        """Get all context entities (excludes product_repo, reference_repo).
+
+        Order is not guaranteed at the DB layer — display order is the
+        service's responsibility (`EntitiesService.get_contexts`).
+        """
         if not self.conn:
             raise RuntimeError("Database not initialized")
 

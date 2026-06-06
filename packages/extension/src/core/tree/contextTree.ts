@@ -1,16 +1,13 @@
 import { ContextEntity, PrimaryFolder } from '../api-client';
 
 /**
- * Sort order: meta-context first, everything else alphabetically. `hasGit` doesn't
- * change position — terminal contexts mix with intermediates by name. Decision:
- * `stabilize-taxonomy-migration` (rename-taxonomy saga).
+ * Sort order is owned by the backend (`/contexts`): roots follow
+ * `root_context_folders` from settings.json, siblings below the root level
+ * are alphabetical by name. The tree is a passive view — it preserves the
+ * order it received and never re-sorts. Decisions:
+ * `stabilize-taxonomy-migration` (rename-taxonomy saga, alphabetical baseline);
+ * `config-driven-root-order` (this change — placement authority moved to config).
  */
-function compareTreeNodes(a: TreeNode, b: TreeNode): number {
-    if (a.meta !== b.meta) {
-        return a.meta ? -1 : 1;
-    }
-    return a.label.localeCompare(b.label);
-}
 
 export interface TreeNode {
     id: string; // absolute_path (for path comparison with workspace folders)
@@ -56,16 +53,14 @@ export class ContextTree {
     getRoots(): TreeNode[] {
         return this.contexts
             .filter(c => c.parent_id === null)
-            .map(c => this.mapEntity(c))
-            .sort(compareTreeNodes);
+            .map(c => this.mapEntity(c));
     }
 
     getChildren(parentId: number): TreeNode[] {
         const parentIdStr = String(parentId);
         return this.contexts
             .filter(c => c.parent_id === parentIdStr)
-            .map(c => this.mapEntity(c))
-            .sort(compareTreeNodes);
+            .map(c => this.mapEntity(c));
     }
 
     getAllNodes(): TreeNode[] {

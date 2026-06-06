@@ -200,12 +200,16 @@ describe('ContextTree', () => {
         expect(descendants).toHaveLength(0);
     });
 
-    // === Sorting: meta first, alphabetical otherwise ===
+    // === Order: tree is passive, preserves API order ===
+    // Sort authority lives in the backend (`services/entities.py:get_contexts`):
+    // roots follow `root_context_folders` from settings.json; non-root siblings
+    // are alphabetical by name. ContextTree never re-sorts.
 
-    it('places meta-context first among roots regardless of input order', () => {
+    it('preserves API order for roots (backend-supplied)', () => {
+        // Order as the backend would deliver it for config @БАЗА, @Альфа, @Браво.
         const contexts = [
-            makeContext({ id: '1', name: 'Альфа', icon: 'A', absolute_path: '/a' }),
-            makeContext({ id: '2', name: 'БАЗА', icon: '🔥', absolute_path: '/base', meta: true }),
+            makeContext({ id: '1', name: 'БАЗА', icon: '🔥', absolute_path: '/base', meta: true }),
+            makeContext({ id: '2', name: 'Альфа', icon: 'A', absolute_path: '/a' }),
             makeContext({ id: '3', name: 'Браво', icon: 'B', absolute_path: '/b' }),
         ];
         const tree = new ContextTree(contexts);
@@ -214,25 +218,27 @@ describe('ContextTree', () => {
         expect(roots.map(r => r.label)).toEqual(['БАЗА', 'Альфа', 'Браво']);
     });
 
-    it('sorts non-meta roots alphabetically; hasGit does not change position', () => {
+    it('preserves API order for roots regardless of meta/hasGit', () => {
+        // Backend may place a non-meta or git-bearing context anywhere the
+        // user's config asks for — neither flag forces a position.
         const contexts = [
             makeContext({ id: '1', name: 'Заря', icon: 'Z', absolute_path: '/z' }),
             makeContext({ id: '2', name: 'Альфа', icon: 'A', absolute_path: '/a', git_repos: { 'Альфа': 'git@x:a.git' } }),
-            makeContext({ id: '3', name: 'Браво', icon: 'B', absolute_path: '/b' }),
+            makeContext({ id: '3', name: 'БАЗА', icon: '🔥', absolute_path: '/base', meta: true }),
         ];
         const tree = new ContextTree(contexts);
 
         const roots = tree.getRoots();
-        // Альфа comes first alphabetically even though it has git_repos.
-        expect(roots.map(r => r.label)).toEqual(['Альфа', 'Браво', 'Заря']);
+        expect(roots.map(r => r.label)).toEqual(['Заря', 'Альфа', 'БАЗА']);
     });
 
-    it('sorts children alphabetically at each nesting level', () => {
+    it('preserves API order for children at each nesting level', () => {
+        // Backend delivers children alphabetically by name; the tree mirrors it.
         const contexts = [
             makeContext({ id: '1', name: 'Root', icon: 'R', absolute_path: '/r' }),
-            makeContext({ id: '2', name: 'Янтарь', icon: 'Y', absolute_path: '/r/y', parent_id: '1' }),
-            makeContext({ id: '3', name: 'Альбатрос', icon: 'A', absolute_path: '/r/a', parent_id: '1' }),
-            makeContext({ id: '4', name: 'Гроза', icon: 'G', absolute_path: '/r/g', parent_id: '1' }),
+            makeContext({ id: '2', name: 'Альбатрос', icon: 'A', absolute_path: '/r/a', parent_id: '1' }),
+            makeContext({ id: '3', name: 'Гроза', icon: 'G', absolute_path: '/r/g', parent_id: '1' }),
+            makeContext({ id: '4', name: 'Янтарь', icon: 'Y', absolute_path: '/r/y', parent_id: '1' }),
         ];
         const tree = new ContextTree(contexts);
 
