@@ -45,7 +45,7 @@ server.py (entry point, lifecycle)
 | `server.py` | HTTP routes, lifecycle, DI init, logging setup | Business logic |
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
-| `scanner.py` | Hierarchy scan (strict v3), terminal `git_repos` → N product_repo | HTTP, config writes, manifest upgrades, products/components discovery |
+| `scanner.py` | Hierarchy scan (strict v3), `git_repos` → N product_repo while Drive context recursion continues | HTTP, config writes, manifest upgrades, products/components discovery |
 | `services/products.py` | Build orientation `products[]` + components (product/component discovery) | DB writes, HTTP |
 | `services/manifest.py` | Strict v3 manifest parsing | Migrations (Host owns) |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
@@ -177,7 +177,7 @@ Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_
 
 **`chain[].description` priority:** `context.json::description` (when non-empty) > first sentence of `README.md` at the context's Drive folder.
 
-**`chain[].icon`** mirrors `Entity.icon` (set by Scanner from manifest, or default: `📚` meta, `📦` terminal, `📁` intermediate).
+**`chain[].icon`** mirrors `Entity.icon` (set by Scanner from manifest, or default: `📚` meta, `📦` context with `git_repos`, `📁` context without `git_repos`).
 
 **REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII). Returns result directly (not wrapped).
 

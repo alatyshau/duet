@@ -53,9 +53,9 @@ Full forest of root contexts and descendants, accordion pattern, alias-based hig
 | Header has hover icon → open `root-contexts.code-workspace` | Quick access to multi-root |
 | Placeholder when empty: "Добавьте root-контекст в Duet Host" | User pointed to Host (which owns root-context configuration), not to a non-existent Extension button |
 | Icons: emoji from manifest in label (e.g. `🔬 МетаЛаб`) | Custom icons from manifests, no ThemeIcon |
-| Description: `[git]` marker for terminal contexts (non-empty `git_repos`); otherwise empty | Show role at a glance, no `мета-контекст` / `контекст` decoration |
+| Description: `[git]` marker for contexts with git products (non-empty `git_repos`); otherwise empty | Show role at a glance, no `мета-контекст` / `контекст` decoration |
 | **Chain highlighting**: 🟠 for active node + all ancestors | User sees path to current work |
-| Terminal-context highlight is alias-based: match `git_repos` keys against open `<alias>.git` folder names (NOT the context label) | A DuetLab-style context with aliases `Duet`, `Duet-Instructions` lights up when either repo is open; matching by label would silently miss the case |
+| Git-context highlight is alias-based: match `git_repos` keys against open `<alias>.git` folder names (NOT the context label) | A DuetLab-style context with aliases `Duet`, `Duet-Instructions` lights up when either repo is open; matching by label would silently miss the case |
 | Toggle button (fold icon) | Single button to expand/collapse all |
 | Click = select, arrow = toggle | User can select without collapsing |
 

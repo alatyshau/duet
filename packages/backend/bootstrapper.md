@@ -10,7 +10,7 @@
 - **`workspace.topology`** — your map of the workspace: what each folder is for, which paths are read-only, how the workspace is organized. Read carefully.
 - **`context`** — breadcrumb and chain of contexts you're working in (each item: type, name, optional description)
 - **`key_files`** — read these first (spec, readme) to orient in the codebase
-- **`components`** — packages in the product (terminal context with `git_url`), their specs and descriptions
+- **`components`** — packages inside discovered products, their specs and descriptions
 - **`duet_paths.instructionsPath`** — root of user instructions workspace
 
 ## Duet MCP tools
@@ -42,7 +42,7 @@ The skills table below lists all available personas and skills. Paths are relati
 meta-context (one per workspace, e.g. !БАЗА)
 └── root context (top-level user context, e.g. МетаЛаб)
     └── context* (0..N nesting, e.g. ТехноЛаб)
-        └── context with git_url (terminal — a product lives there, e.g. Duet)
+        └── context with git_repos (git products live in repos; Drive children may still nest)
             ├── Component (package)
             │   ├── spec/
             │   └── docs/
@@ -51,17 +51,17 @@ meta-context (one per workspace, e.g. !БАЗА)
                     └── step
 ```
 
-A **context** is a bounded folder on Drive — `context.json` v2 + nested
+A **context** is a bounded folder on Drive — `context.json` v3 + nested
 contexts and resources. Roles are inferred from manifest fields:
-`meta: true` marks the system meta-context; `git_url` marks a terminal
-context whose product lives in a git repo (scanner stops there).
+`meta: true` marks the system meta-context; `git_repos` declares product
+clones in `DuetData/repos` but does not stop Drive context recursion.
 
 | EN | RU | Meaning | Example |
 |----|-----|---------|---------|
 | **meta-context** | мета-контекст | System-level context covering everything; `meta: true` in `context.json` | `!БАЗА` |
 | **root context** | корневой контекст | Top-level context (no parent), listed in `root_context_folders` | `МетаЛаб`, `СоциоЛаб` |
 | **context** | контекст | Any bounded context folder with `context.json` | `ТехноЛаб`, `Duet` |
-| **product** | продукт | Software with `spec/PRODUCT.md` inside a context's git repo (terminal context with `git_url`) | `Duet`, `Kreator` |
+| **product** | продукт | Software discovered from `git_repos`, `spec/PRODUCT.md`, or README fallback | `Duet`, `Kreator` |
 | **component** | компонент | Package in a product's monorepo | `packages/ai-kit` |
 | **spec** | спецификация | Source of truth for AI (in `spec/`) | `packages/ai-kit/spec/` |
 | **work folder** | рабочая папка | Folder in `work/` (or legacy `projects/`) with a `plan.md` at its root; naming: `YYMMDD_name`, `WIP_name`, `TODO_name`. Nests recursively — any work folder can contain child work folders for subtasks. Synonym: `project folder` / `проектная папка` (legacy, being phased out) | `work/WIP_workspace_info/` |

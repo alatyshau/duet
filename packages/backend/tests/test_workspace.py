@@ -115,6 +115,32 @@ class TestResolveEntity:
         assert entity is not None
         assert entity.name == "Product"
 
+    def test_resolve_from_drive_child_below_git_repos_context(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Drive child context under a git-backed context resolves to the child."""
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_root_context("Root")
+        builder.build(monkeypatch)
+
+        root_path = builder.get_root_context_path(0)
+        onto_path = root_path / "OntoCore"
+        onto_path.mkdir()
+        ManifestBuilder.context(
+            onto_path, "OntoCore",
+            git_repos={"OntoCore": "https://ontocore.git"},
+        )
+        structs_path = onto_path / "OntoCoreStructs"
+        structs_path.mkdir()
+        ManifestBuilder.context(structs_path, "OntoCoreStructs")
+
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+
+        entity = WorkspaceService(db)._resolve_entity(str(structs_path))
+
+        assert entity is not None
+        assert entity.name == "OntoCoreStructs"
+
     def test_resolve_from_drive_finds_closest(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -285,7 +311,7 @@ class TestGetOrientation:
         assert context["chain"][2]["name"] == "Duet"
 
         # icon is always present — mirrors ContextEntity.icon. Scanner default
-        # for a terminal context (has git_repos) is "📦".
+        # for a context with git_repos is "📦".
         for item in context["chain"]:
             assert "icon" in item
             assert isinstance(item["icon"], str)

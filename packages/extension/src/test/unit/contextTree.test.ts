@@ -50,7 +50,7 @@ describe('ContextTree', () => {
         expect(child.isRoot).toBe(false);
     });
 
-    it('should expose all git_repos entries for multi-repo terminal contexts', () => {
+    it('should expose all git_repos entries for multi-repo contexts', () => {
         const contexts = [
             makeContext({
                 id: '1', name: 'DuetLab', icon: 'L', absolute_path: '/lab',
@@ -67,7 +67,7 @@ describe('ContextTree', () => {
         expect(Object.keys(root.gitRepos)).toEqual(['Duet', 'Duet-Instructions']);
     });
 
-    it('should treat empty git_repos map as non-terminal', () => {
+    it('should treat empty git_repos map as context without git products', () => {
         const contexts = [
             makeContext({ id: '1', name: 'Empty', icon: 'E', absolute_path: '/e', git_repos: {} }),
         ];

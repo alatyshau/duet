@@ -79,8 +79,8 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
                 return true;
             }
         }
-        // Also check git contexts (their folders sit in repos/, not under root path).
-        // A root is active if any of its terminal git-contexts has an open alias.
+        // Also check git-backed contexts (their folders sit in repos/, not under root path).
+        // A root is active if any descendant git-backed context has an open alias.
         if (this.currentGitContextNames.size > 0) {
             const root = this.tree.getRoots().find(r => normalizePath(r.id) === normalizedAncestor);
             if (root) {
@@ -93,7 +93,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
 
     /**
      * Recursively check if any descendant is currently active (open).
-     * For terminal contexts: match any `git_repos` alias against currently
+     * For contexts with `git_repos`: match any alias against currently
      * open `<alias>.git` folder basenames — the context label itself need
      * not equal the repo alias (e.g. context "DuetLab" holds aliases
      * "Duet" and "Duet-Instructions").
@@ -219,7 +219,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None;
 
-        // Check if this node is currently open (terminal context by alias match,
+        // Check if this node is currently open (git-backed context by alias match,
         // or Drive folder by path). Skip marker for roots if all roots are open
         // (marker is on [МОИ ДЕЛА]).
         const isCurrent =

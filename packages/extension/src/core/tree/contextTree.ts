@@ -18,11 +18,11 @@ export interface TreeNode {
     isRoot: boolean;
     /** True for meta-context (e.g. !БАЗА). One per workspace. */
     meta: boolean;
-    /** True when context has one or more `git_repos` aliases (terminal). */
+    /** True when context has one or more `git_repos` aliases. */
     hasGit: boolean;
     hasChildren: boolean;
     entityId: number;
-    /** Map alias → git URL from `git_repos`. Empty when context is not terminal. */
+    /** Map alias → git URL from `git_repos`. Empty when context has no git products. */
     gitRepos: Record<string, string>;
     referenceRepos?: Record<string, string>;
     /**

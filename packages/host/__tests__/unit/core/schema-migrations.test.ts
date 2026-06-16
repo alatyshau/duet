@@ -9,7 +9,7 @@
  *   - orphan resolution когда context.json и legacy сосуществуют.
  *   - self-heal на пустой root-папке.
  *   - future-version manifest помечен как per-context error, файл не трогается.
- *   - dot-folder skip + терминал на git_repos.
+ *   - dot-folder skip + recursion through folders with git_repos.
  * - CONTEXT_SCHEMA v2 → v3: git_url → git_repos map.
  * - atomicWriteJson: пишет через .tmp + rename.
  */
@@ -458,7 +458,7 @@ describe('core/schema-migrations', () => {
       expect(existsSync(join(child, 'business.json'))).toBe(false)
     })
 
-    it('migrates product.json with git_url → context.json v3 with git_repos, stops recursion', () => {
+    it('migrates product.json with git_url → context.json v3 with git_repos and continues Drive recursion', () => {
       const root = join(tr.tmpDir, 'metalab')
       writeManifest(root, 'business.json', { name: 'МетаЛаб' })
       const product = join(root, 'duet')
@@ -466,9 +466,8 @@ describe('core/schema-migrations', () => {
         name: 'Duet',
         git_url: 'git@github.com:foo/bar.git'
       })
-      // Drive-side product folder may contain a child folder that should NOT be walked into.
-      const subFolderInProduct = join(product, 'drafts')
-      writeManifest(subFolderInProduct, 'context.json', { version: 99 }) // future-version, would error if walked
+      const childContext = join(product, 'OntoCoreStructs')
+      writeManifest(childContext, 'stream.json', { name: 'OntoCoreStructs' })
 
       const { contextErrors } = loadOrUpgradeManifests([root])
 
@@ -476,13 +475,15 @@ describe('core/schema-migrations', () => {
       expect(ctx.version).toBe(3)
       expect(ctx.git_repos).toEqual({ Duet: 'git@github.com:foo/bar.git' })
       expect(ctx.git_url).toBeUndefined()
-      // Subfolder under terminal context should NOT have been walked → no error reported for it.
-      expect(contextErrors.find((e) => e.path === subFolderInProduct)).toBeUndefined()
+      const child = JSON.parse(readFileSync(join(childContext, 'context.json'), 'utf-8'))
+      expect(child).toEqual({ version: 3, name: 'OntoCoreStructs' })
+      expect(existsSync(join(childContext, 'stream.json'))).toBe(false)
+      expect(contextErrors).toEqual([])
     })
 
-    it('terminates recursion when v2 context.json with git_url is migrated to v3 with git_repos', () => {
+    it('continues recursion when v2 context.json with git_url is migrated to v3 with git_repos', () => {
       // v2 manifest sitting on disk before sweep: after migration becomes v3 with git_repos,
-      // and walk must respect the post-migration terminal flag (not the legacy git_url field).
+      // and walk must still inspect nested Drive folders.
       const root = join(tr.tmpDir, 'wrapper')
       writeManifest(root, 'context.json', { version: 2, name: 'Wrapper' })
       const child = join(root, 'duet')
@@ -491,10 +492,8 @@ describe('core/schema-migrations', () => {
         name: 'Duet',
         git_url: 'git@github.com:foo/bar.git'
       })
-      // Sub-folder INSIDE the terminal product. If recursion didn't stop, this future-version
-      // manifest would be flagged as a per-context error.
-      const subFolder = join(child, 'drafts')
-      writeManifest(subFolder, 'context.json', { version: 99 })
+      const subFolder = join(child, 'Nested')
+      writeManifest(subFolder, 'context.json', { version: 2, name: 'Nested' })
 
       const { contextErrors } = loadOrUpgradeManifests([root])
 
@@ -502,8 +501,9 @@ describe('core/schema-migrations', () => {
       expect(ctx.version).toBe(3)
       expect(ctx.git_repos).toEqual({ Duet: 'git@github.com:foo/bar.git' })
       expect(ctx.git_url).toBeUndefined()
-      // Recursion stopped at the post-migration terminal → no error for the future-version sub-folder.
-      expect(contextErrors.find((e) => e.path === subFolder)).toBeUndefined()
+      const nested = JSON.parse(readFileSync(join(subFolder, 'context.json'), 'utf-8'))
+      expect(nested).toEqual({ version: 3, name: 'Nested' })
+      expect(contextErrors).toEqual([])
     })
 
     it('orphan resolution: context.json wins over coexisting legacy file, deletes legacy', () => {

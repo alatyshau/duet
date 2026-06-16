@@ -1,4 +1,4 @@
-"""Tests for scanner.py — strict v3 reader, multi-repo terminals."""
+"""Tests for scanner.py — strict v3 reader, multi-repo contexts."""
 
 import json
 from pathlib import Path
@@ -72,7 +72,7 @@ class TestScanner:
         assert db.find_meta_context() == meta
 
     def test_scan_hierarchy(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
-        """Scans full hierarchy: root → mid → terminal-with-git_repos."""
+        """Scans full hierarchy: root → mid → context-with-git_repos."""
         root_path = tmp_path / "Root"
         root_path.mkdir()
         ManifestBuilder.context(root_path, "Root")
@@ -96,7 +96,7 @@ class TestScanner:
         scanner = Scanner(db, repos_path=tmp_path / "repos")
         result = scanner.scan()
 
-        # 3 contexts + 1 product_repo for the terminal
+        # 3 contexts + 1 product_repo for the git-backed context
         assert result["entities_count"] == 4
 
         contexts = db.get_contexts()
@@ -154,11 +154,10 @@ class TestScanner:
             assert repo.parent_id == lab.id
             assert repo.git_url == expected_url
 
-    def test_multi_repo_terminal_does_not_recurse(
+    def test_multi_repo_context_recurses_drive_children(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:
-        """A context with `git_repos` is terminal — children with their own
-        `context.json` are not scanned in."""
+        """A context with `git_repos` still scans Drive child contexts."""
         root_path = tmp_path / "Lab"
         root_path.mkdir()
         ManifestBuilder.context(
@@ -177,12 +176,22 @@ class TestScanner:
         )
 
         Scanner(db).scan()
-        assert db.find_by_name("DeepChild") is None
+        lab = db.find_by_name("Lab")
+        deep_child = db.find_by_name("DeepChild")
+        duet_repo = db.find_by_name("Duet.git")
 
-    def test_terminal_with_git_does_not_recurse(
+        assert lab is not None
+        assert deep_child is not None
+        assert deep_child.type == "context"
+        assert deep_child.parent_id == lab.id
+        assert duet_repo is not None
+        assert duet_repo.type == "product_repo"
+        assert duet_repo.parent_id == lab.id
+
+    def test_context_with_git_recurses_drive_children(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:
-        """Single-repo terminal (legacy single-alias) also stops recursion."""
+        """Single-repo `git_repos` context also scans Drive child contexts."""
         root_path = tmp_path / "Root"
         root_path.mkdir()
         ManifestBuilder.context(root_path, "Root")
@@ -205,7 +214,17 @@ class TestScanner:
 
         Scanner(db).scan()
 
-        assert db.find_by_name("DeepChild") is None
+        product = db.find_by_name("Product")
+        deep_child = db.find_by_name("DeepChild")
+        product_repo = db.find_by_name("Product.git")
+
+        assert product is not None
+        assert deep_child is not None
+        assert deep_child.type == "context"
+        assert deep_child.parent_id == product.id
+        assert product_repo is not None
+        assert product_repo.type == "product_repo"
+        assert product_repo.parent_id == product.id
 
     def test_projects_folders_ignored(self, db: DatabaseManager, tmp_path: Path, monkeypatch) -> None:
         """projects/ subdirectories without manifest don't become entities."""

@@ -64,7 +64,7 @@
 meta-context (one per workspace, e.g. !БАЗА — meta: true)
 ├── root context (top-level, parent_id IS NULL, listed in root_context_folders)
 │   ├── context (intermediate, can nest)
-│   │   └── context with git_repos (terminal — products live in repos)
+│   │   └── context with git_repos (products live in repos; Drive children may still nest)
 │   └── context with git_repos
 └── ...
 ```
@@ -75,7 +75,7 @@ A context is a folder on Drive carrying `context.json` v3. Roles are inferred fr
 |------|---------------------|
 | meta-context | `meta: true` in `context.json`. Exactly one per database whenever `root_context_folders` is non-empty |
 | root context | `parent_id IS NULL`, listed in `root_context_folders` |
-| terminal (with git_repos) | `git_repos` present; scanner stops recursing and registers one `product_repo` per alias |
+| context with git products | `git_repos` present; scanner registers one `product_repo` per alias and still recurses through the context's Drive folder |
 | intermediate | none of the above |
 
 The meta-context is the **управляющий уровень над контекстами** — a container for the user's top-level data that spans every other context: the personal task DB, the ontology, the AI instructions repo. Other root contexts hold domain data (businesses, streams); the meta-context holds the operating layer over them.
@@ -107,7 +107,7 @@ Three entity types live in `entities.db`:
 | `name` | string | required | Globally unique entity name |
 | `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_repos` present |
 | `meta` | bool | optional | `true` marks the meta-context (see Invariants). Host migrates v1's `root` field |
-| `git_repos` | map | optional | `{alias: url}` declaring product clones. **Present → context is terminal** (scanner registers N `product_repo` children, no recursion). Insertion order preserved and surfaces in `products[]` order |
+| `git_repos` | map | optional | `{alias: url}` declaring product clones. When present, scanner registers N `product_repo` children while continuing to recurse through the Drive folder for nested contexts. Insertion order preserved and surfaces in `products[]` order |
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
 | `description` | string | optional | Surfaces in orientation's `chain[].description`; takes priority over README first sentence |
 | `workspace_config` | object | optional | UX hints for `.code-workspace` assembly (see below) |
@@ -120,13 +120,13 @@ Three entity types live in `entities.db`:
 - Lenient on unknown sub-keys of `workspace_config` (forward-compat); strict on known sub-keys.
 - No regex / Windows-reserved-name / URL-leading-`-` guards: manifests are user-written, this is intentional.
 
-**`workspace_config`** controls how Extension assembles the multi-root `.code-workspace` when opening a terminal context:
+**`workspace_config`** controls how Extension assembles the multi-root `.code-workspace` when opening a context with `git_repos`:
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
 | `primary_folder` | `"context"` \| `"git"` | `"git"` | Which folder appears first in `folders[]`. `"git"` puts cloned repos first (in `git_repos` order), Drive folder last. `"context"` puts the Drive folder first |
 
-The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers. Field is no-op on non-terminal contexts (silently ignored).
+The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers. Field is no-op on contexts without `git_repos` (silently ignored).
 
 **`reference_repos`** declares read-only clones. Key = clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space, shared with `git_repos` aliases).
 

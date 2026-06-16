@@ -26,7 +26,7 @@ class ManifestBuilder:
     Usage:
         ManifestBuilder.context(path, "Duet", git_repos={"Duet": "https://..."})
         ManifestBuilder.context(path, "БАЗА", meta=True)
-        # Backwards-compat sugar: single-repo terminal context.
+        # Backwards-compat sugar: single-repo git-backed context.
         ManifestBuilder.context(path, "Duet", git_url="https://...")
         # ↳ writes git_repos={"Duet": "https://..."} under the hood.
     """

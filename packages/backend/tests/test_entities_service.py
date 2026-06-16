@@ -49,6 +49,34 @@ class TestContextsReturnsGitRepos:
             "Duet-Instructions": "https://duet-instructions.git",
         }
 
+    def test_contexts_includes_drive_child_below_git_repos_context(
+        self, tmp_path: Path, db: DatabaseManager, monkeypatch
+    ) -> None:
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_root_context("Root")
+        builder.build(monkeypatch)
+
+        root_path = builder.get_root_context_path(0)
+        onto_path = root_path / "OntoCore"
+        onto_path.mkdir()
+        ManifestBuilder.context(
+            onto_path, "OntoCore",
+            git_repos={"OntoCore": "https://ontocore.git"},
+        )
+        structs_path = onto_path / "OntoCoreStructs"
+        structs_path.mkdir()
+        ManifestBuilder.context(structs_path, "OntoCoreStructs")
+
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+
+        contexts = EntitiesService(db).get_contexts()
+        onto = next(c for c in contexts if c["name"] == "OntoCore")
+        structs = next(c for c in contexts if c["name"] == "OntoCoreStructs")
+
+        assert structs["parent_id"] == onto["id"]
+        assert structs["absolute_path"] == str(structs_path)
+        assert structs["git_repos"] is None
+
     def test_contexts_git_repos_null_when_absent(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch
     ) -> None:

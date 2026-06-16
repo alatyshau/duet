@@ -371,7 +371,7 @@ Host owns auto-upgrade of all on-disk Duet schemas. Policy and migration chain s
 
 **Recursion rules** (mirror backend scanner):
 - Skip directories starting with `.` (`.git`, `.venv`, etc.).
-- Stop recursion at folders whose post-migration `context.json` has a non-empty `git_repos` map (terminal context). The check runs after the in-walk migration upgrade, so a pre-existing v2 manifest with `git_url` becomes a v3 manifest with `git_repos` before the recursion decision is taken.
+- Continue recursion through folders whose post-migration `context.json` has a non-empty `git_repos` map. `git_repos` declares product clones under `DuetData/repos`; it does not make the Drive folder a leaf in the context hierarchy.
 
 **Forward-incompatibility** is documented at the policy level in /spec/PRODUCT.md → Schema Migration Policy. No rollback: first Host startup on an upgraded machine rewrites every legacy manifest in place.
 

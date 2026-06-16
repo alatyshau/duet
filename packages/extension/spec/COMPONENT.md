@@ -81,7 +81,7 @@ refresh    → apiClient.scan()
 
 Both providers are synchronous wrappers around a snapshot:
 
-- **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full list of contexts loaded once on activation. Each entity carries `meta`, `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences (meta / root / terminal / regular) are derived from these fields rather than from a `type` enum. A context is terminal iff `git_repos` has one or more aliases.
+- **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full list of contexts loaded once on activation. Each entity carries `meta`, `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences (meta / root / has git products / regular) are derived from these fields rather than from a `type` enum. A context has git products iff `git_repos` has one or more aliases; it may still have nested Drive child contexts.
 - **КОНТЕКСТ view** (`ContextProvider`) works over a single `OrientationResponse` — backend already resolved the current workspace folders into a chain, products, and components. The provider renders that shape directly. On workspace folder change it calls a `refreshOrientation` callback.
 
 **Tree order:** owned by Backend's `/contexts` response (see /spec/PRODUCT.md → Invariants). `core/tree/contextTree.ts` is a passive view that preserves API order and never re-sorts.
@@ -151,7 +151,7 @@ Two generated artifacts:
 
 | Workspace | Location | When Generated | Folders |
 |-----------|----------|----------------|---------|
-| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a terminal context | One folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved) + Drive folder of the context. Order between repos and Drive folder controlled by `workspace_config.primary_folder` (see /spec/PRODUCT.md → Manifests → workspace_config) |
+| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a context with `git_repos` | One folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved) + Drive folder of the context. Order between repos and Drive folder controlled by `workspace_config.primary_folder` (see /spec/PRODUCT.md → Manifests → workspace_config) |
 | `root-contexts.code-workspace` | `DuetData/` (root) | After scan completes | All root context folders + `DuetData` |
 
 ```json
@@ -176,9 +176,9 @@ The builder's 4th argument is the `primaryFolder: PrimaryFolder = 'git'` orderin
 - `'git'` (default, historical): cloned repos first in declared alias order, Drive folder last.
 - `'context'`: Drive folder first, cloned repos after.
 
-The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — manifests use `primary_folder: "context"` when the user wants the Drive folder to be the terminal default. Single entry point — no separate single-repo variant. A terminal context with one alias produces a 2-folder workspace; two aliases produce three folders; etc.
+The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — manifests use `primary_folder: "context"` when the user wants the Drive folder to be the terminal default. Single entry point — no separate single-repo variant. A context with one `git_repos` alias produces a 2-folder workspace; two aliases produce three folders; etc.
 
-**Alias safety:** aliases originate from user-authored manifest JSON. Before opening a terminal context, `openFolder.ts:findUnsafeAliases` checks every alias in both `git_repos` and `reference_repos`; if any name fails `isSafeRepoName` (path separators, dots-only, control characters, leading dot), the open is **aborted** with a user-visible error — no clone, no workspace file.
+**Alias safety:** aliases originate from user-authored manifest JSON. Before opening a context with `git_repos`, `openFolder.ts:findUnsafeAliases` checks every alias in both `git_repos` and `reference_repos`; if any name fails `isSafeRepoName` (path separators, dots-only, control characters, leading dot), the open is **aborted** with a user-visible error — no clone, no workspace file.
 
 ## Behaviors
 

@@ -243,7 +243,7 @@ describe('VS Code Commands', () => {
             );
         });
 
-        it('aborts open when a terminal context has safe git_repos but unsafe reference_repos (defense-in-depth)', async () => {
+        it('aborts open when a git-backed context has safe git_repos but unsafe reference_repos (defense-in-depth)', async () => {
             // Catches a future refactor that drops the reference_repos pre-flight
             // branch while keeping the git_repos one — the two checks are sequential
             // in `openNode`, so this guards both rails independently.

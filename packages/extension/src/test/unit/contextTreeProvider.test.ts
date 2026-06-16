@@ -185,7 +185,7 @@ describe('ContextTreeProvider', () => {
             }
         });
 
-        it('should highlight terminal context when any of its aliases is open (multi-repo)', () => {
+        it('should highlight git-backed context when any of its aliases is open (multi-repo)', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'МетаЛаб', icon: 'M', absolute_path: '/drive/metalab' }),
@@ -215,7 +215,7 @@ describe('ContextTreeProvider', () => {
             expect(item.label).toContain('🟠');
         });
 
-        it('should treat root as active when one of its terminal aliases is open', () => {
+        it('should treat root as active when one descendant git alias is open', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'МетаЛаб', icon: 'M', absolute_path: '/drive/metalab' }),

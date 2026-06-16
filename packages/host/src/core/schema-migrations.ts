@@ -353,25 +353,16 @@ function upgradeFile(
 const LEGACY_MANIFEST_NAMES = ['business.json', 'stream.json', 'product.json'] as const
 const TARGET_MANIFEST_NAME = 'context.json'
 
-/** Mirrors the scanner's terminal-context check: `git_repos` must be a non-empty plain object. */
-function isNonEmptyObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value as Record<string, unknown>).length > 0
-  )
-}
-
 /**
  * Рекурсивно проходит по rootContextFolders и поднимает все manifest'ы до v3.
  *
  * Правила обхода (зеркалят backend scanner):
  * - Пропускаем dotted-папки (`.git`, `.venv`, etc.).
- * - Не рекурсируем внутрь папок с непустым `git_repos` (terminal context).
+ * - Рекурсируем и внутрь папок с непустым `git_repos`: git-репозитории
+ *   живут в `DuetData/repos`, а Drive-иерархия контекстов остаётся вложенной.
  *
  * Действия в каждой папке:
- * - `context.json` v3 валидный → leave alone, не рекурсируем если есть `git_repos`.
+ * - `context.json` v3 валидный → leave alone, затем рекурсируем в children.
  * - `context.json` v1/v2 → миграция up to v3 (chain), запись через atomic write.
  * - `context.json` future-version (`> maxSupported`) → context-error, файл не трогаем.
  * - `context.json` невалидный JSON → context-error, файл не трогаем.
@@ -414,8 +405,6 @@ function walkContext(
     path: join(folderPath, name)
   })).filter((f) => existsSync(f.path))
 
-  let manifestData: Record<string, unknown> | null = null
-
   if (existsSync(targetPath)) {
     // context.json exists — migrate it (no-op for valid v3). Coexisting legacy files lose:
     // context.json wins, legacy removed without comparison (design §7).
@@ -431,7 +420,6 @@ function walkContext(
       return
     }
     if (result.migrated) bumpMigrated(1)
-    manifestData = result.data
 
     for (const legacy of legacyFiles) {
       try {
@@ -456,7 +444,6 @@ function walkContext(
       return
     }
     bumpMigrated(1)
-    manifestData = result.data
 
     for (const other of legacyFiles.slice(1)) {
       try {
@@ -467,7 +454,7 @@ function walkContext(
     }
   } else if (isRoot) {
     // Self-heal: create context.json v3 with name = basename(folder), without meta.
-    manifestData = { version: 3, name: basename(folderPath) }
+    const manifestData = { version: 3, name: basename(folderPath) }
     try {
       atomicWriteJson(targetPath, manifestData)
       bumpMigrated(1)
@@ -480,13 +467,6 @@ function walkContext(
       })
       return
     }
-  }
-
-  // Recursion decision:
-  // - If folder has non-empty git_repos (terminal) → stop. Backend wouldn't recurse either.
-  // - Else → walk children (skip dot-folders).
-  if (manifestData && isNonEmptyObject(manifestData.git_repos)) {
-    return
   }
 
   let entries: { name: string; path: string }[]

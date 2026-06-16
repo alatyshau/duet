@@ -197,7 +197,7 @@ async function cloneRepoSet(
 
 /**
  * Open a context node.
- * For terminal contexts (have `git_repos`): clone all aliases, generate
+ * For contexts with `git_repos`: clone all aliases, generate
  * multi-root workspace, open it. For others: open the Drive folder directly.
  */
 async function openNode(
@@ -220,8 +220,8 @@ async function openNode(
     // Pre-flight: any unsafe alias in either `git_repos` or `reference_repos`
     // aborts the whole open. Clone and workspace generation share the same
     // alias namespace, so one validation must cover both.
-    const isTerminal = node.hasGit && Object.keys(node.gitRepos).length > 0;
-    if (isTerminal) {
+    const hasGitRepos = node.hasGit && Object.keys(node.gitRepos).length > 0;
+    if (hasGitRepos) {
         const unsafeGit = findUnsafeAliases(node.gitRepos);
         if (unsafeGit.length > 0) {
             reportUnsafeAliases(unsafeGit, `${node.label}.git_repos`);
@@ -236,12 +236,12 @@ async function openNode(
         }
     }
 
-    if (isTerminal) {
+    if (hasGitRepos) {
         await openContextWithRepos(node, forceNewWindow, paths);
         return;
     }
 
-    // Non-terminal context: clone any reference repos first, then open Drive folder.
+    // Context without git_repos: clone any reference repos first, then open Drive folder.
     if (node.referenceRepos) {
         const ok = await cloneRepoSet(node.referenceRepos, paths.reposPath, 'Cloning reference repos...');
         if (!ok) {
@@ -254,7 +254,7 @@ async function openNode(
 }
 
 /**
- * Open a terminal context that declares `git_repos`.
+ * Open a context that declares `git_repos`.
  * Clones all missing aliases, then generates and opens a multi-root workspace.
  */
 async function openContextWithRepos(

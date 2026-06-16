@@ -7,8 +7,8 @@ auto-upgrade and self-heal of legacy manifests.
 Key behaviors:
 - Single recursive function `_scan_context` for every level.
 - Global name uniqueness: priority-based (context > product_repo > reference_repo).
-- Terminal stop on `git_repos`: a context with `git_repos` registers
-  N `product_repo` children (one per alias) and scanner does not recurse.
+- `git_repos` registers N `product_repo` children (one per alias); Drive
+  recursion still continues so nested context folders are discoverable.
 - Deterministic order: readdir results sorted by name.
 """
 
@@ -194,8 +194,10 @@ class Scanner:
 
         Strict v3: reads `context.json` only. Folders without a manifest are
         silently traversed (recurse into children to find deeper contexts).
-        Folders with `git_repos` are terminal — scanner stops and registers
-        one `product_repo` child per alias.
+        Folders with `git_repos` additionally register one `product_repo`
+        child per alias. Drive recursion still continues: `git_repos`
+        declares clones under DuetData/repos; it does not stop context
+        discovery under the context's Drive folder.
         """
         manifest_path = folder_path / "context.json"
         manifest = read_manifest(folder_path, self.errors)
@@ -232,7 +234,9 @@ class Scanner:
         self._register_reference_repos(manifest, context_id, manifest_path)
 
         if manifest.git_repos:
-            # Terminal: one product_repo per alias, no recursion.
+            # One product_repo per alias. Do not return here: nested Drive
+            # folders may carry their own context.json and must stay visible
+            # in the context tree.
             for alias, url in manifest.git_repos.items():
                 repo_entity_name = f"{alias}.git"
                 resolved_repo_name = self._resolve_unique_name(
@@ -249,7 +253,6 @@ class Scanner:
                         git_url=url,
                     )
                 )
-            return
 
         for entry in self._readdir_sorted(folder_path):
             if not entry.is_dir() or entry.name.startswith("."):

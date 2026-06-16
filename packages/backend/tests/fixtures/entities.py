@@ -21,7 +21,7 @@ class EntityFactory:
         # Plain context
         entity = EntityFactory.context("МетаЛаб", "/path")
 
-        # Context with git_url (terminal — product lives in repo)
+        # Context with git_url (git-backed product lives in repo)
         entity = EntityFactory.context("Duet", "/path", git_url="https://...")
 
         # Meta-context (one per workspace)
@@ -45,7 +45,7 @@ class EntityFactory:
         """Create a context entity.
 
         Pass ``meta=True`` for the meta-context, ``git_url=...`` for a
-        terminal context whose product lives in a git repo.
+        context whose product lives in a git repo.
         """
         icon_default = cls.DEFAULT_ICON_GIT if kwargs.get("git_url") else cls.DEFAULT_ICON_CONTEXT
         return Entity(
@@ -89,7 +89,7 @@ class EntityFactory:
     def insert_hierarchy(cls, db, base_path: str = "/repos") -> dict[str, int]:
         """Create a standard 3-level context hierarchy.
 
-        Top-level (root context) -> intermediate context -> terminal-with-git.
+        Top-level (root context) -> intermediate context -> context-with-git.
 
         Returns dict: {"root": id, "mid": id, "product": id}.
         """
