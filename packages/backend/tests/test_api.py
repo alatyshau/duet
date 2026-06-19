@@ -291,3 +291,56 @@ class TestAbsolutePathIntegration:
 
         assert root["absolute_path"] == str(root_path)
         assert mid["absolute_path"] == str(mid_path)
+
+
+@pytest.mark.asyncio
+class TestDeployInstructionsEndpoint:
+    """Tests for /deploy-instructions endpoint."""
+
+    async def test_bad_json_returns_400(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/deploy-instructions", content="not json", headers={"content-type": "application/json"}
+        )
+        assert response.status_code == 400
+        assert response.json()["code"] == "BAD_REQUEST"
+
+    async def test_non_list_paths_returns_400(self, client: AsyncClient) -> None:
+        response = await client.post("/deploy-instructions", json={"workspace_paths": "x"})
+        assert response.status_code == 400
+        assert response.json()["code"] == "BAD_REQUEST"
+
+    async def test_unknown_context(self, client: AsyncClient) -> None:
+        response = await client.post("/deploy-instructions", json={"workspace_paths": []})
+        assert response.status_code == 200
+        assert response.json() == {"status": "unknown", "reason": "no_owning_context"}
+
+    async def test_deploys_resolved_context(
+        self, client: AsyncClient, db, duet_data_builder, monkeypatch
+    ) -> None:
+        from scanner import Scanner
+        from services.workspace import WorkspaceService
+        from mcp_handler import init_services
+        from tests.fixtures import ManifestBuilder
+
+        builder = duet_data_builder
+        builder.add_root_context("Root")
+        builder.build(monkeypatch)
+        root_path = builder.get_root_context_path(0)
+        ctx_path = root_path / "Proj"
+        ctx_path.mkdir()
+        skill = ctx_path / "_src" / "myskill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# myskill", encoding="utf-8")
+        ManifestBuilder.context(ctx_path, "Proj", skills=["@Proj/_src/myskill"], instructions=[])
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+        init_services(WorkspaceService(db), EntitiesService(db), time.time())
+
+        response = await client.post(
+            "/deploy-instructions", json={"workspace_paths": [str(ctx_path)]}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "myskill" in data["deployed"]["skills_deployed"]
+        assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
+        assert (ctx_path / "CLAUDE.md").is_file()

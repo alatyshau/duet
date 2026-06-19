@@ -528,6 +528,24 @@ def _merge_one_agent(
     return merged, None
 
 
+def _build_bare_session_prompt(bootstrapper_text: str, skills_table: str) -> str:
+    """Build the thin session prompt: bootstrapper + skills table, with the
+    user-core marker removed (no agent core appended).
+
+    This is `DuetData/duet.md` — deployed as the Claude output-style and the
+    Codex/Antigravity system prompt. The behavioral layer (L7, etc.) is no
+    longer baked into the session; it comes from the per-context
+    CLAUDE.md/AGENTS.md/GEMINI.md instead. The full agent cores still go into
+    the `duet-{agent}.md` subagent files.
+    """
+    bare = bootstrapper_text.replace(INSERT_MARKER, "")
+    if SKILLS_TABLE_MARKER in bare:
+        bare = bare.replace(SKILLS_TABLE_MARKER, skills_table)
+    # The core marker sits at the tail of the bootstrapper; removing it leaves
+    # trailing blank lines — trim to a single terminating newline.
+    return bare.rstrip() + "\n"
+
+
 def merge_duet_instructions(
     bootstrapper_path: Path,
     instructions_path: Path,
@@ -586,6 +604,10 @@ def merge_duet_instructions(
     output_dir.mkdir(parents=True, exist_ok=True)
     paths: dict[str, str] = {}
 
+    # Thin session prompt (bootstrapper + skills, no core) — one per workspace.
+    bare_output = output_dir / "duet.md"
+    atomic_write(bare_output, _build_bare_session_prompt(bootstrapper_text, skills_table))
+
     for agent_name, agent_rel_path in agents_config.items():
         if not isinstance(agent_rel_path, str) or not agent_rel_path:
             aggregate_errors.append({
@@ -616,5 +638,6 @@ def merge_duet_instructions(
     return {
         "status": status,
         "paths": paths,
+        "output_style": str(bare_output),
         "errors": aggregate_errors,
     }

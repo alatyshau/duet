@@ -504,6 +504,36 @@ class TestMergeDuetInstructions:
         skills_row = "| commit"
         assert exec_content.count(skills_row) == vizir_content.count(skills_row) == 1
 
+    # --- B1b: thin session prompt duet.md (bootstrapper + skills, no core) ---
+    def test_emits_thin_session_prompt_without_core(self, tmp_path):
+        bootstrapper = _make_bootstrapper(tmp_path)
+        instr_path = _make_instructions(
+            tmp_path,
+            skills={
+                "commit": '---\nname: commit\ndescription: Generate commit\nshortcuts: ["!коммит"]\ntrigger: "User asks to commit"\n---\n# Commit\n',
+            },
+            agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
+        )
+        output_dir = _output_dir(tmp_path)
+        errors_file = tmp_path / "data" / "errors.json"
+
+        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
+
+        bare_path = output_dir / "duet.md"
+        assert bare_path.exists()
+        assert result["output_style"] == str(bare_path)
+
+        bare = bare_path.read_text(encoding="utf-8")
+        # Skills table is present...
+        assert "commit" in bare and "!коммит" in bare
+        # ...both markers are resolved (core removed, skills filled)...
+        assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in bare
+        assert "<!-- INSERT SKILLS TABLE -->" not in bare
+        # ...but NO agent core body leaked into the session prompt.
+        assert "## L7+" not in bare
+        assert "Be excellent" not in bare
+        assert "## Loop" not in bare
+
     # --- B2: bootstrapper missing ---
     def test_bootstrapper_not_found(self, tmp_path):
         instr_path = _make_instructions(tmp_path)

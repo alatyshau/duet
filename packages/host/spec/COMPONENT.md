@@ -10,7 +10,7 @@ Host is the **single writer** of system configuration and the **owner of backend
 
 1. **Pointer + config.** Writes `~/.org.ve68.duet`. Writes and migrates `DuetConfig/settings.json` and `{machine}.json`. Writes and migrates context manifests on disk. Enforces structural invariants (meta-context at position 0).
 2. **Deployment.** Deploys backend Python code from bundled `extraResources` to `DuetData/backend/`, manages venv + dependencies, writes `VERSION`, owns process spawn / stop / health monitoring.
-3. **AI client integration.** Reads merged per-agent instructions from `DuetData/duet-{agent}.md` and writes them into Claude Code / Codex / Antigravity config locations.
+3. **AI client integration.** Reads the thin session prompt (`DuetData/duet.md`) and the full per-agent instructions (`DuetData/duet-{agent}.md`) and writes them into Claude Code / Codex / Antigravity config locations.
 
 Everything in this file describes how Host fulfils these three roles. UI surfaces (tray, wizard, pages) — see [UI.md](UI.md).
 
@@ -248,23 +248,25 @@ Implementation: `core/backend.ts`.
 
 ### AI Clients
 
-Detects and configures AI clients via direct file writes (no CLI). Backend produces one merged file per agent declared in `index.json.agents` (e.g. `DuetData/duet-executor.md`, `DuetData/duet-vizir.md`). Host reads them and deploys per platform.
+Detects and configures AI clients via direct file writes (no CLI). Backend produces two kinds of merged file: the **thin session prompt** `DuetData/duet.md` (bootstrapper + skills, no agent core) and one **full per-agent** file `DuetData/duet-{agent}.md` (bootstrapper + agent core + skills) for each agent declared in `index.json.agents` (e.g. `duet-executor.md`, `duet-vizir.md`). Host reads them via `readMergedAgents()` and deploys per platform.
+
+**Thin/full split:** the session-level deployments — Claude output-style, Codex instructions, Antigravity `GEMINI.md` — all use the thin session prompt (`merged.sessionPrompt`, from `duet.md`). The behavioral agent layer comes from the per-context `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` (deployed by Backend), not from the session prompt. The Claude `duet-executor` / `duet-vizir` custom subagents still carry the full agent cores (`merged.executor` / `merged.vizir`, from `duet-{agent}.md`).
 
 | Client | Config files | What |
 |--------|-------------|------|
-| Claude Code | `~/.claude/output-styles/duet-executor.md` | Executor merged content as output style. Frontmatter `name: duet-executor`, `keep-coding-instructions: true` |
-| Claude Code | `~/.claude/agents/duet-executor.md` | Executor as custom subagent (kebab-case `name`, separate frontmatter without `keep-coding-instructions`) |
-| Claude Code | `~/.claude/agents/duet-vizir.md` | Vizir as custom subagent |
+| Claude Code | `~/.claude/output-styles/duet-executor.md` | Thin session prompt (`duet.md` / `sessionPrompt`) as output style. Frontmatter `name: duet-executor`, `keep-coding-instructions: true` |
+| Claude Code | `~/.claude/agents/duet-executor.md` | Executor full core as custom subagent (kebab-case `name`, separate frontmatter without `keep-coding-instructions`) |
+| Claude Code | `~/.claude/agents/duet-vizir.md` | Vizir full core as custom subagent |
 | Claude Code | `~/.claude/settings.json` | `outputStyle: "duet-executor"` |
 | Claude Code | `~/.claude.json` | MCP server (`mcpServers.duet`, HTTP) |
-| Codex | `~/.codex/duet_instructions.md` | Host-managed instructions file |
+| Codex | `~/.codex/duet_instructions.md` | Host-managed instructions file (thin session prompt) |
 | Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp_servers.duet]` |
-| Antigravity | `~/.gemini/GEMINI.md` | Host-managed instructions file |
+| Antigravity | `~/.gemini/GEMINI.md` | Host-managed instructions file (thin session prompt) |
 | Antigravity | `~/.gemini/antigravity/mcp_config.json` | MCP server (`mcpServers.duet`, HTTP) |
 
-**Platform asymmetry:** custom subagents are deployed only for Claude Code. Codex and Antigravity use one instructions file.
+**Platform asymmetry:** custom subagents (full agent cores) are deployed only for Claude Code. Codex and Antigravity get only the thin session prompt.
 
-**Host knows two agents:** the deployment logic is hard-coded for `executor` and `vizir` (`MergedAgents = { executor, vizir }`). Backend (`merge_duet_instructions`) accepts any agent set declared in `index.json.agents`, but additional agents would be merged to disk and ignored by host. If/when a third agent is added, host needs to be extended to read the agent set dynamically from the backend response.
+**Host knows two agents:** the deployment logic is hard-coded for `executor` and `vizir` (`MergedAgents = { sessionPrompt, executor, vizir }`). Backend (`merge_duet_instructions`) accepts any agent set declared in `index.json.agents`, but additional agents would be merged to disk and ignored by host. If/when a third agent is added, host needs to be extended to read the agent set dynamically from the backend response.
 
 **Pattern:** read per-agent merged content from disk (`DuetData/duet-{agent}.md`) → detect (config dir exists?) → configure (write files) → show result. Not found = info, not error. Content not generated = MCP configured, instructions skipped (`needs_setup`).
 
@@ -285,7 +287,8 @@ Manages merged AI instructions lifecycle. Backend generates per-agent `DuetData/
 **Operations:**
 - `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult` (`{ status, paths: { agent → path }, errors }`).
 - `readMergedAgent(duetDataPath, agent)` — reads one agent's merged file from disk; returns `null` if missing.
-- `readMergedAgents(duetDataPath)` — reads both agents into a `MergedAgents` bag (`{ executor, vizir }`).
+- `readSessionPrompt(duetDataPath)` — reads the thin session prompt `DuetData/duet.md` (const `SESSION_PROMPT_FILE = 'duet.md'`); returns `null` if missing.
+- `readMergedAgents(duetDataPath)` — reads the session prompt + both agents into a `MergedAgents` bag (`{ sessionPrompt, executor, vizir }`).
 - `readCachedErrors(duetDataPath)` — reads errors from `DuetData/data/duet-instructions-errors.json`.
 - `fixInstructionsError(instructionsPath, relativePath, reasonCode)` — auto-fix source file (add/replace frontmatter, add missing fields). Returns true if fix applied.
 - `isFixableError(reasonCode)` — check if error can be auto-fixed. Fixable: `no_frontmatter`, `invalid_yaml`, `missing_fields`.
@@ -338,7 +341,7 @@ Host owns auto-upgrade of all on-disk Duet schemas. Policy and migration chain s
 |--------|---------|--------|-----------------|
 | `settings` | `settings.json` | v2 | v1 → v2: rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved |
 | `machine` | `{machine}.json` | v2 | v1 → v2: add `version: 2`. No field renames |
-| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v3 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. All other fields preserved |
+| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v4 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. v3 → v4: delete `workspace_config` (the `primary_folder` option is removed — workspace assembly is now always context-first); bump `version: 4`. The v4 `skills`/`instructions`/`memory` fields are additive (absent is valid, no migration). All other fields preserved |
 
 **Triggers:**
 1. **Host startup** — full sweep before backend spawn. Order: settings → machine → manifests under each root context. If settings or machine produces a critical error, the manifest walk is skipped and backend does not spawn.
@@ -358,7 +361,7 @@ Host owns auto-upgrade of all on-disk Duet schemas. Policy and migration chain s
 |-------------|---------|
 | `future_version` | `context.json` is `version > MAX_SUPPORTED`. Backend will skip this context |
 | `invalid_json` | `context.json` is broken JSON or has missing/non-int `version`. File untouched |
-| `migration_failed` | v1 → v2 → v3 migration chain could not complete (rare; usually IO error mid-write) |
+| `migration_failed` | v1 → v2 → v3 → v4 migration chain could not complete (rare; usually IO error mid-write) |
 | `unresolved_alias` | `root_context_folders` entry references an `@alias` not registered in this machine's `{machine}.json` |
 
 **Atomic write:** `atomicWriteJson(path, data)` (in `core/json-io.ts`) writes `{path}.tmp` then `rename()`. On POSIX `rename(2)` is atomic on the same filesystem; a crash mid-write leaves either the original file or the new one — never a half-written file. For legacy → context migration the order is: write `context.json` → delete legacy. A crash between leaves both files; orphan resolution on the next sweep handles them.

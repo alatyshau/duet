@@ -124,6 +124,7 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
     - workspace: {kind, context_name, context_folder, git_folders[, reference_repos][, meta-only addons]}
     - context: {breadcrumb, chain with type/name/description?}
     - products: [{name, path, spec?, description?, components[]}] — top-level array
+    - memory: {ref, path} context-memory pointer, or null when none declared
     """
     service = _get_workspace_service()
     return service.get_orientation(workspace_paths=workspace_paths or [])

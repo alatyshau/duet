@@ -1,4 +1,4 @@
-import { ContextEntity, PrimaryFolder } from '../api-client';
+import { ContextEntity } from '../api-client';
 
 /**
  * Sort order is owned by the backend (`/contexts`): roots follow
@@ -25,12 +25,6 @@ export interface TreeNode {
     /** Map alias → git URL from `git_repos`. Empty when context has no git products. */
     gitRepos: Record<string, string>;
     referenceRepos?: Record<string, string>;
-    /**
-     * Optional UX hints from `workspace_config` in `context.json`. Currently only
-     * `primaryFolder` — which folder appears first in the generated multi-root
-     * workspace. Absent → `"git"` (cloned repos first, Drive folder last).
-     */
-    workspaceConfig?: { primaryFolder: PrimaryFolder };
 }
 
 export class ContextTree {
@@ -118,9 +112,6 @@ export class ContextTree {
             entityId: numId,
             gitRepos,
             referenceRepos: context.reference_repos ?? undefined,
-            workspaceConfig: context.workspace_config
-                ? { primaryFolder: context.workspace_config.primary_folder }
-                : undefined,
         };
 
         this.nodeCache.set(numId, node);

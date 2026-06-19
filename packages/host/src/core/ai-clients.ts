@@ -4,12 +4,13 @@
  * КТО ИСПОЛЬЗУЕТ: main process, страница "AI Агенты".
  *
  * АРХИТЕКТУРА (multi-agent):
- *   Backend produces per-agent merged files in DuetData (`duet-executor.md`,
- *   `duet-vizir.md`). Host reads them via `readMergedAgents()` and deploys:
+ *   Backend produces a thin session prompt (`duet.md` — bootstrapper + skills,
+ *   no core) and full per-agent cores (`duet-executor.md`, `duet-vizir.md`) in
+ *   DuetData. Host reads them via `readMergedAgents()` and deploys:
  *
- *   - Claude Code:  output-style (executor) + 2 custom subagents in ~/.claude/agents/.
- *   - Codex:        single instructions file (executor only).
- *   - Antigravity:  single GEMINI.md (executor only).
+ *   - Claude Code:  output-style (thin `sessionPrompt`) + 2 full-core subagents in ~/.claude/agents/.
+ *   - Codex:        single instructions file (thin `sessionPrompt`).
+ *   - Antigravity:  single GEMINI.md (thin `sessionPrompt`).
  *
  *   Custom subagents in Codex/Antigravity are intentionally not deployed —
  *   Antigravity does not support them globally; Codex deployment is held
@@ -40,7 +41,7 @@ export type { AgentStatus, AgentCheckedFile, AgentIssue, AgentInfo } from '../sh
  * for the Duet output-style. Always paired with the Executor body.
  */
 const OUTPUT_STYLE_DESCRIPTION =
-  "Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, L7 staff-engineer principles."
+  "Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, and knowledge-persistence routing."
 
 /**
  * Description for the duet-executor custom subagent — when Claude should
@@ -99,9 +100,9 @@ function subagentFrontmatter(name: string, description: string): string {
   ].join('\n')
 }
 
-/** Expected on-disk content for ~/.claude/output-styles/duet-executor.md. */
-function expectedOutputStyleContent(executorBody: string): string {
-  return outputStyleFrontmatter() + executorBody
+/** Expected on-disk content for ~/.claude/output-styles/duet-executor.md (thin session prompt body). */
+function expectedOutputStyleContent(sessionBody: string): string {
+  return outputStyleFrontmatter() + sessionBody
 }
 
 /** Expected on-disk content for ~/.claude/agents/duet-executor.md. */
@@ -163,7 +164,7 @@ export const configureClaudeCode = (
     configureClaudeSettings(claudeDir)
 
     // 5. Output style + custom agents (require merged content from DuetData)
-    if (merged.executor === null || merged.vizir === null) {
+    if (merged.sessionPrompt === null || merged.executor === null || merged.vizir === null) {
       return {
         id: 'claude-code',
         name: 'Claude Code',
@@ -176,7 +177,8 @@ export const configureClaudeCode = (
     const executorAgentDest = join(agentsDir, 'duet-executor.md')
     const vizirAgentDest = join(agentsDir, 'duet-vizir.md')
 
-    writeFileSync(styleDest, expectedOutputStyleContent(merged.executor), 'utf-8')
+    // Output style = thin session prompt (duet.md). Subagents = full agent cores.
+    writeFileSync(styleDest, expectedOutputStyleContent(merged.sessionPrompt), 'utf-8')
     writeFileSync(executorAgentDest, expectedExecutorAgentContent(merged.executor), 'utf-8')
     writeFileSync(vizirAgentDest, expectedVizirAgentContent(merged.vizir), 'utf-8')
 
@@ -427,8 +429,8 @@ export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] =>
   const merged = readMergedAgents(duetDataPath)
   return [
     detectClaudeCode(merged, duetDataPath, port),
-    detectCodex(merged.executor, duetDataPath, port),
-    detectAntigravity(merged.executor, duetDataPath, port)
+    detectCodex(merged.sessionPrompt, duetDataPath, port),
+    detectAntigravity(merged.sessionPrompt, duetDataPath, port)
   ]
 }
 
@@ -456,8 +458,8 @@ function detectClaudeCode(
 
   // Per-file freshness: each compares against its own expected (frontmatter + body).
   const styleFresh =
-    stylePresent && merged.executor !== null
-      ? readFileSync(stylePath, 'utf-8') === expectedOutputStyleContent(merged.executor)
+    stylePresent && merged.sessionPrompt !== null
+      ? readFileSync(stylePath, 'utf-8') === expectedOutputStyleContent(merged.sessionPrompt)
       : false
   const executorAgentFresh =
     executorAgentPresent && merged.executor !== null
@@ -494,7 +496,7 @@ function detectClaudeCode(
 
     // Stale (file present but content mismatched) — call it out specifically
     const stale =
-      (stylePresent && !styleFresh && merged.executor !== null) ||
+      (stylePresent && !styleFresh && merged.sessionPrompt !== null) ||
       (executorAgentPresent && !executorAgentFresh && merged.executor !== null) ||
       (vizirAgentPresent && !vizirAgentFresh && merged.vizir !== null)
 
@@ -763,8 +765,8 @@ function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
 export const configureAllAgents = (duetDataPath: string, port: number): AgentInfo[] => {
   const merged = readMergedAgents(duetDataPath)
   configureClaudeCode(merged, duetDataPath, port)
-  configureCodex(merged.executor, duetDataPath, port)
-  configureAntigravity(merged.executor, duetDataPath, port)
+  configureCodex(merged.sessionPrompt, duetDataPath, port)
+  configureAntigravity(merged.sessionPrompt, duetDataPath, port)
   // Re-detect after configure to return full AgentInfo with checkedFiles
   return detectAgents(duetDataPath, port)
 }

@@ -1,7 +1,7 @@
 """Hierarchy scanner for Duet entities.
 
-Backend is strict v3 reader: walks each root context folder, registers
-contexts that carry a valid `context.json` (v3). Host owns all
+Backend is strict v4 reader: walks each root context folder, registers
+contexts that carry a valid `context.json` (v4). Host owns all
 auto-upgrade and self-heal of legacy manifests.
 
 Key behaviors:
@@ -192,7 +192,7 @@ class Scanner:
     def _scan_context(self, folder_path: Path, parent_id: int | None) -> None:
         """Scan a folder as a context.
 
-        Strict v3: reads `context.json` only. Folders without a manifest are
+        Strict v4: reads `context.json` only. Folders without a manifest are
         silently traversed (recurse into children to find deeper contexts).
         Folders with `git_repos` additionally register one `product_repo`
         child per alias. Drive recursion still continues: `git_repos`

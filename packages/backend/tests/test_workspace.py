@@ -1131,3 +1131,71 @@ class TestResolveMultiPath:
         result = service._resolve_multi_path(paths)
         assert result is not None
         assert result.name == "DuetLab"
+
+
+class TestBuildMemory:
+    """Tests for WorkspaceService._build_memory — the orientation memory pointer."""
+
+    def _setup_context(self, tmp_path, db, monkeypatch, **manifest_kw):
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_root_context("Root")
+        builder.build(monkeypatch)
+        root_path = builder.get_root_context_path(0)
+        ctx_path = root_path / "Proj"
+        ctx_path.mkdir()
+        ManifestBuilder.context(ctx_path, "Proj", **manifest_kw)
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+        service = WorkspaceService(db)
+        entity = service._resolve_entity(str(ctx_path))
+        return service, entity, ctx_path
+
+    def test_resolves_pointer(self, tmp_path, db, monkeypatch):
+        service, entity, ctx_path = self._setup_context(
+            tmp_path, db, monkeypatch, memory="@Proj/notes.md"
+        )
+        (ctx_path / "notes.md").write_text("domain memory", encoding="utf-8")
+        mem = service._build_memory(entity)
+        assert mem == {"ref": "@Proj/notes.md", "path": str((ctx_path / "notes.md").resolve())}
+
+    def test_null_when_absent(self, tmp_path, db, monkeypatch):
+        service, entity, _ = self._setup_context(tmp_path, db, monkeypatch)
+        assert service._build_memory(entity) is None
+
+    def test_null_when_unresolvable(self, tmp_path, db, monkeypatch):
+        service, entity, _ = self._setup_context(
+            tmp_path, db, monkeypatch, memory="@Nope/x.md"
+        )
+        assert service._build_memory(entity) is None
+
+
+class TestDeployInstructionsService:
+    """Tests for WorkspaceService.deploy_instructions — context resolution + report."""
+
+    def test_unknown_when_no_paths(self, tmp_path, db, monkeypatch):
+        service = WorkspaceService(db)
+        result = service.deploy_instructions([])
+        assert result == {"status": "unknown", "reason": "no_owning_context"}
+
+    def test_deploys_for_resolved_context(self, tmp_path, db, monkeypatch):
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_root_context("Root")
+        builder.build(monkeypatch)
+        root_path = builder.get_root_context_path(0)
+        ctx_path = root_path / "Proj"
+        ctx_path.mkdir()
+        skill = ctx_path / "_src" / "myskill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# myskill", encoding="utf-8")
+        ManifestBuilder.context(ctx_path, "Proj", skills=["@Proj/_src/myskill"], instructions=[])
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+
+        service = WorkspaceService(db)
+        result = service.deploy_instructions([str(ctx_path)])
+
+        assert result["status"] == "ok"
+        assert "myskill" in result["deployed"]["skills_deployed"]
+        assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
+        # instructions always generated from the real per-client templates
+        assert (ctx_path / "CLAUDE.md").is_file()
+        assert (ctx_path / "AGENTS.md").is_file()
+        assert (ctx_path / "GEMINI.md").is_file()

@@ -104,25 +104,25 @@ describe('core/schema-migrations', () => {
       }
     })
 
-    it('CONTEXT_SCHEMA: business.json with root → context.json with meta (v1→v3 chain)', () => {
+    it('CONTEXT_SCHEMA: business.json with root → context.json with meta (v1→v4 chain)', () => {
       const v1 = { name: 'БАЗА', root: true, icon: '🏠' }
       const result = applyMigrations(CONTEXT_SCHEMA, v1, { sourceFilename: 'business.json' })
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual({ version: 3, name: 'БАЗА', icon: '🏠', meta: true })
+        expect(result.data).toEqual({ version: 4, name: 'БАЗА', icon: '🏠', meta: true })
       }
     })
 
-    it('CONTEXT_SCHEMA: business.json without root → no meta (v1→v3)', () => {
+    it('CONTEXT_SCHEMA: business.json without root → no meta (v1→v4)', () => {
       const v1 = { name: 'МетаЛаб' }
       const result = applyMigrations(CONTEXT_SCHEMA, v1, { sourceFilename: 'business.json' })
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual({ version: 3, name: 'МетаЛаб' })
+        expect(result.data).toEqual({ version: 4, name: 'МетаЛаб' })
       }
     })
 
-    it('CONTEXT_SCHEMA: stream.json → git_url collapsed into git_repos (v1→v3)', () => {
+    it('CONTEXT_SCHEMA: stream.json → git_url collapsed into git_repos (v1→v4)', () => {
       const v1 = {
         name: 'ТехноЛаб',
         git_url: 'git@github.com:foo/bar.git',
@@ -133,7 +133,7 @@ describe('core/schema-migrations', () => {
       expect(result.ok).toBe(true)
       if (result.ok) {
         expect(result.data).toEqual({
-          version: 3,
+          version: 4,
           name: 'ТехноЛаб',
           git_repos: { ТехноЛаб: 'git@github.com:foo/bar.git' },
           reference_repos: { cookbook: 'https://github.com/anthropics/anthropic-cookbook.git' },
@@ -143,13 +143,13 @@ describe('core/schema-migrations', () => {
       }
     })
 
-    it('CONTEXT_SCHEMA: product.json with git_url → git_repos {name: url}, no meta (v1→v3)', () => {
+    it('CONTEXT_SCHEMA: product.json with git_url → git_repos {name: url}, no meta (v1→v4)', () => {
       const v1 = { name: 'Duet', git_url: 'git@github.com:owner/repo.git', icon: '📦' }
       const result = applyMigrations(CONTEXT_SCHEMA, v1, { sourceFilename: 'product.json' })
       expect(result.ok).toBe(true)
       if (result.ok) {
         expect(result.data).toEqual({
-          version: 3,
+          version: 4,
           name: 'Duet',
           icon: '📦',
           git_repos: { Duet: 'git@github.com:owner/repo.git' }
@@ -162,7 +162,7 @@ describe('core/schema-migrations', () => {
       const result = applyMigrations(CONTEXT_SCHEMA, v1, { sourceFilename: 'business.json' })
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toMatchObject({ version: 3, name: 'X', myCustomField: 'survives' })
+        expect(result.data).toMatchObject({ version: 4, name: 'X', myCustomField: 'survives' })
       }
     })
 
@@ -175,15 +175,15 @@ describe('core/schema-migrations', () => {
       }
     })
 
-    // === v2 → v3 specific (review issue 1: §5 design-doc) ===
+    // === v2 → v4 specific (git_url collapse) ===
 
-    it('CONTEXT_SCHEMA: v2 → v3 converts git_url into git_repos map keyed by name', () => {
+    it('CONTEXT_SCHEMA: v2 → v4 converts git_url into git_repos map keyed by name', () => {
       const v2 = { version: 2, name: 'Duet', git_url: 'git@github.com:owner/repo.git', icon: '📦' }
       const result = applyMigrations(CONTEXT_SCHEMA, v2)
       expect(result.ok).toBe(true)
       if (result.ok) {
         expect(result.data).toEqual({
-          version: 3,
+          version: 4,
           name: 'Duet',
           icon: '📦',
           git_repos: { Duet: 'git@github.com:owner/repo.git' }
@@ -193,30 +193,82 @@ describe('core/schema-migrations', () => {
       }
     })
 
-    it('CONTEXT_SCHEMA: v2 → v3 with no git_url just bumps version', () => {
+    it('CONTEXT_SCHEMA: v2 → v4 with no git_url just bumps version', () => {
       const v2 = { version: 2, name: 'МетаЛаб', icon: '🧪' }
       const result = applyMigrations(CONTEXT_SCHEMA, v2)
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual({ version: 3, name: 'МетаЛаб', icon: '🧪' })
+        expect(result.data).toEqual({ version: 4, name: 'МетаЛаб', icon: '🧪' })
         expect(result.data.git_repos).toBeUndefined()
       }
     })
 
-    it('CONTEXT_SCHEMA: v3 input is no-op (idempotent)', () => {
+    // === v3 → v4 specific (drop workspace_config) ===
+
+    it('CONTEXT_SCHEMA: v3 → v4 drops workspace_config, preserves the rest', () => {
       const v3 = {
         version: 3,
+        name: 'DuetLab',
+        git_repos: { Duet: 'git@github.com:owner/duet.git' },
+        workspace_config: { primary_folder: 'context' }
+      }
+      const result = applyMigrations(CONTEXT_SCHEMA, v3)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.data).toEqual({
+          version: 4,
+          name: 'DuetLab',
+          git_repos: { Duet: 'git@github.com:owner/duet.git' }
+        })
+        expect(result.data.workspace_config).toBeUndefined()
+        expect(result.fromVersion).toBe(3)
+      }
+    })
+
+    it('CONTEXT_SCHEMA: v3 → v4 with no workspace_config just bumps version', () => {
+      const v3 = { version: 3, name: 'Plain', git_repos: { A: 'https://a.git' } }
+      const result = applyMigrations(CONTEXT_SCHEMA, v3)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.data).toEqual({ version: 4, name: 'Plain', git_repos: { A: 'https://a.git' } })
+      }
+    })
+
+    it('CONTEXT_SCHEMA: v3 → v4 preserves additive skills/instructions/memory', () => {
+      const v3 = {
+        version: 3,
+        name: 'DuetLab',
+        skills: ['@anthropic-skills.git/skills/skill-creator'],
+        instructions: ['@DuetLab/README.md'],
+        memory: '@DuetLab/README.md'
+      }
+      const result = applyMigrations(CONTEXT_SCHEMA, v3)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.data).toEqual({
+          version: 4,
+          name: 'DuetLab',
+          skills: ['@anthropic-skills.git/skills/skill-creator'],
+          instructions: ['@DuetLab/README.md'],
+          memory: '@DuetLab/README.md'
+        })
+      }
+    })
+
+    it('CONTEXT_SCHEMA: v4 input is no-op (idempotent)', () => {
+      const v4 = {
+        version: 4,
         name: 'DuetLab',
         git_repos: {
           Duet: 'git@github.com:owner/duet.git',
           'Duet-Instructions': 'git@github.com:owner/instr.git'
         }
       }
-      const result = applyMigrations(CONTEXT_SCHEMA, v3)
+      const result = applyMigrations(CONTEXT_SCHEMA, v4)
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual(v3)
-        expect(result.fromVersion).toBe(3)
+        expect(result.data).toEqual(v4)
+        expect(result.fromVersion).toBe(4)
       }
     })
 
@@ -225,7 +277,7 @@ describe('core/schema-migrations', () => {
       const result = applyMigrations(CONTEXT_SCHEMA, v2)
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual({ version: 3, name: 'NoRepo' })
+        expect(result.data).toEqual({ version: 4, name: 'NoRepo' })
         expect(result.data.git_url).toBeUndefined()
         expect(result.data.git_repos).toBeUndefined()
       }
@@ -234,12 +286,12 @@ describe('core/schema-migrations', () => {
     it('CONTEXT_SCHEMA: v2 with git_url but missing name drops git_url, no git_repos', () => {
       // Malformed v2 (name is required), but a hand-written file can hit this shape.
       // We refuse to invent an alias from a missing name; git_url is still dropped so the
-      // resulting v3 file is internally consistent.
+      // resulting file is internally consistent.
       const v2 = { version: 2, git_url: 'git@github.com:foo/bar.git' }
       const result = applyMigrations(CONTEXT_SCHEMA, v2)
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual({ version: 3 })
+        expect(result.data).toEqual({ version: 4 })
         expect(result.data.git_url).toBeUndefined()
         expect(result.data.git_repos).toBeUndefined()
       }
@@ -251,7 +303,7 @@ describe('core/schema-migrations', () => {
       const result = applyMigrations(CONTEXT_SCHEMA, v2)
       expect(result.ok).toBe(true)
       if (result.ok) {
-        expect(result.data).toEqual({ version: 3, name: '' })
+        expect(result.data).toEqual({ version: 4, name: '' })
         expect(result.data.git_url).toBeUndefined()
         expect(result.data.git_repos).toBeUndefined()
       }
@@ -418,7 +470,7 @@ describe('core/schema-migrations', () => {
       expect(migratedCount).toBe(1)
       expect(existsSync(join(root, 'business.json'))).toBe(false)
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'БАЗА', meta: true })
+      expect(ctx).toEqual({ version: 4, name: 'БАЗА', meta: true })
     })
 
     it('migrates business.json without root → context.json v3 without meta', () => {
@@ -428,7 +480,7 @@ describe('core/schema-migrations', () => {
       loadOrUpgradeManifests([root])
 
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'МетаЛаб', icon: '🧪' })
+      expect(ctx).toEqual({ version: 4, name: 'МетаЛаб', icon: '🧪' })
       expect(ctx.meta).toBeUndefined()
     })
 
@@ -441,7 +493,7 @@ describe('core/schema-migrations', () => {
       loadOrUpgradeManifests([root])
 
       const ctx = JSON.parse(readFileSync(join(child, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'ТехноЛаб' })
+      expect(ctx).toEqual({ version: 4, name: 'ТехноЛаб' })
     })
 
     it('migrates business.json (inside chain, legacy mistake) → context.json v3 without meta', () => {
@@ -454,7 +506,7 @@ describe('core/schema-migrations', () => {
       loadOrUpgradeManifests([root])
 
       const ctx = JSON.parse(readFileSync(join(child, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'Inner' })
+      expect(ctx).toEqual({ version: 4, name: 'Inner' })
       expect(existsSync(join(child, 'business.json'))).toBe(false)
     })
 
@@ -472,11 +524,11 @@ describe('core/schema-migrations', () => {
       const { contextErrors } = loadOrUpgradeManifests([root])
 
       const ctx = JSON.parse(readFileSync(join(product, 'context.json'), 'utf-8'))
-      expect(ctx.version).toBe(3)
+      expect(ctx.version).toBe(4)
       expect(ctx.git_repos).toEqual({ Duet: 'git@github.com:foo/bar.git' })
       expect(ctx.git_url).toBeUndefined()
       const child = JSON.parse(readFileSync(join(childContext, 'context.json'), 'utf-8'))
-      expect(child).toEqual({ version: 3, name: 'OntoCoreStructs' })
+      expect(child).toEqual({ version: 4, name: 'OntoCoreStructs' })
       expect(existsSync(join(childContext, 'stream.json'))).toBe(false)
       expect(contextErrors).toEqual([])
     })
@@ -498,11 +550,11 @@ describe('core/schema-migrations', () => {
       const { contextErrors } = loadOrUpgradeManifests([root])
 
       const ctx = JSON.parse(readFileSync(join(child, 'context.json'), 'utf-8'))
-      expect(ctx.version).toBe(3)
+      expect(ctx.version).toBe(4)
       expect(ctx.git_repos).toEqual({ Duet: 'git@github.com:foo/bar.git' })
       expect(ctx.git_url).toBeUndefined()
       const nested = JSON.parse(readFileSync(join(subFolder, 'context.json'), 'utf-8'))
-      expect(nested).toEqual({ version: 3, name: 'Nested' })
+      expect(nested).toEqual({ version: 4, name: 'Nested' })
       expect(contextErrors).toEqual([])
     })
 
@@ -515,7 +567,7 @@ describe('core/schema-migrations', () => {
 
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
       expect(ctx.name).toBe('Mixed') // context.json kept its data
-      expect(ctx.version).toBe(3)
+      expect(ctx.version).toBe(4)
       expect(existsSync(join(root, 'business.json'))).toBe(false)
     })
 
@@ -527,7 +579,7 @@ describe('core/schema-migrations', () => {
 
       expect(migratedCount).toBe(1)
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'NewRoot' })
+      expect(ctx).toEqual({ version: 4, name: 'NewRoot' })
       expect(ctx.meta).toBeUndefined()
     })
 
@@ -606,7 +658,7 @@ describe('core/schema-migrations', () => {
       expect(contextErrors).toEqual([])
       expect(migratedCount).toBe(1)
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'МетаЛаб' })
+      expect(ctx).toEqual({ version: 4, name: 'МетаЛаб' })
     })
 
     it('migrates pre-existing v2 context.json with git_url → v3 with git_repos', () => {
@@ -620,16 +672,16 @@ describe('core/schema-migrations', () => {
       loadOrUpgradeManifests([root])
 
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
-      expect(ctx.version).toBe(3)
+      expect(ctx.version).toBe(4)
       expect(ctx.git_repos).toEqual({ Duet: 'git@github.com:owner/duet.git' })
       expect(ctx.git_url).toBeUndefined()
     })
 
-    it('idempotent on pre-existing v3 context.json (byte-identical on second read)', () => {
+    it('idempotent on pre-existing v4 context.json (byte-identical on second read)', () => {
       const root = join(tr.tmpDir, 'duetlab')
       mkdirSync(root, { recursive: true })
-      const v3 = {
-        version: 3,
+      const v4 = {
+        version: 4,
         name: 'DuetLab',
         git_repos: {
           Duet: 'git@github.com:o/duet.git',
@@ -637,7 +689,7 @@ describe('core/schema-migrations', () => {
         }
       }
       // Match the formatting that atomicWriteJson would produce so the byte-equality check is fair.
-      writeFileSync(join(root, 'context.json'), JSON.stringify(v3, null, 2) + '\n', 'utf-8')
+      writeFileSync(join(root, 'context.json'), JSON.stringify(v4, null, 2) + '\n', 'utf-8')
 
       const before = readFileSync(join(root, 'context.json'), 'utf-8')
       const { migratedCount, contextErrors } = loadOrUpgradeManifests([root])
@@ -716,7 +768,7 @@ describe('core/schema-migrations', () => {
       expect(contextErrors).toEqual([])
       expect(migratedCount).toBe(1)
       const ctx = JSON.parse(readFileSync(join(root, 'context.json'), 'utf-8'))
-      expect(ctx).toEqual({ version: 3, name: 'OK' })
+      expect(ctx).toEqual({ version: 4, name: 'OK' })
     })
 
     // === Orphan resolution: blind delete (per stabilize-taxonomy-migration decision) ===

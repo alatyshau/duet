@@ -45,19 +45,29 @@ describe('core/instructions', () => {
   })
 
   describe('readMergedAgents', () => {
-    it('returns both nulls when no merged files', () => {
-      expect(readMergedAgents(ctx.duetDataDir)).toEqual({ executor: null, vizir: null })
+    it('returns all nulls when no merged files', () => {
+      expect(readMergedAgents(ctx.duetDataDir)).toEqual({
+        sessionPrompt: null,
+        executor: null,
+        vizir: null
+      })
     })
 
     it('returns mixed values when only one is present', () => {
       writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
-      expect(readMergedAgents(ctx.duetDataDir)).toEqual({ executor: '# Exec\n', vizir: null })
+      expect(readMergedAgents(ctx.duetDataDir)).toEqual({
+        sessionPrompt: null,
+        executor: '# Exec\n',
+        vizir: null
+      })
     })
 
-    it('returns both bodies when both files exist', () => {
+    it('returns all bodies when all files exist (incl. thin session prompt duet.md)', () => {
+      writeFileSync(join(ctx.duetDataDir, 'duet.md'), '# Duet\n', 'utf-8')
       writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
       writeFileSync(join(ctx.duetDataDir, 'duet-vizir.md'), '# Vizir\n', 'utf-8')
       expect(readMergedAgents(ctx.duetDataDir)).toEqual({
+        sessionPrompt: '# Duet\n',
         executor: '# Exec\n',
         vizir: '# Vizir\n'
       })

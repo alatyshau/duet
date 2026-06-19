@@ -1,6 +1,6 @@
 /*
  * ЧТО: Schema migrations для всех Duet-конфигов и manifest'ов.
- * ЗАЧЕМ: Host — единственный owner авто-апгрейда форматов на диске. Backend читает только v3 context.json.
+ * ЗАЧЕМ: Host — единственный owner авто-апгрейда форматов на диске. Backend читает только v4 context.json.
  * КТО ИСПОЛЬЗУЕТ: main/index.ts (startup sweep), main/ipc-handlers.ts (scoped sweep при изменении путей и добавлении root-context).
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
@@ -117,14 +117,17 @@ export const MACHINE_SCHEMA: SchemaSpec = {
  *   top-level `git_url`.
  * - v3: { version: 3, name, git_repos?: { [alias]: url }, ... }. Multi-repo via map. The v2→v3
  *   migration moves a single `git_url` into `git_repos: { [name]: git_url }` and drops the
- *   `git_url` field. Backend reads only v3.
+ *   `git_url` field.
+ * - v4: { version: 4, ... } — drops `workspace_config` (workspace assembly is now always
+ *   context-first, the option is gone). New optional fields `skills` / `instructions` / `memory`
+ *   are additive (no migration needed — absent is valid). Backend reads only v4.
  *
  * Caller is responsible for the file rename + delete-of-legacy: this migration only transforms
  * the JSON payload.
  */
 export const CONTEXT_SCHEMA: SchemaSpec = {
-  targetVersion: 3,
-  maxSupportedVersion: 3,
+  targetVersion: 4,
+  maxSupportedVersion: 4,
   migrations: {
     1: (data) => {
       const next: Record<string, unknown> = { version: 2 }
@@ -162,6 +165,15 @@ export const CONTEXT_SCHEMA: SchemaSpec = {
         next.git_repos = { [name]: url }
       }
       delete next.git_url
+      return next
+    },
+    3: (data) => {
+      // v3 → v4: drop `workspace_config` (the primary_folder option is removed;
+      // workspace assembly is now always context-first). All other keys —
+      // including the new additive `skills` / `instructions` / `memory` — pass
+      // through untouched.
+      const next: Record<string, unknown> = { ...data, version: 4 }
+      delete next.workspace_config
       return next
     }
   }
@@ -354,7 +366,7 @@ const LEGACY_MANIFEST_NAMES = ['business.json', 'stream.json', 'product.json'] a
 const TARGET_MANIFEST_NAME = 'context.json'
 
 /**
- * Рекурсивно проходит по rootContextFolders и поднимает все manifest'ы до v3.
+ * Рекурсивно проходит по rootContextFolders и поднимает все manifest'ы до v4.
  *
  * Правила обхода (зеркалят backend scanner):
  * - Пропускаем dotted-папки (`.git`, `.venv`, etc.).
@@ -362,16 +374,16 @@ const TARGET_MANIFEST_NAME = 'context.json'
  *   живут в `DuetData/repos`, а Drive-иерархия контекстов остаётся вложенной.
  *
  * Действия в каждой папке:
- * - `context.json` v3 валидный → leave alone, затем рекурсируем в children.
- * - `context.json` v1/v2 → миграция up to v3 (chain), запись через atomic write.
+ * - `context.json` v4 валидный → leave alone, затем рекурсируем в children.
+ * - `context.json` v1/v2/v3 → миграция up to v4 (chain), запись через atomic write.
  * - `context.json` future-version (`> maxSupported`) → context-error, файл не трогаем.
  * - `context.json` невалидный JSON → context-error, файл не трогаем.
  * - Legacy file (`business.json` / `stream.json` / `product.json`) без `context.json` →
- *   atomic-upgrade в `context.json` v3, удалить legacy.
+ *   atomic-upgrade в `context.json` v4, удалить legacy.
  * - И `context.json`, и legacy → `context.json` побеждает, legacy удаляется без сравнения
  *   (по дизайну §7: «context.json wins, legacy silently removed» — equivalence-aware
  *   resolution был оверинжинирингом для одной машины и убран по решению пользователя).
- * - Ничего нет на root-папке (depth 0) → self-heal: создать `context.json` v3 без `meta`.
+ * - Ничего нет на root-папке (depth 0) → self-heal: создать `context.json` v4 без `meta`.
  * - Ничего нет внутри chain → пропуск, рекурсия в children.
  */
 export function loadOrUpgradeManifests(rootContextFolders: string[]): {
@@ -406,7 +418,7 @@ function walkContext(
   })).filter((f) => existsSync(f.path))
 
   if (existsSync(targetPath)) {
-    // context.json exists — migrate it (no-op for valid v3). Coexisting legacy files lose:
+    // context.json exists — migrate it (no-op for valid v4). Coexisting legacy files lose:
     // context.json wins, legacy removed without comparison (design §7).
     const result = upgradeContextFile(targetPath, /*sourceFilename*/ undefined, folderPath)
     if (result.kind === 'error') {
@@ -453,8 +465,8 @@ function walkContext(
       }
     }
   } else if (isRoot) {
-    // Self-heal: create context.json v3 with name = basename(folder), without meta.
-    const manifestData = { version: 3, name: basename(folderPath) }
+    // Self-heal: create context.json v4 with name = basename(folder), without meta.
+    const manifestData = { version: 4, name: basename(folderPath) }
     try {
       atomicWriteJson(targetPath, manifestData)
       bumpMigrated(1)
@@ -575,7 +587,7 @@ function upgradeContextFile(
 /**
  * Migrate a legacy *.json file (business/stream/product) to context.json:
  * 1. Parse legacy.
- * 2. Apply v1→v3 migration chain.
+ * 2. Apply v1→v4 migration chain.
  * 3. Atomic-write context.json.
  * 4. Delete legacy file.
  *

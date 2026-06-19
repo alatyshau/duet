@@ -17,8 +17,14 @@ export type { InstructionsMergeResult, InstructionsError } from '../shared/types
 export type AgentName = 'executor' | 'vizir'
 export const AGENT_NAMES: readonly AgentName[] = ['executor', 'vizir'] as const
 
-/** Bag of per-agent merged content read from disk. */
+/** Filename of the thin session prompt (bootstrapper + skills, no core). */
+export const SESSION_PROMPT_FILE = 'duet.md'
+
+/** Bag of merged content read from disk. */
 export interface MergedAgents {
+  /** Thin session prompt (`duet.md`): Claude output-style + Codex/Antigravity system prompt. */
+  sessionPrompt: string | null
+  /** Full agent cores for the `duet-{agent}` subagents. */
   executor: string | null
   vizir: string | null
 }
@@ -102,8 +108,23 @@ export function readMergedAgent(duetDataPath: string, agent: AgentName): string 
  */
 export function readMergedAgents(duetDataPath: string): MergedAgents {
   return {
+    sessionPrompt: readSessionPrompt(duetDataPath),
     executor: readMergedAgent(duetDataPath, 'executor'),
     vizir: readMergedAgent(duetDataPath, 'vizir')
+  }
+}
+
+/**
+ * Читает тонкий сессионный промпт (DuetData/duet.md) с диска.
+ * Возвращает null если файла нет или I/O упал.
+ */
+export function readSessionPrompt(duetDataPath: string): string | null {
+  const filePath = join(duetDataPath, SESSION_PROMPT_FILE)
+  if (!existsSync(filePath)) return null
+  try {
+    return readFileSync(filePath, 'utf-8')
+  } catch {
+    return null
   }
 }
 

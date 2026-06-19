@@ -23,12 +23,6 @@ export interface DuetDataPathResponse {
     path: string;
 }
 
-export type PrimaryFolder = 'context' | 'git';
-
-export interface WorkspaceConfig {
-    primary_folder: PrimaryFolder;
-}
-
 export interface ContextEntity {
     id: string;
     type: 'context';
@@ -41,7 +35,6 @@ export interface ContextEntity {
     description?: string | null;
     git_repos: Record<string, string> | null;
     reference_repos?: Record<string, string> | null;
-    workspace_config?: WorkspaceConfig | null;
 }
 
 export interface ContextsResponse {
@@ -76,6 +69,12 @@ export interface OrientationWorkspace {
     git_folders: Record<string, string>;
 }
 
+/** Context-memory pointer (`context.json` → `memory`), resolved by backend. */
+export interface OrientationMemory {
+    ref: string;
+    path: string;
+}
+
 export interface OrientationResponse {
     duet_paths: {
         duetDataPath: string;
@@ -87,6 +86,14 @@ export interface OrientationResponse {
         chain: ChainItem[];
     };
     products: ProductInfo[];
+    memory?: OrientationMemory | null;
+}
+
+export interface DeployInstructionsResponse {
+    status: 'ok' | 'unknown';
+    reason?: string;
+    deployed?: Record<string, string[]>;
+    warnings?: string[];
 }
 
 export interface ScanResponse {
@@ -151,6 +158,14 @@ export class DuetApiClient {
 
     async scan(): Promise<ScanResponse> {
         return this.post('/scan', 30000); // scan can take time
+    }
+
+    /**
+     * Deploy the owning context's instruction components (skills / instructions)
+     * into its Drive folder. Idempotent — safe to call on every workspace open.
+     */
+    async deployInstructions(workspacePaths: string[]): Promise<DeployInstructionsResponse> {
+        return this.postJson('/deploy-instructions', { workspace_paths: workspacePaths });
     }
 
     private async get<T>(path: string, timeoutMs: number = 10000): Promise<T> {

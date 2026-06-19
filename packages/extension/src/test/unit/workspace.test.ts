@@ -9,91 +9,54 @@ import { createMockFs } from '../../core/fs';
 
 describe('workspace', () => {
     describe('generateContextWithReposWorkspace', () => {
-        it('should create workspace with multiple repos and drive path', () => {
+        it('should put the Drive folder first, then repos in declared order', () => {
             const result = generateContextWithReposWorkspace(
                 ['Duet', 'Duet-Instructions'],
                 '/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab'
             );
 
             expect(result.folders).toHaveLength(3);
-            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
-            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
-            expect(result.folders[2].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab');
+            expect(result.folders[0].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab');
+            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet.git'));
+            expect(result.folders[2].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
         });
 
-        it('should work with a single alias', () => {
+        it('should work with a single alias (Drive first)', () => {
             const result = generateContextWithReposWorkspace(
                 ['Duet'],
                 '/Users/test/Drive/Duet'
             );
 
             expect(result.folders).toHaveLength(2);
-            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
-            expect(result.folders[1].path).toBe('/Users/test/Drive/Duet');
+            expect(result.folders[0].path).toBe('/Users/test/Drive/Duet');
+            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet.git'));
         });
 
-        it('should preserve alias order from the manifest', () => {
+        it('should preserve alias order after the Drive folder', () => {
             const result = generateContextWithReposWorkspace(
                 ['Zeta', 'Alpha', 'Mu'],
                 '/drive/x'
             );
 
             expect(result.folders.map(f => f.path)).toEqual([
+                '/drive/x',
                 path.join('..', 'repos', 'Zeta.git'),
                 path.join('..', 'repos', 'Alpha.git'),
                 path.join('..', 'repos', 'Mu.git'),
-                '/drive/x'
             ]);
         });
 
-        it('should not assign names by default', () => {
+        it('should not assign names', () => {
             const result = generateContextWithReposWorkspace(['Test'], '/path/to/drive');
 
             expect(result.folders[0].name).toBeUndefined();
             expect(result.folders[1].name).toBeUndefined();
         });
 
-        it('should default to git-first order (third arg omitted)', () => {
+        it('always puts the Drive context folder first (context-first is the only order)', () => {
             const result = generateContextWithReposWorkspace(['Duet'], '/drive/x');
-            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
-            expect(result.folders[1].path).toBe('/drive/x');
-        });
-
-        it('should put Drive first when primaryFolder is "context"', () => {
-            const result = generateContextWithReposWorkspace(
-                ['Duet', 'Duet-Instructions'],
-                '/drive/lab',
-                'context'
-            );
-            expect(result.folders).toHaveLength(3);
-            expect(result.folders[0].path).toBe('/drive/lab');
+            expect(result.folders[0].path).toBe('/drive/x');
             expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet.git'));
-            expect(result.folders[2].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
-        });
-
-        it('should put repos first when primaryFolder is "git" (explicit)', () => {
-            const result = generateContextWithReposWorkspace(
-                ['Duet', 'Duet-Instructions'],
-                '/drive/lab',
-                'git'
-            );
-            expect(result.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
-            expect(result.folders[1].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
-            expect(result.folders[2].path).toBe('/drive/lab');
-        });
-
-        it('should preserve alias order regardless of primaryFolder', () => {
-            const result = generateContextWithReposWorkspace(
-                ['Zeta', 'Alpha', 'Mu'],
-                '/drive/x',
-                'context'
-            );
-            expect(result.folders.map(f => f.path)).toEqual([
-                '/drive/x',
-                path.join('..', 'repos', 'Zeta.git'),
-                path.join('..', 'repos', 'Alpha.git'),
-                path.join('..', 'repos', 'Mu.git'),
-            ]);
         });
     });
 
@@ -163,7 +126,7 @@ describe('workspace', () => {
         });
 
         describe('writeContextWithReposWorkspace', () => {
-            it('should write workspace file with multiple repos + drive folder', async () => {
+            it('should write workspace file with Drive folder first, then repos', async () => {
                 const result = await manager.writeContextWithReposWorkspace(
                     'DuetLab',
                     ['Duet', 'Duet-Instructions'],
@@ -177,12 +140,12 @@ describe('workspace', () => {
 
                 const parsed = JSON.parse(content!);
                 expect(parsed.folders).toHaveLength(3);
-                expect(parsed.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
-                expect(parsed.folders[1].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
-                expect(parsed.folders[2].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab');
+                expect(parsed.folders[0].path).toBe('/Users/test/Drive/МетаЛаб/ТехноЛаб/DuetLab');
+                expect(parsed.folders[1].path).toBe(path.join('..', 'repos', 'Duet.git'));
+                expect(parsed.folders[2].path).toBe(path.join('..', 'repos', 'Duet-Instructions.git'));
             });
 
-            it('should work with a single alias (size-1 map)', async () => {
+            it('should work with a single alias (Drive first)', async () => {
                 const result = await manager.writeContextWithReposWorkspace(
                     'Duet',
                     ['Duet'],
@@ -191,21 +154,8 @@ describe('workspace', () => {
                 const content = writtenFiles.get(result);
                 const parsed = JSON.parse(content!);
                 expect(parsed.folders).toHaveLength(2);
-                expect(parsed.folders[0].path).toBe(path.join('..', 'repos', 'Duet.git'));
-                expect(parsed.folders[1].path).toBe('/drive/Duet');
-            });
-
-            it('should honor primaryFolder="context" in written file', async () => {
-                const result = await manager.writeContextWithReposWorkspace(
-                    'Igor.cockpit',
-                    ['Igor.source'],
-                    '/drive/Igor.cockpit',
-                    'context'
-                );
-                const parsed = JSON.parse(writtenFiles.get(result)!);
-                expect(parsed.folders).toHaveLength(2);
-                expect(parsed.folders[0].path).toBe('/drive/Igor.cockpit');
-                expect(parsed.folders[1].path).toBe(path.join('..', 'repos', 'Igor.source.git'));
+                expect(parsed.folders[0].path).toBe('/drive/Duet');
+                expect(parsed.folders[1].path).toBe(path.join('..', 'repos', 'Duet.git'));
             });
 
             it('should produce platform-normalized repo paths', async () => {
@@ -215,9 +165,9 @@ describe('workspace', () => {
                     '/drive'
                 );
                 const parsed = JSON.parse(writtenFiles.get(result)!);
-                // path.join handles separator per-platform; either '../repos/Test.git'
-                // or '..\\repos\\Test.git'. Both forms must round-trip through path.normalize.
-                expect(parsed.folders[0].path).toBe(path.normalize('../repos/Test.git'));
+                // Drive is folders[0]; the repo is folders[1]. path.join handles separator
+                // per-platform; either '../repos/Test.git' or '..\\repos\\Test.git'.
+                expect(parsed.folders[1].path).toBe(path.normalize('../repos/Test.git'));
             });
 
             it('should create workspaces directory if not exists', async () => {

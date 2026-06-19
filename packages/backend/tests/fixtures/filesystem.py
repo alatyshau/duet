@@ -48,10 +48,10 @@ class ManifestBuilder:
         meta: bool = False,
         reference_repos: dict[str, str] | None = None,
         description: str | None = None,
-        version: int = 3,
+        version: int = 4,
         **extra,
     ) -> Path:
-        """Create `context.json` v3 manifest at `folder`.
+        """Create `context.json` v4 manifest at `folder`.
 
         `git_url=` is single-repo sugar for `git_repos={name: git_url}`,
         kept so older single-repo test scenarios stay legible. Pass

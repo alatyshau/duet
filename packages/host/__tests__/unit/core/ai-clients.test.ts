@@ -42,7 +42,9 @@ import type { MergedAgents } from '../../../src/core/instructions'
 const TEST_PORT = 19680
 const MCP_URL = `http://127.0.0.1:${TEST_PORT}/mcp`
 
-// Per-agent merged content written to DuetData/duet-{agent}.md.
+// Thin session prompt written to DuetData/duet.md (output-style + Codex/Antigravity body).
+const SESSION_BODY = '# Duet session prompt\nbootstrapper-and-skills'
+// Per-agent merged content written to DuetData/duet-{agent}.md (subagent bodies).
 const EXECUTOR_BODY = '# Executor merged content\nbody-x'
 const VIZIR_BODY = '# Vizir merged content\nbody-y'
 
@@ -50,12 +52,14 @@ const VIZIR_BODY = '# Vizir merged content\nbody-y'
 // HELPERS
 // =============================================================================
 
-/** Writes both agent merged files to DuetData. */
+/** Writes the session prompt + both agent merged files to DuetData. */
 function writeMergedAgents(
   duetDataDir: string,
   executor: string = EXECUTOR_BODY,
-  vizir: string = VIZIR_BODY
+  vizir: string = VIZIR_BODY,
+  sessionPrompt: string = SESSION_BODY
 ): void {
+  writeFileSync(join(duetDataDir, 'duet.md'), sessionPrompt, 'utf-8')
   writeFileSync(join(duetDataDir, 'duet-executor.md'), executor, 'utf-8')
   writeFileSync(join(duetDataDir, 'duet-vizir.md'), vizir, 'utf-8')
 }
@@ -69,7 +73,7 @@ function expectedOutputStyleFrontmatter(): string {
   return [
     '---',
     'name: duet-executor',
-    "description: 'Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, L7 staff-engineer principles.'",
+    "description: 'Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, and knowledge-persistence routing.'",
     'keep-coding-instructions: true',
     '---',
     '',
@@ -99,8 +103,12 @@ function expectedVizirAgentFrontmatter(): string {
   ].join('\n')
 }
 
-const FRESH_MERGED: MergedAgents = { executor: EXECUTOR_BODY, vizir: VIZIR_BODY }
-const NULL_MERGED: MergedAgents = { executor: null, vizir: null }
+const FRESH_MERGED: MergedAgents = {
+  sessionPrompt: SESSION_BODY,
+  executor: EXECUTOR_BODY,
+  vizir: VIZIR_BODY
+}
+const NULL_MERGED: MergedAgents = { sessionPrompt: null, executor: null, vizir: null }
 
 // =============================================================================
 // TESTS
@@ -186,7 +194,7 @@ describe('core/ai-clients', () => {
 
       writeFileSync(
         join(stylesDir, 'duet-executor.md'),
-        expectedOutputStyleFrontmatter() + EXECUTOR_BODY
+        expectedOutputStyleFrontmatter() + SESSION_BODY
       )
       writeFileSync(
         join(agentsDir, 'duet-executor.md'),
@@ -226,7 +234,7 @@ describe('core/ai-clients', () => {
       // executor agent on disk has a *stale* body but correct frontmatter
       writeFileSync(
         join(stylesDir, 'duet-executor.md'),
-        expectedOutputStyleFrontmatter() + 'NEW EXECUTOR'
+        expectedOutputStyleFrontmatter() + SESSION_BODY
       )
       writeFileSync(
         join(agentsDir, 'duet-executor.md'),
@@ -266,10 +274,10 @@ describe('core/ai-clients', () => {
       mkdirSync(agentsDir, { recursive: true })
 
       // Old-style frontmatter (`name: Duet` from pre-migration) but with the
-      // current executor body — body matches, frontmatter doesn't.
+      // current session body — body matches, frontmatter doesn't.
       writeFileSync(
         join(stylesDir, 'duet-executor.md'),
-        '---\nname: Duet\ndescription: old\nkeep-coding-instructions: true\n---\n\n' + EXECUTOR_BODY
+        '---\nname: Duet\ndescription: old\nkeep-coding-instructions: true\n---\n\n' + SESSION_BODY
       )
       writeFileSync(
         join(agentsDir, 'duet-executor.md'),
@@ -308,7 +316,7 @@ describe('core/ai-clients', () => {
 
       writeFileSync(
         join(stylesDir, 'duet-executor.md'),
-        expectedOutputStyleFrontmatter() + EXECUTOR_BODY
+        expectedOutputStyleFrontmatter() + SESSION_BODY
       )
       writeFileSync(
         join(agentsDir, 'duet-executor.md'),
@@ -352,7 +360,7 @@ describe('core/ai-clients', () => {
       const codexDir = join(homeDir, '.codex')
       const instructionsPath = join(codexDir, 'duet_instructions.md')
       mkdirSync(codexDir, { recursive: true })
-      writeFileSync(instructionsPath, EXECUTOR_BODY)
+      writeFileSync(instructionsPath, SESSION_BODY)
       writeFileSync(
         join(codexDir, 'config.toml'),
         stringifyToml({
@@ -385,7 +393,7 @@ describe('core/ai-clients', () => {
 
       const geminiDir = join(homeDir, '.gemini')
       mkdirSync(join(geminiDir, 'antigravity'), { recursive: true })
-      writeFileSync(join(geminiDir, 'GEMINI.md'), EXECUTOR_BODY)
+      writeFileSync(join(geminiDir, 'GEMINI.md'), SESSION_BODY)
       writeFileSync(
         join(geminiDir, 'antigravity', 'mcp_config.json'),
         JSON.stringify({ mcpServers: { duet: { type: 'http', serverURL: MCP_URL } } })
@@ -465,7 +473,7 @@ describe('core/ai-clients', () => {
     it('returns needs_setup when only one of merged contents is null', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       const result = configureClaudeCode(
-        { executor: EXECUTOR_BODY, vizir: null },
+        { sessionPrompt: SESSION_BODY, executor: EXECUTOR_BODY, vizir: null },
         ctx.duetDataDir,
         TEST_PORT
       )
@@ -479,13 +487,14 @@ describe('core/ai-clients', () => {
 
       expect(result.status).toBe('configured')
 
-      // Output style with frontmatter and Executor body
+      // Output style with frontmatter and the thin session body (not the agent core)
       const stylePath = join(homeDir, '.claude', 'output-styles', 'duet-executor.md')
       expect(existsSync(stylePath)).toBe(true)
       const styleContent = readFileSync(stylePath, 'utf-8')
       expect(styleContent).toMatch(/^---\nname: duet-executor\n/)
       expect(styleContent).toContain('keep-coding-instructions: true')
-      expect(styleContent).toContain(EXECUTOR_BODY)
+      expect(styleContent).toContain(SESSION_BODY)
+      expect(styleContent).not.toContain(EXECUTOR_BODY)
       expect(styleContent).not.toContain(VIZIR_BODY)
 
       // Custom executor agent
@@ -964,7 +973,7 @@ describe('core/ai-clients', () => {
 
       writeFileSync(
         join(stylesDir, 'duet-executor.md'),
-        expectedOutputStyleFrontmatter() + EXECUTOR_BODY
+        expectedOutputStyleFrontmatter() + SESSION_BODY
       )
       writeFileSync(
         join(agentsDir, 'duet-executor.md'),

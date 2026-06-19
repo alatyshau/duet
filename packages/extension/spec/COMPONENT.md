@@ -61,8 +61,9 @@ All entity data flows from Backend:
 | Source | Method | Data |
 |--------|--------|------|
 | `GET /contexts` | `apiClient.contexts()` | All `context` entities with `absolute_path`, `meta`, optional `git_repos` map |
-| `POST /orientation` | `apiClient.orientation(paths)` | `workspace` block, `context.chain`, `products[]` with nested `components[]` |
+| `POST /orientation` | `apiClient.orientation(paths)` | `workspace` block, `context.chain`, `products[]` with nested `components[]`, optional `memory` (`{ref, path}` or `null`) |
 | `POST /scan` | `apiClient.scan()` | Triggers backend rescan |
+| `POST /deploy-instructions` | `apiClient.deployInstructions(paths)` | Asks backend to deploy the owning context's `skills`/`instructions` into its Drive folder. Fire-and-forget |
 
 `ContextEntity[]` (from `/contexts`) is kept in memory and feeds the ДЕЛА view. The single `OrientationResponse` (from `/orientation`) feeds the КОНТЕКСТ view and is re-fetched on workspace folder change. Both refresh on `duet.refresh`.
 
@@ -151,15 +152,15 @@ Two generated artifacts:
 
 | Workspace | Location | When Generated | Folders |
 |-----------|----------|----------------|---------|
-| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a context with `git_repos` | One folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved) + Drive folder of the context. Order between repos and Drive folder controlled by `workspace_config.primary_folder` (see /spec/PRODUCT.md → Manifests → workspace_config) |
+| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a context with `git_repos` | Drive folder of the context first, then one folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved). Assembly is hardcoded **context-first** — the Drive folder is always the primary/first folder |
 | `root-contexts.code-workspace` | `DuetData/` (root) | After scan completes | All root context folders + `DuetData` |
 
 ```json
 {
   "folders": [
+    { "path": "/absolute/path/to/Drive/DuetLab" },
     { "path": "../repos/Duet.git" },
-    { "path": "../repos/Duet-Instructions.git" },
-    { "path": "/absolute/path/to/Drive/DuetLab" }
+    { "path": "../repos/Duet-Instructions.git" }
   ]
 }
 ```
@@ -170,13 +171,9 @@ Two generated artifacts:
 | Root-contexts workspace location | `DuetData/root-contexts.code-workspace` (NOT under `workspaces/`) |
 | Repo paths | Relative from `workspaces/` (one per `git_repos` alias) |
 | Drive path | Absolute (not portable) |
-| Context-workspace builder | `core/workspace.ts:writeContextWithReposWorkspace(name, aliases, drivePath, primaryFolder?)` |
+| Context-workspace builder | `core/workspace.ts:writeContextWithReposWorkspace(name, aliases, drivePath)` |
 
-The builder's 4th argument is the `primaryFolder: PrimaryFolder = 'git'` ordering hint sourced from the context's manifest:
-- `'git'` (default, historical): cloned repos first in declared alias order, Drive folder last.
-- `'context'`: Drive folder first, cloned repos after.
-
-The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — manifests use `primary_folder: "context"` when the user wants the Drive folder to be the terminal default. Single entry point — no separate single-repo variant. A context with one `git_repos` alias produces a 2-folder workspace; two aliases produce three folders; etc.
+Folder order is hardcoded **context-first**: the Drive folder is always emitted first, then the cloned repos in `git_repos` declared order. The builder takes no ordering argument. The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — keeping the Drive folder first makes it the terminal default. Single entry point — no separate single-repo variant. A context with one `git_repos` alias produces a 2-folder workspace; two aliases produce three folders; etc.
 
 **Alias safety:** aliases originate from user-authored manifest JSON. Before opening a context with `git_repos`, `openFolder.ts:findUnsafeAliases` checks every alias in both `git_repos` and `reference_repos`; if any name fails `isSafeRepoName` (path separators, dots-only, control characters, leading dot), the open is **aborted** with a user-visible error — no clone, no workspace file.
 
@@ -204,6 +201,17 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 - Single check on activation (no polling, no retry command).
 - `duet.ready=true` set AFTER providers registered (prevents "no data provider" flash).
 - Backend-independent command `openDataFolder` works regardless of backend state.
+
+### Deploy Instructions Trigger
+
+Extension asks Backend to deploy the open context's instruction components (skills / instructions) into its Drive folder via `apiClient.deployInstructions(workspacePaths)`. The call is **debounced** (500ms) and **fire-and-forget** — warnings/errors are logged to the "Duet Backend" output channel, never surfaced as blocking UI. Backend is idempotent and serializes concurrent calls per context.
+
+Fires on:
+- **Activation** — after the initial orientation fetch, with the current workspace folder paths.
+- **`onDidChangeWorkspaceFolders`** — with the new folder paths.
+- **`duet.refresh`** — after the rescan + orientation refresh.
+
+Implementation: `vscode/extension.ts` (`triggerDeployInstructions`).
 
 ### Tree Decorations
 
@@ -247,7 +255,8 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 |---------|------|
 | Pointer reading (sync) | `core/pointer.ts` |
 | DuetData paths | `core/paths.ts` |
-| Backend API client | `core/api-client.ts` |
+| Backend API client | `core/api-client.ts` (incl. `deployInstructions`) |
+| Deploy-instructions trigger | `vscode/extension.ts` (`triggerDeployInstructions`) |
 | Context tree logic (ДЕЛА view) | `core/tree/contextTree.ts` |
 | КОНТЕКСТ view (orientation-driven) | `vscode/providers/ContextProvider.ts` |
 | @-ref resolver | `core/pathUtils.ts` (`resolveAtRef`) |

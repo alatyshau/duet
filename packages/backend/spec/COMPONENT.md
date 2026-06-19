@@ -25,8 +25,10 @@ server.py (entry point, lifecycle)
     │   ├── workspace.py     WorkspaceService — orientation response
     │   ├── entities.py      EntitiesService — /contexts, /scan
     │   ├── products.py      products/components discovery (product/component discovery)
-    │   └── manifest.py      strict v3 manifest reader
-    ├── scanner.py           hierarchy scan, strict v3 reader
+    │   ├── deploy_instructions.py  deploy a context's skills/instructions into its Drive folder
+    │   ├── at_paths.py      `@<name>/<rest>` resolver (repos / context folders)
+    │   └── manifest.py      strict v4 manifest reader
+    ├── scanner.py           hierarchy scan, strict v4 reader
     ├── watcher.py           manifest file watcher, auto-rescan
     ├── description.py       extract_description, spec file lookup
     ├── instructions.py      merge pipeline (multi-agent)
@@ -45,9 +47,11 @@ server.py (entry point, lifecycle)
 | `server.py` | HTTP routes, lifecycle, DI init, logging setup | Business logic |
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
-| `scanner.py` | Hierarchy scan (strict v3), `git_repos` → N product_repo while Drive context recursion continues | HTTP, config writes, manifest upgrades, products/components discovery |
+| `scanner.py` | Hierarchy scan (strict v4), `git_repos` → N product_repo while Drive context recursion continues | HTTP, config writes, manifest upgrades, products/components discovery |
 | `services/products.py` | Build orientation `products[]` + components (product/component discovery) | DB writes, HTTP |
-| `services/manifest.py` | Strict v3 manifest parsing | Migrations (Host owns) |
+| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory` @-path declarations) | Migrations (Host owns) |
+| `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/`) + `instructions` (`CLAUDE/AGENTS/GEMINI.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
+| `services/at_paths.py` | Resolve `@<repo-dir>` (under `DuetData/repos`) or `@<context-name>` (→ that context's Drive folder); reject `..` escape | File copy, HTTP, DB |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Scan instructions workspace, parse YAML frontmatter, merge | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file lookup | DB, HTTP |
@@ -73,7 +77,7 @@ server.py (entry point, lifecycle)
 | HTTP (not stdio) | One process owns DB, no race conditions |
 | Services layer with DI | Testability, separation of concerns |
 | Pointer-based config | Reads pointer → settings.json + {machine}.json |
-| Strict v3 reader | Backend never silently coerces malformed manifests — Host owns migrations |
+| Strict v4 reader | Backend never silently coerces malformed manifests — Host owns migrations |
 
 ## Surface
 
@@ -85,10 +89,11 @@ server.py (entry point, lifecycle)
 | POST | `/stop` | `{ status: "stopping" }`, triggers shutdown |
 | GET | `/timestamp` | `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | `{ path: "/absolute/path" }` |
-| POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, workspace, context, products[] (v3 shape — see Orientation below) |
-| GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`, `workspace_config`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
+| POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, workspace, context, products[], memory (v4 shape — see Orientation below) |
+| GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
-| POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core + skills table → one file per agent. Returns `{ status, paths: { agent_name: path }, errors[] }` |
+| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Resolves the owning context, deploys its `skills`/`instructions` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
+| POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core + skills table → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
 
 ### MCP Tools
 
@@ -120,7 +125,7 @@ server.py (entry point, lifecycle)
 
 Multi-repo contexts (`git_repos` with N aliases) unify all `repos/<alias>.git` paths to one owner: each path resolves through its `product_repo` entity to the same parent context. Opening `[repos/Duet.git, repos/Duet-Instructions.git, DuetLab Drive]` returns the same DuetLab context regardless of which path the agent opened.
 
-**Response shape (v3):**
+**Response shape (v4):**
 
 | Block | Fields | When |
 |-------|--------|------|
@@ -128,6 +133,7 @@ Multi-repo contexts (`git_repos` with N aliases) unify all `repos/<alias>.git` p
 | `workspace` | `kind`, `context_name`, `context_folder`, `git_folders[, addons]` | Always |
 | `context` | `breadcrumb`, `chain[{type, name, icon, description?}]` | When entity resolved |
 | `products` | `[{name, path, spec?, description?, components: [...]}]` | When entity resolved |
+| `memory` | `{ref, path}` (resolved from `context.json` → `memory` @-path) or `null` when none declared / unresolvable | When entity resolved |
 
 **`workspace` fields:**
 
@@ -181,6 +187,28 @@ Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_
 
 **REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII). Returns result directly (not wrapped).
 
+### Deploy Instructions
+
+`POST /deploy-instructions` with body `{"workspace_paths": [...]}` resolves the owning context (same multi-path resolution as orientation) and materializes that context's `skills` / `instructions` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
+
+**@-path resolution** (`services/at_paths.py:resolve_at_path`): `@<head>/<rest>` resolves `<head>` to either a repo directory `<DuetData>/repos/<head>` (when it exists) or a context named `<head>` (→ that context's Drive folder). Entries that don't start with `@`, have an empty/absolute body, or escape the matched root via `..` resolve to `None` (warning + skip).
+
+**skills** (`<context>/.claude/skills/<name>/`, byte-for-byte copy):
+- Absent key → not managed at all. Present (even `[]`) → manage.
+- Each declared @-path must be a directory containing `SKILL.md`; deploy-name = source dir name.
+- Reserved name `.pruned` and deploy-name collisions are skipped with a warning.
+- Prune: any `.claude/skills/<x>` not in the declared set is moved into `.claude/skills/.pruned/<name>` (backup) before removal; `.pruned` is never itself pruned.
+
+**instructions** (`CLAUDE.md` / `AGENTS.md` / `GEMINI.md` at the context root):
+- Composes the bodies of declared @-path sources (order preserved) into the per-client templates `packages/backend/{CLAUDE,AGENTS,GEMINI}_template.md` at the `<!-- INSERT USER INSTRUCTIONS -->` marker.
+- ALWAYS generates all three (templates carry the client-specific memory policy even with no user sources). Files written read-only (`0444`).
+- A pre-existing hand-written file (lacking the `AUTO-GENERATED by Duet` banner) is backed up to `<name>.bak` once before the first overwrite.
+
+**Response:**
+- `{ status: "ok", deployed: { skills_deployed: [...], skills_pruned: [...], instructions_written: [...] }, warnings: [...] }` when an owning context resolves.
+- `{ status: "unknown", reason: "no_owning_context" | "no_context_manifest" }` when no owning context / manifest resolves.
+- `400` (`BAD_REQUEST`) on invalid JSON body or non-list `workspace_paths`; `422` (`CONFIG_ERROR`) on backend config error.
+
 ### Timestamp Format
 
 `/timestamp` and the MCP `timestamp` tool return `YYMMDD_HHMMSS<tz_id>` strings.
@@ -191,21 +219,22 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 
 ### `/merge-duet-instructions` — Merged Instructions (multi-agent)
 
-`POST /merge-duet-instructions` merges platform bootstrapper + each agent's core file + skills table into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`.
+`POST /merge-duet-instructions` merges platform bootstrapper + each agent's core file + skills table into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`. It also writes `DuetData/duet.md` — the **thin session prompt** (bootstrapper + skills table with the `<!-- INSERT USER CORE INSTRUCTIONS -->` core marker removed, i.e. no agent core). The full per-agent cores still go to `duet-{agent}.md`.
 
 **Pipeline** (`merge_duet_instructions()` in `instructions.py`):
 1. Reads `bootstrapper.md` (bundled with backend, both markers required) — once.
 2. Reads `index.json` — once. Required field: `agents: { name → relative_path }` map.
 3. Builds skills table (name, shortcuts, path, description, trigger, noTrigger) — once. Shared across agents.
 4. Scans workspace for version-suffix files (`_v2`, `_v3`, …) — once.
-5. For each agent in `index.agents`:
+5. Writes the thin session prompt `DuetData/duet.md` (atomic) — bootstrapper + skills table, core marker substituted with empty string (`_build_bare_session_prompt`).
+6. For each agent in `index.agents`:
    - Reads agent file at `instructionsPath / relative_path`.
    - Extracts user content (first H2 onwards, H1 stripped).
    - Substitutes both bootstrapper markers (`<!-- INSERT USER CORE INSTRUCTIONS -->`, `<!-- INSERT SKILLS TABLE -->`).
    - Writes `DuetData/duet-{agent}.md` (atomic).
-6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic).
+7. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic).
 
-**Response:** `{ status: "ok" | "error", paths: { agent_name: "/absolute/path" }, errors: [{path, reason_code, description}] }`.
+**Response:** `{ status: "ok" | "error", paths: { agent_name: "/absolute/path" }, output_style: "/absolute/path/to/duet.md", errors: [{path, reason_code, description}] }`.
 
 **Status semantics:**
 - `"ok"` ⇔ every agent declared in `index.agents` merged successfully (warnings allowed).
@@ -221,7 +250,7 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 
 - Reads `root_context_folders` from `DuetConfig/settings.json` in declared order.
 - Resolves `@aliases` via `{machine}.json` (see /spec/PRODUCT.md → @Alias Resolution).
-- Strict v3 reader: never writes manifests; folders without `context.json` v3 silently skipped; `version != 3` produces `unrecognized_manifest_version` error.
+- Strict v4 reader: never writes manifests; folders without `context.json` v4 silently skipped; `version != 4` produces `unrecognized_manifest_version` error.
 - Stores results in `DuetData/data/entities.db` (native sqlite3).
 - Deterministic order: `readdir` results sorted by name for reproducible scans.
 
@@ -260,7 +289,8 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic). Hos
 
 | File | Source | Consumer |
 |------|--------|----------|
-| `DuetData/duet-{agent}.md` (one per agent in `index.json.agents`) | `POST /merge-duet-instructions` | Host → AI client configs |
+| `DuetData/duet.md` (thin session prompt: bootstrapper + skills, no core) | `POST /merge-duet-instructions` | Host → Claude output-style + Codex/Antigravity system prompt |
+| `DuetData/duet-{agent}.md` (one per agent in `index.json.agents`) | `POST /merge-duet-instructions` | Host → AI client configs (Claude `duet-{agent}` subagents) |
 | `DuetData/data/duet-instructions-errors.json` | `POST /merge-duet-instructions` | Host wizard |
 | `DuetData/data/scan.json` | `POST /scan` | Host wizard |
 | `DuetData/data/contexts.json` | `GET /contexts` / scan-completion sweep | Host wizard |
@@ -415,7 +445,10 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Workspace info / orientation | `services/workspace.py` |
 | Entity listing | `services/entities.py` |
 | Hierarchy scan | `scanner.py:_scan_context()` |
-| Manifest reader (strict v3) | `services/manifest.py:read_manifest()` |
+| Manifest reader (strict v4) | `services/manifest.py:read_manifest()` |
+| Deploy skills/instructions | `services/deploy_instructions.py:deploy_instructions()` |
+| `@<name>/<rest>` resolution | `services/at_paths.py:resolve_at_path()` |
+| Context-memory pointer | `services/workspace.py:_build_memory()` |
 | Products/components discovery | `services/products.py:build_products()` |
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback (legacy) | `description.py:find_spec_file()` |

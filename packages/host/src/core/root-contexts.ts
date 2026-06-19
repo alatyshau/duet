@@ -7,9 +7,9 @@
  * Терминология (см. unification-design):
  * - root context = top-level папка в `root_context_folders` без флага `meta`.
  * - meta context = папка с `meta: true` в `context.json` (например `!БАЗА`). Уникальна на DB.
- * - Manifest на диске — `context.json` v3.
+ * - Manifest на диске — `context.json` v4.
  *
- * Self-heal манифестов и rename legacy → v3 — прерогатива core/schema-migrations.ts. Этот модуль
+ * Self-heal манифестов и rename legacy → v4 — прерогатива core/schema-migrations.ts. Этот модуль
  * только пишет минимальные новые манифесты при изменении meta-флага и читает текущий meta-флаг.
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.

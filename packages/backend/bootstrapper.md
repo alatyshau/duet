@@ -30,8 +30,6 @@ The skills table below lists all available personas and skills. Paths are relati
 
 **`!` prefix convention:** Any word in user text starting with `!` (e.g. `!чек`, `!коммит`) is most likely a Duet skill shortcut. Treat it as an explicit invocation — look it up in the skills catalog and load the matching skill.
 
-**Never use the system `Skill` tool for Duet skills.** The `Skill` tool is for harness-level commands only (e.g. `update-config`, `keybindings-help`). Duet skills are always loaded via Read from `duet_paths.instructionsPath`. If a Duet skill shortcut collides with a system skill name — the Duet skill wins.
-
 <!-- INSERT SKILLS TABLE -->
 
 ## Glossary
@@ -96,5 +94,24 @@ Offload all details, designs, and analysis to separate files linked from plan.md
 - `TODO_##_<name>` — backlog / roadmap (`##` = optional priority for sorting)
 - `archive/YYMMDD_<name>/` — closed work folders, nested inside their parent. `YYMMDD` is the close date, lexicographically sortable. Legacy top-level `ARCHIVE/` or `АРХИВ/` folders may still exist — follow whatever structure is already in place
 
+## Knowledge persistence
+
+The base law holds for memory too: **the user sees and controls everything you persist.** A durable fact is not "remembered" — it is *routed* to a visible workspace file at the narrowest scope that fits its lifetime. There are three scopes:
+
+| Scope | Carrier | Lifetime | Route here when |
+|---|---|---|---|
+| **A — skill** | the skill file itself | travels with the skill | the fact is about *how a skill works* |
+| **Б — context** | the context-memory file (`orientation.memory.path`) | the whole context, across projects | durable domain/context knowledge |
+| **В — project** | `plan.md` of the active work folder (+ its linked files) | dies with the project | a fact about the *current project* |
+
+Routing procedure — top down, narrowest that fits:
+1. About one skill's behavior? → **A** (the skill file).
+2. Specific to the current project? → **В** (`plan.md` of the work folder), if a work folder is in play.
+3. Durable context-level knowledge? → **Б** (the file at `orientation.memory.path`), if that pointer is set.
+4. No natural target (project fact but no work folder; context fact but `orientation.memory` is null)? → surface it to the user / offer to create the target. Never fabricate one.
+
+Tie-break Б↔В: outlives the project → Б; dies with it → В.
+
+The per-client instruction file (`CLAUDE.md` / `AGENTS.md` / `GEMINI.md`) in the workspace root states what is forbidden for that specific client — follow it.
 
 <!-- INSERT USER CORE INSTRUCTIONS -->

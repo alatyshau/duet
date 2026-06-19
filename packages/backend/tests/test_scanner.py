@@ -383,14 +383,14 @@ class TestScannerEdgeCases:
     def test_malformed_manifest_no_silent_repair(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:
-        """Manifest with `version: 3` but missing `name` must not register
+        """Manifest with `version: 4` but missing `name` must not register
         a context under the folder name. Strict reader rejects malformed
         shape with `invalid_manifest`; scanner skips.
         """
         ctx_path = tmp_path / "MyFolder"
         ctx_path.mkdir()
         (ctx_path / "context.json").write_text(
-            json.dumps({"version": 3}),  # no `name`
+            json.dumps({"version": 4}),  # no `name`
             encoding="utf-8",
         )
 

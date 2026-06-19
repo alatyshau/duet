@@ -37,6 +37,8 @@ from services.manifest import (
     read_manifest,
     read_reference_repos as _read_manifest_reference_repos,
 )
+from services.at_paths import resolve_at_path
+from services.deploy_instructions import deploy_instructions as _deploy_instructions
 from services.products import build_products
 
 logger = logging.getLogger(__name__)
@@ -264,8 +266,71 @@ class WorkspaceService:
         result["context"] = self._build_context(chain)
         result["workspace"] = self._build_workspace(entity)
         result["products"] = self._build_products(entity)
+        result["memory"] = self._build_memory(entity)
 
         return result
+
+    def _build_context_folders(self) -> dict[str, str]:
+        """Map every context name → its absolute Drive folder.
+
+        Feeds the `@<name>/<rest>` resolver: `@<context-name>` resolves to that
+        context's folder (alongside repo-dir aliases under `<DuetData>/repos`).
+        """
+        out: dict[str, str] = {}
+        for entity in self.db.get_all_entities():
+            if entity.type != "context":
+                continue
+            folder = self._resolve_drive_path(entity)
+            if folder:
+                out[entity.name] = str(folder)
+        return out
+
+    def _build_memory(self, entity: Entity) -> dict | None:
+        """Resolve the context-memory pointer (`context.json` → `memory`).
+
+        Returns `{ref, path}` with the resolved absolute file path, or `None`
+        when the context declares no memory file (or it doesn't resolve).
+        """
+        drive_path = self._resolve_drive_path(entity)
+        manifest = read_manifest(drive_path) if drive_path else None
+        if not manifest or not manifest.memory:
+            return None
+        resolved = resolve_at_path(
+            manifest.memory, get_repos_path(), self._build_context_folders()
+        )
+        if resolved is None:
+            return None
+        return {"ref": manifest.memory, "path": str(resolved)}
+
+    def deploy_instructions(self, workspace_paths: list[str]) -> dict:
+        """Resolve the owning context for `workspace_paths` and deploy its
+        instruction components (skills / instructions) into its Drive folder.
+
+        Returns `{status, deployed, warnings}` or `{status: "unknown", reason}`
+        when no owning context resolves.
+        """
+        if len(workspace_paths) > 1:
+            entity = self._resolve_multi_path(workspace_paths)
+        elif workspace_paths:
+            entity = self._resolve_entity(workspace_paths[0])
+        else:
+            entity = None
+
+        if not (entity and entity.id):
+            return {"status": "unknown", "reason": "no_owning_context"}
+
+        drive_path = self._resolve_drive_path(entity)
+        manifest = read_manifest(drive_path) if drive_path else None
+        if not drive_path or not manifest:
+            return {"status": "unknown", "reason": "no_context_manifest"}
+
+        report = _deploy_instructions(
+            Path(drive_path),
+            manifest,
+            get_repos_path(),
+            self._build_context_folders(),
+        )
+        return {"status": "ok", **report}
 
     def _build_unknown_workspace(self, reason: str) -> dict:
         """Build workspace block for unknown/unresolved workspace.
