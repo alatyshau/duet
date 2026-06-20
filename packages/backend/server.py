@@ -272,7 +272,11 @@ async def merge_instructions_handler(request: Request) -> JSONResponse:
 
     Response: { status, paths: { agent: absolute_path }, errors: [...] }.
     """
+    # Bundled/deployed: electron-builder copies bootstrapper.md next to server.py
+    # (packages/instructions/ -> backend/). Dev: read it from the sibling package.
     bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
+    if not bootstrapper_path.exists():
+        bootstrapper_path = Path(__file__).parent.parent / "instructions" / "bootstrapper.md"
     try:
         instructions_path = get_instructions_path()
         duet_data = get_duet_data_path()

@@ -13,6 +13,7 @@
         "ai-kit": "Legacy AI-инструментарий (install.py, MCP-сервер, legacy templates)",
         "backend": "Backend (Python, MCP-сервер Duet)",
         "extension": "VS Code Extension",
-        "host": "Duet Host (Electron)"
+        "host": "Duet Host (Electron)",
+        "instructions": "Платформенный bootstrapper.md — системный промпт-каркас агента (ориентация, онтология контекста, ритуал работы)"
     }
 }

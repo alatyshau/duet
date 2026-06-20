@@ -567,7 +567,8 @@ def merge_duet_instructions(
                any single agent merge failed.
 
     Args:
-        bootstrapper_path: Path to bootstrapper.md (in backend package).
+        bootstrapper_path: Path to bootstrapper.md (source in packages/instructions;
+            bundled next to backend at runtime).
         instructions_path: Path to instructions workspace root.
         output_dir: Directory where merged files are written
                     (`duet-{agent}.md` per agent).

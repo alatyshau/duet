@@ -48,10 +48,15 @@ extraResources:
     filter:
       - "**/*.py"
       - "**/requirements.txt"
-      - "bootstrapper.md"
       - "!**/tests/**"
       - "!**/__pycache__/**"
       - "!**/.pytest_cache/**"
+  # Bootstrapper now lives in packages/instructions; bundle it next to backend
+  # so server.py finds it as a sibling (Path(__file__).parent / "bootstrapper.md").
+  - from: ../../packages/instructions/
+    to: backend/
+    filter:
+      - "bootstrapper.md"
 win:
   executableName: Duet
   icon: build/icon.ico         # Иконка для .exe и ярлыков

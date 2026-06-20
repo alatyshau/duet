@@ -222,7 +222,7 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 `POST /merge-duet-instructions` merges platform bootstrapper + each agent's core file + skills table into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`. It also writes `DuetData/duet.md` — the **thin session prompt** (bootstrapper + skills table with the `<!-- INSERT USER CORE INSTRUCTIONS -->` core marker removed, i.e. no agent core). The full per-agent cores still go to `duet-{agent}.md`.
 
 **Pipeline** (`merge_duet_instructions()` in `instructions.py`):
-1. Reads `bootstrapper.md` (bundled with backend, both markers required) — once.
+1. Reads `bootstrapper.md` (source in `packages/instructions/`, bundled next to backend at runtime; both markers required) — once.
 2. Reads `index.json` — once. Required field: `agents: { name → relative_path }` map.
 3. Builds skills table (name, shortcuts, path, description, trigger, noTrigger) — once. Shared across agents.
 4. Scans workspace for version-suffix files (`_v2`, `_v3`, …) — once.
