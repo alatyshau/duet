@@ -8,7 +8,6 @@ import { DuetPathsPage } from './pages/wizard/DuetPathsPage'
 import { PythonPage } from './pages/wizard/PythonPage'
 import { BackendPage } from './pages/wizard/BackendPage'
 import { WorkspacesPage } from './pages/wizard/WorkspacesPage'
-import { InstructionsPage } from './pages/wizard/InstructionsPage'
 import { WizardAgentsPage } from './pages/wizard/AgentsPage'
 import { AppPage } from './pages/apps/BackendAppPage'
 import { backendStatusToProcessStatus } from '../../shared/mappers'
@@ -23,7 +22,6 @@ import type {
   DeployStatus,
   ProcessStatus,
   ScanResult,
-  InstructionsError,
   AgentInfo,
   MigrationResult
 } from '../../preload/index.d'
@@ -34,11 +32,8 @@ function App(): React.JSX.Element {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>({ state: 'stopped' })
   const [deployStatus, setDeployStatus] = useState<DeployStatus>({ state: 'idle' })
 
-  // Cached data for steps 5-7 — loaded on mount, updated by page callbacks
+  // Cached data for later wizard steps — loaded on mount, updated by page callbacks
   const [cachedScan, setCachedScan] = useState<ScanResult | null>(null)
-  const [cachedInstructionsErrors, setCachedInstructionsErrors] = useState<
-    InstructionsError[] | null
-  >(null)
   const [cachedAgents, setCachedAgents] = useState<AgentInfo[] | null>(null)
   const [migrationStatus, setMigrationStatus] = useState<MigrationResult | undefined>(undefined)
 
@@ -54,11 +49,6 @@ function App(): React.JSX.Element {
     },
     []
   )
-
-  // Callback for InstructionsPage → auto-configure agents updates sidebar step 7
-  const handleAgentsUpdated = useCallback((agents: AgentInfo[]) => {
-    setCachedAgents(agents)
-  }, [])
 
   // ==========================================================================
   // Subscriptions
@@ -101,7 +91,6 @@ function App(): React.JSX.Element {
     if (!window.api || !appState || appState.status !== 'ready') return
 
     window.api.getCachedScan().then(setCachedScan).catch(console.error)
-    window.api.getInstructionsErrors().then(setCachedInstructionsErrors).catch(console.error)
     window.api.getAgents().then(setCachedAgents).catch(console.error)
   }, [appState]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -126,13 +115,11 @@ function App(): React.JSX.Element {
     if (!appState) return {}
 
     // Compute base statuses from all available data
-    const hasDeployWarning =
-      'warningReason' in deployStatus ? !!deployStatus.warningReason : false
+    const hasDeployWarning = 'warningReason' in deployStatus ? !!deployStatus.warningReason : false
     const computed = computePageStatuses({
       appState,
       deployStatus,
       cachedScan,
-      cachedInstructionsErrors,
       agents: cachedAgents,
       hasDeployWarning,
       migrationStatus
@@ -140,15 +127,7 @@ function App(): React.JSX.Element {
 
     // Merge with dynamic page-reported statuses (pages override computed on visit)
     return { ...computed, ...pageStatuses }
-  }, [
-    appState,
-    deployStatus,
-    cachedScan,
-    cachedInstructionsErrors,
-    cachedAgents,
-    pageStatuses,
-    migrationStatus
-  ])
+  }, [appState, deployStatus, cachedScan, cachedAgents, pageStatuses, migrationStatus])
 
   // ==========================================================================
   // Backend controls (for BackendAppPage)
@@ -212,10 +191,7 @@ function App(): React.JSX.Element {
     switch (currentPage) {
       case 'duet-paths':
         return (
-          <DuetPathsPage
-            appState={appState}
-            onStatusChange={createStatusCallback('duet-paths')}
-          />
+          <DuetPathsPage appState={appState} onStatusChange={createStatusCallback('duet-paths')} />
         )
       case 'python':
         return <PythonPage appState={appState} onStatusChange={createStatusCallback('python')} />
@@ -223,18 +199,7 @@ function App(): React.JSX.Element {
         return <BackendPage appState={appState} onStatusChange={createStatusCallback('backend')} />
       case 'workspaces':
         return (
-          <WorkspacesPage
-            appState={appState}
-            onStatusChange={createStatusCallback('workspaces')}
-          />
-        )
-      case 'instructions':
-        return (
-          <InstructionsPage
-            appState={appState}
-            onStatusChange={createStatusCallback('instructions')}
-            onAgentsUpdated={handleAgentsUpdated}
-          />
+          <WorkspacesPage appState={appState} onStatusChange={createStatusCallback('workspaces')} />
         )
       case 'agents':
         return <WizardAgentsPage onStatusChange={createStatusCallback('agents')} />

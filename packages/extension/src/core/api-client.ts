@@ -79,7 +79,6 @@ export interface OrientationResponse {
     duet_paths: {
         duetDataPath: string;
         machineConfig: string;
-        instructionsPath: string;
     };
     workspace: OrientationWorkspace;
     context?: {

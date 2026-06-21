@@ -17,13 +17,7 @@ export type Tab = 'settings' | 'apps'
 // =============================================================================
 
 /** Шаги визарда настроек. Порядок массива = порядок в сайдбаре. */
-export type WizardPage =
-  | 'duet-paths'
-  | 'python'
-  | 'backend'
-  | 'workspaces'
-  | 'instructions'
-  | 'agents'
+export type WizardPage = 'duet-paths' | 'python' | 'backend' | 'workspaces' | 'agents'
 
 /** Страницы таба "Приложения". */
 export type AppPage = 'app:duet-backend'
@@ -50,8 +44,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     label: 'Воркспейсы',
     dependsOn: ['duet-paths', 'backend']
   },
-  { page: 'instructions', label: 'Инструкции', dependsOn: ['duet-paths'] },
-  { page: 'agents', label: 'AI Агенты', dependsOn: ['backend', 'instructions'] }
+  { page: 'agents', label: 'AI Агенты', dependsOn: ['backend'] }
 ]
 
 // =============================================================================

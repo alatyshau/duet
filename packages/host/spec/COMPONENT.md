@@ -21,7 +21,7 @@ Everything in this file describes how Host fulfils these three roles. UI surface
 | Layer | Responsibility | Files |
 |-------|----------------|-------|
 | `shared/` | Types crossing process boundary (IPC) + pure mappers | `types.ts` (single source of truth), `mappers.ts` |
-| `core/` | Config, app state, deploy, backend, AI clients, instructions, instructions download, root contexts, schema migrations, atomic JSON IO, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `instructions-download.ts`, `root-contexts.ts`, `schema-migrations.ts`, `json-io.ts`, `wizard-status.ts`, `apps.ts` |
+| `core/` | Config, app state, deploy, backend, AI clients, instructions, root contexts, schema migrations, atomic JSON IO, wizard status, app registry | `config.ts`, `app-state.ts`, `deploy.ts`, `backend.ts`, `ai-clients.ts`, `instructions.ts`, `root-contexts.ts`, `schema-migrations.ts`, `json-io.ts`, `wizard-status.ts`, `apps.ts` |
 | `platform/` | Tray, autolaunch | `tray.ts`, `autolaunch.ts` |
 | `main/` | Window, IPC handlers, lifecycle | `index.ts`, `window.ts`, `ipc-handlers.ts` |
 | `preload/` | Bridge main ↔ renderer | `index.ts`, `index.d.ts` |
@@ -81,7 +81,6 @@ Operations: `readConfig()` (returns `{}` if missing/broken), `writeConfig(config
 | Field | Source | Purpose |
 |-------|--------|---------|
 | `pythonPath` | `{machine}.json` | Python interpreter path (wizard step 2) |
-| `instructionsPath` | `{machine}.json` | Duet-Instructions repo path (wizard step 5) |
 | `hasDevBackendPath` | `{machine}.json` | Controls DEV/PROD toggle visibility (wizard step 3) |
 | `deployChannel` | `{machine}.json` | `'dev' \| 'prod'` (default `'prod'`) — controls whether deploy uses bundled resources or dev override paths |
 
@@ -104,7 +103,6 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 | `config:save-pointer` | renderer → main | Save pointer file (partial updates supported — missing fields preserved). Creates default DuetConfig files when both `duetConfigPath` and `machine` are present. Calls `updateAppState()`, returns new AppState |
 | `shell:open-path` | renderer → main | Open path in Finder/Explorer |
 | `config:set-deploy-channel` | renderer → main | Set deploy channel (dev/prod) in machine config; calls `updateAppState()`, returns new AppState |
-| `config:set-instructions-path` | renderer → main | Save `instructionsPath` to `{machine}.json`. Throws if machine config not writable |
 | `deploy:get-status` | renderer → main | Get deploy status |
 | `deploy:start` | renderer → main | Start deploy (async). Broadcasts status + log events |
 | `deploy:status-changed` | main → renderer | Push deploy status updates |
@@ -119,11 +117,6 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 | `agents:detect` | renderer → main | Detect installed AI clients |
 | `agents:configure` | renderer → main | Configure all AI clients |
 | `agents:fix-issue` | renderer → main | Fix specific agent issue (by `agentId` + `reasonCode`) |
-| `instructions:merge` | renderer → main | Trigger `POST /merge-duet-instructions` |
-| `instructions:get-errors` | renderer → main | Read cached instruction errors |
-| `instructions:fix-error` | renderer → main | Auto-fix instruction error (by `relativePath` + `reasonCode`) |
-| `instructions:download-template` | renderer → main | Download Duet-Instructions zip from GitHub, extract to `targetFolder` |
-| `instructions:is-folder-empty` | renderer → main | Check if folder is empty (ignoring system files) |
 | `root-contexts:get` | renderer → main | Get resolved root contexts (raw alias + absolute path + isMeta) |
 | `root-contexts:save` | renderer → main | Overwrite `root_context_folders` array in `settings.json` (used by remove/reorder); after save, enforces meta-required invariant |
 | `root-contexts:add` | renderer → main | Alias-aware add: creates `@<basename>` in `{machine}.json`, appends to `root_context_folders`, runs scoped schema migration, enforces meta-required invariant |
@@ -137,7 +130,7 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 
 **Config defaults** (`ensureConfigDefaults(duetConfigPath, machine)`): creates `settings.json` (`{ version: 2, root_context_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ version: 2, port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
 
-**Machine config write** (`setMachineConfigKey(key, value)`): read-modify-write single field in `{machine}.json`. Throws if pointer incomplete, machine name invalid, or file missing/invalid JSON. `setSettingsConfigKey(key, value)` mirrors this for `settings.json`. Silent-recreate-from-`{}` paths are gone — they used to lose sibling fields (`timestampTZ`, `port`, `instructionsPath`). Failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover.
+**Machine config write** (`setMachineConfigKey(key, value)`): read-modify-write single field in `{machine}.json`. Throws if pointer incomplete, machine name invalid, or file missing/invalid JSON. `setSettingsConfigKey(key, value)` mirrors this for `settings.json`. Silent-recreate-from-`{}` paths are gone — they used to lose sibling fields (`timestampTZ`, `port`). Failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover.
 
 ### Pages
 
@@ -145,7 +138,7 @@ Full per-page UX, sidebar status icons, wizard step list: see [UI.md](UI.md). Hi
 
 | Tab | Pages |
 |-----|-------|
-| Settings (⚙) | 6-step wizard: Duet: пути → Python → Backend → Воркспейсы → Инструкции → AI Агенты |
+| Settings (⚙) | 5-step wizard: Duet: пути → Python → Backend → Воркспейсы → AI Агенты |
 | Apps (▶) | `app:duet-backend` — process card for Duet Backend |
 
 ### Tray
@@ -175,7 +168,7 @@ Deploys backend from bundled resources to DuetData.
 |-----------|------------------------|--------|--------|
 | Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered): `.new` → rename → `.old` → delete |
 
-AI instructions are user-owned (separate git repo, configured via `instructionsPath` in machine.json). Host does not deploy them.
+Platform instructions (`bootstrapper.md`, agent cores, `index.json`) are product-bundled — they live inside the product at `packages/instructions/` (no external repo). In DEV mode `deployBackend()` copies `packages/instructions/{*.md,index.json}` (minus `README.md`) next to the deployed backend via the `copyPlatformInstructions()` helper; in PROD they ship via electron-builder.
 
 **Deploy filter:** copy operations exclude dev artifact directories (`.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`). Prevents copying dev environment when deploying from source (`devBackendPath`).
 
@@ -185,7 +178,9 @@ AI instructions are user-owned (separate git repo, configured via `instructionsP
 
 **PROD deploy guard:** when `deployChannel === 'prod'` and Electron is not packaged (`!app.isPackaged`), deploy checks if bundled backend exists. If not → throws human-readable error: "PROD-деплой недоступен в dev-режиме. Соберите приложение или переключитесь на DEV." Prevents cryptic "Backend source not found" errors in development.
 
-**Flow:** PROD guard → VERSION check (semver) → skip if not newer → **stop backend** (POST `/stop` + grace sleep — no SIGTERM/SIGKILL because deploy has no process reference, see *Backend stop before deploy* below) → deploy backend (atomic swap) → Python check → venv + pip → write VERSION (only on full success).
+**Flow:** PROD guard → VERSION check (semver) → skip if not newer → **stop backend** (POST `/stop` + grace sleep — no SIGTERM/SIGKILL because deploy has no process reference, see *Backend stop before deploy* below) → deploy backend (atomic swap; in DEV also copy platform instructions via `copyPlatformInstructions()`) → Python check → venv + pip → write VERSION (only on full success).
+
+**Post-deploy configure:** after `runDeploy()` completes, the deploy IPC handler calls `configureAllAgents(...)` so `duet.md` and the per-agent files are rebuilt and redeployed — `duet.md` never goes stale after a backend upgrade.
 
 **VERSION file:** `DuetData/backend/VERSION` contains version with build metadata:
 
@@ -234,7 +229,7 @@ Host is the single owner of backend process lifecycle (start, stop, health monit
 
 **Auto-scan on startup:** after backend auto-start succeeds, if `root_context_folders` is non-empty and `readCachedScan()` returns `null` (scan never ran) → `triggerScan(port)`. Populates sidebar status for wizard step 4 without manual visit.
 
-**Auto-merge instructions on startup:** after backend auto-start and auto-scan, if `instructionsPath` is configured and `readCachedErrors()` returns `null` (merge never ran) → `triggerMerge()` → `configureAllAgents()` on success. Both auto-scan and auto-merge finish with a single `updateAppState()` call.
+**Auto-configure agents on startup:** after backend auto-start and auto-scan, if `readCachedErrors()` returns `null` (merge never ran) → `await configureAllAgents()`. The merge runs inside `configureAllAgents()` (it calls `triggerMerge()` first, then deploys). Both auto-scan and auto-configure finish with a single `updateAppState()` call.
 
 **Auto-start after deploy:** `runDeploy()` calls `startBackend()` after writing VERSION.
 
@@ -248,7 +243,9 @@ Implementation: `core/backend.ts`.
 
 ### AI Clients
 
-Detects and configures AI clients via direct file writes (no CLI). Backend produces two kinds of merged file: the **thin session prompt** `DuetData/duet.md` (bootstrapper + skills, no agent core) and one **full per-agent** file `DuetData/duet-{agent}.md` (bootstrapper + agent core + skills) for each agent declared in `index.json.agents` (e.g. `duet-executor.md`, `duet-vizir.md`). Host reads them via `readMergedAgents()` and deploys per platform.
+Detects and configures AI clients via direct file writes (no CLI). Backend produces two kinds of merged file: the **thin session prompt** `DuetData/duet.md` (bootstrapper, no agent core) and one **full per-agent** file `DuetData/duet-{agent}.md` (bootstrapper + agent core) for each agent declared in `index.json.agents` (e.g. `duet-executor.md`, `duet-vizir.md`). Host reads them via `readMergedAgents()` and deploys per platform.
+
+`configureAllAgents()` is **async** and merges-then-deploys: it first calls `triggerMerge(port)` (Backend rebuilds `duet.md` + `duet-{agent}.md` from the bundled platform sources), then reads the merged files and deploys them to the AI clients. The "Настроить все" button on the AI Агенты page and the startup / post-deploy auto-configure paths all go through this single function.
 
 **Thin/full split:** the session-level deployments — Claude output-style, Codex instructions, Antigravity `GEMINI.md` — all use the thin session prompt (`merged.sessionPrompt`, from `duet.md`). The behavioral agent layer comes from the per-context `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` (deployed by Backend), not from the session prompt. The Claude `duet-executor` / `duet-vizir` custom subagents still carry the full agent cores (`merged.executor` / `merged.vizir`, from `duet-{agent}.md`).
 
@@ -282,23 +279,16 @@ Implementation: `core/ai-clients.ts`.
 
 ### Instructions
 
-Manages merged AI instructions lifecycle. Backend generates per-agent `DuetData/duet-{agent}.md` via `POST /merge-duet-instructions`.
+Manages merged AI instructions lifecycle. Platform instruction sources (`bootstrapper.md`, agent cores, `index.json`) are product-bundled at `packages/instructions/`. Backend merges them into the thin session prompt `DuetData/duet.md` and per-agent `DuetData/duet-{agent}.md` via `POST /merge-duet-instructions`.
 
 **Operations:**
-- `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult` (`{ status, paths: { agent → path }, errors }`).
+- `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult` (`{ status, paths: { agent → path }, errors }`). Not a user-facing screen — invoked internally as the prelude of `configureAllAgents()`.
 - `readMergedAgent(duetDataPath, agent)` — reads one agent's merged file from disk; returns `null` if missing.
 - `readSessionPrompt(duetDataPath)` — reads the thin session prompt `DuetData/duet.md` (const `SESSION_PROMPT_FILE = 'duet.md'`); returns `null` if missing.
 - `readMergedAgents(duetDataPath)` — reads the session prompt + both agents into a `MergedAgents` bag (`{ sessionPrompt, executor, vizir }`).
 - `readCachedErrors(duetDataPath)` — reads errors from `DuetData/data/duet-instructions-errors.json`.
-- `fixInstructionsError(instructionsPath, relativePath, reasonCode)` — auto-fix source file (add/replace frontmatter, add missing fields). Returns true if fix applied.
-- `isFixableError(reasonCode)` — check if error can be auto-fixed. Fixable: `no_frontmatter`, `invalid_yaml`, `missing_fields`.
 
 Implementation: `core/instructions.ts`.
-
-**Template download** (`core/instructions-download.ts`):
-- `downloadInstructionsTemplate(targetFolder)` — fetches zip from GitHub (`/archive/refs/heads/main.zip`), extracts to `targetFolder`. Uses global `fetch` (Chromium network stack in Electron ≥28 — proxy, redirects). Extraction: `unzip` on macOS, `tar -xf` on Windows. No new dependencies.
-- `isFolderEmpty(folderPath)` — checks if folder is empty, ignoring system files (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `.gitkeep`). Returns true for non-existent folders.
-- Does NOT set `instructionsPath` — that's the caller's responsibility (renderer calls `setInstructionsPath` + `mergeInstructions` after successful download).
 
 ### Root Contexts
 
@@ -438,10 +428,8 @@ Each page produces `StatusItem[]` — single source of truth for all levels abov
 | 3. Backend | Stale version | warning | "Версия устарела — переустановите" |
 | 4. Workspaces | Scan error — `invalid_manifest`, `unrecognized_manifest_version`, other unknown codes | error | `{description}` (per scan error) |
 | 4. Workspaces | Scan error — `name_collision`, `repo_collision`, `missing_manifest` | warning | `{description}` (scanner auto-heals; informational). Code: `SCAN_WARNING_CODES` in `core/wizard-status.ts` |
-| 5. Instructions | Path not selected | error | "Выберите папку инструкций" |
-| 5. Instructions | Merge error | error | `{description}` (fixable for known types) |
-| 6. AI Agents | needs_setup | warning | "{agent}: не сконфигурирован" |
-| 6. AI Agents | Issue | warning | `{description}` (fixable issues) |
+| 5. AI Agents | needs_setup | warning | "{agent}: не сконфигурирован" |
+| 5. AI Agents | Issue | warning | `{description}` (fixable issues) |
 
 **Four-level aggregation:**
 
@@ -482,10 +470,9 @@ Level 4: Tray
 | 2 (Python) | AppState (`pythonPath` from machine.json) | `null` or `ok` |
 | 3 (Backend) | DeployStatus + `hasDeployWarning` | `null` (not deployed), `warning` (mismatch/stale), or `ok` |
 | 4 (Workspaces) | Cached `scan.json` (errors count, severity per code) | `error` (broken manifests) / `warning` (collisions) / `ok` |
-| 5 (Instructions) | Cached instruction errors (errors count) | `error` (broken files) or `ok` |
-| 6 (AI Agents) | Agent detection (needs_setup vs configured) | `warning` (works but not configured) or `ok` |
+| 5 (AI Agents) | Agent detection (needs_setup vs configured) | `warning` (works but not configured) or `ok` |
 
-Pages 4-6 also report status dynamically via `onStatusChange` callbacks, which override computed values.
+Pages 4-5 also report status dynamically via `onStatusChange` callbacks, which override computed values.
 
 **Key functions** (all pure, in `core/wizard-status.ts`):
 - `maxSeverity(severities[])` — pick highest (error > warning > null). Single aggregation primitive for all levels.
@@ -543,7 +530,7 @@ npm run typecheck    # tsc
 
 | Suite | Files | What |
 |-------|-------|------|
-| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, instructions-download, root-contexts, schema-migrations, wizard-status, mappers, navigation |
+| Unit | `__tests__/unit/core/`, `__tests__/unit/shared/`, `__tests__/unit/renderer/` | core-flow, config, app-state, deploy, backend, apps, ai-clients, instructions, root-contexts, schema-migrations, wizard-status, mappers, navigation |
 | E2E | Disabled (CI) | WebdriverIO, monorepo symlink issues |
 
 **Testability:**
@@ -563,7 +550,6 @@ npm run typecheck    # tsc
 | Severity type, StatusItem, PageStatus | `shared/types.ts` (types), `core/wizard-status.ts` (functions) |
 | VERSION metadata parsing + writing | `core/deploy.ts` (`parseVersionMeta`, `writeVersion`, `readBuildSha`) |
 | Deploy warning logic (channel-aware) | `core/deploy.ts:isDeployWarning()` |
-| Instructions template download | `core/instructions-download.ts` |
 | Pointer file path / machine config | `core/config.ts` |
 | What triggers tray icon change | `main/index.ts:updateAppState()` |
 | How IPC channels are registered | `main/ipc-handlers.ts:setupIpcHandlers()` |

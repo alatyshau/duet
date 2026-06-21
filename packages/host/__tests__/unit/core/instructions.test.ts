@@ -2,17 +2,11 @@
  * Unit тесты для src/core/instructions.ts
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, writeFileSync, readFileSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createTestContext, type TestContext } from '../../helpers'
 
-import {
-  readMergedAgent,
-  readMergedAgents,
-  readCachedErrors,
-  fixInstructionsError,
-  isFixableError
-} from '../../../src/core/instructions'
+import { readMergedAgent, readMergedAgents, readCachedErrors } from '../../../src/core/instructions'
 
 describe('core/instructions', () => {
   let ctx: TestContext
@@ -125,107 +119,6 @@ describe('core/instructions', () => {
 
       const result = readCachedErrors(ctx.duetDataDir)
       expect(result).toEqual([])
-    })
-  })
-
-  // ===========================================================================
-  // isFixableError
-  // ===========================================================================
-
-  describe('isFixableError', () => {
-    it('returns true for fixable codes', () => {
-      expect(isFixableError('no_frontmatter')).toBe(true)
-      expect(isFixableError('invalid_yaml')).toBe(true)
-      expect(isFixableError('missing_fields')).toBe(true)
-    })
-
-    it('returns false for non-fixable codes', () => {
-      expect(isFixableError('frontmatter_too_large')).toBe(false)
-      expect(isFixableError('content_between_h1_h2')).toBe(false)
-      expect(isFixableError('unknown')).toBe(false)
-    })
-  })
-
-  // ===========================================================================
-  // fixInstructionsError
-  // ===========================================================================
-
-  describe('fixInstructionsError', () => {
-    it('adds frontmatter for no_frontmatter', () => {
-      const instrDir = join(ctx.duetDataDir, 'instructions')
-      mkdirSync(join(instrDir, 'personas'), { recursive: true })
-      writeFileSync(join(instrDir, 'personas', 'test.md'), '# Test\nContent here\n', 'utf-8')
-
-      const result = fixInstructionsError(instrDir, 'personas/test.md', 'no_frontmatter')
-      expect(result).toBe(true)
-
-      const fixed = readFileSync(join(instrDir, 'personas', 'test.md'), 'utf-8')
-      expect(fixed).toContain('---\nname: test\n---\n')
-      expect(fixed).toContain('# Test\nContent here\n')
-    })
-
-    it('replaces broken frontmatter for invalid_yaml', () => {
-      const instrDir = join(ctx.duetDataDir, 'instructions')
-      mkdirSync(instrDir, { recursive: true })
-      writeFileSync(
-        join(instrDir, 'broken.md'),
-        '---\n{invalid yaml\n---\n# Content\n',
-        'utf-8'
-      )
-
-      const result = fixInstructionsError(instrDir, 'broken.md', 'invalid_yaml')
-      expect(result).toBe(true)
-
-      const fixed = readFileSync(join(instrDir, 'broken.md'), 'utf-8')
-      expect(fixed).toContain('name: broken')
-      expect(fixed).toContain('# Content\n')
-      expect(fixed).not.toContain('{invalid yaml')
-      expect(fixed).not.toContain('description:')
-    })
-
-    it('adds missing name for missing_fields', () => {
-      const instrDir = join(ctx.duetDataDir, 'instructions')
-      mkdirSync(instrDir, { recursive: true })
-      writeFileSync(
-        join(instrDir, 'partial.md'),
-        '---\ncategory: tools\n---\n# Partial\n',
-        'utf-8'
-      )
-
-      const result = fixInstructionsError(instrDir, 'partial.md', 'missing_fields')
-      expect(result).toBe(true)
-
-      const fixed = readFileSync(join(instrDir, 'partial.md'), 'utf-8')
-      expect(fixed).toContain('category: tools')
-      expect(fixed).toContain('name: partial')
-    })
-
-    it('preserves existing name when it already exists', () => {
-      const instrDir = join(ctx.duetDataDir, 'instructions')
-      mkdirSync(instrDir, { recursive: true })
-      writeFileSync(
-        join(instrDir, 'named.md'),
-        '---\nname: my-skill\n---\n# Named\n',
-        'utf-8'
-      )
-
-      const result = fixInstructionsError(instrDir, 'named.md', 'missing_fields')
-      expect(result).toBe(true)
-
-      const fixed = readFileSync(join(instrDir, 'named.md'), 'utf-8')
-      expect(fixed).toContain('name: my-skill')
-      // Should NOT add a second name
-      expect(fixed.match(/name:/g)?.length).toBe(1)
-    })
-
-    it('returns false for non-fixable reason code', () => {
-      const result = fixInstructionsError('/fake', 'test.md', 'frontmatter_too_large')
-      expect(result).toBe(false)
-    })
-
-    it('returns false when file does not exist', () => {
-      const result = fixInstructionsError(ctx.duetDataDir, 'nonexistent.md', 'no_frontmatter')
-      expect(result).toBe(false)
     })
   })
 })

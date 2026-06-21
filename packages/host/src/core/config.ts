@@ -76,7 +76,8 @@ export const readPointerStrict = ():
     return { kind: 'ok', config: result.data as Config }
   }
   if (result.kind === 'missing') return { kind: 'missing' }
-  if (result.kind === 'invalid_json') return { kind: 'invalid_json', path: filePath, error: result.error }
+  if (result.kind === 'invalid_json')
+    return { kind: 'invalid_json', path: filePath, error: result.error }
   return { kind: 'read_failed', path: filePath, error: result.error }
 }
 
@@ -130,7 +131,7 @@ export const readPort = (): number => {
  * - файл отсутствует или содержит невалидный JSON
  *
  * Раньше функция тихо начинала с пустого `{}` если файл отсутствовал/побит,
- * что приводило к беззвучной потере остальных полей (port, instructionsPath и т.д.)
+ * что приводило к беззвучной потере остальных полей (port, pythonPath и т.д.)
  * Теперь — fail loud, чтобы UI показал ошибку и пользователь починил конфиг
  * через wizard step 1 (`ensureConfigDefaults`).
  */

@@ -23,7 +23,6 @@ from pathlib import Path
 
 from config import (
     get_duet_data_path,
-    get_instructions_path,
     get_machine_config_path,
     get_repos_path,
     get_root_context_folders,
@@ -229,15 +228,10 @@ class WorkspaceService:
         """Get full workspace orientation for AI agents."""
         duet_data = get_duet_data_path()
 
-        # instructionsPath required — without it bootstrapper is not merged,
-        # agent has no instructions. Raises ConfigError → 422.
-        instructions_path = get_instructions_path()
-
         result: dict = {
             "duet_paths": {
                 "duetDataPath": str(duet_data.resolve()),
                 "machineConfig": str(get_machine_config_path().resolve()),
-                "instructionsPath": str(instructions_path.resolve()),
             },
         }
 

@@ -200,10 +200,7 @@ describe('core/ai-clients', () => {
         join(agentsDir, 'duet-executor.md'),
         expectedExecutorAgentFrontmatter() + EXECUTOR_BODY
       )
-      writeFileSync(
-        join(agentsDir, 'duet-vizir.md'),
-        expectedVizirAgentFrontmatter() + VIZIR_BODY
-      )
+      writeFileSync(join(agentsDir, 'duet-vizir.md'), expectedVizirAgentFrontmatter() + VIZIR_BODY)
       writeFileSync(
         join(homeDir, '.claude', 'settings.json'),
         JSON.stringify({ outputStyle: 'duet-executor' })
@@ -240,10 +237,7 @@ describe('core/ai-clients', () => {
         join(agentsDir, 'duet-executor.md'),
         expectedExecutorAgentFrontmatter() + 'OLD body'
       )
-      writeFileSync(
-        join(agentsDir, 'duet-vizir.md'),
-        expectedVizirAgentFrontmatter() + VIZIR_BODY
-      )
+      writeFileSync(join(agentsDir, 'duet-vizir.md'), expectedVizirAgentFrontmatter() + VIZIR_BODY)
       writeFileSync(
         join(homeDir, '.claude', 'settings.json'),
         JSON.stringify({ outputStyle: 'duet-executor' })
@@ -283,10 +277,7 @@ describe('core/ai-clients', () => {
         join(agentsDir, 'duet-executor.md'),
         expectedExecutorAgentFrontmatter() + EXECUTOR_BODY
       )
-      writeFileSync(
-        join(agentsDir, 'duet-vizir.md'),
-        expectedVizirAgentFrontmatter() + VIZIR_BODY
-      )
+      writeFileSync(join(agentsDir, 'duet-vizir.md'), expectedVizirAgentFrontmatter() + VIZIR_BODY)
       writeFileSync(
         join(homeDir, '.claude', 'settings.json'),
         JSON.stringify({ outputStyle: 'duet-executor' })
@@ -406,21 +397,23 @@ describe('core/ai-clients', () => {
     })
 
     // --- H1 / H7: round-trip detect after configure ---
-    it('detect after configure returns configured (round-trip, idempotent)', () => {
+    it('detect after configure returns configured (round-trip, idempotent)', async () => {
       writeMergedAgents(ctx.duetDataDir)
 
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
       mkdirSync(join(homeDir, '.gemini'), { recursive: true })
 
-      // First configure
-      const r1 = configureAllAgents(ctx.duetDataDir, TEST_PORT)
+      // First configure. configureAllAgents now triggers a merge first (HTTP); no
+      // backend in tests → triggerMerge degrades gracefully and the pre-seeded
+      // duet-*.md files on disk are used as-is.
+      const r1 = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
       expect(r1[0].status).toBe('configured')
       expect(r1[1].status).toBe('configured')
       expect(r1[2].status).toBe('configured')
 
       // Second configure (idempotency)
-      const r2 = configureAllAgents(ctx.duetDataDir, TEST_PORT)
+      const r2 = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
       expect(r2[0].status).toBe('configured')
       expect(r2[1].status).toBe('configured')
       expect(r2[2].status).toBe('configured')
@@ -979,10 +972,7 @@ describe('core/ai-clients', () => {
         join(agentsDir, 'duet-executor.md'),
         expectedExecutorAgentFrontmatter() + EXECUTOR_BODY
       )
-      writeFileSync(
-        join(agentsDir, 'duet-vizir.md'),
-        expectedVizirAgentFrontmatter() + VIZIR_BODY
-      )
+      writeFileSync(join(agentsDir, 'duet-vizir.md'), expectedVizirAgentFrontmatter() + VIZIR_BODY)
       writeFileSync(
         join(homeDir, '.claude', 'settings.json'),
         JSON.stringify({ outputStyle: 'duet-executor' })
@@ -1061,8 +1051,8 @@ describe('core/ai-clients', () => {
   // ===========================================================================
 
   describe('configureAllAgents', () => {
-    it('returns results for all agents', () => {
-      const results = configureAllAgents(ctx.duetDataDir, TEST_PORT)
+    it('returns results for all agents', async () => {
+      const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(results).toHaveLength(3)
       expect(results[0].id).toBe('claude-code')
@@ -1070,14 +1060,14 @@ describe('core/ai-clients', () => {
       expect(results[2].id).toBe('antigravity')
     })
 
-    it('configures all found agents using merged content from disk', () => {
+    it('configures all found agents using merged content from disk', async () => {
       writeMergedAgents(ctx.duetDataDir)
 
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
       mkdirSync(join(homeDir, '.gemini'), { recursive: true })
 
-      const results = configureAllAgents(ctx.duetDataDir, TEST_PORT)
+      const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(results[0].status).toBe('configured')
       expect(results[1].status).toBe('configured')

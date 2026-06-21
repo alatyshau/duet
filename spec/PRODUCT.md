@@ -42,7 +42,7 @@
 | **Extension** | `packages/extension` | TypeScript/VS Code | UI (tree views, commands). Thin client over Backend HTTP API | [`spec/COMPONENT.md`](../packages/extension/spec/COMPONENT.md) |
 | **Backend** | `packages/backend` | Python | HTTP API + MCP. Owns DB. Strict reader of config and manifests | [`spec/COMPONENT.md`](../packages/backend/spec/COMPONENT.md) |
 
-**Sibling product — Duet-Instructions.** AI-инструкции вынесены из Duet в отдельный git-репозиторий, которым владеет пользователь. Duet их не деплоит и не бандлит — Host читает merged-файлы (`DuetData/duet.md` — тонкий сессионный промпт; `duet-{agent}.md` — полные тела субагентов) и развозит по AI-клиентам (Claude Code, Codex, Antigravity). Полный спек: `Duet-Instructions.git/spec/PRODUCT.md`. Подключение: `instructionsPath` в `{machine}.json`.
+**Platform instructions — `packages/instructions`.** AI-инструкции (системный каркас `bootstrapper.md`, ядра агентов `executor.md`/`vizir.md`, `index.json`) — **платформенный артефакт внутри Duet**, бандлится рядом с backend (PROD — через electron-builder; DEV — копируется при деплое). Backend мёржит их в `DuetData/duet.md` (тонкий сессионный промпт) и `duet-{agent}.md` (полные тела субагентов); Host разливает по AI-клиентам (Claude Code, Codex, Antigravity) в рамках конфигурации агентов. Внешнего пользовательского репо инструкций больше нет — нет `instructionsPath`, нет отдельного wizard-шага. (Скиллы — отдельная машинерия: нативные `SKILL.md`, деплоятся в контексты через `skills`-декларации `context.json`, см. [Deploy Instructions](#deploy-instructions).)
 
 ## Domain
 
@@ -95,10 +95,9 @@ Three entity types live in `entities.db`:
 ```json
 { "version": 4, "name": "Duet", "icon": "📦", "git_repos": {"Duet": "git@github.com:owner/duet.git"} }
 { "version": 4, "name": "DuetLab", "icon": "🎭",
-  "git_repos": {"Duet": "git@github.com:owner/duet.git",
-                "Duet-Instructions": "git@github.com:owner/duet-instructions.git"},
+  "git_repos": {"Duet": "git@github.com:owner/duet.git"},
   "skills": ["@anthropic-skills.git/skills/pdf"],
-  "instructions": ["@Duet-Instructions.git/contexts/duetlab.md"],
+  "instructions": ["@Duet.git/packages/instructions/executor.md"],
   "memory": "@DuetLab/README.md" }
 { "version": 4, "name": "БАЗА", "icon": "🗂", "meta": true }
 { "version": 4, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
@@ -232,7 +231,6 @@ DuetConfig/
 {
   "version": 2,
   "port": 19680,
-  "instructionsPath": "/Users/.../Duet-Instructions.git",
   "@БАЗА": "/Users/.../!БАЗА",
   "@МетаЛаб": "/Users/.../!МетаЛаб"
 }
@@ -241,7 +239,6 @@ DuetConfig/
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
 | `port` | Extension, Backend | HTTP port for backend |
-| `instructionsPath` | Backend | Absolute path to Duet-Instructions repo |
 | `pythonPath`, `deployChannel`, `devBackendPath` | Host | Host-specific machine settings |
 | `@alias` keys | Backend | Machine-specific path resolution (see @Alias Resolution) |
 
@@ -311,7 +308,7 @@ AI agents call `orientation(workspace_paths=[<all working dirs>])` at session st
 
 | Block | Purpose | Always present? |
 |-------|---------|----------------|
-| `duet_paths` | `duetDataPath`, `machineConfig`, `instructionsPath` | Yes |
+| `duet_paths` | `duetDataPath`, `machineConfig` | Yes |
 | `workspace` | `kind`, `context_name`, `context_folder`, `git_folders` (map), `[reference_repos]`, `[meta-only addons]` | Yes |
 | `context` | breadcrumb + chain (`type`, `name`, `icon`, `description?`) | When entity resolved |
 | `products` | Top-level array; each product has `name`, `path` (@-ref), `spec?`, `description?`, `components[]` | When entity resolved |
@@ -349,7 +346,7 @@ First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `descriptio
 |------|------|-----------|---------|-----------|
 | `~/.org.ve68.duet` | **writes** | reads | reads | — |
 | `DuetConfig/settings.json` | **writes** | — | reads | — |
-| `DuetConfig/{machine}.json` | **writes** | reads (port) | reads (port, instructionsPath, @aliases) | — |
+| `DuetConfig/{machine}.json` | **writes** | reads (port) | reads (port, @aliases) | — |
 | Context `context.json` manifests | **writes** (migrations, self-heal) | — | reads (strict v4) | — |
 | `DuetData/backend/VERSION` | **writes** | — | reads | — |
 | `DuetData/backend.log` | — | — | **writes** | — |

@@ -7,7 +7,7 @@
 **At session start:** call `orientation(workspace_paths=[<all working directories>])` MCP tool. This is a blocking gate — do not proceed with any work until you receive and process the response.
 
 **From the response, extract and use for the entire session:**
-- **`duet_paths`** — `duetDataPath`, `machineConfig`, `instructionsPath` (root of the user instructions workspace).
+- **`duet_paths`** — `duetDataPath`, `machineConfig`.
 - **`workspace`** — `kind`, `context_name`, `context_folder`, `git_folders` (and `reference_repos` if any): the contexts you are physically standing in.
 - **`context`** — `breadcrumb` + `chain` (each item: `type`, `name`, `icon?`, `description?`): the line of parent contexts above you. Read it — it tells you what concerns enclose your work.
 - **`products`** — discovered products and their `components` (each with `spec?`, `description?`). Read the relevant `spec` first to orient in the code.
@@ -16,21 +16,6 @@
 ## Duet MCP tools
 
 `orientation` is the session gate. After orientation, use `contexts()` to discover the context tree across all root contexts. **Always prefer `contexts()` over filesystem searches** (find, ls, glob) for context and product discovery.
-
-## User instructions
-
-The skills table below lists all available personas and skills. Paths are relative to `duet_paths.instructionsPath` from orientation. Load specific files via Read.
-
-**Skill activation rules:**
-- `shortcuts` — explicit user invocation → always load
-- `trigger` — describes WHEN to auto-load this skill. If the current task matches → load the skill via Read without asking
-- `noTrigger` — describes WHEN NOT to load (disambiguation with similar skills)
-- `description` — general purpose summary. If no `trigger` field, use description to decide
-- `path` — file to Read when loading the skill (relative to `duet_paths.instructionsPath`)
-
-**`!` prefix convention:** Any word in user text starting with `!` (e.g. `!чек`, `!коммит`) is most likely a Duet skill shortcut. Treat it as an explicit invocation — look it up in the skills catalog and load the matching skill.
-
-<!-- INSERT SKILLS TABLE -->
 
 ## Context — the unit of productive life
 

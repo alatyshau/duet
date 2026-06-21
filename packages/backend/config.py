@@ -99,31 +99,6 @@ def get_db_path() -> Path:
     return get_duet_data_path() / "data" / "entities.db"
 
 
-def get_instructions_path() -> Path:
-    """Get path to instructions workspace from machine.json.
-
-    Reads instructionsPath from machine config (per-machine, absolute path).
-    No fallback — missing field raises ConfigError.
-    """
-    machine_config = read_machine_config()
-    instructions_path = machine_config.get("instructionsPath")
-
-    if instructions_path is None:
-        raise ConfigError(
-            f"instructionsPath not set in {get_machine()}.json. "
-            "Configure instructions workspace path in Host settings."
-        )
-
-    path = Path(instructions_path)
-    if not path.exists():
-        raise ConfigError(
-            f"Instructions workspace not found: {instructions_path}. "
-            "Check instructionsPath in machine config."
-        )
-
-    return path
-
-
 def get_log_path() -> Path:
     """Get path to backend.log."""
     return get_duet_data_path() / "backend.log"

@@ -8,7 +8,9 @@
  * - Backend: atomic swap (.new → rename) → DuetData/backend/
  * - Post-deploy: Python check, venv, pip install (async)
  * - VERSION file: app version → DuetData/backend/VERSION
- * - AI instructions: user-owned repo (configured via instructionsPath in machine.json)
+ * - Platform instructions (bootstrapper + agent cores + index.json): bundled next to
+ *   backend. PROD — via electron-builder; DEV — copied from the sibling
+ *   packages/instructions by copyPlatformInstructions (see deployBackend).
  *
  * НЕТ Electron imports — тестируемо с plain Node.js.
  */
@@ -289,6 +291,15 @@ export const deployBackend = (paths: DeployPaths): number => {
   mkdirSync(destNew, { recursive: true })
   cpSync(src, destNew, { recursive: true, force: true, filter: deployFilter })
 
+  // DEV: platform instructions (bootstrapper.md + agent cores + index.json) live in
+  // the sibling packages/instructions, NOT inside the backend source dir. Copy them
+  // next to server.py so the merge finds them as siblings (Path(__file__).parent).
+  // In PROD they're already inside resourcesPath/backend (electron-builder bundles
+  // packages/instructions/ → backend/), so the cpSync above already brought them.
+  if (paths.backendSourcePath) {
+    copyPlatformInstructions(join(paths.backendSourcePath, '..', 'instructions'), destNew)
+  }
+
   // Atomic swap
   if (existsSync(dest)) {
     renameSync(dest, destOld)
@@ -515,6 +526,24 @@ export const copyDuetDataReadme = (paths: DeployPaths): void => {
   const dest = join(paths.duetDataPath, 'README.md')
   if (existsSync(src)) {
     cpSync(src, dest, { force: true })
+  }
+}
+
+/**
+ * Копирует платформенные инструкции (bootstrapper.md + ядра агентов + index.json)
+ * из packages/instructions рядом с задеплоенным backend (DEV-деплой).
+ * Фильтр зеркалит electron-builder (PROD): `*.md` + `index.json`, кроме `README.md`
+ * (dev-only доки). No-op если папки-источника нет.
+ */
+export const copyPlatformInstructions = (srcDir: string, destBackendDir: string): void => {
+  if (!existsSync(srcDir)) return
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue
+    const name = entry.name
+    if (name === 'README.md') continue
+    if (name.endsWith('.md') || name === 'index.json') {
+      cpSync(join(srcDir, name), join(destBackendDir, name), { force: true })
+    }
   }
 }
 

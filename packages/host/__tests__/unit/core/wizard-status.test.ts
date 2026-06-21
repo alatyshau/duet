@@ -25,7 +25,6 @@ const baseAppState: AppState = {
   pathExists: true,
   deployChannel: 'prod',
   pythonPath: '/usr/bin/python3',
-  instructionsPath: '/instructions',
   hasDevBackendPath: false
 }
 
@@ -33,7 +32,6 @@ const baseInput: PageStatusInput = {
   appState: baseAppState,
   deployStatus: { state: 'up_to_date', version: '1.0.0' },
   cachedScan: null,
-  cachedInstructionsErrors: null,
   agents: null
 }
 
@@ -146,24 +144,6 @@ describe('core/wizard-status', () => {
     it('leaves business-folders undefined when no scan performed', () => {
       const s = computePageStatuses(baseInput)
       expect(s['workspaces']).toBeUndefined()
-    })
-
-    it('marks instructions as ok when no instruction errors', () => {
-      const s = computePageStatuses({
-        ...baseInput,
-        cachedInstructionsErrors: []
-      })
-      expect(s['instructions']).toBe('ok')
-    })
-
-    it('marks instructions as error when instruction errors exist', () => {
-      const s = computePageStatuses({
-        ...baseInput,
-        cachedInstructionsErrors: [
-          { path: 'test.md', reason_code: 'invalid_yaml', description: 'bad yaml' }
-        ]
-      })
-      expect(s['instructions']).toBe('error')
     })
 
     it('marks agents as ok when all found agents configured', () => {
@@ -330,9 +310,7 @@ describe('core/wizard-status', () => {
         scanResultToPageStatus({
           status: 'ok',
           entities_count: 0,
-          errors: [
-            { path: '/foo', reason_code: 'invalid_manifest', description: 'broken' }
-          ]
+          errors: [{ path: '/foo', reason_code: 'invalid_manifest', description: 'broken' }]
         })
       ).toBe('error')
     })
@@ -356,8 +334,7 @@ describe('core/wizard-status', () => {
       'duet-paths': 'ok' as const,
       python: 'ok' as const,
       backend: 'ok' as const,
-      'workspaces': 'ok' as const,
-      instructions: 'ok' as const,
+      workspaces: 'ok' as const,
       agents: 'ok' as const
     }
 
@@ -366,21 +343,17 @@ describe('core/wizard-status', () => {
     })
 
     it('returns error when any page has error', () => {
-      expect(
-        getSettingsSeverity({ ...allOk, 'workspaces': 'error' })
-      ).toBe('error')
+      expect(getSettingsSeverity({ ...allOk, workspaces: 'error' })).toBe('error')
     })
 
     it('returns warning when page has warning but no errors', () => {
-      expect(
-        getSettingsSeverity({ ...allOk, agents: 'warning' })
-      ).toBe('warning')
+      expect(getSettingsSeverity({ ...allOk, agents: 'warning' })).toBe('warning')
     })
 
     it('returns error when mixed error and warning', () => {
-      expect(
-        getSettingsSeverity({ ...allOk, agents: 'warning', 'workspaces': 'error' })
-      ).toBe('error')
+      expect(getSettingsSeverity({ ...allOk, agents: 'warning', workspaces: 'error' })).toBe(
+        'error'
+      )
     })
 
     it('returns error for null status (not configured = error severity)', () => {
@@ -392,10 +365,12 @@ describe('core/wizard-status', () => {
     })
 
     it('returns null for all skipped pages', () => {
-      expect(getSettingsSeverity({
-        ...allOk,
-        agents: 'skipped',
-      })).toBeNull()
+      expect(
+        getSettingsSeverity({
+          ...allOk,
+          agents: 'skipped'
+        })
+      ).toBeNull()
     })
 
     it('returns error when some pages missing from partial statuses', () => {

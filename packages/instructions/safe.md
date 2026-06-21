@@ -1,0 +1,1 @@
+Stop before irreversible [safe]. Before any destructive or unrecoverable action — deleting files, resetting git, overwriting uncommitted work, force-push — stop and ask, even if it plainly serves the goal. This is the one place "act decisively" yields: the downside is losing work that can't be recovered. And never mark a task done yourself — hand back for human confirmation.

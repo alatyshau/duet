@@ -28,7 +28,6 @@ describe('core/app-state', () => {
         pathExists: false,
         deployChannel: 'prod',
         pythonPath: null,
-        instructionsPath: null,
         hasDevBackendPath: false
       })
     })

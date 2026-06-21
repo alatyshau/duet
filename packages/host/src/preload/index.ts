@@ -16,8 +16,6 @@ import type {
   BackendStatus,
   PythonStatus,
   AgentInfo,
-  InstructionsMergeResult,
-  InstructionsError,
   ScanResult,
   ContextsCache,
   MigrationResult
@@ -123,21 +121,9 @@ const api = {
   fixAgentIssue: (agentId: string, reasonCode: string): Promise<boolean> =>
     ipcRenderer.invoke('agents:fix-issue', agentId, reasonCode),
 
-  // === Instructions ===
-
-  mergeInstructions: (): Promise<InstructionsMergeResult> =>
-    ipcRenderer.invoke('instructions:merge'),
-
-  getInstructionsErrors: (): Promise<InstructionsError[]> =>
-    ipcRenderer.invoke('instructions:get-errors'),
-
-  setInstructionsPath: (path: string): Promise<AppState> =>
-    ipcRenderer.invoke('config:set-instructions-path', path),
-
   // === Root Contexts ===
 
-  getRootContextFolders: (): Promise<RootContextEntry[]> =>
-    ipcRenderer.invoke('root-contexts:get'),
+  getRootContextFolders: (): Promise<RootContextEntry[]> => ipcRenderer.invoke('root-contexts:get'),
 
   saveRootContextFolders: (folders: string[]): Promise<void> =>
     ipcRenderer.invoke('root-contexts:save', folders),
@@ -165,22 +151,7 @@ const api = {
     return () => {
       ipcRenderer.removeListener('migrations:status-changed', handler)
     }
-  },
-
-  // === Instructions download ===
-
-  downloadInstructionsTemplate: (
-    targetFolder: string
-  ): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('instructions:download-template', targetFolder),
-
-  isInstructionsFolderEmpty: (folderPath: string): Promise<boolean> =>
-    ipcRenderer.invoke('instructions:is-folder-empty', folderPath),
-
-  // === Instructions fix ===
-
-  fixInstructionsError: (relativePath: string, reasonCode: string): Promise<boolean> =>
-    ipcRenderer.invoke('instructions:fix-error', relativePath, reasonCode)
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

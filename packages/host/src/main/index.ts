@@ -26,7 +26,12 @@ import {
   readPointerStrict,
   isValidMachineName
 } from '../core/config'
-import { isDeployWarning, readBuildSha, readDeployedVersion, resolveDeployStatus } from '../core/deploy'
+import {
+  isDeployWarning,
+  readBuildSha,
+  readDeployedVersion,
+  resolveDeployStatus
+} from '../core/deploy'
 import {
   readCachedScan,
   getRootContextFolders,
@@ -40,7 +45,7 @@ import {
   loadOrUpgradeMachineConfig,
   loadOrUpgradeSettings
 } from '../core/schema-migrations'
-import { readCachedErrors, triggerMerge } from '../core/instructions'
+import { readCachedErrors } from '../core/instructions'
 import { detectAgents, configureAllAgents } from '../core/ai-clients'
 import { computePageStatuses, getSettingsSeverity, maxSeverity } from '../core/wizard-status'
 import type { DeployStatus, MigrationResult, Severity } from '../shared/types'
@@ -364,7 +369,9 @@ const updateAppState = (): void => {
   }
 
   // Build metadata for deploy warning checks
-  const resourcesPath = app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources-dev')
+  const resourcesPath = app.isPackaged
+    ? process.resourcesPath
+    : join(__dirname, '../../resources-dev')
   const buildSha = readBuildSha(resourcesPath)
   const machineConfig = readMachineConfig()
   const devBackendPath =
@@ -386,7 +393,6 @@ const updateAppState = (): void => {
         appState,
         deployStatus: currentDeployStatus,
         cachedScan: readCachedScan(appState.duetDataPath),
-        cachedInstructionsErrors: readCachedErrors(appState.duetDataPath),
         agents: detectAgents(appState.duetDataPath, port),
         hasDeployWarning,
         migrationStatus: currentMigrationStatus
@@ -513,15 +519,15 @@ if (gotTheLock) {
             }
           }
 
-          // Auto-merge instructions if path configured and merge never ran
-          if (appState.instructionsPath && readCachedErrors(duetDataPath) === null) {
+          // Auto-configure agents if never configured (merge runs inside
+          // configureAllAgents from the bundled platform sources — no external
+          // instructions workspace). Upgrades are covered by the post-deploy
+          // configure in the deploy handler; this is the fresh-install safety net.
+          if (readCachedErrors(duetDataPath) === null) {
             try {
-              const result = await triggerMerge(port)
-              if (result.errors.length === 0) {
-                configureAllAgents(duetDataPath, port)
-              }
+              await configureAllAgents(duetDataPath, port)
             } catch (e) {
-              console.error('Auto-merge instructions failed:', e)
+              console.error('Auto-configure agents failed:', e)
             }
           }
 

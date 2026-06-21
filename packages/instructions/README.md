@@ -1,24 +1,32 @@
 # instructions
 
-Платформенный слой инструкций Duet — **`bootstrapper.md`**, системный промпт-каркас, который Duet
-получает каждый AI-агент.
+**Платформенный слой инструкций Duet** — системный промпт-каркас и ядра агентов, которые получает
+каждый AI-агент. Это не пользовательский, а продуктовый артефакт: живёт внутри `Duet.git`, бандлится
+рядом с backend.
 
 ## Что здесь
 
 | Файл | Что |
 |------|-----|
-| `bootstrapper.md` | Ориентация, Duet MCP-тулы, правила активации скиллов, **онтология «контекста»** (единая рекурсивная единица продуктивной жизни) и **единый ритуал работы в контексте**. Несёт два маркера-вставки: `<!-- INSERT SKILLS TABLE -->` и `<!-- INSERT USER CORE INSTRUCTIONS -->`. |
+| `bootstrapper.md` | Ориентация, Duet MCP-тулы, **онтология «контекста»** и **единый ритуал работы в контексте**. Несёт маркер-вставку `<!-- INSERT USER CORE INSTRUCTIONS -->`. |
+| `executor.md`, `vizir.md` | Ядра агентов — поведенческий слой (L7-принципы и т.п.), подставляемый в маркер. |
+| `index.json` | Список агентов: `{ "agents": { "executor": "executor.md", "vizir": "vizir.md" } }`. |
 
 ## Как используется
 
-Backend (`packages/backend/instructions.py`) читает `bootstrapper.md`, подставляет в маркеры таблицу
-скиллов и per-agent core (из пользовательского репозитория Duet-Instructions) и пишет merged-файлы
-`DuetData/duet.md` (тонкий сессионный промпт) и `DuetData/duet-{agent}.md`.
+Backend (`packages/backend/instructions.py`) читает `bootstrapper.md` + `index.json` + ядра агентов
+**из этой папки** (бандл рядом с backend) и пишет merged-файлы:
+- `DuetData/duet.md` — тонкий сессионный промпт (bootstrapper без ядра);
+- `DuetData/duet-{agent}.md` — bootstrapper + ядро агента.
 
-**Runtime-путь.** Источник лежит здесь. В сборке `electron-builder` копирует `bootstrapper.md` рядом
-с backend (`packages/instructions/ → backend/`), поэтому `server.py` находит его как sibling. В dev
-`server.py` читает его отсюда напрямую (fallback `../instructions/bootstrapper.md`).
+Host разливает их по AI-клиентам в рамках конфигурации агентов (мёрж — внутренний пролог
+`configureAllAgents`).
 
-> Граница ответственности: **платформенный** слой (этот пакет) владеет каркасом и онтологией.
-> **Пользовательский** слой (репозиторий Duet-Instructions) владеет per-agent core, персонами и
-> скиллами. Подключение — `instructionsPath` в `DuetConfig/{machine}.json`.
+**Runtime-путь.** Источник лежит здесь. **PROD** — `electron-builder` копирует `*.md` + `index.json`
+рядом с backend (`packages/instructions/ → backend/`), `server.py` находит их как siblings
+(`Path(__file__).parent`). **DEV** — деплой копирует эту папку в `DuetData/backend/` (`deploy.ts`
+→ `copyPlatformInstructions`), потому что dev-backend запускается из задеплоенной копии.
+
+> Внешнего пользовательского репозитория инструкций (`instructionsPath` / `Duet-Instructions.git`)
+> больше нет — всё нужное здесь. Скиллы — отдельная машинерия (нативные `SKILL.md`, деплой в
+> контексты через `skills`-декларации `context.json`).

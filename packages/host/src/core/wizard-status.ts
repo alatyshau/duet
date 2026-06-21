@@ -10,7 +10,6 @@ import type {
   AppState,
   DeployStatus,
   ScanResult,
-  InstructionsError,
   AgentInfo,
   MigrationResult,
   Severity,
@@ -25,13 +24,7 @@ import type {
 export type PageStatus = 'ok' | 'error' | 'warning' | 'skipped' | null
 
 /** Все страницы визарда (должен совпадать с navigation.ts WizardPage). */
-export type WizardPage =
-  | 'duet-paths'
-  | 'python'
-  | 'backend'
-  | 'workspaces'
-  | 'instructions'
-  | 'agents'
+export type WizardPage = 'duet-paths' | 'python' | 'backend' | 'workspaces' | 'agents'
 
 export type PageStatuses = Partial<Record<WizardPage, PageStatus>>
 
@@ -41,8 +34,6 @@ export interface PageStatusInput {
   deployStatus: DeployStatus
   /** Cached scan result (null = no scan performed yet). */
   cachedScan: ScanResult | null
-  /** Cached instruction errors (null = no merge performed yet). */
-  cachedInstructionsErrors: InstructionsError[] | null
   /** Detected agents (null = not queried yet). */
   agents: AgentInfo[] | null
   /** Deploy staleness flag from isDeployWarning() — channel mismatch, stale version, etc. */
@@ -57,9 +48,6 @@ export interface PageStatusInput {
 
 /** Scan reason codes that are warnings, not errors. */
 const SCAN_WARNING_CODES = new Set(['name_collision', 'repo_collision', 'missing_manifest'])
-
-/** Instructions reason codes that are warnings, not errors. */
-const INSTRUCTIONS_WARNING_CODES = new Set(['missing_description', 'version_suffix'])
 
 /**
  * Map a backend scan result into a PageStatus.
@@ -84,7 +72,7 @@ export function scanResultToPageStatus(scan: ScanResult): PageStatus {
  * Чистая функция — никаких side effects.
  */
 export function computePageStatuses(input: PageStatusInput): PageStatuses {
-  const { appState, deployStatus, cachedScan, cachedInstructionsErrors, agents } = input
+  const { appState, deployStatus, cachedScan, agents } = input
   const s: PageStatuses = {}
 
   // Page 1: Duet paths — all three set; downgrade if schema-migration produced errors.
@@ -93,11 +81,7 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
   // (data corruption — context unreachable until user fixes).
   if (input.migrationStatus?.critical) {
     s['duet-paths'] = 'error'
-  } else if (
-    appState.duetDataPath &&
-    appState.duetConfigPath &&
-    appState.machine
-  ) {
+  } else if (appState.duetDataPath && appState.duetConfigPath && appState.machine) {
     s['duet-paths'] = (input.migrationStatus?.contextErrors?.length ?? 0) > 0 ? 'error' : 'ok'
   } else {
     s['duet-paths'] = null
@@ -116,17 +100,9 @@ export function computePageStatuses(input: PageStatusInput): PageStatuses {
     s['workspaces'] = scanResultToPageStatus(cachedScan)
   }
 
-  // Page 6: Instructions — merged with no errors
-  if (cachedInstructionsErrors !== null) {
-    if (cachedInstructionsErrors.length === 0) {
-      s['instructions'] = 'ok'
-    } else {
-      const hasRealError = cachedInstructionsErrors.some((e) => !INSTRUCTIONS_WARNING_CODES.has(e.reason_code))
-      s['instructions'] = hasRealError ? 'error' : 'warning'
-    }
-  }
-
-  // Page 7: AI Agents — needs_setup is warning, none found is skipped
+  // AI Agents — needs_setup is warning, none found is skipped. Also the surface for
+  // a failed instructions merge: configureAllAgents merges before deploying, so a
+  // broken platform bundle leaves merged content missing → agents show needs_setup.
   if (agents !== null) {
     const found = agents.filter((a) => a.status !== 'not_found')
     if (found.length === 0) {
@@ -177,14 +153,7 @@ export function processStateToSeverity(state: ProcessState): Severity | null {
   return state === 'error' ? 'error' : null
 }
 
-const ALL_WIZARD_PAGES: WizardPage[] = [
-  'duet-paths',
-  'python',
-  'backend',
-  'workspaces',
-  'instructions',
-  'agents'
-]
+const ALL_WIZARD_PAGES: WizardPage[] = ['duet-paths', 'python', 'backend', 'workspaces', 'agents']
 
 /** Aggregate severity of all wizard pages (Settings tab). */
 export function getSettingsSeverity(statuses: PageStatuses): Severity | null {

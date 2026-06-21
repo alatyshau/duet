@@ -27,8 +27,6 @@ import {
 } from '../core/deploy'
 import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
-import { triggerMerge, readCachedErrors, fixInstructionsError } from '../core/instructions'
-import { downloadInstructionsTemplate, isFolderEmpty } from '../core/instructions-download'
 import {
   addRootContextFolder,
   getResolvedRootContextFolders,
@@ -43,8 +41,6 @@ import type {
   DeployStatus,
   BackendStatus,
   PythonStatus,
-  InstructionsMergeResult,
-  InstructionsError,
   ScanResult,
   ContextsCache,
   MigrationResult
@@ -332,6 +328,18 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
         }
       )
       if (proc) monitorBackendProcess(proc)
+      // Re-merge + re-deploy agents from the freshly deployed platform bundle, so
+      // duet.md / duet-{agent}.md never go stale after a backend upgrade. Needs the
+      // backend running (merge is an HTTP call) — skip if it didn't start.
+      if (proc) {
+        try {
+          await configureAllAgents(state.duetDataPath, port)
+        } catch (e) {
+          sendDeployLog(
+            `Конфигурация агентов после деплоя не удалась: ${e instanceof Error ? e.message : String(e)}`
+          )
+        }
+      }
       // Read actual VERSION (includes build metadata) instead of plain appVersion
       const deployedVersion = readDeployedVersion(state.duetDataPath) ?? appVersion
       const postDeployReason = getDeployWarning(
@@ -434,11 +442,11 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     return result
   })
 
-  ipcMain.handle('agents:configure', () => {
+  ipcMain.handle('agents:configure', async () => {
     const state = context.getAppState()
     if (!state.duetDataPath) return []
     const port = readPort()
-    const result = configureAllAgents(state.duetDataPath, port)
+    const result = await configureAllAgents(state.duetDataPath, port)
     context.updateAppState()
     return result
   })
@@ -447,19 +455,6 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
     const fixed = fixAgentIssue(agentId, reasonCode)
     if (fixed) context.updateAppState()
     return fixed
-  })
-
-  // === Instructions ===
-
-  ipcMain.handle('instructions:merge', async (): Promise<InstructionsMergeResult> => {
-    const port = readPort()
-    return triggerMerge(port)
-  })
-
-  ipcMain.handle('instructions:get-errors', (): InstructionsError[] | null => {
-    const state = context.getAppState()
-    if (!state.duetDataPath) return null
-    return readCachedErrors(state.duetDataPath)
   })
 
   // === Root Contexts ===
@@ -511,47 +506,6 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
 
   ipcMain.handle('migrations:get-status', (): MigrationResult => {
     return context.getMigrationStatus()
-  })
-
-  // === Instructions fix ===
-
-  ipcMain.handle(
-    'instructions:fix-error',
-    (_event, relativePath: string, reasonCode: string): boolean => {
-      const state = context.getAppState()
-      if (!state.instructionsPath) return false
-      return fixInstructionsError(state.instructionsPath, relativePath, reasonCode)
-    }
-  )
-
-  // === Instructions download ===
-
-  ipcMain.handle(
-    'instructions:download-template',
-    async (_event, targetFolder: string): Promise<{ ok: true } | { ok: false; error: string }> => {
-      try {
-        await downloadInstructionsTemplate(targetFolder)
-        return { ok: true }
-      } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) }
-      }
-    }
-  )
-
-  ipcMain.handle('instructions:is-folder-empty', (_event, folderPath: string): boolean => {
-    return isFolderEmpty(folderPath)
-  })
-
-  // === Instructions path ===
-
-  ipcMain.handle('config:set-instructions-path', (_event, path: string) => {
-    const config = readConfig()
-    if (!config.duetConfigPath || !config.machine) {
-      throw new Error('Сначала настройте DuetConfig и имя машины (шаг 2)')
-    }
-    setMachineConfigKey('instructionsPath', path)
-    context.updateAppState()
-    return context.getAppState()
   })
 }
 

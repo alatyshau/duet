@@ -2,7 +2,7 @@
  * ЧТО: Единая таблица статусов для страниц визарда.
  * ЗАЧЕМ: Заменяет ad-hoc ScanErrorRow, InstructionsErrorRow, inline error JSX.
  *        Один компонент для отображения StatusItem[] на любой странице.
- * КТО ИСПОЛЬЗУЕТ: WorkspacesPage, InstructionsPage, BackendPage.
+ * КТО ИСПОЛЬЗУЕТ: WorkspacesPage, BackendPage.
  */
 import { useState } from 'react'
 import { Button } from './button'

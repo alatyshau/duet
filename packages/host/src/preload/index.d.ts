@@ -25,8 +25,6 @@ export type {
   ProcessStatus,
   ProcessInfo,
   AppInfo,
-  InstructionsError,
-  InstructionsMergeResult,
   ScanError,
   ScanResult,
   ContextEntity,
@@ -46,8 +44,6 @@ import type {
   BackendStatus,
   PythonStatus,
   AgentInfo,
-  InstructionsMergeResult,
-  InstructionsError,
   ScanResult,
   ContextsCache,
   MigrationResult
@@ -91,11 +87,6 @@ export interface DuetAPI {
   configureAgents: () => Promise<AgentInfo[]>
   fixAgentIssue: (agentId: string, reasonCode: string) => Promise<boolean>
 
-  // Instructions
-  mergeInstructions: () => Promise<InstructionsMergeResult>
-  getInstructionsErrors: () => Promise<InstructionsError[] | null>
-  setInstructionsPath: (path: string) => Promise<AppState>
-
   // Root Contexts
   getRootContextFolders: () => Promise<RootContextEntry[]>
   saveRootContextFolders: (folders: string[]) => Promise<void>
@@ -107,13 +98,6 @@ export interface DuetAPI {
   // Schema migrations
   getMigrationStatus: () => Promise<MigrationResult>
   onMigrationStatusChanged: (callback: (status: MigrationResult) => void) => () => void
-
-  // Instructions download
-  downloadInstructionsTemplate: (targetFolder: string) => Promise<{ ok: boolean; error?: string }>
-  isInstructionsFolderEmpty: (folderPath: string) => Promise<boolean>
-
-  // Instructions fix
-  fixInstructionsError: (relativePath: string, reasonCode: string) => Promise<boolean>
 }
 
 declare global {

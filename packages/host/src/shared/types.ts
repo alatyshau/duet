@@ -32,8 +32,6 @@ export interface AppState {
   deployChannel: DeployChannel
   /** Python interpreter path from machine.json (null if not configured). */
   pythonPath: string | null
-  /** Path to Duet-Instructions git repo from machine.json (null if not configured). */
-  instructionsPath: string | null
   /** Whether devBackendPath is set in machine.json (controls DEV/PROD toggle visibility). */
   hasDevBackendPath: boolean
 }

@@ -45,8 +45,7 @@ function duetLabOrientation(): OrientationResponse {
     return {
         duet_paths: {
             duetDataPath: '/abs/DuetData',
-            machineConfig: '/abs/DuetConfig/mac.json',
-            instructionsPath: '/abs/DuetData/repos/Duet-Instructions.git'
+            machineConfig: '/abs/DuetConfig/mac.json'
         },
         context: {
             chain: [
@@ -162,7 +161,7 @@ describe('ContextProvider', () => {
 
         it('resolves drive-product paths against workspace.context_folder', () => {
             const r: OrientationResponse = {
-                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc', instructionsPath: '/inst' },
+                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc' },
                 context: { chain: [{ name: 'OntoCore', icon: '📁' }] },
                 workspace: {
                     kind: 'context',
@@ -190,7 +189,7 @@ describe('ContextProvider', () => {
     describe('unknown workspace fallback', () => {
         it('shows an info node when workspace.kind is "unknown"', () => {
             const r: OrientationResponse = {
-                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc', instructionsPath: '/inst' },
+                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc' },
                 workspace: { kind: 'unknown', git_folders: {}, context_folder: '/random' },
                 products: []
             };
@@ -204,7 +203,7 @@ describe('ContextProvider', () => {
 
         it('shows an info node when chain is empty even with kind=context', () => {
             const r: OrientationResponse = {
-                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc', instructionsPath: '/inst' },
+                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc' },
                 workspace: { kind: 'context', context_name: 'X', context_folder: '/x', git_folders: {} },
                 context: { chain: [] },
                 products: []

@@ -32,7 +32,6 @@ from config import (
     ConfigError,
     get_db_path,
     get_duet_data_path,
-    get_instructions_path,
     get_log_path,
     get_port,
     get_root_context_folders,
@@ -264,7 +263,7 @@ async def deploy_instructions_handler(request: Request) -> JSONResponse:
 
 
 async def merge_instructions_handler(request: Request) -> JSONResponse:
-    """POST /merge-duet-instructions - Merge bootstrapper + per-agent core + skills table.
+    """POST /merge-duet-instructions - Merge bootstrapper + per-agent core.
 
     Iterates agents declared in index.json (e.g. executor, vizir) and writes one
     merged file per agent to DuetData/duet-{agent}.md.
@@ -278,12 +277,14 @@ async def merge_instructions_handler(request: Request) -> JSONResponse:
     if not bootstrapper_path.exists():
         bootstrapper_path = Path(__file__).parent.parent / "instructions" / "bootstrapper.md"
     try:
-        instructions_path = get_instructions_path()
         duet_data = get_duet_data_path()
         errors_path = duet_data / "data" / "duet-instructions-errors.json"
 
+        # Agent cores (executor.md, vizir.md) + index.json are platform artifacts
+        # bundled next to backend alongside bootstrapper.md — read them from there,
+        # not from the user instructions workspace.
         result = merge_duet_instructions(
-            bootstrapper_path, instructions_path, duet_data, errors_path
+            bootstrapper_path, bootstrapper_path.parent, duet_data, errors_path
         )
         return JSONResponse(result)
     except ConfigError as e:
@@ -447,8 +448,6 @@ def main() -> None:
         get_port()
         get_timezone()
         get_root_context_folders()
-        # instructionsPath not validated at startup — may not be configured yet
-        # during initial wizard setup. Endpoints check it per-request.
     except ConfigError as e:
         logger.error(f"Config error: {e}")
         logger.error(

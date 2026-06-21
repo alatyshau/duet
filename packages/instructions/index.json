@@ -1,0 +1,6 @@
+{
+  "agents": {
+    "executor": "executor.md",
+    "vizir": "vizir.md"
+  }
+}

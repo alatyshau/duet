@@ -41,7 +41,6 @@ export const checkAppState = (): AppState => {
       pathExists: false,
       deployChannel: 'prod' as DeployChannel,
       pythonPath: null,
-      instructionsPath: null,
       hasDevBackendPath: false
     }
   }
@@ -57,7 +56,6 @@ export const checkAppState = (): AppState => {
       pathExists: false,
       deployChannel: 'prod' as DeployChannel,
       pythonPath: null,
-      instructionsPath: null,
       hasDevBackendPath: false
     }
   }
@@ -67,8 +65,6 @@ export const checkAppState = (): AppState => {
   const channel = machineConfig?.deployChannel
   const deployChannel: DeployChannel = channel === 'dev' ? 'dev' : 'prod'
   const pythonPath = typeof machineConfig?.pythonPath === 'string' ? machineConfig.pythonPath : null
-  const instructionsPath =
-    typeof machineConfig?.instructionsPath === 'string' ? machineConfig.instructionsPath : null
   const hasDevBackendPath = typeof machineConfig?.devBackendPath === 'string'
 
   return {
@@ -77,7 +73,6 @@ export const checkAppState = (): AppState => {
     pathExists: true,
     deployChannel,
     pythonPath,
-    instructionsPath,
     hasDevBackendPath
   }
 }
@@ -93,6 +88,5 @@ export const createInitialState = (): AppState => ({
   pathExists: false,
   deployChannel: 'prod',
   pythonPath: null,
-  instructionsPath: null,
   hasDevBackendPath: false
 })

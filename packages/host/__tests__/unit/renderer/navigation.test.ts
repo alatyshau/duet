@@ -21,14 +21,7 @@ describe('navigation', () => {
 
   describe('tabForPage', () => {
     it('returns "settings" for wizard pages', () => {
-      const wizardPages: WizardPage[] = [
-        'duet-paths',
-        'python',
-        'backend',
-        'workspaces',
-        'instructions',
-        'agents'
-      ]
+      const wizardPages: WizardPage[] = ['duet-paths', 'python', 'backend', 'workspaces', 'agents']
       for (const page of wizardPages) {
         expect(tabForPage(page)).toBe('settings')
       }
@@ -47,20 +40,13 @@ describe('navigation', () => {
   // =========================================================================
 
   describe('WIZARD_STEPS', () => {
-    it('has 6 steps', () => {
-      expect(WIZARD_STEPS).toHaveLength(6)
+    it('has 5 steps', () => {
+      expect(WIZARD_STEPS).toHaveLength(5)
     })
 
     it('has correct order', () => {
       const pages = WIZARD_STEPS.map((s) => s.page)
-      expect(pages).toEqual([
-        'duet-paths',
-        'python',
-        'backend',
-        'workspaces',
-        'instructions',
-        'agents'
-      ])
+      expect(pages).toEqual(['duet-paths', 'python', 'backend', 'workspaces', 'agents'])
     })
 
     it('first 2 steps have no dependencies', () => {
@@ -123,8 +109,7 @@ describe('navigation', () => {
       'duet-paths': 'ok',
       python: 'ok',
       backend: 'ok',
-      'workspaces': 'ok',
-      instructions: 'ok',
+      workspaces: 'ok',
       agents: 'ok'
     }
 
@@ -136,7 +121,6 @@ describe('navigation', () => {
     it('returns true when all dependencies are ok', () => {
       expect(isStepAvailable('backend', allOk)).toBe(true)
       expect(isStepAvailable('workspaces', allOk)).toBe(true)
-      expect(isStepAvailable('instructions', allOk)).toBe(true)
       expect(isStepAvailable('agents', allOk)).toBe(true)
     })
 
@@ -146,15 +130,11 @@ describe('navigation', () => {
     })
 
     it('returns false when a dependency has error status', () => {
-      expect(
-        isStepAvailable('agents', { backend: 'ok', instructions: 'error' })
-      ).toBe(false)
+      expect(isStepAvailable('agents', { backend: 'error' })).toBe(false)
     })
 
     it('returns false when a dependency is null', () => {
-      expect(
-        isStepAvailable('agents', { backend: 'ok', instructions: null })
-      ).toBe(false)
+      expect(isStepAvailable('agents', { backend: null })).toBe(false)
     })
   })
 
@@ -168,9 +148,7 @@ describe('navigation', () => {
     })
 
     it('returns empty when all dependencies are ok', () => {
-      expect(
-        getMissingDeps('backend', { 'duet-paths': 'ok', python: 'ok' })
-      ).toEqual([])
+      expect(getMissingDeps('backend', { 'duet-paths': 'ok', python: 'ok' })).toEqual([])
     })
 
     it('returns labels of missing dependencies', () => {

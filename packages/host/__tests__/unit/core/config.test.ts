@@ -292,7 +292,9 @@ describe('core/config', () => {
 
     it('throws when pointer is not configured', () => {
       // No writeTestConfig — pointer not set
-      expect(() => setSettingsConfigKey('root_context_folders', ['/path'])).toThrow(/duetConfigPath/)
+      expect(() => setSettingsConfigKey('root_context_folders', ['/path'])).toThrow(
+        /duetConfigPath/
+      )
     })
   })
 
@@ -311,14 +313,14 @@ describe('core/config', () => {
       })
       writeFileSync(
         machineConfigPath(),
-        JSON.stringify({ port: 19680, instructionsPath: '/some/path' })
+        JSON.stringify({ port: 19680, pythonPath: '/some/python' })
       )
 
       setMachineConfigKey('@MyBiz', '/foo/MyBiz')
 
       const mc = JSON.parse(readFileSync(machineConfigPath(), 'utf-8'))
       expect(mc.port).toBe(19680)
-      expect(mc.instructionsPath).toBe('/some/path')
+      expect(mc.pythonPath).toBe('/some/python')
       expect(mc['@MyBiz']).toBe('/foo/MyBiz')
     })
 

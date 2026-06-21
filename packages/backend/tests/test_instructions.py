@@ -10,11 +10,8 @@ from httpx import ASGITransport, AsyncClient
 import config
 from db import DatabaseManager
 from instructions import (
-    parse_frontmatter,
-    scan_instructions,
     merge_duet_instructions,
     _extract_user_content,
-    _parse_frontmatter_with_error,
     _read_bootstrapper_and_index,
     _merge_one_agent,
 )
@@ -26,157 +23,6 @@ from services.workspace import WorkspaceService
 from tests.fixtures import DuetDataBuilder, ManifestBuilder
 
 
-# === Unit tests: frontmatter parsing ===
-
-
-class TestParseFrontmatter:
-    """Tests for YAML frontmatter parsing."""
-
-    def test_valid_frontmatter(self):
-        text = '---\nname: test\ndescription: A test\n---\n\n# Body\n'
-        result = parse_frontmatter(text)
-        assert result == {"name": "test", "description": "A test"}
-
-    def test_frontmatter_with_shortcuts(self):
-        text = '---\nname: test\ndescription: A test\nshortcuts: ["!foo", "bar"]\n---\n'
-        result = parse_frontmatter(text)
-        assert result["shortcuts"] == ["!foo", "bar"]
-
-    def test_frontmatter_with_trigger(self):
-        text = '---\nname: test\ndescription: A test\ntrigger: "When X"\nnoTrigger: "When Y"\n---\n'
-        result = parse_frontmatter(text)
-        assert result["trigger"] == "When X"
-        assert result["noTrigger"] == "When Y"
-
-    def test_dashes_inside_value(self):
-        """Regression: --- inside a YAML value must not be treated as closing delimiter."""
-        text = '---\nname: test\ndescription: "alpha --- beta"\n---\n\n# Body\n'
-        result = parse_frontmatter(text)
-        assert result["name"] == "test"
-        assert result["description"] == "alpha --- beta"
-
-    def test_no_frontmatter(self):
-        text = "# Just a heading\n\nSome content.\n"
-        result = parse_frontmatter(text)
-        assert result == {}
-
-    def test_empty_frontmatter(self):
-        text = "---\n---\n\n# Body\n"
-        result = parse_frontmatter(text)
-        assert result == {}
-
-    def test_invalid_yaml(self):
-        text = "---\n: bad: yaml: [[\n---\n"
-        result = parse_frontmatter(text)
-        assert result == {}
-
-    def test_no_closing_delimiter(self):
-        text = "---\nname: test\n"
-        result = parse_frontmatter(text)
-        assert result == {}
-
-
-# === Unit tests: scan_instructions ===
-
-
-class TestScanInstructions:
-    """Tests for scanning instructions workspace."""
-
-    def test_scan_with_valid_workspace(self, tmp_path):
-        """Scans personas and skills from workspace with index.json."""
-        # Create index.json
-        index = {
-            "personas": {"path": "personas"},
-            "skill_folders": [
-                {"name": "Tools", "path": "skills/tools"},
-                {"name": "Modes", "path": "skills/modes"},
-            ],
-        }
-        (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
-
-        # Create persona
-        personas_dir = tmp_path / "personas"
-        personas_dir.mkdir()
-        (personas_dir / "socrates.md").write_text(
-            '---\nname: socrates\ndescription: Research\nshortcuts: ["Сократ"]\n---\n# Socrates\n',
-            encoding="utf-8",
-        )
-
-        # Create skill
-        tools_dir = tmp_path / "skills" / "tools"
-        tools_dir.mkdir(parents=True)
-        (tools_dir / "checkpoint.md").write_text(
-            '---\nname: checkpoint\ndescription: Save context\nshortcuts: ["!упакуй"]\n'
-            'trigger: "User asks to save"\nnoTrigger: "Regular commit"\n---\n# Checkpoint\n',
-            encoding="utf-8",
-        )
-
-        # Create empty modes dir (no files)
-        modes_dir = tmp_path / "skills" / "modes"
-        modes_dir.mkdir(parents=True)
-
-        result = scan_instructions(tmp_path)
-
-        assert result["basePath"] == str(tmp_path)
-        assert len(result["personas"]) == 1
-        assert result["personas"][0]["name"] == "socrates"
-        assert result["personas"][0]["shortcuts"] == ["Сократ"]
-        assert result["personas"][0]["path"] == "personas/socrates.md"
-
-        assert len(result["skills"]) == 1
-        assert result["skills"][0]["name"] == "checkpoint"
-        assert result["skills"][0]["category"] == "Tools"
-        assert result["skills"][0]["shortcuts"] == ["!упакуй"]
-        assert result["skills"][0]["trigger"] == "User asks to save"
-        assert result["skills"][0]["noTrigger"] == "Regular commit"
-
-    def test_scan_missing_index(self, tmp_path):
-        """Returns empty catalog when index.json is missing."""
-        result = scan_instructions(tmp_path)
-        assert result["personas"] == []
-        assert result["skills"] == []
-
-    def test_scan_skips_files_without_frontmatter(self, tmp_path):
-        """Files without YAML frontmatter are skipped."""
-        index = {"personas": {"path": "p"}, "skill_folders": []}
-        (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
-
-        p_dir = tmp_path / "p"
-        p_dir.mkdir()
-        (p_dir / "no-fm.md").write_text("# No frontmatter\n", encoding="utf-8")
-
-        result = scan_instructions(tmp_path)
-        assert result["personas"] == []
-
-    def test_scan_includes_missing_description(self, tmp_path):
-        """Files with name but no description are included (description is optional)."""
-        index = {"personas": {"path": "p"}, "skill_folders": []}
-        (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
-
-        p_dir = tmp_path / "p"
-        p_dir.mkdir()
-        (p_dir / "no-desc.md").write_text(
-            "---\nname: test\n---\n# Missing description\n", encoding="utf-8"
-        )
-
-        result = scan_instructions(tmp_path)
-        assert len(result["personas"]) == 1
-        assert result["personas"][0]["name"] == "test"
-        assert result["personas"][0]["description"] == ""
-
-    def test_scan_skips_nonexistent_folder(self, tmp_path):
-        """Non-existent folders in index.json are skipped."""
-        index = {
-            "personas": {"path": "nonexistent"},
-            "skill_folders": [{"name": "X", "path": "also/missing"}],
-        }
-        (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
-
-        result = scan_instructions(tmp_path)
-        assert result["personas"] == []
-        assert result["skills"] == []
-
-
 # === Integration tests: orientation with instructions ===
 
 
@@ -184,10 +30,9 @@ class TestScanInstructions:
 class TestOrientationInstructions:
     """Tests for instructions block in orientation response."""
 
-    async def test_orientation_includes_instructions(self, tmp_path, monkeypatch):
-        """Orientation response includes instructions catalog."""
+    async def test_orientation_excludes_instructions(self, tmp_path, monkeypatch):
+        """Orientation response no longer carries instructions catalog or instructionsPath."""
         builder = DuetDataBuilder(tmp_path)
-        builder.with_instructions()
         builder.add_root_context("Root")
         builder.add_repo("Product")
         duet_data = builder.build(monkeypatch)
@@ -217,8 +62,9 @@ class TestOrientationInstructions:
         # Instructions catalog not in orientation response (moved to merge_instructions)
         assert "instructions" not in data
 
-        # instructionsPath in duet_paths
-        assert data["duet_paths"]["instructionsPath"] == str(tmp_path / "instructions")
+        # instructionsPath removed from duet_paths — Duet no longer depends on a
+        # user instructions workspace (Duet-Instructions.git retired)
+        assert "instructionsPath" not in data["duet_paths"]
 
 
 # === Integration tests: multi-path resolution ===
@@ -231,7 +77,6 @@ class TestMultiPathResolution:
     async def test_multi_path_picks_meta_context(self, tmp_path, monkeypatch):
         """When multiple contexts in paths, the meta-context wins."""
         builder = DuetDataBuilder(tmp_path)
-        builder.with_instructions()
         builder.add_root_context("Regular", "Regular")
         builder.add_root_context("Meta", "Meta", meta=True)
         duet_data = builder.build(monkeypatch)
@@ -279,7 +124,6 @@ class TestMetaContext:
     def test_scanner_stores_meta_field(self, tmp_path, monkeypatch):
         """Scanner reads `meta: true` from `context.json` and stores it in DB."""
         builder = DuetDataBuilder(tmp_path)
-        builder.with_instructions()
         builder.add_root_context("Plain", "Plain")
         builder.add_root_context("Meta", "Meta", meta=True)
         duet_data = builder.build(monkeypatch)
@@ -341,51 +185,17 @@ class TestExtractUserContent:
         assert result.startswith("## Section")
 
 
-# === Tests for frontmatter error reporting ===
-
-
-class TestParseFrontmatterWithError:
-    """Tests for _parse_frontmatter_with_error."""
-
-    def test_valid_returns_none_error(self):
-        text = '---\nname: test\ndescription: A test\n---\n'
-        data, error = _parse_frontmatter_with_error(text)
-        assert data == {"name": "test", "description": "A test"}
-        assert error is None
-
-    def test_no_frontmatter_returns_reason(self):
-        text = "# Just content\n"
-        data, error = _parse_frontmatter_with_error(text)
-        assert data == {}
-        assert error == "no_frontmatter"
-
-    def test_invalid_yaml_returns_reason(self):
-        text = "---\n: bad: yaml: [[\n---\n"
-        data, error = _parse_frontmatter_with_error(text)
-        assert data == {}
-        assert error == "invalid_yaml"
-
-    def test_too_large_returns_reason(self):
-        big = "x" * 5000
-        text = f"---\nname: {big}\n---\n"
-        data, error = _parse_frontmatter_with_error(text)
-        assert data == {}
-        assert error == "frontmatter_too_large"
-
-
 # === Tests for merge_duet_instructions (full pipeline) ===
 
 
 def _make_instructions(
     tmp_path,
-    skills=None,
     agents=None,
     agents_index=None,
 ):
-    """Helper: create minimal instructions workspace under the new agents schema.
+    """Helper: create minimal instructions workspace (agents + index.json).
 
     Args:
-        skills: dict {filename_stem: full_md_text} placed in skills/tools/.
         agents: dict {agent_name: full_md_text} placed in agents/<name>.md.
                 Default: a single 'executor' with a minimal valid body.
         agents_index: optional override for index.json.agents map; defaults to
@@ -396,17 +206,6 @@ def _make_instructions(
     """
     instr_path = tmp_path / "instructions"
     instr_path.mkdir(exist_ok=True)
-
-    skill_folders_config = []
-    if skills:
-        tools_dir = instr_path / "skills" / "tools"
-        tools_dir.mkdir(parents=True, exist_ok=True)
-        for name, fm_text in skills.items():
-            (tools_dir / f"{name}.md").write_text(fm_text, encoding="utf-8")
-        skill_folders_config = [{"name": "Tools", "path": "skills/tools"}]
-
-    personas_dir = instr_path / "personas"
-    personas_dir.mkdir(exist_ok=True)
 
     if agents is None:
         agents = {"executor": "# Executor\n\n## L7+\nBe excellent\n"}
@@ -419,11 +218,7 @@ def _make_instructions(
     if agents_index is None:
         agents_index = {name: f"agents/{name}.md" for name in agents}
 
-    index = {
-        "agents": agents_index,
-        "personas": {"path": "personas"},
-        "skill_folders": skill_folders_config,
-    }
+    index = {"agents": agents_index}
     (instr_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
 
     return instr_path
@@ -433,7 +228,7 @@ def _make_bootstrapper(tmp_path):
     """Helper: create bootstrapper.md with both markers."""
     bootstrapper = tmp_path / "bootstrapper.md"
     bootstrapper.write_text(
-        "# Platform\n\n## Instructions\n\n<!-- INSERT SKILLS TABLE -->\n\n"
+        "# Platform\n\n## Instructions\n\n"
         "## User\n\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
         encoding="utf-8",
     )
@@ -459,9 +254,6 @@ class TestMergeDuetInstructions:
         bootstrapper = _make_bootstrapper(tmp_path)
         instr_path = _make_instructions(
             tmp_path,
-            skills={
-                "commit": '---\nname: commit\ndescription: Generate commit\nshortcuts: ["!коммит"]\ntrigger: "User asks to commit"\n---\n# Commit\n',
-            },
             agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
         )
         output_dir = _output_dir(tmp_path)
@@ -487,31 +279,15 @@ class TestMergeDuetInstructions:
         assert "## L7+" in exec_content and "Be excellent" in exec_content
         assert "## Loop" in vizir_content and "Delegate" in vizir_content
 
-        # Markers replaced
+        # Core marker replaced
         for content in (exec_content, vizir_content):
             assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in content
-            assert "<!-- INSERT SKILLS TABLE -->" not in content
-
-        # Skills table appears identically in both
-        assert "commit" in exec_content and "commit" in vizir_content
-        assert "!коммит" in exec_content and "!коммит" in vizir_content
-
-        # And the bootstrapper-derived structural lines are identical between both
-        # files (sanity: skills table + bootstrapper portion is shared exactly).
-        # The agent bodies differ, but the rest of the file does not.
-        # Pull text up to the agent body (after `## Instructions` block).
-        # Simpler: check skills-row identity.
-        skills_row = "| commit"
-        assert exec_content.count(skills_row) == vizir_content.count(skills_row) == 1
 
     # --- B1b: thin session prompt duet.md (bootstrapper + skills, no core) ---
     def test_emits_thin_session_prompt_without_core(self, tmp_path):
         bootstrapper = _make_bootstrapper(tmp_path)
         instr_path = _make_instructions(
             tmp_path,
-            skills={
-                "commit": '---\nname: commit\ndescription: Generate commit\nshortcuts: ["!коммит"]\ntrigger: "User asks to commit"\n---\n# Commit\n',
-            },
             agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
         )
         output_dir = _output_dir(tmp_path)
@@ -524,11 +300,8 @@ class TestMergeDuetInstructions:
         assert result["output_style"] == str(bare_path)
 
         bare = bare_path.read_text(encoding="utf-8")
-        # Skills table is present...
-        assert "commit" in bare and "!коммит" in bare
-        # ...both markers are resolved (core removed, skills filled)...
+        # The core marker is resolved (removed)...
         assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in bare
-        assert "<!-- INSERT SKILLS TABLE -->" not in bare
         # ...but NO agent core body leaked into the session prompt.
         assert "## L7+" not in bare
         assert "Be excellent" not in bare
@@ -554,7 +327,7 @@ class TestMergeDuetInstructions:
     def test_bootstrapper_missing_marker(self, tmp_path):
         bootstrapper = tmp_path / "bootstrapper.md"
         bootstrapper.write_text(
-            "# Platform\n## Instructions\n<!-- INSERT SKILLS TABLE -->\n## User\n# no user core marker\n",
+            "# Platform\n## Instructions\n## User\n# no user core marker\n",
             encoding="utf-8",
         )
         instr_path = _make_instructions(tmp_path)
@@ -688,28 +461,6 @@ class TestMergeDuetInstructions:
         assert result["errors"][0]["path"] == "agents/executor.md"
         assert result["errors"][0]["reason_code"] == "content_between_h1_h2"
 
-    # --- B9: skills table is identical across agents ---
-    def test_skills_table_identical_across_agents(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            skills={
-                "alpha": '---\nname: alpha\ndescription: A skill\nshortcuts: ["!a"]\n---\n# Alpha\n',
-            },
-            agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        exec_text = (output_dir / "duet-executor.md").read_text(encoding="utf-8")
-        vizir_text = (output_dir / "duet-vizir.md").read_text(encoding="utf-8")
-
-        skills_row = "| alpha | !a | skills/tools/alpha.md | A skill | — | — |"
-        assert skills_row in exec_text
-        assert skills_row in vizir_text
-
     # --- B10: bootstrapper read once even with many agents ---
     def test_bootstrapper_read_once(self, tmp_path, monkeypatch):
         bootstrapper = _make_bootstrapper(tmp_path)
@@ -769,65 +520,38 @@ class TestMergeDuetInstructions:
         assert "# Executor" not in exec_text
         assert "# Vizir" not in vizir_text
 
-    # --- B12: validation errors aggregate across skills + version_suffix; status still ok if all agents merged ---
+    # --- B12: non-fatal warnings (version_suffix) aggregate; status still ok if all agents merged ---
     def test_validation_errors_dont_block_status_ok(self, tmp_path):
         bootstrapper = _make_bootstrapper(tmp_path)
         instr_path = _make_instructions(
             tmp_path,
-            skills={
-                "good": '---\nname: good\ndescription: Good\n---\n# Good\n',
-                "bad": "# No frontmatter\n",
-                "incomplete": "---\nname: incomplete\n---\n# missing description\n",
-            },
             agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
         )
+        # A stray version-suffixed file is a non-fatal warning.
+        (instr_path / "agents" / "executor_v2.md").write_text("# old\n", encoding="utf-8")
         output_dir = _output_dir(tmp_path)
         errors_file = tmp_path / "data" / "errors.json"
 
         result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
 
-        # Status ok despite validation warnings
+        # Status ok despite the warning
         assert result["status"] == "ok"
         assert set(result["paths"].keys()) == {"executor", "vizir"}
         codes = {e["reason_code"] for e in result["errors"]}
-        assert "no_frontmatter" in codes
-        assert "missing_description" in codes
+        assert "version_suffix" in codes
 
     # --- Errors JSON file written ---
     def test_errors_json_persisted(self, tmp_path):
         bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            skills={"broken": "---\n: bad yaml [[\n---\n"},
-        )
+        instr_path = _make_instructions(tmp_path)
+        (instr_path / "stale_v3.md").write_text("# stale\n", encoding="utf-8")
         output_dir = _output_dir(tmp_path)
         errors_file = tmp_path / "data" / "errors.json"
 
         merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
 
         errors_data = json.loads(errors_file.read_text(encoding="utf-8"))
-        assert any(e["reason_code"] == "invalid_yaml" for e in errors_data)
-
-    # --- Skills table column format unchanged ---
-    def test_skills_table_format(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            skills={
-                "alpha": '---\nname: alpha\ndescription: Alpha skill\nshortcuts: ["!a", "!b"]\n---\n# Alpha\n',
-                "beta": '---\nname: beta\ndescription: Beta skill\ntrigger: "When X happens"\n---\n# Beta\n',
-            },
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        content = (output_dir / "duet-executor.md").read_text(encoding="utf-8")
-        assert "| Name | Shortcuts | Path | Description | Trigger | noTrigger |" in content
-        assert "| alpha | !a, !b | skills/tools/alpha.md | Alpha skill | — | — |" in content
-        assert "| beta | — | skills/tools/beta.md | Beta skill | When X happens | — |" in content
-
+        assert any(e["reason_code"] == "version_suffix" for e in errors_data)
 
 class TestMergeOneAgent:
     """Direct tests for the per-agent merge primitive."""
@@ -835,24 +559,21 @@ class TestMergeOneAgent:
     def test_returns_merged_text(self, tmp_path):
         instr = _make_instructions(tmp_path, agents={"executor": EXEC_BODY})
         merged, err = _merge_one_agent(
-            bootstrapper_text="# B\n## I\n<!-- INSERT SKILLS TABLE -->\n## U\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
-            skills_table="<table>",
-            instructions_path=instr,
+            bootstrapper_text="# B\n## I\n## U\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
+            platform_dir=instr,
             agent_name="executor",
             agent_rel_path="agents/executor.md",
         )
         assert err is None
         assert merged is not None
         assert "## L7+" in merged
-        assert "<table>" in merged
 
     def test_missing_file_returns_error(self, tmp_path):
         instr = tmp_path / "instructions"
         instr.mkdir()
         merged, err = _merge_one_agent(
             bootstrapper_text="<!-- INSERT USER CORE INSTRUCTIONS -->\n",
-            skills_table="",
-            instructions_path=instr,
+            platform_dir=instr,
             agent_name="ghost",
             agent_rel_path="agents/ghost.md",
         )

@@ -11,7 +11,7 @@ Backend is the system's strict reader and DB owner. It does not write manifests,
 Three things Backend is the only authority for:
 1. **The entity database.** SQLite at `DuetData/data/entities.db`, native sqlite3.
 2. **Orientation algorithm.** Resolves workspace paths → entity → products/components tree.
-3. **Merged AI instructions.** Composes bootstrapper + per-agent core + skills table → one file per agent.
+3. **Merged AI instructions.** Composes bootstrapper + per-agent core → one file per agent.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ server.py (entry point, lifecycle)
 | `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/`) + `instructions` (`CLAUDE/AGENTS/GEMINI.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
 | `services/at_paths.py` | Resolve `@<repo-dir>` (under `DuetData/repos`) or `@<context-name>` (→ that context's Drive folder); reject `..` escape | File copy, HTTP, DB |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
-| `instructions.py` | Scan instructions workspace, parse YAML frontmatter, merge | DB, HTTP |
+| `instructions.py` | Merge bootstrapper + per-agent core → one file per agent | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file lookup | DB, HTTP |
 | `db.py` | SQLite CRUD | Business rules |
 | `pointer.py` | Read pointer file | Write pointer |
@@ -93,7 +93,7 @@ server.py (entry point, lifecycle)
 | GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Resolves the owning context, deploys its `skills`/`instructions` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
-| POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core + skills table → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
+| POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
 
 ### MCP Tools
 
@@ -123,13 +123,13 @@ server.py (entry point, lifecycle)
 2. Resolve entities from classified paths.
 3. If the meta-context (`meta=true`) is among the resolved entities, it wins; otherwise the first resolved context is used.
 
-Multi-repo contexts (`git_repos` with N aliases) unify all `repos/<alias>.git` paths to one owner: each path resolves through its `product_repo` entity to the same parent context. Opening `[repos/Duet.git, repos/Duet-Instructions.git, DuetLab Drive]` returns the same DuetLab context regardless of which path the agent opened.
+Multi-repo contexts (`git_repos` with N aliases) unify all `repos/<alias>.git` paths to one owner: each path resolves through its `product_repo` entity to the same parent context. Opening any of a context's declared repo paths (or its Drive folder) returns the same context regardless of which path the agent opened.
 
 **Response shape (v4):**
 
 | Block | Fields | When |
 |-------|--------|------|
-| `duet_paths` | `duetDataPath`, `machineConfig`, `instructionsPath` | Always (422 if `instructionsPath` not configured) |
+| `duet_paths` | `duetDataPath`, `machineConfig` | Always |
 | `workspace` | `kind`, `context_name`, `context_folder`, `git_folders[, addons]` | Always |
 | `context` | `breadcrumb`, `chain[{type, name, icon, description?}]` | When entity resolved |
 | `products` | `[{name, path, spec?, description?, components: [...]}]` | When entity resolved |
@@ -219,20 +219,21 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 
 ### `/merge-duet-instructions` — Merged Instructions (multi-agent)
 
-`POST /merge-duet-instructions` merges platform bootstrapper + each agent's core file + skills table into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`. It also writes `DuetData/duet.md` — the **thin session prompt** (bootstrapper + skills table with the `<!-- INSERT USER CORE INSTRUCTIONS -->` core marker removed, i.e. no agent core). The full per-agent cores still go to `duet-{agent}.md`.
+`POST /merge-duet-instructions` merges platform bootstrapper + each agent's core file into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`. It also writes `DuetData/duet.md` — the **thin session prompt** (bootstrapper with the `<!-- INSERT USER CORE INSTRUCTIONS -->` core marker removed, i.e. no agent core). The full per-agent cores still go to `duet-{agent}.md`.
+
+> **Source of agents.** `bootstrapper.md`, `index.json`, and the agent cores (`executor.md`, `vizir.md`) are all **platform artifacts in `packages/instructions/`**, bundled next to backend at runtime (Host must bundle them via electron-builder for prod and the dev backend-deploy). The merge no longer reads them from the user instructions workspace (`instructionsPath`) — that decoupling lets `Duet-Instructions.git` be retired.
 
 **Pipeline** (`merge_duet_instructions()` in `instructions.py`):
-1. Reads `bootstrapper.md` (source in `packages/instructions/`, bundled next to backend at runtime; both markers required) — once.
-2. Reads `index.json` — once. Required field: `agents: { name → relative_path }` map.
-3. Builds skills table (name, shortcuts, path, description, trigger, noTrigger) — once. Shared across agents.
-4. Scans workspace for version-suffix files (`_v2`, `_v3`, …) — once.
-5. Writes the thin session prompt `DuetData/duet.md` (atomic) — bootstrapper + skills table, core marker substituted with empty string (`_build_bare_session_prompt`).
-6. For each agent in `index.agents`:
-   - Reads agent file at `instructionsPath / relative_path`.
+1. Reads `bootstrapper.md` (in `packages/instructions/`, bundled next to backend; the core marker required) — once.
+2. Reads `index.json` (same platform dir) — once. Required field: `agents: { name → relative_path }` map.
+3. Scans the platform dir for version-suffix files (`_v2`, `_v3`, …) — once.
+4. Writes the thin session prompt `DuetData/duet.md` (atomic) — bootstrapper, core marker substituted with empty string (`_build_bare_session_prompt`).
+5. For each agent in `index.agents`:
+   - Reads agent file at `packages/instructions / relative_path`.
    - Extracts user content (first H2 onwards, H1 stripped).
-   - Substitutes both bootstrapper markers (`<!-- INSERT USER CORE INSTRUCTIONS -->`, `<!-- INSERT SKILLS TABLE -->`).
+   - Substitutes the bootstrapper core marker (`<!-- INSERT USER CORE INSTRUCTIONS -->`).
    - Writes `DuetData/duet-{agent}.md` (atomic).
-7. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic).
+6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic).
 
 **Response:** `{ status: "ok" | "error", paths: { agent_name: "/absolute/path" }, output_style: "/absolute/path/to/duet.md", errors: [{path, reason_code, description}] }`.
 
@@ -240,7 +241,9 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 - `"ok"` ⇔ every agent declared in `index.agents` merged successfully (warnings allowed).
 - `"error"` ⇔ a fatal pre-condition failed (bootstrapper, index, no agents) OR at least one agent merge failed. Successful agents still appear in `paths`; failed ones do not.
 
-**Error reason codes:** `no_frontmatter`, `invalid_yaml`, `missing_fields`, `missing_description`, `frontmatter_too_large`, `version_suffix`, `content_between_h1_h2`, `no_h2_found`, `bootstrapper_not_found`, `bootstrapper_missing_marker`, `index_not_found`, `index_invalid`, `index_missing_field`, `agent_file_not_found`.
+**Error reason codes:** `version_suffix`, `content_between_h1_h2`, `no_h2_found`, `bootstrapper_not_found`, `bootstrapper_missing_marker`, `index_not_found`, `index_invalid`, `index_missing_field`, `agent_file_not_found`.
+
+> Note: this pipeline does not validate skill/persona frontmatter — `duet-instructions-errors.json` carries merge + version-suffix errors only. (Skill/persona scanning was removed along with the skills table; skills are now native Anthropic skills deployed via `deploy_instructions`.)
 
 **Consumer:** Host reads `DuetData/duet-{agent}.md` from disk and writes them to AI client config files. No HTTP fetch for content — file-based delivery via JSON cache pattern.
 
@@ -289,7 +292,7 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic). Hos
 
 | File | Source | Consumer |
 |------|--------|----------|
-| `DuetData/duet.md` (thin session prompt: bootstrapper + skills, no core) | `POST /merge-duet-instructions` | Host → Claude output-style + Codex/Antigravity system prompt |
+| `DuetData/duet.md` (thin session prompt: bootstrapper, no core) | `POST /merge-duet-instructions` | Host → Claude output-style + Codex/Antigravity system prompt |
 | `DuetData/duet-{agent}.md` (one per agent in `index.json.agents`) | `POST /merge-duet-instructions` | Host → AI client configs (Claude `duet-{agent}` subagents) |
 | `DuetData/data/duet-instructions-errors.json` | `POST /merge-duet-instructions` | Host wizard |
 | `DuetData/data/scan.json` | `POST /scan` | Host wizard |
@@ -343,7 +346,7 @@ config.py  → DuetConfig/settings.json + {machine}.json
 ```
 1. Read pointer file
 2. setup_logging() → RotatingFileHandler
-3. Validate config (VERSION, port, settings; instructionsPath not required at startup)
+3. Validate config (VERSION, port, settings)
 4. db.init()
 5. Create services (DI)
 6. init_services()
@@ -452,9 +455,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Products/components discovery | `services/products.py:build_products()` |
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback (legacy) | `description.py:find_spec_file()` |
-| Instructions scanning | `instructions.py:scan_instructions()` |
 | Merge pipeline | `instructions.py:merge_duet_instructions()` |
-| Frontmatter parsing | `instructions.py:parse_frontmatter()` |
 | Manifest watcher | `watcher.py:ManifestWatcher` |
 | Scan + cache (shared) | `server.py:run_scan_with_cache()` |
 | Atomic file write | `fileio.py:atomic_write()` |

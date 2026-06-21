@@ -375,7 +375,6 @@ describe('core/deploy', () => {
       pathExists: true,
       deployChannel: 'prod',
       pythonPath: null,
-      instructionsPath: null,
       hasDevBackendPath: false
     }
 
@@ -455,7 +454,6 @@ describe('core/deploy', () => {
       pathExists: true,
       deployChannel: 'prod',
       pythonPath: null,
-      instructionsPath: null,
       hasDevBackendPath: false
     }
 
@@ -732,6 +730,52 @@ describe('core/deploy', () => {
 
       expect(existsSync(join(ctx.duetDataDir, 'backend', 'app.py'))).toBe(true)
       expect(readFileSync(join(ctx.duetDataDir, 'backend', 'app.py'), 'utf-8')).toBe('print("dev")')
+    })
+
+    it('DEV: copies sibling packages/instructions (md + index.json, not README) next to backend', () => {
+      const devBackend = join(ctx.tmpDir, 'dev-backend')
+      mkdirSync(devBackend, { recursive: true })
+      writeFileSync(join(devBackend, 'server.py'), 'print("dev")')
+
+      // Sibling packages/instructions — ../instructions relative to backendSourcePath.
+      const instr = join(ctx.tmpDir, 'instructions')
+      mkdirSync(instr, { recursive: true })
+      writeFileSync(join(instr, 'bootstrapper.md'), '# boot')
+      writeFileSync(join(instr, 'executor.md'), '# exec')
+      writeFileSync(join(instr, 'index.json'), '{}')
+      writeFileSync(join(instr, 'README.md'), '# dev-only docs')
+
+      const paths: DeployPaths = {
+        resourcesPath: join(ctx.tmpDir, 'nonexistent'),
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '1.0.0',
+        backendSourcePath: devBackend
+      }
+
+      deployBackend(paths)
+
+      const dest = join(ctx.duetDataDir, 'backend')
+      // Platform instructions land next to server.py so the merge finds them as siblings.
+      expect(existsSync(join(dest, 'bootstrapper.md'))).toBe(true)
+      expect(existsSync(join(dest, 'executor.md'))).toBe(true)
+      expect(existsSync(join(dest, 'index.json'))).toBe(true)
+      // README is dev-only docs — excluded (mirrors electron-builder prod filter).
+      expect(existsSync(join(dest, 'README.md'))).toBe(false)
+    })
+
+    it('DEV: no sibling instructions dir → no throw (merge surfaces the miss later)', () => {
+      const devBackend = join(ctx.tmpDir, 'dev-backend')
+      mkdirSync(devBackend, { recursive: true })
+      writeFileSync(join(devBackend, 'server.py'), 'print("dev")')
+
+      const paths: DeployPaths = {
+        resourcesPath: join(ctx.tmpDir, 'nonexistent'),
+        duetDataPath: ctx.duetDataDir,
+        appVersion: '1.0.0',
+        backendSourcePath: devBackend
+      }
+
+      expect(() => deployBackend(paths)).not.toThrow()
     })
 
     it('excludes dev artifacts (.venv, __pycache__, .pytest_cache)', () => {

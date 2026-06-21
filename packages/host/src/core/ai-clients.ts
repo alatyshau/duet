@@ -26,7 +26,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readDeployedVersion } from './deploy'
-import { readMergedAgents, type MergedAgents } from './instructions'
+import { readMergedAgents, triggerMerge, type MergedAgents } from './instructions'
 import type { AgentInfo, AgentCheckedFile, AgentIssue } from '../shared/types'
 
 // Re-export IPC types (source of truth: shared/types.ts)
@@ -41,21 +41,21 @@ export type { AgentStatus, AgentCheckedFile, AgentIssue, AgentInfo } from '../sh
  * for the Duet output-style. Always paired with the Executor body.
  */
 const OUTPUT_STYLE_DESCRIPTION =
-  "Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, and knowledge-persistence routing."
+  'Core Duet workspace agent. Use for all software engineering and content work in Duet projects: orientation via MCP, spec-driven development, project folder discipline, and knowledge-persistence routing.'
 
 /**
  * Description for the duet-executor custom subagent — when Claude should
  * delegate to it. Standard Duet operating mode.
  */
 const AGENT_EXECUTOR_DESCRIPTION =
-  "Use when the user explicitly invokes the Executor agent (e.g. via /agents or by name) to perform a focused task in a Duet project. Standard Duet operating mode."
+  'Use when the user explicitly invokes the Executor agent (e.g. via /agents or by name) to perform a focused task in a Duet project. Standard Duet operating mode.'
 
 /**
  * Description for the duet-vizir custom subagent — when Claude should
  * delegate to it. Vizir orchestrates work folders and delegates implementation.
  */
 const AGENT_VIZIR_DESCRIPTION =
-  "Use when the user asks you to act as Vizir, PM (e.g. !менеджер, менеджер, PM, ПМ), or to coordinate work inside a Duet work folder — running the disciplined loop of delegating to agents, monitoring progress, updating plans, and gating archival on human review."
+  'Use when the user asks you to act as Vizir, PM (e.g. !менеджер, менеджер, PM, ПМ), or to coordinate work inside a Duet work folder — running the disciplined loop of delegating to agents, monitoring progress, updating plans, and gating archival on human review.'
 
 /**
  * Wrap a string for safe use as a YAML frontmatter scalar.
@@ -90,14 +90,9 @@ function outputStyleFrontmatter(): string {
  * fields are intentionally omitted — they would inherit from the session.
  */
 function subagentFrontmatter(name: string, description: string): string {
-  return [
-    '---',
-    `name: ${name}`,
-    `description: ${yamlString(description)}`,
-    '---',
-    '',
-    ''
-  ].join('\n')
+  return ['---', `name: ${name}`, `description: ${yamlString(description)}`, '---', '', ''].join(
+    '\n'
+  )
 }
 
 /** Expected on-disk content for ~/.claude/output-styles/duet-executor.md (thin session prompt body). */
@@ -434,11 +429,7 @@ export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] =>
   ]
 }
 
-function detectClaudeCode(
-  merged: MergedAgents,
-  duetDataPath: string,
-  port: number
-): AgentInfo {
+function detectClaudeCode(merged: MergedAgents, duetDataPath: string, port: number): AgentInfo {
   const claudeDir = join(homedir(), '.claude')
   if (!existsSync(claudeDir)) {
     return { id: 'claude-code', name: 'Claude Code', status: 'not_found', details: 'Не установлен' }
@@ -556,7 +547,8 @@ function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
 
   try {
     const config = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-    const additionalDirs = config?.permissions?.additionalDirectories ?? config?.additionalDirectories
+    const additionalDirs =
+      config?.permissions?.additionalDirectories ?? config?.additionalDirectories
     if (Array.isArray(additionalDirs)) {
       if (additionalDirs.length > 0) {
         issues.push({
@@ -574,7 +566,11 @@ function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
   return issues
 }
 
-function detectCodex(executorContent: string | null, duetDataPath: string, port: number): AgentInfo {
+function detectCodex(
+  executorContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo {
   const codexDir = getCodexDir()
   if (!existsSync(codexDir)) {
     return { id: 'codex', name: 'Codex', status: 'not_found', details: 'Не установлен' }
@@ -760,9 +756,19 @@ function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
 
 /**
  * Конфигурировать все найденные AI клиенты.
- * Читает per-agent merged content с диска один раз и распределяет.
+ *
+ * Сначала пересобирает merged-инструкции из платформенного бандла (`triggerMerge` →
+ * `POST /merge-duet-instructions`), затем читает свежие per-agent файлы с диска и
+ * распределяет по клиентам. Мёрж — детерминированная сборка из bundled-источников
+ * (bootstrapper + ядра агентов), поэтому каждый configure отдаёт актуальный `duet.md`
+ * (в т.ч. после апгрейда backend). Это единый путь produce→deploy: ручная кнопка
+ * «Настроить все», автомёрж на старте и пост-деплой все идут через него.
  */
-export const configureAllAgents = (duetDataPath: string, port: number): AgentInfo[] => {
+export const configureAllAgents = async (
+  duetDataPath: string,
+  port: number
+): Promise<AgentInfo[]> => {
+  await triggerMerge(port)
   const merged = readMergedAgents(duetDataPath)
   configureClaudeCode(merged, duetDataPath, port)
   configureCodex(merged.sessionPrompt, duetDataPath, port)

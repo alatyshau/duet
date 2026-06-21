@@ -113,7 +113,6 @@ class DuetDataBuilder:
         self._root_context_folders: list[Path] = []
         self._repos: list[tuple[str, list[str]]] = []
         self._aliases: dict[str, str] = {}
-        self._instructions_path: Path | None = root / "instructions"
 
     @property
     def duet_data_path(self) -> Path:
@@ -152,19 +151,6 @@ class DuetDataBuilder:
         self._aliases[alias] = path
         return self
 
-    def with_instructions(self) -> "DuetDataBuilder":
-        """Create instructions workspace with index.json and sample files.
-
-        This is the default — called implicitly. Explicit call is a no-op.
-        """
-        self._instructions_path = self.root / "instructions"
-        return self
-
-    def without_instructions(self) -> "DuetDataBuilder":
-        """Disable instructions workspace creation (for testing missing config)."""
-        self._instructions_path = None
-        return self
-
     def add_root_context(
         self,
         name: str,
@@ -200,34 +186,6 @@ class DuetDataBuilder:
             version_path = self.duet_data_path / "backend" / "VERSION"
             version_path.parent.mkdir(parents=True, exist_ok=True)
             version_path.write_text(self._version)
-
-        if self._instructions_path:
-            self._instructions_path.mkdir(parents=True, exist_ok=True)
-            index_data = {
-                "personas": {"path": "personas"},
-                "skill_folders": [
-                    {"name": "Tools", "path": "skills/tools"}
-                ]
-            }
-            (self._instructions_path / "index.json").write_text(
-                json.dumps(index_data, indent=2), encoding="utf-8"
-            )
-            personas_dir = self._instructions_path / "personas"
-            personas_dir.mkdir(parents=True, exist_ok=True)
-            (personas_dir / "test-persona.md").write_text(
-                "---\nname: test-persona\ndescription: A test persona\n"
-                "shortcuts: [\"тест\"]\n---\n\n# Test Persona\n",
-                encoding="utf-8",
-            )
-            skills_dir = self._instructions_path / "skills" / "tools"
-            skills_dir.mkdir(parents=True, exist_ok=True)
-            (skills_dir / "test-skill.md").write_text(
-                "---\nname: test-skill\ndescription: A test skill\n"
-                "shortcuts: [\"!тест\"]\ntrigger: \"User asks for test\"\n"
-                "noTrigger: \"Not a test\"\n---\n\n# Test Skill\n",
-                encoding="utf-8",
-            )
-            self._machine_config["instructionsPath"] = str(self._instructions_path)
 
         for name, folder_name, extra in self._contexts:
             ctx_path = self.root / folder_name

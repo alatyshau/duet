@@ -17,7 +17,6 @@ Two-level: **tabs** select a category, **sidebar list** selects a page within th
 │ ✅ Python        │                             │
 │ ✅ Backend       │                             │
 │ 🔴 Воркспейсы    │  ← error (red)             │
-│ ✅ Инструкции    │                             │
 │ 🟡 AI Агенты     │  ← warning (amber)         │
 └──────────────────┴─────────────────────────────┘
 ```
@@ -26,7 +25,7 @@ Two-level: **tabs** select a category, **sidebar list** selects a page within th
 
 | Tab | Icon | Tooltip | Content |
 |-----|------|---------|---------|
-| Settings | ⚙ | Настройки | Wizard — 6-step setup |
+| Settings | ⚙ | Настройки | Wizard — 5-step setup |
 | Apps | ▶ | Приложения | Running processes |
 
 Icon-only tab buttons (no labels) — label shown as tooltip on hover. Severity indicator next to icon when children have issues. Switching tab navigates to the first item in that tab's list.
@@ -38,7 +37,7 @@ All navigation types defined in `renderer/src/navigation.ts`:
 | Type | Values |
 |------|--------|
 | `Tab` | `'settings'` \| `'apps'` |
-| `WizardPage` | `'duet-paths'` \| `'python'` \| `'backend'` \| `'workspaces'` \| `'instructions'` \| `'agents'` |
+| `WizardPage` | `'duet-paths'` \| `'python'` \| `'backend'` \| `'workspaces'` \| `'agents'` |
 | `AppPage` | `'app:duet-backend'` |
 | `Page` | `WizardPage` \| `AppPage` |
 
@@ -54,7 +53,7 @@ All navigation types defined in `renderer/src/navigation.ts`:
 
 ## Settings — Wizard
 
-6-step configuration wizard. Each step is a self-contained page with its own state and IPC calls. Status icons in sidebar reflect live configuration state.
+5-step configuration wizard. Each step is a self-contained page with its own state and IPC calls. Status icons in sidebar reflect live configuration state.
 
 ### Steps
 
@@ -64,13 +63,11 @@ All navigation types defined in `renderer/src/navigation.ts`:
 | 2 | `python` | Python 3.10+ | yes | — |
 | 3 | `backend` | Backend | yes | 1, 2 |
 | 4 | `workspaces` | Воркспейсы | yes | 1, 3 |
-| 5 | `instructions` | Инструкции | yes | 1 |
-| 6 | `agents` | AI Агенты | yes | 3, 5 |
+| 5 | `agents` | AI Агенты | yes | 3 |
 
 Dependencies declared in `WIZARD_STEPS[].dependsOn`. Enforced at runtime:
 - **Sidebar:** unavailable steps (deps not `ok` or `warning`) rendered with dimmed text. Navigation still allowed (user can read help text). Warning deps are satisfied — warning means "works but not ideal".
-- **Pages:** action buttons disabled when dependencies unmet; dependency banner shown (e.g. `InstructionsPage` warns when DuetConfig/machine not configured).
-- **IPC:** `config:set-instructions-path` throws if machine config not writable (prevents silent data loss).
+- **Pages:** action buttons disabled when dependencies unmet; dependency banner shown when a step's dependencies are not yet configured.
 - Helpers: `isStepAvailable(page, statuses)`, `getMissingDeps(page, statuses)` in `navigation.ts`.
 
 ### Page Status Icons
@@ -110,14 +107,7 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 **Step 4 — Воркспейсы.** Manual Scan button + results. Shows entity tree from cached `contexts.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors. If no root contexts configured, shows message directing user to step 1.
 
-**Step 5 — Инструкции.** Two states with bidirectional transition:
-
-- **Onboarding** (`instructionsPath` not set): two cards — "Скачать шаблон Duet" (primary, accent border, "Рекомендуется" badge) downloads zip from GitHub via `instructions:download-template` IPC, and "Указать существующую папку" (secondary) for users with existing repo. Expandable "Для продвинутых: fork + git clone" section with step-by-step guide. Download card flow: folder picker → emptiness check (`instructions:is-folder-empty`) → confirm overwrite if non-empty → download with spinner → auto `setInstructionsPath` + `mergeInstructions` → transition to configured state. Download errors shown inline with retry button.
-- **Configured** (`instructionsPath` set): path display with Изменить (folder picker → re-merge) and Открыть buttons. Regenerate button (full-width). On 0 errors, auto-configures AI agents (step 6) via `onAgentsUpdated` callback. Error table with Fix buttons for auto-fixable errors (`no_frontmatter`, `invalid_yaml`, `missing_fields`). "Сбросить настройку" text link at bottom (muted, with confirmation) → clears path → returns to onboarding.
-
-Dependency banner shown when DuetConfig/machine not configured (step 1); action buttons disabled.
-
-**Step 6 — AI Агенты.** Agent cards show checked files list and issues. Fix button for fixable issues (e.g. `additionalDirectories`). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No `dark:` classes (light-only theme).
+**Step 5 — AI Агенты.** "Настроить все" button runs merge→configure in one action (`configureAllAgents()` merges the bundled platform instructions, then deploys to the AI clients). Agent cards show checked files list and issues. Fix button for fixable issues (e.g. `additionalDirectories`). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No `dark:` classes (light-only theme).
 
 ## Apps Tab
 

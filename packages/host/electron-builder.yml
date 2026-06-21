@@ -51,12 +51,15 @@ extraResources:
       - "!**/tests/**"
       - "!**/__pycache__/**"
       - "!**/.pytest_cache/**"
-  # Bootstrapper now lives in packages/instructions; bundle it next to backend
-  # so server.py finds it as a sibling (Path(__file__).parent / "bootstrapper.md").
+  # Platform instructions (bootstrapper + agent cores + index.json) live in
+  # packages/instructions; bundle them next to backend so server.py finds them
+  # as siblings (Path(__file__).parent). README.md is dev-only docs, excluded.
   - from: ../../packages/instructions/
     to: backend/
     filter:
-      - "bootstrapper.md"
+      - "*.md"
+      - "index.json"
+      - "!README.md"
 win:
   executableName: Duet
   icon: build/icon.ico         # Иконка для .exe и ярлыков

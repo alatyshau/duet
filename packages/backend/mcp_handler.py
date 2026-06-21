@@ -120,7 +120,7 @@ def orientation(workspace_paths: list[str] | None = None) -> dict:
             unify all `repos/<alias>.git` paths to one owner).
 
     Returns information about:
-    - duet_paths: {duetDataPath, machineConfig, instructionsPath}
+    - duet_paths: {duetDataPath, machineConfig}
     - workspace: {kind, context_name, context_folder, git_folders[, reference_repos][, meta-only addons]}
     - context: {breadcrumb, chain with type/name/description?}
     - products: [{name, path, spec?, description?, components[]}] — top-level array
