@@ -52,9 +52,9 @@ grep -c "思考" file.md                                     # DeepSeek thinking
 
 If the bodies are HTML, you need a source-specific cleanup pass before the marker substitution. Currently documented:
 
-- **DeepSeek** (HTML bodies with `<p class="ds-markdown-paragraph">`, thinking blocks `<p>思考：</p><blockquote>...</blockquote>`, code-block chrome with Copy/Download buttons): see `chat-format/deepseek-cleanup.md`.
+- **DeepSeek** (HTML bodies with `<p class="ds-markdown-paragraph">`, thinking blocks `<p>思考：</p><blockquote>...</blockquote>`, KaTeX math, code-block chrome): run `scripts/deepseek_cleanup.py <file>`. See `deepseek-cleanup.md` for what it handles and how to extend it.
 
-Other sources (ChatGPT/Claude/Gemini) currently export plain-ish markdown; if you encounter HTML in their bodies, write a sibling cleanup companion following the DeepSeek one as template.
+Other sources (ChatGPT/Claude/Gemini) currently export plain-ish markdown; if you encounter HTML in their bodies, write a sibling cleanup pass following the DeepSeek script/companion as template.
 
 **Two-pass principle: technical first, semantic last.** The pipeline below runs cleanup before naming because drafting titles by reading messy HTML is wasteful — every `<p class="ds-markdown-paragraph">` and `<span class="">` you scan to extract the user's actual question is attention spent on chrome instead of substance. Convert to clean Markdown first, then read the clean file to draft titles, then apply Q-numbering.
 
@@ -66,7 +66,7 @@ Always copy the file to `<file>.bak` before writing anything. Regex-based cleanu
 cp "file.md" "file.md.bak"
 ```
 
-If step 1 detected HTML in the bodies, run the source-specific cleanup pass now. It rewrites each body to clean Markdown, leaves the role markers (`### User` / `### DeepSeek AI` / etc.) in place, and strips decorative inter-message `---` separators. For DeepSeek, follow `chat-format/deepseek-cleanup.md` — its script writes the cleaned file back to the same path.
+If step 1 detected HTML in the bodies, run the source-specific cleanup pass now. It rewrites each body to clean Markdown, leaves the role markers (`### User` / `### DeepSeek AI` / etc.) in place, and strips decorative inter-message `---` separators. For DeepSeek, run `python scripts/deepseek_cleanup.py <file>` — it makes its own `.bak`, writes the cleaned file back to the same path, and exits non-zero if any HTML survives (see `deepseek-cleanup.md`).
 
 If the bodies are already plain Markdown (Gemini-style export), skip the cleanup and proceed.
 
@@ -118,6 +118,8 @@ print(f"Done. Replaced {len(TITLES)} prompt/response pairs.")
 ```
 
 The assertion is load-bearing: if marker counts and title count disagree, the file has a malformed pair (orphan marker, stray content). Fix the file or the title list before running.
+
+**When the markers don't alternate cleanly.** Some exports don't fit the prompt-then-response rhythm this substitution assumes. A DeepSeek share page can start with an orphan assistant answer (the opening user prompt never made it into the export), or two same-role segments can sit back to back. Don't force the alternating `re.sub` — map the markers to Q-headings explicitly: walk the segments in order, assign the next `## Q##` at the start of each turn, and put `---` between the user message and the assistant reply within a turn. For an orphan answer with no preceding question, still give it a Q-heading, titled from the answer's own content — the reader navigating the TOC needs that entry to exist.
 
 ### 5. Verify
 
