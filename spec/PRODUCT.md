@@ -323,7 +323,7 @@ A context can declare per-context AI artifacts that Duet materializes into its D
 | Component | `context.json` field | Target | Behavior |
 |-----------|---------------------|--------|----------|
 | Skills | `skills` (list of `@`-paths) | `<context>/.claude/skills/<name>/` | Duet-managed: deploy the declared set, prune the rest. A pruned dir is **backed up** into `.claude/skills/.pruned/<name>` first. Absent key → no-op; present (even `[]`) → manage |
-| Instructions | `instructions` (list of `@`-paths) | `<context>/CLAUDE.md`, `AGENTS.md`, `GEMINI.md` | Bodies of the declared sources compose into per-client templates (`packages/backend/*_template.md`); **always generated** (templates carry the client memory policy), written read-only `0444`. A hand-written file (no Duet banner) is backed up to `<name>.bak` once before first overwrite |
+| Instructions | `instructions` (list of `@`-paths) | `<context>/CLAUDE.md`, `AGENTS.md`, `GEMINI.md` | Bodies of the declared sources compose into per-client templates (`packages/instructions/*_template.md`); **always generated** (templates carry the client memory policy), written read-only `0444`. A hand-written file (no Duet banner) is backed up to `<name>.bak` once before first overwrite |
 
 The Drive folder is the workspace's first root (context-first assembly), so AI clients auto-load these `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` from the project root. `@`-paths resolve over repos ∪ context folders — see [@Alias Resolution](#alias-resolution). Implementation: `packages/backend/services/deploy_instructions.py`, `services/at_paths.py`.
 
