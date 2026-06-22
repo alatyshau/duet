@@ -28,6 +28,8 @@ After this, `!рендер` gives a PDF with proper bookmarks and a clickable si
 
 ## Pipeline
 
+The bundled scripts run on Node (`node scripts/<name>.js`). `deepseek_cleanup.js` and `qnumber.js` are dependency-free; only the optional math check (step 6) needs `katex` (`npm install katex`). If a package is missing, the script says exactly what to install — install it and re-run.
+
 ### 1. Detect the markers and the body format
 
 Different sources use different markers. Inspect the file before writing the script:
@@ -48,11 +50,14 @@ Also check what's *inside* the message bodies. The marker substitution logic sta
 ```bash
 grep -oE "<[a-zA-Z][^>]*>" file.md | sort -u | head -20   # HTML tags?
 grep -c "思考" file.md                                     # DeepSeek thinking blocks?
+grep -c 'tikzcd' file.md                                  # math diagrams that won't render?
 ```
+
+If the chat is mathy, also note whether it carries LaTeX — especially `\begin{tikzcd}` commutative diagrams, which assistants emit without `$$` delimiters and which KaTeX can't render at all. That's handled by a separate optional pass at the end (step 6, `latex-formatting.md`), not during cleanup.
 
 If the bodies are HTML, you need a source-specific cleanup pass before the marker substitution. Currently documented:
 
-- **DeepSeek** (HTML bodies with `<p class="ds-markdown-paragraph">`, thinking blocks `<p>思考：</p><blockquote>...</blockquote>`, KaTeX math, code-block chrome): run `scripts/deepseek_cleanup.py <file>`. See `deepseek-cleanup.md` for what it handles and how to extend it.
+- **DeepSeek** (HTML bodies with `<p class="ds-markdown-paragraph">`, thinking blocks `<p>思考：</p><blockquote>...</blockquote>`, KaTeX math, code-block chrome): run `scripts/deepseek_cleanup.js <file>`. See `deepseek-cleanup.md` for what it handles and how to extend it.
 
 Other sources (ChatGPT/Claude/Gemini) currently export plain-ish markdown; if you encounter HTML in their bodies, write a sibling cleanup pass following the DeepSeek script/companion as template.
 
@@ -66,7 +71,7 @@ Always copy the file to `<file>.bak` before writing anything. Regex-based cleanu
 cp "file.md" "file.md.bak"
 ```
 
-If step 1 detected HTML in the bodies, run the source-specific cleanup pass now. It rewrites each body to clean Markdown, leaves the role markers (`### User` / `### DeepSeek AI` / etc.) in place, and strips decorative inter-message `---` separators. For DeepSeek, run `python scripts/deepseek_cleanup.py <file>` — it makes its own `.bak`, writes the cleaned file back to the same path, and exits non-zero if any HTML survives (see `deepseek-cleanup.md`).
+If step 1 detected HTML in the bodies, run the source-specific cleanup pass now. It rewrites each body to clean Markdown, leaves the role markers (`### User` / `### DeepSeek AI` / etc.) in place, and strips decorative inter-message `---` separators. For DeepSeek, run `node scripts/deepseek_cleanup.js <file>` — it makes its own `.bak`, writes the cleaned file back to the same path, and exits non-zero if any HTML survives (see `deepseek-cleanup.md`).
 
 If the bodies are already plain Markdown (Gemini-style export), skip the cleanup and proceed.
 
@@ -78,48 +83,24 @@ This step is semantic and goes last among the read-and-think phases for a reason
 
 ### 4. Run the Q-numbering substitution
 
-Python's `re.sub` with a callback handles per-occurrence numbering cleanly. Sed/awk struggle with Unicode titles + counters.
+The substitution is mechanical (count markers, swap in numbered headings, replace the response marker with `---`); the titles are the only bespoke part. So write the titles to a file and let `scripts/qnumber.js` do the plumbing — one title per line, in chat order, one line per pair:
 
-```python
-import re
+```bash
+cat > titles.txt <<'EOF'
+Title for Q01
+Title for Q02
+# ... one line per prompt/response pair, in order; blank/`#` lines ignored
+EOF
 
-PATH = "<absolute path to chat file>"
-TITLES = [
-    "Title for Q01",
-    "Title for Q02",
-    # ... one entry per prompt/response pair, in order
-]
-
-# Adjust these two literals to the markers your source uses
-PROMPT_MARKER = "## Prompt:\n"
-RESPONSE_MARKER = "## Response:\n"
-
-with open(PATH, "r", encoding="utf-8") as f:
-    content = f.read()
-
-n_prompt = content.count(PROMPT_MARKER)
-n_response = content.count(RESPONSE_MARKER)
-assert n_prompt == len(TITLES), f"Found {n_prompt} prompts, expected {len(TITLES)}"
-assert n_response == len(TITLES), f"Found {n_response} responses, expected {len(TITLES)}"
-
-counter = {"i": 0}
-def replace_prompt(_m):
-    i = counter["i"]
-    counter["i"] += 1
-    return f"## Q{i+1:02d} — {TITLES[i]}\n\n"
-
-content = re.sub(re.escape(PROMPT_MARKER), replace_prompt, content)
-content = content.replace(RESPONSE_MARKER, "---\n\n")
-
-with open(PATH, "w", encoding="utf-8") as f:
-    f.write(content)
-
-print(f"Done. Replaced {len(TITLES)} prompt/response pairs.")
+node scripts/qnumber.js file.md \
+    --prompt-marker "### User" \
+    --response-marker "### DeepSeek AI" \
+    --titles titles.txt
 ```
 
-The assertion is load-bearing: if marker counts and title count disagree, the file has a malformed pair (orphan marker, stray content). Fix the file or the title list before running.
+Pass the markers your source actually uses (`## Prompt:` / `## Response:` for Gemini, `### User` / `### DeepSeek AI` for DeepSeek, etc.). The script edits the file in place, picks the zero-padding from the pair count (`Q01` vs `Q001` past 99), and **refuses to run unless the prompt count, response count, and title count all agree** — that guard is load-bearing, because a mismatch means a malformed pair (orphan marker, stray segment), and failing loudly beats emitting a half-numbered file. `titles.txt` is a throwaway; delete it after.
 
-**When the markers don't alternate cleanly.** Some exports don't fit the prompt-then-response rhythm this substitution assumes. A DeepSeek share page can start with an orphan assistant answer (the opening user prompt never made it into the export), or two same-role segments can sit back to back. Don't force the alternating `re.sub` — map the markers to Q-headings explicitly: walk the segments in order, assign the next `## Q##` at the start of each turn, and put `---` between the user message and the assistant reply within a turn. For an orphan answer with no preceding question, still give it a Q-heading, titled from the answer's own content — the reader navigating the TOC needs that entry to exist.
+**When the markers don't alternate cleanly.** Some exports don't fit the prompt-then-response rhythm `qnumber.js` assumes, and it will (correctly) refuse. A DeepSeek share page can start with an orphan assistant answer (the opening user prompt never made it into the export), or two same-role segments can sit back to back. Don't force the script — map the markers to Q-headings by hand: walk the segments in order, assign the next `## Q##` at the start of each turn, and put `---` between the user message and the assistant reply within a turn. For an orphan answer with no preceding question, still give it a Q-heading, titled from the answer's own content — the reader navigating the TOC needs that entry to exist.
 
 ### 5. Verify
 
@@ -128,13 +109,26 @@ grep -nE "^## " file.md             # Q-headings sequential?
 grep -cE "<[a-zA-Z/]" file.md       # 0 if no orphan HTML left
 ```
 
-Visual sanity check that H2 headings are now `Q01 — ...`, `Q02 — ...`, sequential, with sensible titles. Past 99 pairs, switch to `Q001`-style padding.
+Visual sanity check that H2 headings are now `Q01 — ...`, `Q02 — ...`, sequential, with sensible titles.
 
 If `<[a-zA-Z` shows orphan HTML on an HTML-bodied source, the source-specific cleanup pass missed something — restore from `.bak`, fix the cleanup, re-run.
 
+### 6. Make the math render (only if the chat has LaTeX)
+
+The structure is now correct, but a mathy chat can still *look* broken in the preview: assistants emit commutative diagrams as `\begin{tikzcd}` with no `$$` delimiters, and KaTeX — what VS Code's Markdown preview and `!рендер` use — can't render `tikzcd` at all, so it shows as raw text. Skip this step entirely if `grep -c 'tikzcd' file.md` is 0 and the math otherwise renders.
+
+The gate is general, not a `tikzcd` special-case: `scripts/check_math.js` renders every formula through KaTeX and flags whatever won't draw — malformed math *and* LaTeX left outside `$…$` (how bare `tikzcd` slips in) — as a line-numbered list. Run it, fix what it lists, re-run until it prints `OK`:
+
+```bash
+cd /tmp && npm install katex
+NODE_PATH=/tmp/node_modules node scripts/check_math.js file.md
+```
+
+`latex-formatting.md` is the fix catalog for what the checker surfaces: converting `tikzcd` diagrams to KaTeX's `CD` environment (folding diagonals into equivalent squares, since `CD` has no diagonal arrows), fixing math glued to adjacent prose, and so on. This is the one step that touches inside the bodies, so it's deliberately last and deliberately conditional.
+
 ## Format conventions
 
-- `## Q01 — Title` — em dash (`—`, U+2014), zero-padded to two digits.
+- `## Q01 — Title` — em dash (`—`, U+2014), zero-padded (two digits ≤99 pairs, three past that — `qnumber.js` picks the width).
 - Horizontal rule is `---` on its own line, with blank lines above and below. Two blank lines around it prevents accidental setext-heading interpretation in CommonMark.
 - Subheadings inside answers must stay deeper than the `## Q##` markers. `###` / `####` are kept as-is; `##` (or HTML `<h2>`) is shifted to `###` and `<h3>` to `####` in the same pass. Never promote a subheading up to `##` — that shadows the Q-numbering and breaks the TOC.
 
@@ -148,8 +142,10 @@ If `<[a-zA-Z` shows orphan HTML on an HTML-bodied source, the source-specific cl
 | Skip the horizontal rule between prompt and response | Without the visual break, where the user message ends and the assistant reply begins becomes a guess |
 | Write `## Q01:` or `## Q01.` instead of `## Q01 — ` | Em dash reads naturally in both Russian and English; consistency across docs |
 | Edit prompt or response text | Out of scope. Restructuring markers is not an editorial pass. If the user wants the chat condensed, that's a different task |
-| Drop the assertion in the script | Silently produces partial output if title list and marker count disagree. Assertion fails fast and points at which side is wrong |
+| Force `qnumber.js` past its count guard | A prompt/response/title mismatch means a malformed pair. The script refusing is the signal to fix the file or map markers by hand (step 4) — not to bypass it |
 | Render to PDF inside this skill | Out of scope — `!рендер` is a separate, composable step. Don't bundle |
 | Run cleanup without a `.bak` backup | HTML-bodied sources can throw edge cases at any regex; restoring is cheap, re-exporting may be impossible |
 | Treat HTML body as plain markdown and substitute markers naively | Leaves a mess of `<div>`, `<span>`, thinking blocks in the output. Detect HTML in step 1; route to the source-specific companion |
 | Leave `<h2>` in response bodies untouched | Collides with `## Q##` headings and breaks the TOC. Always shift HTML-body headings down a level |
+| Leave `\begin{tikzcd}` as-is (or just wrap it in `$$`) | KaTeX can't render `tikzcd` either way — it shows as raw text. Convert to the `CD` environment (step 6 / `latex-formatting.md`) |
+| Call the math done without a KaTeX render check | A malformed `CD` block fails silently in the preview. Render each through KaTeX with `throwOnError: true` before finishing |
