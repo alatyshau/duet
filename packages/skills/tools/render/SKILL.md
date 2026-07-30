@@ -32,6 +32,9 @@ Mermaid always needs a browser engine somewhere (it renders via JavaScript). Too
 For input `file.md` next to which you want `file.html` and `file.pdf`:
 
 ```bash
+# 0. Per-folder print settings, if the folder carries them
+[ -f "$(dirname file.md)/render.css" ] && CSS="--metadata css:render.css"
+
 # 1. Markdown → HTML
 quarto render file.md --to html \
   --metadata toc:true \
@@ -39,7 +42,7 @@ quarto render file.md --to html \
   --metadata toc-depth:3 \
   --metadata theme:cosmo \
   --metadata embed-resources:true \
-  --metadata fontsize:1.05em
+  --metadata fontsize:1.05em ${CSS:-}
 
 # 2. HTML → PDF
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -51,6 +54,22 @@ quarto render file.md --to html \
 ```
 
 Chrome needs an **absolute** `file://` URL — relative paths silently produce empty PDFs.
+
+## `render.css` — a folder carries its own print settings
+
+**Always check for a `render.css` next to the markdown, and pass it.** When a document has been
+tuned for print — page size, margins, measure, typeface, page-break rules — that tuning belongs
+with the document, not in whoever renders it next. A folder holding one keeps rebuilding to the
+same book a year later, from the folder alone, with no notes and no memory of this session.
+
+Copy it alongside the markdown when rendering out of a temporary directory: Quarto resolves `css:`
+relative to the source file.
+
+Write the settings there rather than in flags whenever they are properties of *this* document
+(`@page` size and margins, `max-width` for the measure, `font-family`, `break-inside` rules).
+Flags stay for properties of *this run* (theme, TOC).
+
+Nothing is required: with no `render.css` the pipeline behaves exactly as before.
 
 **What each Chrome flag does:**
 
@@ -83,6 +102,7 @@ The diagram syntax must be ` ```{mermaid} ` (curly braces). Plain ` ```mermaid `
 | Drop TOC | omit the `toc:true` line |
 | Bigger font | `--metadata fontsize:1.1em` (default `1.05em` is slightly larger than Bootstrap base) |
 | Per-doc settings | YAML frontmatter in the `.md` file — wins over `--metadata` flags. Useful when one specific doc needs custom theme without changing how the skill is invoked |
+| Print tuning that must survive | `render.css` beside the markdown — see above. Page size, margins, measure, typeface, page-break rules |
 
 Frontmatter example:
 
@@ -120,5 +140,6 @@ A render is world-class when:
 | Render Mermaid through `mmdc` and embed PNGs into MD | Adds a build step the user has to remember and lossy PNGs instead of crisp SVG. The `.qmd` shim handles it natively. |
 | Use online «MD to PDF» services | Privacy (file uploaded) and unreliable for non-trivial docs. |
 | Hand-edit the generated HTML to «fix» the PDF | Touch the source or the flags. The HTML is a build artifact; edits get lost on re-render. |
+| Keep a document's print tuning in your own script or in chat | It is lost the moment either goes away, and the document silently renders differently. Put it in `render.css` beside the markdown. |
 | Forget `--generate-pdf-document-outline` on Chrome | The PDF will have no bookmarks — sidebar in Preview/Acrobat will be empty even though the HTML had a sidebar TOC. |
 | Pass a relative `file://` URL to Chrome | Silently produces an empty PDF. Always absolute path. |
