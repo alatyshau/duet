@@ -22,9 +22,6 @@ from aliases import AliasResolver
 # Cached pointer data (read once at startup)
 _pointer: PointerData | None = None
 
-# Cached resolver instance
-_resolver: AliasResolver | None = None
-
 
 class ConfigError(Exception):
     """Configuration error."""
@@ -52,15 +49,12 @@ def _get_pointer() -> PointerData:
 
 
 def _get_resolver() -> AliasResolver:
-    """Get cached alias resolver.
-
-    Reads machine config on first call, caches result.
-    """
-    global _resolver
-    if _resolver is None:
-        machine_config = read_machine_config()
-        _resolver = AliasResolver(machine_config)
-    return _resolver
+    # Host edits {machine}.json in runtime (add-root-context flow writes a new
+    # @alias before appending it to settings.json). A cached resolver would keep
+    # a snapshot from startup and reject freshly-added aliases with
+    # AliasNotFoundError, breaking the next /scan. Reading a small JSON on each
+    # call is cheap; correctness beats the singleton.
+    return AliasResolver(read_machine_config())
 
 
 def reset_cache() -> None:
@@ -68,9 +62,8 @@ def reset_cache() -> None:
 
     Call this after changing pointer file (for testing).
     """
-    global _pointer, _resolver
+    global _pointer
     _pointer = None
-    _resolver = None
 
 
 # === Path getters ===

@@ -283,6 +283,37 @@ class TestGetRootContextFolders:
         with pytest.raises(config.ConfigError, match="Failed to resolve"):
             config.get_root_context_folders()
 
+    def test_picks_up_alias_added_at_runtime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Regression: Host writes new @alias to {machine}.json when the user
+        # adds a root context in the wizard, then appends it to settings.json.
+        # If backend cached AliasResolver at startup, the next /scan blew up
+        # with AliasNotFoundError until the process was restarted.
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_alias("@БАЗА", str(tmp_path / "БАЗА"))
+        builder.with_root_context_folders(["@БАЗА"])
+        builder.build()
+        monkeypatch.setenv("DUET_POINTER_FILE", str(builder.pointer_path))
+        config.reset_cache()
+
+        assert config.get_root_context_folders() == [str(tmp_path / "БАЗА")]
+
+        machine_config_path = tmp_path / "DuetConfig" / "test_machine.json"
+        mc = json.loads(machine_config_path.read_text())
+        mc["@Library"] = str(tmp_path / "Library")
+        machine_config_path.write_text(json.dumps(mc))
+
+        settings_path = tmp_path / "DuetConfig" / "settings.json"
+        settings = json.loads(settings_path.read_text())
+        settings["root_context_folders"] = ["@БАЗА", "@Library"]
+        settings_path.write_text(json.dumps(settings))
+
+        assert config.get_root_context_folders() == [
+            str(tmp_path / "БАЗА"),
+            str(tmp_path / "Library"),
+        ]
+
 
 class TestGetVersion:
     """Tests for get_version()."""
