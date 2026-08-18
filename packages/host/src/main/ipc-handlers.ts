@@ -25,7 +25,7 @@ import {
   validatePython,
   pythonInstallHint
 } from '../core/deploy'
-import { getBackendStatus, startBackend, stopBackend } from '../core/backend'
+import { appendBackendLog, getBackendStatus, startBackend, stopBackend } from '../core/backend'
 import { detectAgents, configureAllAgents, fixAgentIssue } from '../core/ai-clients'
 import {
   addRootContextFolder,
@@ -91,12 +91,15 @@ let currentBackendProc: ChildProcess | null = null
  * Backend — long-running сервер, любое самостоятельное завершение = ошибка.
  * Намеренная остановка (ensureBackendStopped / deploy) обнуляет ref ДО stop.
  */
-function monitorBackendProcess(proc: ChildProcess): void {
+function monitorBackendProcess(proc: ChildProcess, duetDataPath: string): void {
   currentBackendProc = proc
-  proc.on('exit', (code) => {
+  proc.on('exit', (code, signal) => {
     if (proc !== currentBackendProc) return // stale listener
     currentBackendProc = null
-    broadcastBackendStatus({ state: 'error', error: `Backend упал (код ${code})` })
+    const detail = signal ? `сигнал ${signal}` : `код ${code}`
+    // Durable trace: a process killed by signal can't log its own death
+    appendBackendLog(duetDataPath, 'ERROR', `Backend завершился неожиданно (${detail})`)
+    broadcastBackendStatus({ state: 'error', error: `Backend упал (${detail})` })
   })
 }
 
@@ -140,7 +143,7 @@ export async function ensureBackendRunning(
     // Always stop first — kills orphans from previous Host sessions
     await stopBackend(port, currentBackendProc)
     const proc = await startBackend(duetDataPath, port)
-    monitorBackendProcess(proc)
+    monitorBackendProcess(proc, duetDataPath)
     const status = await getBackendStatus(duetDataPath, port)
     broadcastBackendStatus(status)
   } catch (e) {
@@ -327,7 +330,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
           setDeployStatus({ state: 'deploying', message }, context)
         }
       )
-      if (proc) monitorBackendProcess(proc)
+      if (proc) monitorBackendProcess(proc, state.duetDataPath)
       // Re-merge + re-deploy agents from the freshly deployed platform bundle, so
       // duet.md / duet-{agent}.md never go stale after a backend upgrade. Needs the
       // backend running (merge is an HTTP call) — skip if it didn't start.

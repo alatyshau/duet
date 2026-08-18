@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import asyncio
+import faulthandler
 import logging
 import signal
 import sys
@@ -66,10 +67,17 @@ _shutdown_event: asyncio.Event | None = None
 # Manifest watcher (initialized in lifespan)
 _watcher: ManifestWatcher | None = None
 
+# Initial scan background task (kept for cancellation on shutdown)
+_initial_scan_task: asyncio.Task | None = None
+
 # Timeout for uvicorn graceful shutdown (seconds).
 # Host waits STOP_GRACE_PERIOD_MS (2s) = this timeout + 1s margin.
 # See: packages/host/src/core/backend.ts → STOP_GRACE_PERIOD_MS
 SHUTDOWN_TIMEOUT_S = 1.0
+
+# Keeps the faulthandler target file alive (faulthandler requires the file
+# object to stay open for the lifetime of the process).
+_crash_log_file = None
 
 
 def setup_logging() -> None:
@@ -193,11 +201,12 @@ async def contexts_handler(request: Request) -> JSONResponse:
     return JSONResponse(response)
 
 
-def run_scan_with_cache() -> dict:
-    """Run scan and write JSON cache files.
+def _scan_and_write_cache() -> dict:
+    """Run scan and write JSON cache files. Blocking; safe to run in a worker thread.
 
-    Shared by scan_handler (HTTP) and ManifestWatcher (auto-rescan).
-    Returns scan result dict with duration_ms.
+    No event-loop APIs here — this runs via asyncio.to_thread so the HTTP
+    server (and /health) stays responsive during slow filesystem walks
+    (root context folders live on network-backed CloudStorage mounts).
     """
     start = time.time()
     result = get_entities_service().run_scan()
@@ -213,19 +222,31 @@ def run_scan_with_cache() -> dict:
         except Exception as e:
             logger.warning(f"Failed to write scan cache: {e}")
 
-        # Restart watcher if root context folders changed
-        if _watcher:
-            try:
-                _watcher.maybe_restart(get_root_context_folders())
-            except Exception as e:
-                logger.warning(f"Failed to update watcher: {e}")
+    return result
+
+
+async def run_scan_with_cache() -> dict:
+    """Run scan (in a worker thread) and update the watcher.
+
+    Shared by scan_handler (HTTP), ManifestWatcher (auto-rescan) and the
+    initial scan at startup. Returns scan result dict with duration_ms.
+    """
+    result = await asyncio.to_thread(_scan_and_write_cache)
+
+    # Restart watcher if root context folders changed (loop-only API —
+    # must not run inside the worker thread)
+    if result.get("status") == "completed" and _watcher:
+        try:
+            _watcher.maybe_restart(get_root_context_folders())
+        except Exception as e:
+            logger.warning(f"Failed to update watcher: {e}")
 
     return result
 
 
 async def scan_handler(request: Request) -> JSONResponse:
     """POST /scan - Rescan hierarchy."""
-    return JSONResponse(run_scan_with_cache())
+    return JSONResponse(await run_scan_with_cache())
 
 
 async def deploy_instructions_handler(request: Request) -> JSONResponse:
@@ -297,6 +318,37 @@ async def merge_instructions_handler(request: Request) -> JSONResponse:
 # === Application Setup ===
 
 
+async def _initial_scan_and_watch() -> None:
+    """Initial scan in a worker thread, then start the manifest watcher.
+
+    Runs as a background task after the server starts listening: the scan
+    walks all root context folders (CloudStorage mounts — seconds on a cold
+    cache) and must never block /health, or Host kills the backend during
+    startup. Every outcome — success with timing, or failure with full
+    traceback — is logged so a dead scan is always diagnosable.
+    """
+    try:
+        folders = get_root_context_folders()
+        if not folders:
+            logger.info("No root context folders configured, skipping initial scan")
+            return
+        logger.info("Running initial scan")
+        result = await run_scan_with_cache()
+        logger.info(
+            "Initial scan %s: %s entities in %s ms",
+            result.get("status"),
+            result.get("entities_count", 0),
+            result.get("duration_ms", "?"),
+        )
+        if _watcher:
+            _watcher.start(folders)
+    except asyncio.CancelledError:
+        logger.info("Initial scan cancelled (shutdown)")
+        raise
+    except Exception:
+        logger.exception("Initial scan/watcher failed")
+
+
 @asynccontextmanager
 async def lifespan(app: Starlette):
     """Application lifespan handler."""
@@ -330,17 +382,13 @@ async def lifespan(app: Starlette):
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, handle_signal)
 
-    # Initial scan + manifest watcher
-    global _watcher
+    # Initial scan + manifest watcher — run as a background task, NOT inline.
+    # Inline scan delays uvicorn's listen socket: Host polls /health with a
+    # short budget and SIGKILLs the process if it doesn't answer in time —
+    # a silent death with nothing in the log. See _initial_scan_and_watch.
+    global _watcher, _initial_scan_task
     _watcher = ManifestWatcher(on_scan=run_scan_with_cache)
-    try:
-        folders = get_root_context_folders()
-        if folders:
-            logger.info("Running initial scan")
-            run_scan_with_cache()
-            _watcher.start(folders)
-    except Exception as e:
-        logger.warning(f"Initial scan/watcher failed: {e}")
+    _initial_scan_task = asyncio.create_task(_initial_scan_and_watch())
 
     # Initialize MCP session manager (required for streamable HTTP transport)
     async with mcp.session_manager.run():
@@ -348,6 +396,9 @@ async def lifespan(app: Starlette):
             yield
         finally:
             # Cleanup
+            if _initial_scan_task and not _initial_scan_task.done():
+                _initial_scan_task.cancel()
+            _initial_scan_task = None
             _watcher.stop()
             _watcher = None
             db.close()
@@ -439,6 +490,17 @@ def main() -> None:
         print(f"Failed to setup logging: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Native-crash safety net: segfaults / fatal signals dump Python
+    # tracebacks here (backend.log can't capture them — the interpreter is
+    # already dying). SIGKILL still leaves no trace; Host logs that case.
+    global _crash_log_file
+    try:
+        crash_path = get_log_path().with_name("backend-crash.log")
+        _crash_log_file = open(crash_path, "a", encoding="utf-8")
+        faulthandler.enable(file=_crash_log_file)
+    except Exception as e:
+        logger.warning(f"Failed to enable faulthandler: {e}")
+
     # Validate configuration before starting (fail fast)
     try:
         from config import get_duet_data_path, ConfigError
@@ -465,7 +527,12 @@ def main() -> None:
     get_db_path().parent.mkdir(parents=True, exist_ok=True)
 
     # Run server (will fail with error if port is busy)
-    asyncio.run(run_server(port, "127.0.0.1"))
+    try:
+        asyncio.run(run_server(port, "127.0.0.1"))
+    except Exception:
+        # Last-resort: any fatal error must reach the log, not just stderr
+        logger.exception("Fatal error, backend exiting")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

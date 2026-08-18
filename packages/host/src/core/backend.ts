@@ -9,7 +9,7 @@
  * - Health check через GET /health (fetch + AbortSignal.timeout).
  * - Stop: POST /stop → grace → SIGTERM → SIGKILL.
  */
-import { existsSync } from 'fs'
+import { existsSync, appendFileSync } from 'fs'
 import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 
@@ -40,7 +40,11 @@ export const venvPythonPath = (
 // =============================================================================
 
 const HEALTH_TIMEOUT_MS = 2_000
-const HEALTH_RETRY_COUNT = 10
+// Budget ≈ RETRY_COUNT × RETRY_DELAY ≈ 12s. Backend binds the port fast
+// (initial scan runs in background), but cold Python start + imports on a
+// busy machine can exceed a short budget. Real crashes still fail fast via
+// the earlyExit race in startBackend.
+const HEALTH_RETRY_COUNT = 40
 const HEALTH_RETRY_DELAY_MS = 300
 const STDERR_MAX_LINES = 50
 
@@ -61,6 +65,33 @@ interface HealthResponse {
   status: 'ok'
   version: string
   uptime_seconds: number
+}
+
+// =============================================================================
+// HOST-SIDE BACKEND LOG
+// =============================================================================
+
+/**
+ * Дописывает строку в DuetData/backend.log от имени хоста (тег [host]).
+ *
+ * ЗАЧЕМ: когда хост убивает бэкенд (health timeout → SIGTERM/SIGKILL),
+ * сам бэкенд ничего залогировать не может — лог просто обрывается.
+ * След обязан оставить хост, в том же файле, куда смотрят при диагностике.
+ * Формат таймстампа совпадает с Python-логгером (локальное время).
+ */
+export const appendBackendLog = (
+  duetDataPath: string,
+  level: 'INFO' | 'WARNING' | 'ERROR',
+  message: string
+): void => {
+  try {
+    const d = new Date()
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    const ts = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    appendFileSync(join(duetDataPath, 'backend.log'), `${ts} [${level}] [host] ${message}\n`)
+  } catch {
+    // Логирование не должно ломать lifecycle-менеджмент
+  }
 }
 
 // =============================================================================
@@ -172,8 +203,9 @@ export const startBackend = async (duetDataPath: string, port: number): Promise<
   ])
 
   if (!health) {
-    // Kill if still alive (timeout case, not crash)
-    if (proc.exitCode === null) {
+    // Timeout case (process still alive) vs crash case (died on its own)
+    const timedOut = proc.exitCode === null
+    if (timedOut) {
       try {
         proc.kill('SIGTERM')
         const exited = await waitForExit(proc, KILL_GRACE_PERIOD_MS)
@@ -183,12 +215,17 @@ export const startBackend = async (duetDataPath: string, port: number): Promise<
       }
     }
 
-    // Build descriptive error from stderr + exit code
+    // Honest reason first, stderr tail as context — stderr alone is
+    // misleading (it is mostly INFO log lines, not the actual error).
+    const budgetS = Math.round((HEALTH_RETRY_COUNT * HEALTH_RETRY_DELAY_MS) / 1000)
+    const reason = timedOut
+      ? `Backend не ответил на /health за ~${budgetS}с — процесс остановлен хостом (SIGTERM/SIGKILL)`
+      : `Backend завершился при запуске (код ${proc.exitCode})`
+    // Durable trace: the killed backend can't log its own death
+    appendBackendLog(duetDataPath, 'ERROR', reason)
+
     const stderr = stderrLines.join('\n')
-    if (proc.exitCode !== null && proc.exitCode !== 0) {
-      throw new Error(stderr || `Backend завершился с кодом ${proc.exitCode}`)
-    }
-    throw new Error(stderr || 'Backend не ответил после запуска')
+    throw new Error(stderr ? `${reason}\n--- stderr ---\n${stderr}` : reason)
   }
 
   // Startup succeeded — close stderr pipe (backend logs to file from here)
