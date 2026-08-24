@@ -1,5 +1,5 @@
 /*
- * ЧТО: Обнаружение и конфигурация AI клиентов (Claude Code, Codex, Antigravity).
+ * ЧТО: Обнаружение и конфигурация AI клиентов (Claude Code, Codex, Antigravity, Kimi Code).
  * ЗАЧЕМ: Host конфигурирует AI клиенты прямой записью файлов (не CLI).
  * КТО ИСПОЛЬЗУЕТ: main process, страница "AI Агенты".
  *
@@ -11,10 +11,11 @@
  *   - Claude Code:  output-style (thin `sessionPrompt`) + 2 full-core subagents in ~/.claude/agents/.
  *   - Codex:        single instructions file (thin `sessionPrompt`).
  *   - Antigravity:  single GEMINI.md (thin `sessionPrompt`).
+ *   - Kimi Code:    SYSTEM.md (thin `sessionPrompt` wrapping `${base_prompt}`).
  *
- *   Custom subagents in Codex/Antigravity are intentionally not deployed —
- *   Antigravity does not support them globally; Codex deployment is held
- *   uniformly with Antigravity for now.
+ *   Custom subagents in Codex/Antigravity/Kimi Code are intentionally not
+ *   deployed — Antigravity does not support them globally; Codex and Kimi Code
+ *   deployment is held uniformly with Antigravity for now.
  *
  * ПАТТЕРН: detect (проверить реальные файлы конфигурации) → configure (write files) → show result.
  * detect и configure должны возвращать одинаковый status — это проверяется round-trip тестом.
@@ -413,6 +414,106 @@ export const configureAntigravity = (
 }
 
 // =============================================================================
+// KIMI CODE
+// =============================================================================
+
+/**
+ * Detect + configure Kimi Code.
+ *
+ * Контракты:
+ * - System prompt: ~/.kimi-code/SYSTEM.md (thin session prompt + `${base_prompt}`)
+ * - MCP: ~/.kimi-code/mcp.json → mcpServers.duet (HTTP MCP)
+ *
+ * SYSTEM.md — аналог Claude output-style: полная замена системного промпта
+ * главного агента (эталонный уровень интеграции). `${base_prompt}` в конце
+ * подставляет встроенный дефолтный промпт Kimi — эквивалент
+ * `keep-coding-instructions: true` у Claude output-style.
+ *
+ * В mcp.json поле `type` не пишется: по спецификации Kimi Code наличие `url`
+ * само означает HTTP-транспорт.
+ *
+ * Custom subagents intentionally not deployed — held uniformly with
+ * Codex/Antigravity for now.
+ */
+
+/**
+ * Expected on-disk content for ~/.kimi-code/SYSTEM.md: thin session prompt,
+ * then `${base_prompt}` — Kimi renders SYSTEM.md as a template and substitutes
+ * the built-in default system prompt in its place.
+ */
+function expectedKimiSystemContent(sessionBody: string): string {
+  return sessionBody + '\n\n${base_prompt}\n'
+}
+
+export const configureKimi = (
+  sessionContent: string | null,
+  duetDataPath: string,
+  port: number
+): AgentInfo => {
+  const kimiDir = getKimiDir()
+
+  // Detect
+  if (!existsSync(kimiDir)) {
+    return {
+      id: 'kimi',
+      name: 'Kimi Code',
+      status: 'not_found',
+      details: 'Папка ~/.kimi-code не найдена. Kimi Code не установлен.'
+    }
+  }
+
+  try {
+    const instructionsPath = join(kimiDir, 'SYSTEM.md')
+    const mcpConfigPath = join(kimiDir, 'mcp.json')
+
+    // 1. MCP config
+    let mcpConfig: Record<string, unknown> = {}
+    if (existsSync(mcpConfigPath)) {
+      try {
+        mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'))
+      } catch {
+        // Invalid JSON — overwrite
+      }
+    }
+    if (!mcpConfig.mcpServers || typeof mcpConfig.mcpServers !== 'object') {
+      mcpConfig.mcpServers = {}
+    }
+    ;(mcpConfig.mcpServers as Record<string, unknown>).duet = {
+      url: `http://127.0.0.1:${port}/mcp`
+    }
+    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf-8')
+
+    // 2. System prompt (require merged content from DuetData)
+    if (sessionContent === null) {
+      return {
+        id: 'kimi',
+        name: 'Kimi Code',
+        status: 'needs_setup',
+        details: 'MCP настроен. SYSTEM.md не записан: инструкции не сгенерированы'
+      }
+    }
+
+    writeFileSync(instructionsPath, expectedKimiSystemContent(sessionContent), 'utf-8')
+
+    const version = readDeployedVersion(duetDataPath)
+    return {
+      id: 'kimi',
+      name: 'Kimi Code',
+      status: 'configured',
+      details: 'SYSTEM.md + MCP настроены',
+      version: version ?? undefined
+    }
+  } catch (e) {
+    return {
+      id: 'kimi',
+      name: 'Kimi Code',
+      status: 'needs_setup',
+      details: `Ошибка конфигурации: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+}
+
+// =============================================================================
 // DETECT ALL
 // =============================================================================
 
@@ -425,7 +526,8 @@ export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] =>
   return [
     detectClaudeCode(merged, duetDataPath, port),
     detectCodex(merged.sessionPrompt, duetDataPath, port),
-    detectAntigravity(merged.sessionPrompt, duetDataPath, port)
+    detectAntigravity(merged.sessionPrompt, duetDataPath, port),
+    detectKimi(merged.sessionPrompt, duetDataPath, port)
   ]
 }
 
@@ -700,6 +802,61 @@ function detectAntigravity(
   }
 }
 
+function detectKimi(sessionContent: string | null, duetDataPath: string, port: number): AgentInfo {
+  const kimiDir = getKimiDir()
+  if (!existsSync(kimiDir)) {
+    return {
+      id: 'kimi',
+      name: 'Kimi Code',
+      status: 'not_found',
+      details: 'Не установлен'
+    }
+  }
+
+  const instructionsPath = join(kimiDir, 'SYSTEM.md')
+  const mcpConfigPath = join(kimiDir, 'mcp.json')
+
+  const hasInstructions = existsSync(instructionsPath)
+  const hasMcp = kimiHasDuetMcp(mcpConfigPath, port)
+
+  // Check content freshness against expected SYSTEM.md (session prompt + ${base_prompt})
+  let contentFresh = false
+  if (hasInstructions && sessionContent !== null) {
+    const actual = readFileSync(instructionsPath, 'utf-8')
+    contentFresh = actual === expectedKimiSystemContent(sessionContent)
+  }
+
+  const checkedFiles: AgentCheckedFile[] = [
+    { path: instructionsPath, ok: hasInstructions && contentFresh },
+    { path: mcpConfigPath, ok: hasMcp }
+  ]
+
+  if (hasMcp && hasInstructions && contentFresh) {
+    const version = readDeployedVersion(duetDataPath)
+    return {
+      id: 'kimi',
+      name: 'Kimi Code',
+      status: 'configured',
+      details: 'SYSTEM.md + MCP настроены',
+      version: version ?? undefined,
+      checkedFiles
+    }
+  }
+
+  const parts: string[] = []
+  if (hasMcp) parts.push('MCP настроен')
+  if (hasInstructions && contentFresh) parts.push('SYSTEM.md настроен')
+  const detail = parts.length > 0 ? parts.join(', ') : '~/.kimi-code найдена'
+
+  return {
+    id: 'kimi',
+    name: 'Kimi Code',
+    status: 'needs_setup',
+    details: detail,
+    checkedFiles
+  }
+}
+
 /** Устанавливает outputStyle: "duet-executor" в ~/.claude/settings.json */
 function configureClaudeSettings(claudeDir: string): void {
   const settingsPath = join(claudeDir, 'settings.json')
@@ -754,6 +911,19 @@ function geminiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
   }
 }
 
+/** Проверяет наличие mcpServers.duet (HTTP MCP) в Kimi Code mcp.json */
+function kimiHasDuetMcp(mcpConfigPath: string, port: number): boolean {
+  if (!existsSync(mcpConfigPath)) return false
+  try {
+    const config = JSON.parse(readFileSync(mcpConfigPath, 'utf-8'))
+    const mcp = config?.mcpServers?.duet
+    if (!mcp) return false
+    return mcp.url === `http://127.0.0.1:${port}/mcp`
+  } catch {
+    return false
+  }
+}
+
 /**
  * Конфигурировать все найденные AI клиенты.
  *
@@ -773,6 +943,7 @@ export const configureAllAgents = async (
   configureClaudeCode(merged, duetDataPath, port)
   configureCodex(merged.sessionPrompt, duetDataPath, port)
   configureAntigravity(merged.sessionPrompt, duetDataPath, port)
+  configureKimi(merged.sessionPrompt, duetDataPath, port)
   // Re-detect after configure to return full AgentInfo with checkedFiles
   return detectAgents(duetDataPath, port)
 }
@@ -884,4 +1055,8 @@ function getCodexDir(): string {
 
 function getGeminiDir(): string {
   return process.env.GEMINI_HOME || join(homedir(), '.gemini')
+}
+
+function getKimiDir(): string {
+  return process.env.KIMI_CODE_HOME || join(homedir(), '.kimi-code')
 }

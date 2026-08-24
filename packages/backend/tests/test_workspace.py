@@ -1196,6 +1196,6 @@ class TestDeployInstructionsService:
         assert "myskill" in result["deployed"]["skills_deployed"]
         assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
         # instructions always generated from the real per-client templates
-        assert (ctx_path / "CLAUDE.md").is_file()
-        assert (ctx_path / "AGENTS.md").is_file()
-        assert (ctx_path / "GEMINI.md").is_file()
+        assert (ctx_path / ".claude" / "CLAUDE.md").is_file()
+        assert (ctx_path / ".kimi-code" / "AGENTS.md").is_file()
+        assert (ctx_path / ".agents" / "rules" / "gemini.md").is_file()

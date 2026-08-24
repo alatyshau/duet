@@ -343,4 +343,4 @@ class TestDeployInstructionsEndpoint:
         assert data["status"] == "ok"
         assert "myskill" in data["deployed"]["skills_deployed"]
         assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
-        assert (ctx_path / "CLAUDE.md").is_file()
+        assert (ctx_path / ".claude" / "CLAUDE.md").is_file()

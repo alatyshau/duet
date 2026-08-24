@@ -107,7 +107,7 @@ Pointer saves use partial updates: each page passes only its field(s) to `savePo
 
 **Step 4 — Воркспейсы.** Manual Scan button + results. Shows entity tree from cached `contexts.json` (built via `parent_id`, with icons and types). Error table is informational — scanner auto-heals collisions and missing manifests, errors are notifications with file paths. No Fix buttons for scan errors. If no root contexts configured, shows message directing user to step 1.
 
-**Step 5 — AI Агенты.** "Настроить все" button runs merge→configure in one action (`configureAllAgents()` merges the bundled platform instructions, then deploys to the AI clients). Agent cards show checked files list and issues. Fix button for fixable issues (e.g. `additionalDirectories`). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity). No `dark:` classes (light-only theme).
+**Step 5 — AI Агенты.** "Настроить все" button runs merge→configure in one action (`configureAllAgents()` merges the bundled platform instructions, then deploys to the AI clients). Agent cards show checked files list and issues. Fix button for fixable issues (e.g. `additionalDirectories`). Not-found agents show description + clickable install link (Claude Code, Codex, Antigravity, Kimi Code). No `dark:` classes (light-only theme).
 
 ## Apps Tab
 

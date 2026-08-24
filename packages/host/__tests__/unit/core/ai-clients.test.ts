@@ -6,6 +6,7 @@
  *   - Claude Code: output-style + 2 custom subagents
  *   - Codex: single instructions file (executor only)
  *   - Antigravity: single GEMINI.md (executor only)
+ *   - Kimi Code: SYSTEM.md (thin session prompt + ${base_prompt})
  *
  * Tests create the merged files in DuetData/tmp before exercising configure/detect.
  */
@@ -31,6 +32,7 @@ import {
   configureClaudeCode,
   configureCodex,
   configureAntigravity,
+  configureKimi,
   detectAgents,
   configureAllAgents,
   fixAgentIssue,
@@ -103,6 +105,14 @@ function expectedVizirAgentFrontmatter(): string {
   ].join('\n')
 }
 
+/**
+ * Mirrors production `expectedKimiSystemContent` — thin session body followed
+ * by the `${base_prompt}` template variable.
+ */
+function expectedKimiSystemContent(sessionBody: string): string {
+  return sessionBody + '\n\n${base_prompt}\n'
+}
+
 const FRESH_MERGED: MergedAgents = {
   sessionPrompt: SESSION_BODY,
   executor: EXECUTOR_BODY,
@@ -125,11 +135,13 @@ describe('core/ai-clients', () => {
     mockedHomedir.mockReturnValue(homeDir)
     delete process.env.CODEX_HOME
     delete process.env.GEMINI_HOME
+    delete process.env.KIMI_CODE_HOME
   })
 
   afterEach(() => {
     delete process.env.CODEX_HOME
     delete process.env.GEMINI_HOME
+    delete process.env.KIMI_CODE_HOME
     ctx.cleanup()
   })
 
@@ -141,10 +153,11 @@ describe('core/ai-clients', () => {
     it('returns not_found when no agents installed', () => {
       const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
-      expect(agents).toHaveLength(3)
+      expect(agents).toHaveLength(4)
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'not_found' })
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'not_found' })
       expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'not_found' })
+      expect(agents[3]).toMatchObject({ id: 'kimi', status: 'not_found' })
     })
 
     it('returns needs_setup when ~/.claude exists but not configured', () => {
@@ -181,6 +194,21 @@ describe('core/ai-clients', () => {
 
       const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
       expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'needs_setup' })
+    })
+
+    it('returns needs_setup when ~/.kimi-code exists but not configured', () => {
+      mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      expect(agents[3]).toMatchObject({ id: 'kimi', status: 'needs_setup' })
+    })
+
+    it('respects KIMI_CODE_HOME env variable', () => {
+      const customKimiDir = join(ctx.tmpDir, 'custom-kimi')
+      mkdirSync(customKimiDir, { recursive: true })
+      process.env.KIMI_CODE_HOME = customKimiDir
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      expect(agents[3]).toMatchObject({ id: 'kimi', status: 'needs_setup' })
     })
 
     // --- H1: Claude full happy path ---
@@ -396,6 +424,38 @@ describe('core/ai-clients', () => {
       expect(agents[2].checkedFiles!.every((f) => f.ok)).toBe(true)
     })
 
+    it('returns configured for Kimi when SYSTEM.md + MCP exist and content matches', () => {
+      writeMergedAgents(ctx.duetDataDir)
+
+      const kimiDir = join(homeDir, '.kimi-code')
+      mkdirSync(kimiDir, { recursive: true })
+      writeFileSync(join(kimiDir, 'SYSTEM.md'), expectedKimiSystemContent(SESSION_BODY))
+      writeFileSync(
+        join(kimiDir, 'mcp.json'),
+        JSON.stringify({ mcpServers: { duet: { url: MCP_URL } } })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      expect(agents[3]).toMatchObject({ id: 'kimi', status: 'configured' })
+      expect(agents[3].checkedFiles).toBeDefined()
+      expect(agents[3].checkedFiles!.every((f) => f.ok)).toBe(true)
+    })
+
+    it('returns needs_setup for Kimi when only MCP configured', () => {
+      writeMergedAgents(ctx.duetDataDir)
+
+      const kimiDir = join(homeDir, '.kimi-code')
+      mkdirSync(kimiDir, { recursive: true })
+      writeFileSync(
+        join(kimiDir, 'mcp.json'),
+        JSON.stringify({ mcpServers: { duet: { url: MCP_URL } } })
+      )
+
+      const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
+      expect(agents[3]).toMatchObject({ id: 'kimi', status: 'needs_setup' })
+      expect(agents[3].details).toContain('MCP настроен')
+    })
+
     // --- H1 / H7: round-trip detect after configure ---
     it('detect after configure returns configured (round-trip, idempotent)', async () => {
       writeMergedAgents(ctx.duetDataDir)
@@ -403,6 +463,7 @@ describe('core/ai-clients', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
       mkdirSync(join(homeDir, '.gemini'), { recursive: true })
+      mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
 
       // First configure. configureAllAgents now triggers a merge first (HTTP); no
       // backend in tests → triggerMerge degrades gracefully and the pre-seeded
@@ -411,18 +472,21 @@ describe('core/ai-clients', () => {
       expect(r1[0].status).toBe('configured')
       expect(r1[1].status).toBe('configured')
       expect(r1[2].status).toBe('configured')
+      expect(r1[3].status).toBe('configured')
 
       // Second configure (idempotency)
       const r2 = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
       expect(r2[0].status).toBe('configured')
       expect(r2[1].status).toBe('configured')
       expect(r2[2].status).toBe('configured')
+      expect(r2[3].status).toBe('configured')
 
       // Detect agrees
       const detect = detectAgents(ctx.duetDataDir, TEST_PORT)
       expect(detect[0].status).toBe('configured')
       expect(detect[1].status).toBe('configured')
       expect(detect[2].status).toBe('configured')
+      expect(detect[3].status).toBe('configured')
     })
 
     // --- H13: detect when merged content is null (merge never ran) ---
@@ -931,6 +995,103 @@ describe('core/ai-clients', () => {
   })
 
   // ===========================================================================
+  // configureKimi
+  // ===========================================================================
+
+  describe('configureKimi', () => {
+    it('returns not_found when ~/.kimi-code does not exist', () => {
+      const result = configureKimi(null, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('not_found')
+      expect(result.id).toBe('kimi')
+    })
+
+    it('returns needs_setup when session content is null', () => {
+      mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
+
+      const result = configureKimi(null, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('needs_setup')
+      expect(result.details).toContain('не сгенерированы')
+
+      const mcpPath = join(homeDir, '.kimi-code', 'mcp.json')
+      expect(existsSync(mcpPath)).toBe(true)
+      const config = JSON.parse(readFileSync(mcpPath, 'utf-8'))
+      expect(config.mcpServers.duet).toBeDefined()
+    })
+
+    it('configures SYSTEM.md and MCP when ~/.kimi-code exists', () => {
+      mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
+
+      const result = configureKimi(SESSION_BODY, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+
+      const instructionsPath = join(homeDir, '.kimi-code', 'SYSTEM.md')
+      expect(existsSync(instructionsPath)).toBe(true)
+      expect(readFileSync(instructionsPath, 'utf-8')).toBe(expectedKimiSystemContent(SESSION_BODY))
+
+      const mcpPath = join(homeDir, '.kimi-code', 'mcp.json')
+      expect(existsSync(mcpPath)).toBe(true)
+      const mcpConfig = JSON.parse(readFileSync(mcpPath, 'utf-8'))
+      expect(mcpConfig.mcpServers.duet.url).toBe(MCP_URL)
+      // Kimi contract: no `type` field — a `url` entry implies HTTP transport
+      expect(mcpConfig.mcpServers.duet.type).toBeUndefined()
+    })
+
+    it('preserves existing keys in mcp.json', () => {
+      const kimiDir = join(homeDir, '.kimi-code')
+      mkdirSync(kimiDir, { recursive: true })
+      writeFileSync(
+        join(kimiDir, 'mcp.json'),
+        JSON.stringify({
+          existingKey: 'keep',
+          mcpServers: { other: { command: 'other' } }
+        })
+      )
+
+      configureKimi(SESSION_BODY, ctx.duetDataDir, TEST_PORT)
+
+      const config = JSON.parse(readFileSync(join(kimiDir, 'mcp.json'), 'utf-8'))
+      expect(config.existingKey).toBe('keep')
+      expect(config.mcpServers.other).toBeDefined()
+      expect(config.mcpServers.duet).toBeDefined()
+    })
+
+    it('handles invalid JSON in mcp.json gracefully', () => {
+      const kimiDir = join(homeDir, '.kimi-code')
+      mkdirSync(kimiDir, { recursive: true })
+      writeFileSync(join(kimiDir, 'mcp.json'), 'not json {{{')
+
+      const result = configureKimi(SESSION_BODY, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+      const config = JSON.parse(readFileSync(join(kimiDir, 'mcp.json'), 'utf-8'))
+      expect(config.mcpServers.duet).toBeDefined()
+    })
+
+    it('respects KIMI_CODE_HOME env variable', () => {
+      const customKimiDir = join(ctx.tmpDir, 'custom-kimi')
+      mkdirSync(customKimiDir, { recursive: true })
+      process.env.KIMI_CODE_HOME = customKimiDir
+
+      const result = configureKimi(SESSION_BODY, ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+      expect(existsSync(join(customKimiDir, 'SYSTEM.md'))).toBe(true)
+    })
+
+    it('does NOT write any custom agent files in ~/.kimi-code/agents/', () => {
+      mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
+
+      configureKimi(SESSION_BODY, ctx.duetDataDir, TEST_PORT)
+
+      const kimiAgentsDir = join(homeDir, '.kimi-code', 'agents')
+      expect(existsSync(kimiAgentsDir)).toBe(false)
+    })
+  })
+
+  // ===========================================================================
   // additionalDirectories check
   // ===========================================================================
 
@@ -1054,10 +1215,11 @@ describe('core/ai-clients', () => {
     it('returns results for all agents', async () => {
       const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
-      expect(results).toHaveLength(3)
+      expect(results).toHaveLength(4)
       expect(results[0].id).toBe('claude-code')
       expect(results[1].id).toBe('codex')
       expect(results[2].id).toBe('antigravity')
+      expect(results[3].id).toBe('kimi')
     })
 
     it('configures all found agents using merged content from disk', async () => {
@@ -1066,12 +1228,14 @@ describe('core/ai-clients', () => {
       mkdirSync(join(homeDir, '.claude'), { recursive: true })
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
       mkdirSync(join(homeDir, '.gemini'), { recursive: true })
+      mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
 
       const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
       expect(results[0].status).toBe('configured')
       expect(results[1].status).toBe('configured')
       expect(results[2].status).toBe('configured')
+      expect(results[3].status).toBe('configured')
     })
   })
 

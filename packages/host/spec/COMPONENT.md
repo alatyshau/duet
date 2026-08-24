@@ -10,7 +10,7 @@ Host is the **single writer** of system configuration and the **owner of backend
 
 1. **Pointer + config.** Writes `~/.org.ve68.duet`. Writes and migrates `DuetConfig/settings.json` and `{machine}.json`. Writes and migrates context manifests on disk. Enforces structural invariants (meta-context at position 0).
 2. **Deployment.** Deploys backend Python code from bundled `extraResources` to `DuetData/backend/`, manages venv + dependencies, writes `VERSION`, owns process spawn / stop / health monitoring.
-3. **AI client integration.** Reads the thin session prompt (`DuetData/duet.md`) and the full per-agent instructions (`DuetData/duet-{agent}.md`) and writes them into Claude Code / Codex / Antigravity config locations.
+3. **AI client integration.** Reads the thin session prompt (`DuetData/duet.md`) and the full per-agent instructions (`DuetData/duet-{agent}.md`) and writes them into Claude Code / Codex / Antigravity / Kimi Code config locations.
 
 Everything in this file describes how Host fulfils these three roles. UI surfaces (tray, wizard, pages) — see [UI.md](UI.md).
 
@@ -247,7 +247,7 @@ Detects and configures AI clients via direct file writes (no CLI). Backend produ
 
 `configureAllAgents()` is **async** and merges-then-deploys: it first calls `triggerMerge(port)` (Backend rebuilds `duet.md` + `duet-{agent}.md` from the bundled platform sources), then reads the merged files and deploys them to the AI clients. The "Настроить все" button on the AI Агенты page and the startup / post-deploy auto-configure paths all go through this single function.
 
-**Thin/full split:** the session-level deployments — Claude output-style, Codex instructions, Antigravity `GEMINI.md` — all use the thin session prompt (`merged.sessionPrompt`, from `duet.md`). The behavioral agent layer comes from the per-context `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` (deployed by Backend), not from the session prompt. The Claude `duet-executor` / `duet-vizir` custom subagents still carry the full agent cores (`merged.executor` / `merged.vizir`, from `duet-{agent}.md`).
+**Thin/full split:** the session-level deployments — Claude output-style, Codex instructions, Antigravity `GEMINI.md`, Kimi Code `SYSTEM.md` — all use the thin session prompt (`merged.sessionPrompt`, from `duet.md`). The behavioral agent layer comes from the per-context instruction files (`.claude/CLAUDE.md`, `.kimi-code/AGENTS.md`, `.agents/rules/gemini.md`, deployed by Backend), not from the session prompt. The Claude `duet-executor` / `duet-vizir` custom subagents still carry the full agent cores (`merged.executor` / `merged.vizir`, from `duet-{agent}.md`).
 
 | Client | Config files | What |
 |--------|-------------|------|
@@ -260,8 +260,10 @@ Detects and configures AI clients via direct file writes (no CLI). Backend produ
 | Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp_servers.duet]` |
 | Antigravity | `~/.gemini/GEMINI.md` | Host-managed instructions file (thin session prompt) |
 | Antigravity | `~/.gemini/antigravity/mcp_config.json` | MCP server (`mcpServers.duet`, HTTP) |
+| Kimi Code | `~/.kimi-code/SYSTEM.md` | Host-managed system prompt — full replacement of the main agent's system prompt (Claude output-style equivalent): thin session prompt + `${base_prompt}`, which re-embeds Kimi's built-in default prompt (`keep-coding-instructions: true` counterpart) |
+| Kimi Code | `~/.kimi-code/mcp.json` | MCP server (`mcpServers.duet`, HTTP; `url` without `type` — a `url` entry implies HTTP transport) |
 
-**Platform asymmetry:** custom subagents (full agent cores) are deployed only for Claude Code. Codex and Antigravity get only the thin session prompt.
+**Platform asymmetry:** custom subagents (full agent cores) are deployed only for Claude Code. Codex, Antigravity and Kimi Code get only the thin session prompt.
 
 **Host knows two agents:** the deployment logic is hard-coded for `executor` and `vizir` (`MergedAgents = { sessionPrompt, executor, vizir }`). Backend (`merge_duet_instructions`) accepts any agent set declared in `index.json.agents`, but additional agents would be merged to disk and ignored by host. If/when a third agent is added, host needs to be extended to read the agent set dynamically from the backend response.
 

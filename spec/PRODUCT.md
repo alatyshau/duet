@@ -112,8 +112,8 @@ Three entity types live in `entities.db`:
 | `git_repos` | map | optional | `{alias: url}` declaring product clones. When present, scanner registers N `product_repo` children while continuing to recurse through the Drive folder for nested contexts. Insertion order preserved and surfaces in `products[]` order |
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
 | `description` | string | optional | Surfaces in orientation's `chain[].description`; takes priority over README first sentence |
-| `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` (see [Deploy Instructions](#deploy-instructions)) |
-| `instructions` | list | optional | `@`-paths whose bodies compose the per-client `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` |
+| `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` and `<context>/.agents/skills/` (see [Deploy Instructions](#deploy-instructions)) |
+| `instructions` | list | optional | `@`-paths whose bodies compose the per-client `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` / `.agents/rules/gemini.md` |
 | `memory` | string | optional | A single `@`-path to the context-memory file; surfaced in orientation's `memory` block |
 
 **Validation rules** (strict v4 reader; implementation `packages/backend/services/manifest.py:read_manifest`):
@@ -124,7 +124,7 @@ Three entity types live in `entities.db`:
 - `memory` must be a non-empty string when present.
 - No regex / Windows-reserved-name / URL-leading-`-` guards: manifests are user-written, this is intentional.
 
-**Workspace assembly is context-first.** Opening a context with `git_repos` builds a multi-root `.code-workspace` with the **Drive folder first**, cloned repos after (in `git_repos` order). The order is fixed — the former `workspace_config.primary_folder` knob was removed in v4 (its migration drops the field). The first folder is the default cwd for terminals and the anchor for file pickers, so the context's Drive folder (and its root `CLAUDE.md`) anchors the session.
+**Workspace assembly is context-first.** Opening a context with `git_repos` builds a multi-root `.code-workspace` with the **Drive folder first**, cloned repos after (in `git_repos` order). The order is fixed — the former `workspace_config.primary_folder` knob was removed in v4 (its migration drops the field). The first folder is the default cwd for terminals and the anchor for file pickers, so the context's Drive folder (and its `.claude/CLAUDE.md`) anchors the session. The same (re)generation also writes `<context>/.kimi-code/local.toml` with the repo dirs as `additional_dir` entries — a workaround for Kimi Code's blindness to VS Code multi-root workspaces.
 
 **`reference_repos`** declares read-only clones. Key = clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space, shared with `git_repos` aliases).
 
@@ -322,10 +322,10 @@ A context can declare per-context AI artifacts that Duet materializes into its D
 
 | Component | `context.json` field | Target | Behavior |
 |-----------|---------------------|--------|----------|
-| Skills | `skills` (list of `@`-paths) | `<context>/.claude/skills/<name>/` | Duet-managed: deploy the declared set, prune the rest. A pruned dir is **backed up** into `.claude/skills/.pruned/<name>` first. Absent key → no-op; present (even `[]`) → manage |
-| Instructions | `instructions` (list of `@`-paths) | `<context>/CLAUDE.md`, `AGENTS.md`, `GEMINI.md` | Bodies of the declared sources compose into per-client templates (`packages/instructions/*_template.md`); **always generated** (templates carry the client memory policy), written read-only `0444`. A hand-written file (no Duet banner) is backed up to `<name>.bak` once before first overwrite |
+| Skills | `skills` (list of `@`-paths) | `<context>/.claude/skills/<name>/` + `<context>/.agents/skills/<name>/` | Duet-managed in both targets: deploy the declared set, prune the rest. A pruned dir is **backed up** into `<target>/.pruned/<name>` first. `.claude/skills/` is read by Claude Code, `.agents/skills/` — by Kimi Code (cross-client convention). Absent key → no-op; present (even `[]`) → manage |
+| Instructions | `instructions` (list of `@`-paths) | `<context>/.claude/CLAUDE.md`, `<context>/.kimi-code/AGENTS.md`, `<context>/.agents/rules/gemini.md` | Bodies of the declared sources compose into per-client templates (`packages/instructions/*_template.md`); **always generated** (templates carry the client memory policy), written read-only `0444`. A hand-written file (no Duet banner) is backed up to `<name>.bak` once before first overwrite. Legacy root-level `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` with the Duet banner are removed; hand-written ones stay |
 
-The Drive folder is the workspace's first root (context-first assembly), so AI clients auto-load these `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` from the project root. `@`-paths resolve over repos ∪ context folders — see [@Alias Resolution](#alias-resolution). Implementation: `packages/backend/services/deploy_instructions.py`, `services/at_paths.py`.
+The Drive folder is the workspace's first root (context-first assembly), so AI clients discover these files from their per-client locations under the project root: Claude Code reads `.claude/CLAUDE.md`, Kimi Code reads `.kimi-code/AGENTS.md` (loads without a `.git` project root — unlike `.agents/AGENTS.md`), Antigravity reads `.agents/rules/gemini.md`. `@`-paths resolve over repos ∪ context folders — see [@Alias Resolution](#alias-resolution). Implementation: `packages/backend/services/deploy_instructions.py`, `services/at_paths.py`.
 
 ### Spec File Naming
 
@@ -354,7 +354,7 @@ First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `descriptio
 | `DuetData/data/{scan,contexts}.json` | reads (wizard, file watcher) | — | **writes** | — |
 | `DuetData/duet.md` (thin session prompt) | reads → output-style + Codex/Antigravity | — | **writes** | — |
 | `DuetData/duet-{agent}.md` | reads → `duet-{agent}` subagents | — | **writes** | — |
-| Context `<context>/.claude/skills/`, `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` | — | triggers `/deploy-instructions` | **writes** (deploy) | reads |
+| Context `<context>/.claude/skills/`, `<context>/.agents/skills/`, `.claude/CLAUDE.md`/`.kimi-code/AGENTS.md`/`.agents/rules/gemini.md` | — | triggers `/deploy-instructions` | **writes** (deploy) | reads |
 
 **Single-writer invariant** for `settings.json` and `{machine}.json` (see Invariants): Host is the only writer. Extension does not have its own write path; before any root context folder edit it must direct the user to Host.
 

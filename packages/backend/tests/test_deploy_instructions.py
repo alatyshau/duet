@@ -1,10 +1,13 @@
 """Unit tests for `services/deploy_instructions.py`.
 
 Covers the two components a context can declare:
-- `skills`  → mirrored into `.claude/skills/<name>/`, Duet-managed with
-  backup-before-prune into `.claude/skills/.pruned/`.
-- `instructions` → `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` composed from
-  per-client templates, always generated, read-only, with `.bak` safety.
+- `skills`  → mirrored into `.claude/skills/<name>/` (Claude Code) and
+  `.agents/skills/<name>/` (Kimi Code), both Duet-managed with
+  backup-before-prune into `<target>/.pruned/`.
+- `instructions` → `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` /
+  `.agents/rules/gemini.md` composed from per-client templates, always
+  generated, read-only, with `.bak` safety; legacy root-level files with the
+  Duet banner are removed.
 
 The functions take explicit args (no DuetData fixture needed). A fake
 `backend_dir` with the three templates keeps the tests hermetic.
@@ -79,6 +82,14 @@ def sources(tmp_path: Path) -> Path:
 
 def _ctx_folders(sources: Path) -> dict[str, str]:
     return {"Src": str(sources)}
+
+
+# Per-client instruction targets inside the context folder (mirror of
+# INSTRUCTION_TEMPLATES keys in services/deploy_instructions.py).
+CLAUDE_TARGET = ".claude/CLAUDE.md"
+AGENTS_TARGET = ".kimi-code/AGENTS.md"
+GEMINI_TARGET = ".agents/rules/gemini.md"
+ALL_TARGETS = (CLAUDE_TARGET, AGENTS_TARGET, GEMINI_TARGET)
 
 
 # --------------------------------------------------------------------------- #
@@ -172,13 +183,47 @@ def test_skills_reprune_overwrites_backup(ctx, backend_dir, sources):
 
 
 # --------------------------------------------------------------------------- #
+# skills — `.agents/skills/` mirror (Kimi Code)
+# --------------------------------------------------------------------------- #
+
+def test_skills_deploy_also_mirrors_to_agents_dir(ctx, backend_dir, sources):
+    _make_skill(sources, "alpha")
+    report = deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+    assert report["deployed"]["agents_skills_deployed"] == ["alpha"]
+    out = ctx / ".agents" / "skills" / "alpha"
+    assert (out / "SKILL.md").read_text(encoding="utf-8") == "# alpha"
+
+
+def test_skills_prune_backs_up_ghost_in_agents_dir(ctx, backend_dir, sources):
+    # A ghost skill in `.agents/skills/` is moved into its own `.pruned/`.
+    ghost = ctx / ".agents" / "skills" / "ghost"
+    ghost.mkdir(parents=True)
+    (ghost / "SKILL.md").write_text("hand-made", encoding="utf-8")
+    report = deploy_instructions(ctx, _manifest(skills=[]), None, _ctx_folders(sources), backend_dir)
+    assert report["deployed"]["agents_skills_pruned"] == ["ghost"]
+    assert not ghost.exists()
+    backup = ctx / ".agents" / "skills" / PRUNED_DIR / "ghost" / "SKILL.md"
+    assert backup.read_text(encoding="utf-8") == "hand-made"
+
+
+def test_skills_absent_is_noop_for_agents_dir(ctx, backend_dir, sources):
+    # Pre-existing hand-placed skill dir must be left untouched when key absent.
+    existing = ctx / ".agents" / "skills" / "hand"
+    existing.mkdir(parents=True)
+    report = deploy_instructions(ctx, _manifest(skills=None), None, _ctx_folders(sources), backend_dir)
+    assert report["deployed"]["agents_skills_deployed"] == []
+    assert report["deployed"]["agents_skills_pruned"] == []
+    assert existing.is_dir()
+
+
+# --------------------------------------------------------------------------- #
 # instructions
 # --------------------------------------------------------------------------- #
 
 def test_instructions_always_generates_three(ctx, backend_dir, sources):
     report = deploy_instructions(ctx, _manifest(instructions=None), None, _ctx_folders(sources), backend_dir)
-    assert set(report["deployed"]["instructions_written"]) == {"CLAUDE.md", "AGENTS.md", "GEMINI.md"}
-    for name in ("CLAUDE.md", "AGENTS.md", "GEMINI.md"):
+    assert set(report["deployed"]["instructions_written"]) == set(ALL_TARGETS)
+    for name in ALL_TARGETS:
         text = (ctx / name).read_text(encoding="utf-8")
         assert GENERATED_BANNER in text
         assert INSERT_MARKER not in text  # marker replaced (with empty body)
@@ -190,13 +235,13 @@ def test_instructions_composes_user_body(ctx, backend_dir, sources):
     (sources / "two.md").write_text("BODY TWO", encoding="utf-8")
     cf = _ctx_folders(sources)
     deploy_instructions(ctx, _manifest(instructions=["@Src/one.md", "@Src/two.md"]), None, cf, backend_dir)
-    text = (ctx / "CLAUDE.md").read_text(encoding="utf-8")
+    text = (ctx / CLAUDE_TARGET).read_text(encoding="utf-8")
     assert "BODY ONE\n\nBODY TWO" in text
 
 
 def test_instructions_written_readonly(ctx, backend_dir, sources):
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
-    mode = stat.S_IMODE(os.stat(ctx / "CLAUDE.md").st_mode)
+    mode = stat.S_IMODE(os.stat(ctx / CLAUDE_TARGET).st_mode)
     assert mode == 0o444
 
 
@@ -204,30 +249,57 @@ def test_instructions_regenerates_over_readonly(ctx, backend_dir, sources):
     # Second deploy must succeed over the read-only file from the first.
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
     report = deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
-    assert "CLAUDE.md" in report["deployed"]["instructions_written"]
+    assert CLAUDE_TARGET in report["deployed"]["instructions_written"]
 
 
 def test_instructions_backs_up_handwritten(ctx, backend_dir, sources):
-    # A hand-written CLAUDE.md (no banner) is backed up before first overwrite.
-    (ctx / "CLAUDE.md").write_text("my own notes", encoding="utf-8")
+    # A hand-written .claude/CLAUDE.md (no banner) is backed up before first overwrite.
+    target = ctx / CLAUDE_TARGET
+    target.parent.mkdir(parents=True)
+    target.write_text("my own notes", encoding="utf-8")
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
-    assert (ctx / "CLAUDE.md.bak").read_text(encoding="utf-8") == "my own notes"
-    assert GENERATED_BANNER in (ctx / "CLAUDE.md").read_text(encoding="utf-8")
+    assert (ctx / ".claude" / "CLAUDE.md.bak").read_text(encoding="utf-8") == "my own notes"
+    assert GENERATED_BANNER in target.read_text(encoding="utf-8")
 
 
 def test_instructions_backup_not_overwritten(ctx, backend_dir, sources):
-    (ctx / "CLAUDE.md").write_text("earliest", encoding="utf-8")
+    target = ctx / CLAUDE_TARGET
+    target.parent.mkdir(parents=True)
+    target.write_text("earliest", encoding="utf-8")
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
     # Second deploy: file now carries the banner → no new backup, earliest kept.
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
-    assert (ctx / "CLAUDE.md.bak").read_text(encoding="utf-8") == "earliest"
+    assert (ctx / ".claude" / "CLAUDE.md.bak").read_text(encoding="utf-8") == "earliest"
 
 
 def test_instructions_generated_file_not_backed_up(ctx, backend_dir, sources):
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
     # Re-deploy over our own generated file → never produces a .bak.
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
-    assert not (ctx / "CLAUDE.md.bak").exists()
+    assert not (ctx / ".claude" / "CLAUDE.md.bak").exists()
+
+
+def test_instructions_legacy_root_files_removed(ctx, backend_dir, sources):
+    # Pre-dot-folder layout: Duet-generated (banner, read-only) files at the
+    # context root are removed on deploy.
+    for name in ("CLAUDE.md", "AGENTS.md", "GEMINI.md"):
+        f = ctx / name
+        f.write_text(f"<!-- {GENERATED_BANNER} -->\nold", encoding="utf-8")
+        os.chmod(f, 0o444)
+    report = deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
+    assert set(report["deployed"]["instructions_legacy_removed"]) == {"CLAUDE.md", "AGENTS.md", "GEMINI.md"}
+    for name in ("CLAUDE.md", "AGENTS.md", "GEMINI.md"):
+        assert not (ctx / name).exists()
+    for name in ALL_TARGETS:
+        assert (ctx / name).is_file()
+
+
+def test_instructions_legacy_handwritten_root_files_stay(ctx, backend_dir, sources):
+    # A hand-written root CLAUDE.md (no banner) is NOT Duet-managed → kept.
+    (ctx / "CLAUDE.md").write_text("my own root notes", encoding="utf-8")
+    report = deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
+    assert report["deployed"]["instructions_legacy_removed"] == []
+    assert (ctx / "CLAUDE.md").read_text(encoding="utf-8") == "my own root notes"
 
 
 def test_instructions_unresolvable_source_warns(ctx, backend_dir, sources):
@@ -237,4 +309,4 @@ def test_instructions_unresolvable_source_warns(ctx, backend_dir, sources):
 
 def test_no_stray_temp_files(ctx, backend_dir, sources):
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
-    assert not list(ctx.glob("*.tmp"))
+    assert not list(ctx.rglob("*.tmp"))

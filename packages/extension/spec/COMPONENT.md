@@ -153,6 +153,7 @@ Two generated artifacts:
 | Workspace | Location | When Generated | Folders |
 |-----------|----------|----------------|---------|
 | `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a context with `git_repos` | Drive folder of the context first, then one folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved). Assembly is hardcoded **context-first** — the Drive folder is always the primary/first folder |
+| `<context>/.kimi-code/local.toml` | context Drive folder | Same write as `{Context}.code-workspace` | Kimi Code multi-root workaround: Kimi's VS Code extension sees only the primary folder, so the cloned repos are written as `[workspace] additional_dir` (absolute paths, declared order). Duet-managed, rewritten wholesale; machine-specific — not for VCS. **Known limitation:** the file lives in the Drive-synced context folder, so on a multi-machine setup (e.g. Mac + Windows) the synced absolute paths are wrong on the other machine — no workaround; the real fix is multi-root support in Kimi's VS Code extension ([MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code), `apps/vscode`, MIT) |
 | `root-contexts.code-workspace` | `DuetData/` (root) | After scan completes | All root context folders + `DuetData` |
 
 ```json

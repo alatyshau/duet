@@ -1,6 +1,6 @@
 /*
  * Шаг 7: AI Агенты — обнаружение и конфигурация AI клиентов.
- * Три карточки (Claude Code, Codex, Antigravity) + кнопка "Настроить все".
+ * Четыре карточки (Claude Code, Codex, Antigravity, Kimi Code) + кнопка "Настроить все".
  * Не установленный клиент = skipped (не ошибка).
  */
 import { useState, useEffect } from 'react'
@@ -88,7 +88,7 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
           AI Агенты
         </h2>
         <p className="text-muted-foreground mt-1">
-          Обнаружение и конфигурация Claude Code, Codex, Antigravity
+          Обнаружение и конфигурация Claude Code, Codex, Antigravity, Kimi Code
         </p>
       </div>
 
@@ -131,20 +131,31 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
         <ul className="text-xs text-muted-foreground space-y-1">
           <li>
             <strong>Claude Code:</strong> output-style{' '}
-            <code className="text-[11px] bg-muted px-1 rounded">duet-executor</code> + два custom-агента (
-            <code className="text-[11px] bg-muted px-1 rounded">duet-executor</code>, <code className="text-[11px] bg-muted px-1 rounded">duet-vizir</code>) в{' '}
-            <code className="text-[11px] bg-muted px-1 rounded">~/.claude/agents/</code> + MCP сервер (duet). После настройки
-            перезапустите сессию Claude Code, чтобы агенты появились в{' '}
-            <code className="text-[11px] bg-muted px-1 rounded">/agents</code>.
+            <code className="text-[11px] bg-muted px-1 rounded">duet-executor</code> + два
+            custom-агента (<code className="text-[11px] bg-muted px-1 rounded">duet-executor</code>,{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">duet-vizir</code>) в{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">~/.claude/agents/</code> + MCP
+            сервер (duet). После настройки перезапустите сессию Claude Code, чтобы агенты появились
+            в <code className="text-[11px] bg-muted px-1 rounded">/agents</code>.
           </li>
           <li>
-            <strong>Codex:</strong> <code className="text-[11px] bg-muted px-1 rounded">model_instructions_file</code>{' '}
+            <strong>Codex:</strong>{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">model_instructions_file</code>{' '}
             (executor) + MCP сервер (duet). Кастомные агенты не разливаются.
           </li>
           <li>
-            <strong>Antigravity:</strong> <code className="text-[11px] bg-muted px-1 rounded">GEMINI.md</code> (executor) +
-            MCP сервер (duet). Кастомные агенты не разливаются (платформа не
-            поддерживает их глобально).
+            <strong>Antigravity:</strong>{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">GEMINI.md</code> (executor) + MCP
+            сервер (duet). Кастомные агенты не разливаются (платформа не поддерживает их глобально).
+          </li>
+          <li>
+            <strong>Kimi Code:</strong>{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">~/.kimi-code/SYSTEM.md</code>{' '}
+            (системный промпт: session prompt +{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">{'${base_prompt}'}</code>) + MCP
+            сервер (duet) в{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">~/.kimi-code/mcp.json</code>.
+            Кастомные агенты не разливаются.
           </li>
         </ul>
       </div>
@@ -168,6 +179,10 @@ const AGENT_INSTALL_INFO: Record<string, { desc: string; url: string }> = {
   antigravity: {
     desc: 'Antigravity — AI-ассистент от Google на базе Gemini для терминала.',
     url: 'https://antigravity.google'
+  },
+  kimi: {
+    desc: 'Kimi Code — AI-агент от Moonshot AI для терминала.',
+    url: 'https://www.kimi.com/code/'
   }
 }
 
