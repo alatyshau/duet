@@ -6,6 +6,7 @@ Tools delegate to services for business logic.
 
 import time
 from datetime import datetime
+from html import escape
 from zoneinfo import ZoneInfo
 
 from mcp.server.fastmcp import FastMCP
@@ -107,6 +108,106 @@ def timestamp() -> str:
 def duet_data_path() -> str:
     """Get absolute path to DuetData directory."""
     return get_duet_data_path_str()
+
+
+_PLAN_FORMATS = ("md", "html", "line", "plain")
+
+_PLAN_MARKS = {"done": "\u2705", "current": "\u23f3", "pending": "\u2b1c"}
+
+
+@mcp.tool(structured_output=False)
+def turn_plan(items: list[str], current: int = 0, fmt: str = "md") -> str:
+    """Render the plan for the current turn.
+
+    Prototype. Stateless by design: a plan lives for exactly one turn and is
+    rebuilt on every call, so nothing is stored between calls.
+
+    Steps close strictly in order, so the state is one index: everything
+    before `current` is done, everything after it is pending. An out-of-order
+    state cannot be expressed.
+
+    Args:
+        items: The turn's steps, in the order they are closed.
+        current: Index of the step in progress. Pass len(items) when every
+            step is closed.
+        fmt: Output shape. "md" is a heading plus a Markdown checklist;
+            "html" is the same as an HTML fragment; "line" puts the whole
+            plan on one line; "plain" is one unadorned line per step with no
+            heading, for clients whose preview box is a few lines tall.
+
+    Returns text. Declared unstructured on purpose: a structured return
+    would add an output schema, and the client then shows the
+    {"result": ...} envelope instead of the text.
+    """
+    if not items:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message="items must not be empty"))
+    if not 0 <= current <= len(items):
+        raise McpError(
+            ErrorData(
+                code=INVALID_PARAMS,
+                message=f"current must be between 0 and {len(items)}, got {current}",
+            )
+        )
+    if fmt not in _PLAN_FORMATS:
+        raise McpError(
+            ErrorData(
+                code=INVALID_PARAMS,
+                message=f"fmt must be one of {', '.join(_PLAN_FORMATS)}, got {fmt!r}",
+            )
+        )
+
+    if current >= len(items):
+        title = f"План хода — все {len(items)} шагов закрыты"
+    else:
+        title = f"План хода — шаг {current + 1} из {len(items)}"
+
+    def state(index: int) -> str:
+        if index < current:
+            return "done"
+        return "current" if index == current else "pending"
+
+    if fmt == "plain":
+        rows = []
+        for index, item in enumerate(items):
+            mark = _PLAN_MARKS[state(index)]
+            rows.append(f"{mark} {item}")
+        return "\n".join(rows)
+
+    if fmt == "line":
+        parts = [f"**{title}**"]
+        for index, item in enumerate(items):
+            mark = _PLAN_MARKS[state(index)]
+            if state(index) == "done":
+                parts.append(f"{mark} ~~{item}~~")
+            elif state(index) == "current":
+                parts.append(f"{mark} **{item}**")
+            else:
+                parts.append(f"{mark} {item}")
+        return " · ".join(parts)
+
+    if fmt == "html":
+        rows = []
+        for index, item in enumerate(items):
+            text = escape(item)
+            mark = _PLAN_MARKS[state(index)]
+            if state(index) == "done":
+                rows.append(f"  <li>{mark} <s>{text}</s></li>")
+            elif state(index) == "current":
+                rows.append(f"  <li>{mark} <b>{text}</b> \u2190 сейчас</li>")
+            else:
+                rows.append(f"  <li>{mark} {text}</li>")
+        body = "\n".join(rows)
+        return f"<h3>{escape(title)}</h3>\n<ul>\n{body}\n</ul>"
+
+    lines = [f"### {title}", ""]
+    for index, item in enumerate(items):
+        if state(index) == "done":
+            lines.append(f"- [x] ~~{item}~~")
+        elif state(index) == "current":
+            lines.append(f"- [ ] **{item}** \u2190 сейчас")
+        else:
+            lines.append(f"- [ ] {item}")
+    return "\n".join(lines)
 
 
 @mcp.tool()
