@@ -101,6 +101,7 @@ server.py (entry point, lifecycle)
 |------|---------|
 | `timestamp` | string directly |
 | `duet_data_path` | string directly |
+| `turn_plan` | Plan text as unstructured content (prototype: one turn's checklist, stateless; `fmt` picks `md` / `html` / `line` / `plain`; `structured_output=False` keeps the client from showing a `{"result": ...}` envelope) |
 | `orientation` | dict directly |
 | `contexts` | list directly |
 | `scan` | dict directly |
@@ -197,6 +198,7 @@ Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_
 - Absent key → not managed at all (either target). Present (even `[]`) → manage.
 - Each declared @-path must be a directory containing `SKILL.md`; deploy-name = source dir name.
 - Reserved name `.pruned` and deploy-name collisions are skipped with a warning.
+- Mirroring is **incremental**: a file is written only when its bytes differ, via temp-file + rename; entries the source dropped are removed. Contexts live on Drive, where deleting a file means "moved to Drive trash" and deploy runs on every window open — rebuilding the tree unconditionally filled the user's trash with every skill, many times a day.
 - Prune (per target): any `<target>/skills/<x>` not in the declared set is moved into `<target>/skills/.pruned/<name>` (backup) before removal; `.pruned` is never itself pruned.
 
 **instructions** (per-client dot-folder files inside the context folder: `.claude/CLAUDE.md` for Claude Code, `.kimi-code/AGENTS.md` for Kimi Code, `.agents/rules/gemini.md` for Antigravity):

@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
+import unicodedata
 from pathlib import Path
 
 from .at_paths import resolve_at_path
@@ -194,18 +196,96 @@ def _deploy_and_prune_skills(
 
 
 def _mirror_tree_bytes(src_dir: Path, dst_dir: Path) -> None:
-    """Mirror `src_dir` onto `dst_dir` as raw bytes (binary-safe). Rebuilds the
-    destination from scratch so removed source files don't linger."""
-    if dst_dir.exists():
-        shutil.rmtree(dst_dir, ignore_errors=True)
+    """Mirror `src_dir` onto `dst_dir` as raw bytes (binary-safe), touching only
+    what actually differs.
+
+    Deliberately incremental rather than rmtree-and-rebuild. These trees are
+    materialized inside the user's Drive folder, where removing a directory
+    means "moved to Drive trash" — and deploy runs on every window open, so an
+    unconditional rebuild sent every deployed skill to the trash many times a
+    day. Overwriting a file in place is a new Drive revision, not a deletion,
+    so only entries the source genuinely dropped are ever unlinked.
+
+    Skill trees are small (hundreds of KB), so the comparison reads whole files
+    rather than trusting size+mtime — a git checkout rewrites mtimes on files
+    whose content never changed, which would reintroduce the churn.
+    """
+    # Defense in depth: `_deploy_skills` validates the source, but the prune
+    # pass below deletes inside the user's Drive folder. An unreadable or empty
+    # source (unmounted repo, revoked permissions) must degrade to a no-op, not
+    # to "remove everything".
+    if not src_dir.is_dir():
+        return
+    entries = sorted(src_dir.rglob("*"))
+    if not entries:
+        return
+
     dst_dir.mkdir(parents=True, exist_ok=True)
-    for path in sorted(src_dir.rglob("*")):
-        rel = path.relative_to(src_dir)
+
+    # Pass 1 — bring the destination up to the source.
+    wanted: set[str] = set()
+    for src in entries:
+        rel = src.relative_to(src_dir)
+        wanted.add(_mirror_key(rel))
         out = dst_dir / rel
-        if path.is_dir():
+        if src.is_dir():
+            if out.is_symlink() or out.is_file():
+                out.unlink()
             out.mkdir(parents=True, exist_ok=True)
-        elif path.is_file():
-            out.write_bytes(path.read_bytes())
+        elif src.is_file():
+            if out.is_dir() and not out.is_symlink():
+                shutil.rmtree(out, ignore_errors=True)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            _write_if_changed(out, src.read_bytes())
+
+    # Pass 2 — drop what the source no longer has. Deepest paths first, so a
+    # directory is emptied before it is removed, over a listing materialized up
+    # front because the walk mutates the tree it is walking.
+    for stale in sorted(dst_dir.rglob("*"), reverse=True):
+        if _mirror_key(stale.relative_to(dst_dir)) in wanted:
+            continue
+        if stale.is_dir() and not stale.is_symlink():
+            shutil.rmtree(stale, ignore_errors=True)
+        else:
+            stale.unlink(missing_ok=True)
+
+
+def _mirror_key(rel: Path) -> str:
+    """Identity of a relative path for matching the two trees against each other.
+
+    Compared under NFC + casefold because the destination is the user's Drive
+    folder: on macOS it is case-insensitive and can hand back names in a
+    different Unicode normal form than the source repo stores them in. The
+    comparison is deliberately lax — a false match only leaves a stale file
+    behind, while a false miss would delete a file we had just written.
+    """
+    return unicodedata.normalize("NFC", rel.as_posix()).casefold()
+
+
+def _write_if_changed(target: Path, data: bytes) -> None:
+    """Write `data` to `target` only when it differs from what is already there.
+
+    The write goes through a temp file in the same directory plus `os.replace`,
+    so a reader never observes a half-written file and a read-only target needs
+    no chmod (POSIX rename is governed by the directory). The temp name is
+    randomized: a fixed suffix could collide with a real source filename. File
+    mode is not carried over from the source — unchanged from the previous
+    behaviour, where `write_bytes` also created plain 0644 files.
+    """
+    try:
+        if target.stat().st_size == len(data) and target.read_bytes() == data:
+            return
+    except OSError:
+        pass  # missing or unreadable — fall through and write it
+
+    fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".duet-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 # =============================================================================
