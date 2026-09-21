@@ -115,13 +115,14 @@ Three entity types live in `entities.db`:
 | `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` and `<context>/.agents/skills/` (see [Deploy Instructions](#deploy-instructions)) |
 | `instructions` | list | optional | `@`-paths whose bodies compose the per-client `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` / `.agents/rules/gemini.md` |
 | `memory` | string | optional | A single `@`-path to the context-memory file; surfaced in orientation's `memory` block |
+| `system_prompt` | string | optional | A single `@`-path to a Claude output-style file (frontmatter + body) that becomes the context's **system prompt** in Claude Code, Codex and Kimi Code (see [Deploy Instructions](#deploy-instructions)). Unlike `instructions`, it replaces the client's default prompt instead of joining the composed instruction files |
 
 **Validation rules** (strict v4 reader; implementation `packages/backend/services/manifest.py:read_manifest`):
 - Keys are `snake_case`. `name` globally unique (see Invariants).
 - `git_repos` must be a non-empty object when present; alias and URL must be non-empty strings.
 - `reference_repos` shares the alias namespace with `git_repos` — within-manifest overlap is rejected as `invalid_manifest`.
 - `skills` / `instructions` must be lists of non-empty strings when present (shape only; `@`-path resolution happens at deploy / orientation time).
-- `memory` must be a non-empty string when present.
+- `memory` / `system_prompt` must be a non-empty string when present.
 - No regex / Windows-reserved-name / URL-leading-`-` guards: manifests are user-written, this is intentional.
 
 **Workspace assembly is context-first.** Opening a context with `git_repos` builds a multi-root `.code-workspace` with the **Drive folder first**, cloned repos after (in `git_repos` order). The order is fixed — the former `workspace_config.primary_folder` knob was removed in v4 (its migration drops the field). The first folder is the default cwd for terminals and the anchor for file pickers, so the context's Drive folder (and its `.claude/CLAUDE.md`) anchors the session. The same (re)generation also writes `<context>/.kimi-code/local.toml` with the repo dirs as `additional_dir` entries — a workaround for Kimi Code's blindness to VS Code multi-root workspaces.
@@ -260,7 +261,7 @@ DuetConfig/
 
 **Contract:** unresolved alias → error (fail fast, not silent fallback). All path comparisons normalize through NFC (macOS NFD vs NTFS NFC).
 
-**Deploy-time `@`-paths are a separate alias space.** The `skills` / `instructions` / `memory` declarations use `@<head>/<rest>` resolved by `packages/backend/services/at_paths.py` — `<head>` is a **repo dir** under `DuetData/repos` (e.g. `@anthropic-skills.git`) or a **context name** (e.g. `@DuetLab` → that context's Drive folder), drawn from the Backend's internal hierarchy, not from `{machine}.json`. `..`-traversal escaping the matched root is rejected; an unresolvable `@`-path is skipped with a warning (not fatal — deploy is best-effort per declaration).
+**Deploy-time `@`-paths are a separate alias space.** The `skills` / `instructions` / `memory` / `system_prompt` declarations use `@<head>/<rest>` resolved by `packages/backend/services/at_paths.py` — `<head>` is a **repo dir** under `DuetData/repos` (e.g. `@anthropic-skills.git`) or a **context name** (e.g. `@DuetLab` → that context's Drive folder), drawn from the Backend's internal hierarchy, not from `{machine}.json`. `..`-traversal escaping the matched root is rejected; an unresolvable `@`-path is skipped with a warning (not fatal — deploy is best-effort per declaration).
 
 ### Repository Naming
 
@@ -324,8 +325,22 @@ A context can declare per-context AI artifacts that Duet materializes into its D
 |-----------|---------------------|--------|----------|
 | Skills | `skills` (list of `@`-paths) | `<context>/.claude/skills/<name>/` + `<context>/.agents/skills/<name>/` | Duet-managed in both targets: deploy the declared set, prune the rest. A pruned dir is **backed up** into `<target>/.pruned/<name>` first. `.claude/skills/` is read by Claude Code, `.agents/skills/` — by Kimi Code (cross-client convention). Absent key → no-op; present (even `[]`) → manage |
 | Instructions | `instructions` (list of `@`-paths) | `<context>/.claude/CLAUDE.md`, `<context>/.kimi-code/AGENTS.md`, `<context>/.agents/rules/gemini.md` | Bodies of the declared sources compose into per-client templates (`packages/instructions/*_template.md`); **always generated** (templates carry the client memory policy), written read-only `0444`. A hand-written file (no Duet banner) is backed up to `<name>.bak` once before first overwrite. Legacy root-level `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` with the Duet banner are removed; hand-written ones stay |
+| System prompt | `system_prompt` (one `@`-path) | Claude Code: `<context>/.claude/output-styles/<name>.md` + `outputStyle` in `<context>/.claude/settings.json`. Codex: `model_instructions_file` in `<context>/.codex/config.toml`. Kimi Code: `<context>/.kimi-code/agents/agent.md` | One Claude output-style file is the single source, wired into three clients; details in [System prompt](#system-prompt-system_prompt) below. Absent key → withdraw what Duet deployed earlier (banner-guarded) |
 
 The Drive folder is the workspace's first root (context-first assembly), so AI clients discover these files from their per-client locations under the project root: Claude Code reads `.claude/CLAUDE.md`, Kimi Code reads `.kimi-code/AGENTS.md` (loads without a `.git` project root — unlike `.agents/AGENTS.md`), Antigravity reads `.agents/rules/gemini.md`. `@`-paths resolve over repos ∪ context folders — see [@Alias Resolution](#alias-resolution). Implementation: `packages/backend/services/deploy_instructions.py`, `services/at_paths.py`.
+
+#### System prompt (`system_prompt`)
+
+The source is a Claude output-style file (frontmatter + body) and stays the only thing to edit; every deployed file carries the `AUTO-GENERATED by Duet` banner.
+
+- **Claude Code** — a copy in `.claude/output-styles/<name>.md`, read-only (`0444`). The frontmatter stays at byte 0; the banner goes right after its closing `---`. The file name, the frontmatter `name` and `outputStyle` in `.claude/settings.json` are one name: the source's frontmatter `name`, else its file stem.
+- **Codex** — `model_instructions_file` points at that same Claude copy, relative to `.codex/`. Codex loads a project `.codex/config.toml` only for a project it trusts, and finds it only from the project root — a directory with `.git`, else the launch directory itself (`.codex/` is not a root marker). Context folders on Drive have no `.git`, so this applies only when Codex is launched from the context folder; from a subfolder the deployed file is invisible.
+- **Kimi Code** — *not* a copy: an agent file named `agent` with `override: true`, the only project-scope way to replace Kimi's default main-agent prompt (`~/.kimi-code/SYSTEM.md` is user-scope and Host-managed). Its body is the source body plus a skeleton that re-injects what the built-in prompt would have carried and a style body does not replace — the workspace `AGENTS.md` (where `instructions` land), skills, extra directories, plugin sections. `keep-coding-instructions: true` in the source swaps the skeleton for `${base_prompt}` (Kimi's default prompt), the counterpart of Claude keeping its default sections.
+- **Replaces the Duet session prompt.** In all three clients the project-level setting outranks the user-level one that Host maintains (Claude `~/.claude/output-styles/duet-executor.md`, Codex `~/.codex/duet_instructions.md`, Kimi `~/.kimi-code/SYSTEM.md` — see the Host spec, *AI Clients*). A context that declares `system_prompt` therefore opts out of the thin session prompt — the `orientation()` gate and the context model in `bootstrapper.md` — unless the source body carries them. The composed `instructions` files (`.claude/CLAUDE.md` etc., with the memory policy) are separate and still apply.
+- **Antigravity** — no project-level system-prompt override exists; nothing is deployed for it (mirrors the platform asymmetry in the [Host spec](../packages/host/spec/COMPONENT.md)).
+- **Shared config files.** `.claude/settings.json` and `.codex/config.toml` are also edited by the user, so Duet edits only its own key (`outputStyle` / `model_instructions_file`) and keeps everything else. A file that does not parse, or a TOML layout a single-line edit cannot handle, is left untouched with a warning.
+- **Withdrawal.** When the key is absent, whatever carries the banner is removed: generated style files, the Codex line (banner in its trailing comment), the Kimi agent file — and `outputStyle` only if it names a removed style. Hand-written files and keys are never touched. A renamed source also prunes the previous generated style. A declared but unresolvable or invalid source warns and leaves the current deployment as it is.
+- **Hand-written files** at the generated paths are backed up to `<name>.bak` once before the first overwrite.
 
 ### Spec File Naming
 
@@ -354,7 +369,7 @@ First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `descriptio
 | `DuetData/data/{scan,contexts}.json` | reads (wizard, file watcher) | — | **writes** | — |
 | `DuetData/duet.md` (thin session prompt) | reads → output-style + Codex/Antigravity | — | **writes** | — |
 | `DuetData/duet-{agent}.md` | reads → `duet-{agent}` subagents | — | **writes** | — |
-| Context `<context>/.claude/skills/`, `<context>/.agents/skills/`, `.claude/CLAUDE.md`/`.kimi-code/AGENTS.md`/`.agents/rules/gemini.md` | — | triggers `/deploy-instructions` | **writes** (deploy) | reads |
+| Context `<context>/.claude/skills/`, `<context>/.agents/skills/`, `.claude/CLAUDE.md`/`.kimi-code/AGENTS.md`/`.agents/rules/gemini.md`, `.claude/output-styles/`, `.kimi-code/agents/agent.md`; the `outputStyle` key of `.claude/settings.json` and the `model_instructions_file` key of `.codex/config.toml` (key-wise — the rest of both files is the user's) | — | triggers `/deploy-instructions` | **writes** (deploy) | reads |
 
 **Single-writer invariant** for `settings.json` and `{machine}.json` (see Invariants): Host is the only writer. Extension does not have its own write path; before any root context folder edit it must direct the user to Host.
 

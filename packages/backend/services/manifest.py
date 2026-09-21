@@ -8,7 +8,8 @@ including upgrades from legacy v1 (`business.json` / `stream.json` /
 v3 introduced multi-repo terminal contexts via the `git_repos` map
 (alias → URL). v4 drops `workspace_config` (workspace assembly is now always
 context-first) and adds per-context deployment declarations: `skills`,
-`instructions` (lists of @-paths) and `memory` (a single @-path).
+`instructions` (lists of @-paths), `memory` and `system_prompt` (a single
+@-path each).
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ class Manifest:
     skills: list[str] | None = None
     instructions: list[str] | None = None
     memory: str | None = None
+    system_prompt: str | None = None
 
 
 def read_manifest(
@@ -209,17 +211,11 @@ def read_manifest(
     if not ok:
         return None
 
-    memory_raw = data.get("memory")
-    memory: str | None
-    if memory_raw is None:
-        memory = None
-    elif isinstance(memory_raw, str) and memory_raw.strip():
-        memory = memory_raw
-    else:
-        _record_invalid(
-            errors, manifest_path, folder,
-            "`memory` must be a non-empty string when present",
-        )
+    memory, ok = _read_at_path_string(data, "memory", errors, manifest_path, folder)
+    if not ok:
+        return None
+    system_prompt, ok = _read_at_path_string(data, "system_prompt", errors, manifest_path, folder)
+    if not ok:
         return None
 
     return Manifest(
@@ -233,6 +229,7 @@ def read_manifest(
         skills=skills,
         instructions=instructions,
         memory=memory,
+        system_prompt=system_prompt,
     )
 
 
@@ -280,6 +277,29 @@ def _read_at_path_list(
             )
             return None, False
     return list(raw), True
+
+
+def _read_at_path_string(
+    data: dict,
+    key: str,
+    errors: list[dict] | None,
+    manifest_path: Path,
+    folder: Path | str,
+) -> tuple[str | None, bool]:
+    """Parse an optional single-@-path field (`memory`, `system_prompt`).
+
+    Shape only — a non-empty string. Returns (value_or_None, ok).
+    """
+    raw = data.get(key)
+    if raw is None:
+        return None, True
+    if isinstance(raw, str) and raw.strip():
+        return raw, True
+    _record_invalid(
+        errors, manifest_path, folder,
+        f"`{key}` must be a non-empty string when present",
+    )
+    return None, False
 
 
 def read_reference_repos(folder: Path | str | None) -> dict[str, str] | None:

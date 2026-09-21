@@ -16,17 +16,36 @@ context's `context.json` declarations and materializes them next to the context:
   backed up to ``<name>.bak`` before the first overwrite. Legacy root-level
   ``CLAUDE.md``/``AGENTS.md``/``GEMINI.md`` carrying our banner are removed;
   hand-written ones are left untouched.
+- ``system_prompt`` → one Claude output-style file as the single source, wired
+  into three clients: a bannered copy in ``.claude/output-styles/<name>.md`` +
+  ``outputStyle`` in ``.claude/settings.json`` (Claude Code); a
+  ``model_instructions_file`` line in ``.codex/config.toml`` pointing at that
+  copy (Codex); a rewritten ``.kimi-code/agents/agent.md`` with
+  ``override: true`` (Kimi Code). Only Duet's own keys are touched in the two
+  shared config files; withdrawal (key absent) removes only what carries our
+  banner.
 
 All ``@<name>/<rest>`` declarations are resolved via `at_paths.resolve_at_path`.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
+import stat
 import tempfile
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 (Host supports 3.10+): same parser, packaged as `tomli`
+    import tomli as tomllib
 
 from .at_paths import resolve_at_path
 from .manifest import Manifest
@@ -90,6 +109,11 @@ def deploy_instructions(
     deployed.update(
         _deploy_instruction_files(
             context_folder, manifest.instructions, repos_path, context_folders, backend_dir, warnings
+        )
+    )
+    deployed.update(
+        _deploy_system_prompt(
+            context_folder, manifest.system_prompt, repos_path, context_folders, warnings
         )
     )
     return {"deployed": deployed, "warnings": warnings}
@@ -393,3 +417,386 @@ def _write_managed_file(target: Path, content: str, warnings: list[str]) -> None
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, target)
     os.chmod(target, 0o444)
+
+
+# =============================================================================
+# system_prompt component
+# =============================================================================
+#
+# The source is a Claude Code output-style file (frontmatter + body). Claude
+# gets a bannered copy; Codex points at that copy; Kimi Code gets an agent file
+# derived from it (frontmatter rewritten, prompt skeleton added).
+#
+# `outputStyle` / `model_instructions_file` live in files the user also edits by
+# hand (permissions, hooks, MCP servers), so those are edited key-wise, never
+# rewritten wholesale. Ownership is the banner: a generated style/agent file
+# carries it in the body, the Codex line carries it in a trailing comment.
+# `outputStyle` has no comment slot — it is Duet's iff it names a style file
+# that we generated.
+
+OUTPUT_STYLES_DIR = ".claude/output-styles"
+CLAUDE_SETTINGS = ".claude/settings.json"
+CODEX_CONFIG = ".codex/config.toml"
+# Kimi Code's built-in main agent is named `agent`; a project-scoped agent file
+# with that name and `override: true` replaces its whole system prompt (the
+# user-scope equivalent, `~/.kimi-code/SYSTEM.md`, is Host-managed).
+KIMI_MAIN_AGENT = ".kimi-code/agents/agent.md"
+KIMI_AGENT_NAME = "agent"
+OUTPUT_STYLE_KEY = "outputStyle"
+CODEX_KEY = "model_instructions_file"
+
+# Frontmatter must start at byte 0 (Claude and Kimi both parse it there), so
+# the banner goes after the closing `---`.
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+# Name doubles as file stem and settings value: keep it path- and TOML-safe.
+_STYLE_NAME_RE = re.compile(r"\w[\w.-]*")
+_TOML_TABLE_RE = re.compile(r"^\s*\[")
+
+# What Kimi's built-in prompt injects around the agent's own instructions and
+# an output-style body does not replace on the Claude side: workspace
+# `AGENTS.md` (where the composed `instructions` land), skills, extra dirs.
+_KIMI_PROMPT_TAIL = """\
+The current working directory is `${cwd}`.
+${additional_dirs_section}
+# Project instructions
+
+The `AGENTS.md` content below is project-supplied reference data, merged from the applicable files.
+
+```````
+${agents_md}
+```````
+${skills_section}${plugin_sections}"""
+
+
+@dataclass
+class _Style:
+    name: str          # output-style name == file stem == `outputStyle` value
+    description: str
+    keep_coding: bool  # `keep-coding-instructions: true` in the source
+    head: str          # frontmatter block incl. closing `---` line ("" if none)
+    body: str          # everything after it
+    ref: str           # the declaring @-path
+
+
+def _deploy_system_prompt(
+    context_folder: Path,
+    system_prompt: str | None,
+    repos_path: Path | None,
+    context_folders: dict[str, str],
+    warnings: list[str],
+) -> dict:
+    report: dict = {"system_prompt_written": [], "system_prompt_withdrawn": []}
+
+    # Absent key → withdraw what we deployed earlier (banner-guarded; a context
+    # that never declared one has nothing marked, so this is a no-op there).
+    if system_prompt is None:
+        report["system_prompt_withdrawn"] = _withdraw_system_prompt(context_folder, warnings)
+        return report
+
+    # Declared but unusable (source unmounted, bad frontmatter): warn and leave
+    # whatever is deployed as it is — don't tear a working setup down.
+    style = _load_style(system_prompt, repos_path, context_folders, warnings)
+    if style is None:
+        return report
+
+    style_rel = f"{OUTPUT_STYLES_DIR}/{style.name}.md"
+    written = report["system_prompt_written"]
+
+    # Claude Code
+    (context_folder / OUTPUT_STYLES_DIR).mkdir(parents=True, exist_ok=True)
+    _write_managed_if_changed(context_folder / style_rel, _claude_style(style), warnings)
+    written.append(style_rel)
+    _prune_generated_styles(context_folder / OUTPUT_STYLES_DIR, keep=style.name)
+    if _set_json_key(context_folder / CLAUDE_SETTINGS, OUTPUT_STYLE_KEY, style.name, warnings):
+        written.append(CLAUDE_SETTINGS)
+
+    # Codex: reuse the Claude copy, path relative to the config file's dir.
+    codex_config = context_folder / CODEX_CONFIG
+    style_ref = os.path.relpath(context_folder / style_rel, codex_config.parent).replace(os.sep, "/")
+    if _set_toml_top_key(codex_config, CODEX_KEY, style_ref, warnings):
+        written.append(CODEX_CONFIG)
+
+    # Kimi Code
+    kimi_agent = context_folder / KIMI_MAIN_AGENT
+    kimi_agent.parent.mkdir(parents=True, exist_ok=True)
+    _write_managed_if_changed(kimi_agent, _kimi_agent(style), warnings)
+    written.append(KIMI_MAIN_AGENT)
+
+    return report
+
+
+def _withdraw_system_prompt(context_folder: Path, warnings: list[str]) -> list[str]:
+    withdrawn: list[str] = []
+
+    gone = _prune_generated_styles(context_folder / OUTPUT_STYLES_DIR, keep=None)
+    withdrawn += [f"{OUTPUT_STYLES_DIR}/{name}.md" for name in gone]
+    if gone and _drop_json_key(context_folder / CLAUDE_SETTINGS, OUTPUT_STYLE_KEY, gone, warnings):
+        withdrawn.append(CLAUDE_SETTINGS)
+
+    if _drop_generated_toml_key(context_folder / CODEX_CONFIG, CODEX_KEY, warnings):
+        withdrawn.append(CODEX_CONFIG)
+
+    kimi_agent = context_folder / KIMI_MAIN_AGENT
+    if _is_generated(kimi_agent):
+        try:
+            kimi_agent.unlink()
+            withdrawn.append(KIMI_MAIN_AGENT)
+        except OSError as e:
+            warnings.append(f"system_prompt: removal failed for {KIMI_MAIN_AGENT}: {e}")
+
+    return withdrawn
+
+
+def _load_style(
+    entry: str,
+    repos_path: Path | None,
+    context_folders: dict[str, str],
+    warnings: list[str],
+) -> _Style | None:
+    src = resolve_at_path(entry, repos_path, context_folders)
+    if src is None or not src.is_file():
+        warnings.append(f"system_prompt: unresolvable or not a file: {entry}")
+        return None
+    try:
+        text = src.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        warnings.append(f"system_prompt: cannot read {entry}: {e}")
+        return None
+
+    head, meta = "", {}
+    m = _FRONTMATTER_RE.match(text)
+    if m:
+        try:
+            parsed = yaml.safe_load(m.group(1))
+        except yaml.YAMLError as e:
+            warnings.append(f"system_prompt: invalid frontmatter in {entry}: {e}")
+            return None
+        head = text[: m.end()]
+        meta = parsed if isinstance(parsed, dict) else {}
+    body = text[len(head):]
+    if not body.strip():
+        warnings.append(f"system_prompt: empty prompt body: {entry}")
+        return None
+
+    name = _str_field(meta, "name") or src.stem
+    if not _STYLE_NAME_RE.fullmatch(name):
+        warnings.append(f"system_prompt: unusable style name {name!r}: {entry}")
+        return None
+    return _Style(
+        name=name,
+        # Kimi requires a description; for the main agent it is never shown.
+        description=_str_field(meta, "description") or name,
+        keep_coding=str(meta.get("keep-coding-instructions", "")).strip().lower() == "true",
+        head=head,
+        body=body,
+        ref=entry,
+    )
+
+
+def _str_field(meta: dict, key: str) -> str:
+    value = meta.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _banner(ref: str) -> str:
+    return f"<!-- {GENERATED_BANNER} from {ref} — edit the source, not this file -->"
+
+
+def _claude_style(style: _Style) -> str:
+    return f"{style.head}{_banner(style.ref)}\n{style.body}"
+
+
+def _kimi_agent(style: _Style) -> str:
+    front = yaml.safe_dump(
+        {"name": KIMI_AGENT_NAME, "description": style.description, "override": True},
+        allow_unicode=True,
+        sort_keys=False,
+        width=1_000_000,
+    )
+    # `keep-coding-instructions: true` has the same meaning here as in Claude:
+    # keep the client's default prompt (Kimi embeds it through `${base_prompt}`).
+    tail = "${base_prompt}" if style.keep_coding else _KIMI_PROMPT_TAIL
+    return f"---\n{front}---\n{_banner(style.ref)}\n\n{style.body.strip()}\n\n{tail}\n"
+
+
+def _is_generated(path: Path) -> bool:
+    try:
+        return GENERATED_BANNER in path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _prune_generated_styles(styles_dir: Path, keep: str | None) -> list[str]:
+    """Remove Duet-generated style files other than `keep`; return their names.
+
+    Hand-written styles carry no banner and are never touched.
+    """
+    removed: list[str] = []
+    if not styles_dir.is_dir():
+        return removed
+    for path in sorted(styles_dir.glob("*.md")):
+        if path.stem != keep and _is_generated(path):
+            try:
+                path.unlink()
+                removed.append(path.stem)
+            except OSError:
+                pass
+    return removed
+
+
+def _write_managed_if_changed(target: Path, content: str, warnings: list[str]) -> None:
+    """`_write_managed_file`, but an up-to-date file is left alone.
+
+    Same Drive rationale as `_mirror_tree_bytes`: deploy runs on every window
+    open, and each rewrite is a new revision of a synced file.
+    """
+    try:
+        if (
+            target.read_text(encoding="utf-8") == content
+            and stat.S_IMODE(target.stat().st_mode) == 0o444
+        ):
+            return
+    except (OSError, UnicodeDecodeError):
+        pass
+    _write_managed_file(target, content, warnings)
+
+
+# --- key-wise edits of files the user also owns ------------------------------
+
+def _load_json_object(path: Path, warnings: list[str]) -> dict | None:
+    """The file's JSON object; `{}` if missing/blank; None (+ warning) if unusable."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError) as e:
+        warnings.append(f"system_prompt: cannot read {path.name}: {e}")
+        return None
+    if not text.strip():
+        return {}
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        warnings.append(f"system_prompt: {path.name} is not valid JSON, left untouched: {e}")
+        return None
+    if not isinstance(data, dict):
+        warnings.append(f"system_prompt: {path.name} is not a JSON object, left untouched")
+        return None
+    return data
+
+
+def _store_json_object(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_if_changed(path, (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+
+
+def _set_json_key(path: Path, key: str, value: str, warnings: list[str]) -> bool:
+    """Ensure `path`'s top-level `key` == `value`, leaving other keys as they are."""
+    data = _load_json_object(path, warnings)
+    if data is None:
+        return False
+    if data.get(key) != value:
+        data[key] = value
+        _store_json_object(path, data)
+    return True
+
+
+def _drop_json_key(path: Path, key: str, values: list[str], warnings: list[str]) -> bool:
+    """Remove `key` iff its current value is one of `values` (i.e. ours)."""
+    data = _load_json_object(path, warnings)
+    if not data or data.get(key) not in values:
+        return False
+    del data[key]
+    if data:
+        _store_json_object(path, data)
+    else:
+        path.unlink(missing_ok=True)
+    return True
+
+
+def _toml_top_level(lines: list[str], key: str) -> tuple[int, int | None]:
+    """(index of the first table header or len(lines), index of the `key = ...`
+    line among the top-level lines before it, if any)."""
+    boundary = next((i for i, ln in enumerate(lines) if _TOML_TABLE_RE.match(ln)), len(lines))
+    key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    idx = next((i for i in range(boundary) if key_re.match(lines[i])), None)
+    return boundary, idx
+
+
+def _toml_edit_is_safe(new_text: str, expected: dict, path: Path, warnings: list[str]) -> bool:
+    """A line edit is accepted only if the file parses to exactly the old data
+    plus/minus our key — multi-line values or odd layouts fail here, not silently."""
+    try:
+        ok = tomllib.loads(new_text) == expected
+    except tomllib.TOMLDecodeError:
+        ok = False
+    if not ok:
+        warnings.append(f"system_prompt: cannot edit {path.name} safely, left untouched")
+    return ok
+
+
+def _set_toml_top_key(path: Path, key: str, value: str, warnings: list[str]) -> bool:
+    """Ensure top-level `key = "<value>"` in the TOML file at `path` (created if
+    missing), editing that one line and keeping the rest byte-for-byte."""
+    try:
+        old_text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        old_text = ""
+    except (OSError, UnicodeDecodeError) as e:
+        warnings.append(f"system_prompt: cannot read {path.name}: {e}")
+        return False
+    try:
+        old = tomllib.loads(old_text)
+    except tomllib.TOMLDecodeError as e:
+        warnings.append(f"system_prompt: {path.name} is not valid TOML, left untouched: {e}")
+        return False
+
+    line = f"{key} = {json.dumps(value, ensure_ascii=False)}  # {GENERATED_BANNER} (system_prompt)\n"
+    lines = old_text.splitlines(keepends=True)
+    boundary, idx = _toml_top_level(lines, key)
+    if idx is not None:
+        lines[idx] = line
+    else:
+        if boundary and not lines[boundary - 1].endswith("\n"):
+            lines[boundary - 1] += "\n"
+        lines[boundary:boundary] = [line] if boundary == len(lines) else [line, "\n"]
+    new_text = "".join(lines)
+
+    if not _toml_edit_is_safe(new_text, {**old, key: value}, path, warnings):
+        return False
+    if new_text != old_text:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_if_changed(path, new_text.encode("utf-8"))
+    return True
+
+
+def _drop_generated_toml_key(path: Path, key: str, warnings: list[str]) -> bool:
+    """Remove the top-level `key` line iff it carries our banner comment."""
+    try:
+        old_text = path.read_text(encoding="utf-8")
+        old = tomllib.loads(old_text)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return False  # missing or not ours to repair
+
+    lines = old_text.splitlines(keepends=True)
+    _, idx = _toml_top_level(lines, key)
+    if idx is None or GENERATED_BANNER not in lines[idx]:
+        return False
+    del lines[idx]
+    # Drop the blank separator we added when inserting above a table.
+    if idx < len(lines) and not lines[idx].strip() and (idx == 0 or not lines[idx - 1].strip()):
+        del lines[idx]
+    new_text = "".join(lines)
+
+    if not _toml_edit_is_safe(new_text, {k: v for k, v in old.items() if k != key}, path, warnings):
+        return False
+    if new_text.strip():
+        _write_if_changed(path, new_text.encode("utf-8"))
+    else:
+        # The file existed only for our line.
+        path.unlink(missing_ok=True)
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+    return True

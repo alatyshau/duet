@@ -25,7 +25,7 @@ server.py (entry point, lifecycle)
     │   ├── workspace.py     WorkspaceService — orientation response
     │   ├── entities.py      EntitiesService — /contexts, /scan
     │   ├── products.py      products/components discovery (product/component discovery)
-    │   ├── deploy_instructions.py  deploy a context's skills/instructions into its Drive folder
+    │   ├── deploy_instructions.py  deploy a context's skills/instructions/system_prompt into its Drive folder
     │   ├── at_paths.py      `@<name>/<rest>` resolver (repos / context folders)
     │   └── manifest.py      strict v4 manifest reader
     ├── scanner.py           hierarchy scan, strict v4 reader
@@ -49,8 +49,8 @@ server.py (entry point, lifecycle)
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan (strict v4), `git_repos` → N product_repo while Drive context recursion continues | HTTP, config writes, manifest upgrades, products/components discovery |
 | `services/products.py` | Build orientation `products[]` + components (product/component discovery) | DB writes, HTTP |
-| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory` @-path declarations) | Migrations (Host owns) |
-| `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
+| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory`/`system_prompt` @-path declarations) | Migrations (Host owns) |
+| `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
 | `services/at_paths.py` | Resolve `@<repo-dir>` (under `DuetData/repos`) or `@<context-name>` (→ that context's Drive folder); reject `..` escape | File copy, HTTP, DB |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Merge bootstrapper + per-agent core → one file per agent | DB, HTTP |
@@ -92,7 +92,7 @@ server.py (entry point, lifecycle)
 | POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, workspace, context, products[], memory (v4 shape — see Orientation below) |
 | GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
-| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Resolves the owning context, deploys its `skills`/`instructions` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
+| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Resolves the owning context, deploys its `skills`/`instructions`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
 
 ### MCP Tools
@@ -190,7 +190,7 @@ Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_
 
 ### Deploy Instructions
 
-`POST /deploy-instructions` with body `{"workspace_paths": [...]}` resolves the owning context (same multi-path resolution as orientation) and materializes that context's `skills` / `instructions` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
+`POST /deploy-instructions` with body `{"workspace_paths": [...]}` resolves the owning context (same multi-path resolution as orientation) and materializes that context's `skills` / `instructions` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
 
 **@-path resolution** (`services/at_paths.py:resolve_at_path`): `@<head>/<rest>` resolves `<head>` to either a repo directory `<DuetData>/repos/<head>` (when it exists) or a context named `<head>` (→ that context's Drive folder). Entries that don't start with `@`, have an empty/absolute body, or escape the matched root via `..` resolve to `None` (warning + skip).
 
@@ -207,8 +207,16 @@ Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_
 - A pre-existing hand-written file (lacking the `AUTO-GENERATED by Duet` banner) is backed up to `<name>.bak` once before the first overwrite.
 - Legacy migration: root-level `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` (pre-dot-folder layout) carrying the banner are removed on deploy; hand-written ones are left untouched.
 
+**system_prompt** (one @-path to a Claude output-style file; single source wired into three clients — normative description in [PRODUCT.md → Deploy Instructions](../../../spec/PRODUCT.md#deploy-instructions)):
+- Claude Code: bannered read-only copy at `<context>/.claude/output-styles/<name>.md` (frontmatter kept at byte 0, banner right after it; `<name>` = frontmatter `name`, else the source file stem, validated `\w[\w.-]*`) + `outputStyle` in `.claude/settings.json`.
+- Codex: `model_instructions_file` in `.codex/config.toml`, pointing at the Claude copy (relative to `.codex/`). Codex applies it only for a trusted project launched from the context folder (no `.git` → project root = launch dir).
+- Kimi Code: `<context>/.kimi-code/agents/agent.md` — generated, frontmatter rewritten to `name: agent` + `override: true` (the project-scope override of Kimi's main-agent prompt), body = source body + a skeleton re-injecting `${agents_md}` / `${skills_section}` / `${additional_dirs_section}` / `${plugin_sections}`; `keep-coding-instructions: true` in the source swaps the skeleton for `${base_prompt}`.
+- `.claude/settings.json` and `.codex/config.toml` are shared with the user: `_set_json_key` / `_set_toml_top_key` edit only Duet's key. The TOML edit is a single-line edit accepted only if `tomllib` parses the result to exactly the old data plus our key; otherwise the file is left untouched with a warning. Unparseable files likewise.
+- Written files use `_write_managed_if_changed` (read-only `0444`, `.bak` for a hand-written predecessor, no rewrite when already up to date).
+- **Absent key → withdraw** what carries the `AUTO-GENERATED by Duet` banner (generated style files; the Codex line, banner in its trailing comment; the Kimi agent file) and `outputStyle` only when it names a removed style. Hand-written files/keys are never touched. A renamed source prunes the previous generated style. Declared-but-unusable source → warning, current deployment left as is.
+
 **Response:**
-- `{ status: "ok", deployed: { skills_deployed: [...], skills_pruned: [...], agents_skills_deployed: [...], agents_skills_pruned: [...], instructions_written: [...], instructions_legacy_removed: [...] }, warnings: [...] }` when an owning context resolves.
+- `{ status: "ok", deployed: { skills_deployed: [...], skills_pruned: [...], agents_skills_deployed: [...], agents_skills_pruned: [...], instructions_written: [...], instructions_legacy_removed: [...], system_prompt_written: [...], system_prompt_withdrawn: [...] }, warnings: [...] }` when an owning context resolves.
 - `{ status: "unknown", reason: "no_owning_context" | "no_context_manifest" }` when no owning context / manifest resolves.
 - `400` (`BAD_REQUEST`) on invalid JSON body or non-list `workspace_paths`; `422` (`CONFIG_ERROR`) on backend config error.
 
@@ -452,7 +460,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Entity listing | `services/entities.py` |
 | Hierarchy scan | `scanner.py:_scan_context()` |
 | Manifest reader (strict v4) | `services/manifest.py:read_manifest()` |
-| Deploy skills/instructions | `services/deploy_instructions.py:deploy_instructions()` |
+| Deploy skills/instructions/system_prompt | `services/deploy_instructions.py:deploy_instructions()` |
 | `@<name>/<rest>` resolution | `services/at_paths.py:resolve_at_path()` |
 | Context-memory pointer | `services/workspace.py:_build_memory()` |
 | Products/components discovery | `services/products.py:build_products()` |

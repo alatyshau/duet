@@ -289,8 +289,9 @@ class TestGitReposValidation:
 
 class TestDeployFieldsValidation:
     """`skills` / `instructions` are optional lists of @-path strings;
-    `memory` is an optional non-empty string. Resolution of @-paths happens
-    later (deploy / orientation) — here only the shape is validated."""
+    `memory` and `system_prompt` are optional non-empty strings. Resolution of
+    @-paths happens later (deploy / orientation) — here only the shape is
+    validated."""
 
     def test_all_absent(self, tmp_path: Path) -> None:
         _write(tmp_path, {"version": 4, "name": "X"})
@@ -299,6 +300,7 @@ class TestDeployFieldsValidation:
         assert manifest.skills is None
         assert manifest.instructions is None
         assert manifest.memory is None
+        assert manifest.system_prompt is None
 
     def test_skills_and_instructions_lists(self, tmp_path: Path) -> None:
         _write(tmp_path, {
@@ -318,6 +320,12 @@ class TestDeployFieldsValidation:
         manifest = read_manifest(tmp_path, [])
         assert manifest is not None
         assert manifest.memory == "@DuetLab/README.md"
+
+    def test_system_prompt_string(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 4, "name": "X", "system_prompt": "@X/styles/game-master.md"})
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.system_prompt == "@X/styles/game-master.md"
 
     def test_empty_lists_ok(self, tmp_path: Path) -> None:
         """An explicit empty list is valid (means "manage, deploy nothing")."""
@@ -362,6 +370,19 @@ class TestDeployFieldsValidation:
         assert errors[0]["reason_code"] == "invalid_manifest"
         assert "memory" in errors[0]["description"]
 
+    def test_system_prompt_not_string(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 4, "name": "X", "system_prompt": ["@x"]})
+        errors: list[dict] = []
+        assert read_manifest(tmp_path, errors) is None
+        assert errors[0]["reason_code"] == "invalid_manifest"
+        assert "system_prompt" in errors[0]["description"]
+
+    def test_system_prompt_empty_string(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 4, "name": "X", "system_prompt": "  "})
+        errors: list[dict] = []
+        assert read_manifest(tmp_path, errors) is None
+        assert errors[0]["reason_code"] == "invalid_manifest"
+        assert "system_prompt" in errors[0]["description"]
 
 class TestReadReferenceRepos:
     def test_returns_dict_when_present(self, tmp_path: Path) -> None:

@@ -12,3 +12,6 @@ PyYAML>=6.0
 
 # File watching (async-native, Rust notify-rs)
 watchfiles>=1.0.0
+
+# TOML parsing for the system_prompt deploy (stdlib `tomllib` only from Python 3.11)
+tomli>=2.0; python_version < "3.11"

@@ -298,7 +298,7 @@ class WorkspaceService:
 
     def deploy_instructions(self, workspace_paths: list[str]) -> dict:
         """Resolve the owning context for `workspace_paths` and deploy its
-        instruction components (skills / instructions) into its Drive folder.
+        instruction components (skills / instructions / system_prompt) into its Drive folder.
 
         Returns `{status, deployed, warnings}` or `{status: "unknown", reason}`
         when no owning context resolves.

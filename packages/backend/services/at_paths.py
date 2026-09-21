@@ -1,5 +1,5 @@
 """Resolution of `@<name>/<rest>` paths used in `context.json` deployment
-declarations (`skills`, `instructions`, `memory`).
+declarations (`skills`, `instructions`, `memory`, `system_prompt`).
 
 The `@` alias space is the union of two roots the backend already owns:
 

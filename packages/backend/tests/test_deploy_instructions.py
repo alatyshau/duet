@@ -8,6 +8,10 @@ Covers the two components a context can declare:
   `.agents/rules/gemini.md` composed from per-client templates, always
   generated, read-only, with `.bak` safety; legacy root-level files with the
   Duet banner are removed.
+- `system_prompt` → one output-style source wired into Claude Code
+  (`.claude/output-styles/` + `outputStyle`), Codex (`model_instructions_file`)
+  and Kimi Code (`.kimi-code/agents/agent.md`, `override: true`); key-wise edits
+  of the shared config files, banner-guarded withdrawal.
 
 The functions take explicit args (no DuetData fixture needed). A fake
 `backend_dir` with the three templates keeps the tests hermetic.
@@ -15,9 +19,11 @@ The functions take explicit args (no DuetData fixture needed). A fake
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
+import tomllib
 import unicodedata
 from pathlib import Path
 
@@ -455,3 +461,355 @@ def test_instructions_unresolvable_source_warns(ctx, backend_dir, sources):
 def test_no_stray_temp_files(ctx, backend_dir, sources):
     deploy_instructions(ctx, _manifest(instructions=[]), None, _ctx_folders(sources), backend_dir)
     assert not list(ctx.rglob("*.tmp"))
+
+
+# --------------------------------------------------------------------------- #
+# system_prompt
+# --------------------------------------------------------------------------- #
+
+STYLE_REL = ".claude/output-styles/game-master.md"
+SETTINGS_REL = ".claude/settings.json"
+CODEX_REL = ".codex/config.toml"
+KIMI_REL = ".kimi-code/agents/agent.md"
+STYLE_SOURCE = (
+    "---\n"
+    "name: game-master\n"
+    "description: Ведущий семейной игры\n"
+    "---\n"
+    "\n"
+    "Ты ведёшь игру.\n"
+)
+SP = "@Src/styles/game-master.md"
+
+
+def _deploy_sp(ctx, backend_dir, sources, entry=SP):
+    return deploy_instructions(
+        ctx, _manifest(system_prompt=entry), None, _ctx_folders(sources), backend_dir
+    )
+
+
+def _withdraw_sp(ctx, backend_dir, sources):
+    return deploy_instructions(ctx, _manifest(), None, _ctx_folders(sources), backend_dir)
+
+
+def _style_source(sources: Path, text: str = STYLE_SOURCE, name: str = "game-master.md") -> None:
+    (sources / "styles").mkdir(parents=True, exist_ok=True)
+    (sources / "styles" / name).write_text(text, encoding="utf-8")
+
+
+def _kimi_frontmatter(ctx: Path) -> dict:
+    import yaml
+
+    text = (ctx / KIMI_REL).read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    return yaml.safe_load(text.split("---\n")[1])
+
+
+def test_system_prompt_absent_is_noop(ctx, backend_dir, sources):
+    report = _withdraw_sp(ctx, backend_dir, sources)
+    assert report["deployed"]["system_prompt_written"] == []
+    assert report["deployed"]["system_prompt_withdrawn"] == []
+    for rel in (STYLE_REL, SETTINGS_REL, CODEX_REL, KIMI_REL):
+        assert not (ctx / rel).exists()
+
+
+def test_system_prompt_claude_style_copy(ctx, backend_dir, sources):
+    _style_source(sources)
+    report = _deploy_sp(ctx, backend_dir, sources)
+    assert set(report["deployed"]["system_prompt_written"]) == {
+        STYLE_REL, SETTINGS_REL, CODEX_REL, KIMI_REL,
+    }
+    text = (ctx / STYLE_REL).read_text(encoding="utf-8")
+    # frontmatter at byte 0, banner right after it, body untouched
+    assert text.startswith("---\nname: game-master\n")
+    head, _, rest = text.partition("description: Ведущий семейной игры\n---\n")
+    assert rest.startswith("<!-- " + GENERATED_BANNER)
+    assert rest.endswith("\n\nТы ведёшь игру.\n")
+    assert stat.S_IMODE(os.stat(ctx / STYLE_REL).st_mode) == 0o444
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {
+        "outputStyle": "game-master"
+    }
+
+
+def test_system_prompt_codex_points_at_claude_copy(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    text = (ctx / CODEX_REL).read_text(encoding="utf-8")
+    assert tomllib.loads(text) == {"model_instructions_file": "../.claude/output-styles/game-master.md"}
+    assert (ctx / ".codex" / "../.claude/output-styles/game-master.md").resolve().is_file()
+    assert GENERATED_BANNER in text
+
+
+def test_system_prompt_kimi_agent_overrides_main_agent(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    assert _kimi_frontmatter(ctx) == {
+        "name": "agent", "description": "Ведущий семейной игры", "override": True,
+    }
+    text = (ctx / KIMI_REL).read_text(encoding="utf-8")
+    assert GENERATED_BANNER in text
+    assert "Ты ведёшь игру." in text
+    # the style is not a Kimi agent file: its own frontmatter must not leak in
+    assert "name: game-master" not in text
+    # owns the prompt but keeps the workspace-instructions / skills injections
+    assert "${agents_md}" in text and "${skills_section}" in text
+    assert "${base_prompt}" not in text
+    assert stat.S_IMODE(os.stat(ctx / KIMI_REL).st_mode) == 0o444
+
+
+def test_system_prompt_keep_coding_instructions_embeds_kimi_default(ctx, backend_dir, sources):
+    _style_source(sources, STYLE_SOURCE.replace(
+        "description: Ведущий семейной игры\n",
+        "description: Ведущий семейной игры\nkeep-coding-instructions: true\n",
+    ))
+    _deploy_sp(ctx, backend_dir, sources)
+    text = (ctx / KIMI_REL).read_text(encoding="utf-8")
+    assert "${base_prompt}" in text
+    assert "${agents_md}" not in text
+    # Claude gets the flag through the verbatim frontmatter
+    assert "keep-coding-instructions: true" in (ctx / STYLE_REL).read_text(encoding="utf-8")
+
+
+def test_system_prompt_name_from_frontmatter_beats_file_stem(ctx, backend_dir, sources):
+    _style_source(sources, STYLE_SOURCE.replace("name: game-master", "name: gm"), name="other.md")
+    _deploy_sp(ctx, backend_dir, sources, entry="@Src/styles/other.md")
+    # file name, `name:` and `outputStyle` all agree
+    assert (ctx / ".claude/output-styles/gm.md").is_file()
+    assert not (ctx / ".claude/output-styles/other.md").exists()
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8"))["outputStyle"] == "gm"
+    assert "output-styles/gm.md" in (ctx / CODEX_REL).read_text(encoding="utf-8")
+
+
+def test_system_prompt_without_frontmatter_uses_stem(ctx, backend_dir, sources):
+    _style_source(sources, "Just a body.\n")
+    _deploy_sp(ctx, backend_dir, sources)
+    text = (ctx / STYLE_REL).read_text(encoding="utf-8")
+    assert text.startswith("<!-- " + GENERATED_BANNER)
+    assert text.endswith("Just a body.\n")
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8"))["outputStyle"] == "game-master"
+    # Kimi requires a description; falls back to the name
+    assert _kimi_frontmatter(ctx)["description"] == "game-master"
+
+
+def test_system_prompt_redeploy_touches_nothing(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    files = [ctx / r for r in (STYLE_REL, SETTINGS_REL, CODEX_REL, KIMI_REL)]
+    before = [f.stat().st_mtime_ns for f in files]
+    _deploy_sp(ctx, backend_dir, sources)
+    assert [f.stat().st_mtime_ns for f in files] == before
+    assert not list(ctx.rglob("*.tmp"))
+
+
+def test_system_prompt_source_edit_propagates(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    _style_source(sources, STYLE_SOURCE.replace("Ты ведёшь игру.", "Ты ведёшь другую игру."))
+    _deploy_sp(ctx, backend_dir, sources)
+    assert "другую" in (ctx / STYLE_REL).read_text(encoding="utf-8")
+    assert "другую" in (ctx / KIMI_REL).read_text(encoding="utf-8")
+
+
+def test_system_prompt_backs_up_handwritten_style(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / STYLE_REL).parent.mkdir(parents=True)
+    (ctx / STYLE_REL).write_text("hand-made copy", encoding="utf-8")
+    _deploy_sp(ctx, backend_dir, sources)
+    assert (ctx / (STYLE_REL + ".bak")).read_text(encoding="utf-8") == "hand-made copy"
+    assert GENERATED_BANNER in (ctx / STYLE_REL).read_text(encoding="utf-8")
+
+
+def test_system_prompt_backs_up_handwritten_kimi_agent(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / KIMI_REL).parent.mkdir(parents=True)
+    (ctx / KIMI_REL).write_text("mine", encoding="utf-8")
+    _deploy_sp(ctx, backend_dir, sources)
+    assert (ctx / (KIMI_REL + ".bak")).read_text(encoding="utf-8") == "mine"
+
+
+# --- shared config files: key-wise edits -------------------------------------
+
+def test_system_prompt_settings_keeps_other_keys(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".claude").mkdir()
+    (ctx / SETTINGS_REL).write_text(
+        json.dumps({"permissions": {"allow": ["Bash(ls)"]}, "outputStyle": "old"}), encoding="utf-8"
+    )
+    _deploy_sp(ctx, backend_dir, sources)
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {
+        "permissions": {"allow": ["Bash(ls)"]}, "outputStyle": "game-master",
+    }
+
+
+def test_system_prompt_invalid_settings_json_left_untouched(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".claude").mkdir()
+    (ctx / SETTINGS_REL).write_text("{ not json", encoding="utf-8")
+    report = _deploy_sp(ctx, backend_dir, sources)
+    assert (ctx / SETTINGS_REL).read_text(encoding="utf-8") == "{ not json"
+    assert SETTINGS_REL not in report["deployed"]["system_prompt_written"]
+    assert any("settings.json" in w for w in report["warnings"])
+    # the other legs still deploy
+    assert (ctx / KIMI_REL).is_file()
+
+
+def test_system_prompt_codex_replaces_handwritten_line_keeps_rest(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".codex").mkdir()
+    (ctx / CODEX_REL).write_text(
+        '# my codex\nmodel = "gpt-5"\nmodel_instructions_file = "elsewhere.md"\n\n'
+        '[mcp_servers.x]\nurl = "http://localhost:1"\n',
+        encoding="utf-8",
+    )
+    _deploy_sp(ctx, backend_dir, sources)
+    text = (ctx / CODEX_REL).read_text(encoding="utf-8")
+    assert text.startswith("# my codex\nmodel = \"gpt-5\"\n")
+    assert text.endswith('[mcp_servers.x]\nurl = "http://localhost:1"\n')
+    assert tomllib.loads(text) == {
+        "model": "gpt-5",
+        "model_instructions_file": "../.claude/output-styles/game-master.md",
+        "mcp_servers": {"x": {"url": "http://localhost:1"}},
+    }
+    assert text.count("model_instructions_file") == 1
+
+
+def test_system_prompt_codex_key_inserted_before_first_table(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".codex").mkdir()
+    (ctx / CODEX_REL).write_text('[mcp_servers.x]\nurl = "u"\n', encoding="utf-8")
+    _deploy_sp(ctx, backend_dir, sources)
+    text = (ctx / CODEX_REL).read_text(encoding="utf-8")
+    assert text.index("model_instructions_file") < text.index("[mcp_servers.x]")
+    # top-level, not swallowed into the table
+    assert "model_instructions_file" in tomllib.loads(text)
+
+
+def test_system_prompt_codex_unsafe_layout_left_untouched(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".codex").mkdir()
+    # a bracketed line inside a multi-line array looks like a table header
+    original = 'extra = [\n  [1, 2],\n]\n'
+    (ctx / CODEX_REL).write_text(original, encoding="utf-8")
+    report = _deploy_sp(ctx, backend_dir, sources)
+    assert (ctx / CODEX_REL).read_text(encoding="utf-8") == original
+    assert CODEX_REL not in report["deployed"]["system_prompt_written"]
+    assert any("config.toml" in w for w in report["warnings"])
+
+
+def test_system_prompt_invalid_codex_toml_left_untouched(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".codex").mkdir()
+    (ctx / CODEX_REL).write_text("= broken", encoding="utf-8")
+    report = _deploy_sp(ctx, backend_dir, sources)
+    assert (ctx / CODEX_REL).read_text(encoding="utf-8") == "= broken"
+    assert any("config.toml" in w for w in report["warnings"])
+
+
+# --- source problems ---------------------------------------------------------
+
+def test_system_prompt_unresolvable_warns_and_leaves_deployment(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    report = _deploy_sp(ctx, backend_dir, sources, entry="@Src/styles/gone.md")
+    assert any("system_prompt" in w for w in report["warnings"])
+    assert report["deployed"]["system_prompt_written"] == []
+    assert report["deployed"]["system_prompt_withdrawn"] == []
+    for rel in (STYLE_REL, SETTINGS_REL, CODEX_REL, KIMI_REL):
+        assert (ctx / rel).is_file()
+
+
+def test_system_prompt_bad_frontmatter_or_empty_body_skipped(ctx, backend_dir, sources):
+    _style_source(sources, "---\nname: [unclosed\n---\nbody\n", name="bad.md")
+    report = _deploy_sp(ctx, backend_dir, sources, entry="@Src/styles/bad.md")
+    assert any("frontmatter" in w for w in report["warnings"])
+    _style_source(sources, "---\nname: e\n---\n\n", name="empty.md")
+    report = _deploy_sp(ctx, backend_dir, sources, entry="@Src/styles/empty.md")
+    assert any("empty" in w for w in report["warnings"])
+    assert not (ctx / KIMI_REL).exists()
+
+
+def test_system_prompt_unsafe_style_name_skipped(ctx, backend_dir, sources):
+    _style_source(sources, STYLE_SOURCE.replace("name: game-master", "name: ../evil"))
+    report = _deploy_sp(ctx, backend_dir, sources)
+    assert any("style name" in w for w in report["warnings"])
+    assert not (ctx / ".claude/output-styles").exists()
+    assert not (ctx / KIMI_REL).exists()
+
+
+# --- rename & withdrawal -----------------------------------------------------
+
+def test_system_prompt_rename_prunes_stale_generated_style_only(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    (ctx / ".claude/output-styles/mine.md").write_text("hand-written", encoding="utf-8")
+    _style_source(sources, STYLE_SOURCE.replace("name: game-master", "name: gm2"))
+    _deploy_sp(ctx, backend_dir, sources)
+    assert not (ctx / STYLE_REL).exists()
+    assert (ctx / ".claude/output-styles/gm2.md").is_file()
+    assert (ctx / ".claude/output-styles/mine.md").read_text(encoding="utf-8") == "hand-written"
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8"))["outputStyle"] == "gm2"
+    assert "output-styles/gm2.md" in (ctx / CODEX_REL).read_text(encoding="utf-8")
+
+
+def test_system_prompt_withdrawal_removes_everything_of_ours(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    report = _withdraw_sp(ctx, backend_dir, sources)
+    assert set(report["deployed"]["system_prompt_withdrawn"]) == {
+        STYLE_REL, SETTINGS_REL, CODEX_REL, KIMI_REL,
+    }
+    # settings.json / config.toml existed only for our keys → gone; so is .codex/
+    for rel in (STYLE_REL, SETTINGS_REL, CODEX_REL, KIMI_REL):
+        assert not (ctx / rel).exists()
+    assert not (ctx / ".codex").exists()
+
+
+def test_system_prompt_withdrawal_keeps_users_keys(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".claude").mkdir()
+    (ctx / SETTINGS_REL).write_text(json.dumps({"env": {"A": "1"}}), encoding="utf-8")
+    (ctx / ".codex").mkdir()
+    (ctx / CODEX_REL).write_text('model = "gpt-5"\n\n[mcp_servers.x]\nurl = "u"\n', encoding="utf-8")
+    original_codex = (ctx / CODEX_REL).read_text(encoding="utf-8")
+    _deploy_sp(ctx, backend_dir, sources)
+    _withdraw_sp(ctx, backend_dir, sources)
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {"env": {"A": "1"}}
+    assert (ctx / CODEX_REL).read_text(encoding="utf-8") == original_codex
+
+
+def test_system_prompt_withdrawal_round_trips_codex_table_only_file(ctx, backend_dir, sources):
+    _style_source(sources)
+    (ctx / ".codex").mkdir()
+    original = '[mcp_servers.x]\nurl = "u"\n'
+    (ctx / CODEX_REL).write_text(original, encoding="utf-8")
+    _deploy_sp(ctx, backend_dir, sources)
+    _withdraw_sp(ctx, backend_dir, sources)
+    assert (ctx / CODEX_REL).read_text(encoding="utf-8") == original
+
+
+def test_system_prompt_withdrawal_never_touches_handwritten(ctx, backend_dir, sources):
+    (ctx / ".claude/output-styles").mkdir(parents=True)
+    (ctx / ".claude/output-styles/mine.md").write_text("hand-written", encoding="utf-8")
+    (ctx / SETTINGS_REL).write_text(json.dumps({"outputStyle": "mine"}), encoding="utf-8")
+    (ctx / ".codex").mkdir()
+    (ctx / CODEX_REL).write_text('model_instructions_file = "mine.md"\n', encoding="utf-8")
+    (ctx / KIMI_REL).parent.mkdir(parents=True)
+    (ctx / KIMI_REL).write_text("hand-written agent", encoding="utf-8")
+
+    report = _withdraw_sp(ctx, backend_dir, sources)
+
+    assert report["deployed"]["system_prompt_withdrawn"] == []
+    assert (ctx / ".claude/output-styles/mine.md").read_text(encoding="utf-8") == "hand-written"
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {"outputStyle": "mine"}
+    assert (ctx / CODEX_REL).read_text(encoding="utf-8") == 'model_instructions_file = "mine.md"\n'
+    assert (ctx / KIMI_REL).read_text(encoding="utf-8") == "hand-written agent"
+
+
+def test_system_prompt_withdrawal_keeps_outputstyle_not_naming_our_file(ctx, backend_dir, sources):
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    # user switched to a style of their own after our deploy
+    (ctx / SETTINGS_REL).write_text(json.dumps({"outputStyle": "mine"}), encoding="utf-8")
+    _withdraw_sp(ctx, backend_dir, sources)
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {"outputStyle": "mine"}
+    assert not (ctx / STYLE_REL).exists()
