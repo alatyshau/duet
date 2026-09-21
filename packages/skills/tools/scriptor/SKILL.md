@@ -25,7 +25,6 @@ PROMPTS_DIR = SCRIPTOR_ROOT/prompts
 GEMINI_PROMPTS_DIR = SCRIPTOR_ROOT/src/scriptor/prompts
 TRANSCRIBE_GEMINI = SCRIPTOR_ROOT/src/scriptor/transcribe_chunk.py
 TRANSCRIBE_OPENAI = SCRIPTOR_ROOT/src/scriptor/transcribe_openai.py
-PYTHON = SCRIPTOR_ROOT/.venv/bin/python           # venv с google-genai, openai
 MEDIA_DIR = <директория входного медиафайла>
 OUTPUT_DIR = MEDIA_DIR/{name}                      # результат рядом с исходным файлом
 ```
@@ -45,6 +44,34 @@ OUTPUT_DIR = MEDIA_DIR/{name}                      # результат рядо
 
 ---
 
+## Предварительные требования (до Шага 0)
+
+Проверяется **до** любой другой работы, в начале сессии. Воркспейс синхронизируется
+между машинами — то, что стоит на одной, не стоит на другой.
+
+```bash
+which uv      || echo "НЕТ: uv"
+which ffmpeg  || echo "НЕТ: ffmpeg"
+which ffprobe || echo "НЕТ: ffprobe"
+```
+
+Если чего-то нет — **не изобретать обход** (venv, `pip install --target`, установка
+в системный Python), а сообщить пользователю команду установки:
+
+| | macOS | Debian/Ubuntu | Windows |
+|---|---|---|---|
+| **uv** | `brew install uv` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | `winget install --id=astral-sh.uv -e` |
+| **ffmpeg** (даёт и `ffprobe`) | `brew install ffmpeg` | `apt install ffmpeg` | `winget install Gyan.FFmpeg` |
+
+`uv` обязателен всегда — на нём запускаются оба скрипта транскрипции. Зависимости
+объявлены в самих скриптах по PEP 723, окружение поднимается в `~/.cache/uv`;
+ставить и создавать ничего не нужно. **Venv внутри воркспейса не создавать никогда:**
+он лежит на Google Drive и уходит в синхронизацию тысячами файлов.
+
+`ffmpeg` и `ffprobe` нужны на Шагах 1–2 (конвертация в mp3 и нарезка на чанки).
+
+---
+
 ## Процедура
 
 ### Шаг 0: Инициализация
@@ -55,12 +82,11 @@ OUTPUT_DIR = MEDIA_DIR/{name}                      # результат рядо
    - **Какая модель?** — по умолчанию `gemini-2.5-pro`. См. таблицу «Поддерживаемые модели».
 2. Определить `{name}` из имени медиафайла (без расширения, транслитерация не нужна).
 3. `OUTPUT_DIR` = директория медиафайла / `{name}/`. Создать эту папку.
-4. Проверить:
-   - `ffmpeg` и `ffprobe` в PATH
-   - `SCRIPTOR_ROOT/.env` содержит нужный API-ключ:
-     - Для Gemini моделей: `GEMINI_API_KEY` (не пустой)
-     - Для OpenAI моделей: `OPENAI_API_KEY` (не пустой)
-   - `SCRIPTOR_ROOT/.venv/` существует (если нет — `python3 -m venv .venv && .venv/bin/pip install google-genai openai`)
+4. Проверить, что `SCRIPTOR_ROOT/.env` содержит нужный API-ключ:
+   - Для Gemini моделей: `GEMINI_API_KEY` (не пустой)
+   - Для OpenAI моделей: `OPENAI_API_KEY` (не пустой)
+
+   Системные программы (`uv`, `ffmpeg`, `ffprobe`) проверены выше — см. «Предварительные требования».
 
 ### Шаг 1: Конвертация в mp3
 
@@ -100,7 +126,7 @@ ffmpeg -i "{audio.mp3}" -ss {start} -to {end} -c copy "{OUTPUT_DIR}/chunks/chunk
 
 **Gemini** (`gemini-2.5-pro`, `gemini-2.5-flash`):
 ```bash
-"{PYTHON}" "{TRANSCRIBE_GEMINI}" \
+uv run --script "{TRANSCRIBE_GEMINI}" \
     "{chunk_path}" \
     "{OUTPUT_DIR}/raw/chunk_{NNN}.md" \
     --prompt "{GEMINI_PROMPTS_DIR}/transcribe.md" \
@@ -111,7 +137,7 @@ ffmpeg -i "{audio.mp3}" -ss {start} -to {end} -c copy "{OUTPUT_DIR}/chunks/chunk
 
 **OpenAI chat** (`gpt-4o-audio-preview`):
 ```bash
-"{PYTHON}" "{TRANSCRIBE_OPENAI}" \
+uv run --script "{TRANSCRIBE_OPENAI}" \
     "{chunk_path}" \
     "{OUTPUT_DIR}/raw/chunk_{NNN}.md" \
     --prompt "{GEMINI_PROMPTS_DIR}/transcribe.md" \
@@ -122,7 +148,7 @@ ffmpeg -i "{audio.mp3}" -ss {start} -to {end} -c copy "{OUTPUT_DIR}/chunks/chunk
 
 **OpenAI transcribe** (`gpt-4o-transcribe`):
 ```bash
-"{PYTHON}" "{TRANSCRIBE_OPENAI}" \
+uv run --script "{TRANSCRIBE_OPENAI}" \
     "{chunk_path}" \
     "{OUTPUT_DIR}/raw/chunk_{NNN}.md" \
     --glossary "{glossary_path}" \
