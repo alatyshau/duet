@@ -58,6 +58,12 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # npm 10.9.x (идёт с Node 22) падает при разрешении зависимостей без
+      # lock-файла: "Cannot read properties of null (reading 'edgesOut')".
+      # На npm 11 то же дерево ставится.
+      - name: Update npm
+        run: npm install -g npm@11
+
       - name: Delete package-lock.json
         # package-lock.json сгенерирован на macOS и не содержит platform-specific
         # optional deps для Linux/Windows (rollup, esbuild, etc.)
