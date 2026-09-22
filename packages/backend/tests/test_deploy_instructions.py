@@ -275,6 +275,57 @@ def test_skills_mirror_survives_readonly_destination_file(ctx, backend_dir, sour
     assert out.read_text(encoding="utf-8") == "# alpha v2"
 
 
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_skills_deployed_files_are_readonly(ctx, backend_dir, sources):
+    # The whole tree is Duet-managed, so a hand edit here would be reverted on
+    # the next deploy: say so through the mode, as instructions/style files do.
+    _make_skill(sources, "alpha")
+    (sources / "alpha" / "references").mkdir()
+    (sources / "alpha" / "references" / "notes.md").write_text("x", encoding="utf-8")
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+
+    for target in (".claude", ".agents"):
+        root = ctx / target / "skills" / "alpha"
+        assert _mode(root / "SKILL.md") == 0o444
+        assert _mode(root / "references" / "notes.md") == 0o444
+        # Directories stay writable — the prune pass has to be able to unlink.
+        assert _mode(root / "references") & stat.S_IWUSR
+
+
+def test_skills_executable_source_stays_executable(ctx, backend_dir, sources):
+    # A skill may ship scripts meant to be run directly (anthropic-skills does),
+    # so the x-bit is the one thing carried over from the source.
+    _make_skill(sources, "alpha")
+    script = sources / "alpha" / "scripts" / "run.py"
+    script.parent.mkdir()
+    script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    script.chmod(0o755)
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+
+    for target in (".claude", ".agents"):
+        out = ctx / target / "skills" / "alpha" / "scripts" / "run.py"
+        assert _mode(out) == 0o555
+        assert os.access(out, os.X_OK)
+
+
+def test_skills_mode_is_fixed_without_rewriting_the_file(ctx, backend_dir, sources):
+    # Catch-up deploy over a tree deployed by an older version: the bytes are
+    # already right, so only the mode changes — no new Drive revision (same
+    # inode, since a rewrite would go temp-file + rename).
+    _make_skill(sources, "alpha")
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+    out = ctx / ".claude" / "skills" / "alpha" / "SKILL.md"
+    out.chmod(0o600)
+    before = out.stat().st_ino
+
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+    assert _mode(out) == 0o444
+    assert out.stat().st_ino == before
+
+
 def test_skills_mirror_handles_type_flips(ctx, backend_dir, sources):
     # file → dir and dir → file in the source, both directions in one deploy.
     src = _make_skill(sources, "alpha")
@@ -639,6 +690,35 @@ def test_system_prompt_settings_keeps_other_keys(ctx, backend_dir, sources):
     assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {
         "permissions": {"allow": ["Bash(ls)"]}, "outputStyle": "game-master",
     }
+
+
+def test_system_prompt_shared_configs_get_a_plain_mode_when_created(ctx, backend_dir, sources):
+    # These two are the user's files, not ours — created as ordinary readable
+    # files, never narrowed to the 0600 `mkstemp` hands out.
+    _style_source(sources)
+    _deploy_sp(ctx, backend_dir, sources)
+    assert _mode(ctx / SETTINGS_REL) == 0o644
+    assert _mode(ctx / CODEX_REL) == 0o644
+
+
+def test_system_prompt_shared_configs_keep_the_mode_the_user_set(ctx, backend_dir, sources):
+    # The mode of a co-owned file is as much the user's as the keys Duet leaves
+    # alone: a key-wise edit must not reset it. 0640 is deliberately a mode
+    # neither `mkstemp` (0600) nor the create default (0644) would produce, so
+    # this fails if the mode is ever forced instead of preserved.
+    _style_source(sources)
+    (ctx / ".claude").mkdir()
+    (ctx / SETTINGS_REL).write_text(json.dumps({"outputStyle": "old"}), encoding="utf-8")
+    (ctx / SETTINGS_REL).chmod(0o640)
+    (ctx / ".codex").mkdir()
+    (ctx / CODEX_REL).write_text('model = "gpt-5"\n', encoding="utf-8")
+    (ctx / CODEX_REL).chmod(0o640)
+
+    _deploy_sp(ctx, backend_dir, sources)
+    assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8"))["outputStyle"] == "game-master"
+    assert _mode(ctx / SETTINGS_REL) == 0o640
+    assert "model_instructions_file" in tomllib.loads((ctx / CODEX_REL).read_text(encoding="utf-8"))
+    assert _mode(ctx / CODEX_REL) == 0o640
 
 
 def test_system_prompt_invalid_settings_json_left_untouched(ctx, backend_dir, sources):

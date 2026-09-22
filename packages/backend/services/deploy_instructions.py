@@ -6,7 +6,9 @@ context's `context.json` declarations and materializes them next to the context:
 - ``skills`` → ``<context>/.claude/skills/<name>/`` (Claude Code) and
   ``<context>/.agents/skills/<name>/`` (cross-client convention, read by Kimi
   Code). Both targets are Duet-managed: deploy the declared set, prune
-  everything else. Absent key → no-op; present (even ``[]``) → manage.
+  everything else. Deployed files are read-only (``0444``, or ``0555`` when the
+  source file is executable). Absent key → no-op; present (even ``[]``) →
+  manage.
 - ``instructions`` → per-client dot-folder files inside the context folder:
   ``.claude/CLAUDE.md`` (Claude Code), ``.kimi-code/AGENTS.md`` (Kimi Code),
   ``.agents/rules/gemini.md`` (Antigravity). Composed from per-client
@@ -233,6 +235,12 @@ def _mirror_tree_bytes(src_dir: Path, dst_dir: Path) -> None:
     Skill trees are small (hundreds of KB), so the comparison reads whole files
     rather than trusting size+mtime — a git checkout rewrites mtimes on files
     whose content never changed, which would reintroduce the churn.
+
+    Deployed files are read-only, like the other Duet-managed artifacts: the
+    whole tree is ours (the prune pass below owns the directory), so a hand edit
+    here would be silently reverted on the next window open — the source is the
+    thing to edit. The executable bit is the one thing carried over from the
+    source, because a skill may ship scripts meant to be run directly.
     """
     # Defense in depth: `_deploy_skills` validates the source, but the prune
     # pass below deletes inside the user's Drive folder. An unreadable or empty
@@ -260,7 +268,8 @@ def _mirror_tree_bytes(src_dir: Path, dst_dir: Path) -> None:
             if out.is_dir() and not out.is_symlink():
                 shutil.rmtree(out, ignore_errors=True)
             out.parent.mkdir(parents=True, exist_ok=True)
-            _write_if_changed(out, src.read_bytes())
+            executable = bool(src.stat().st_mode & stat.S_IXUSR)
+            _write_if_changed(out, src.read_bytes(), mode=0o555 if executable else 0o444)
 
     # Pass 2 — drop what the source no longer has. Deepest paths first, so a
     # directory is emptied before it is removed, over a listing materialized up
@@ -286,26 +295,45 @@ def _mirror_key(rel: Path) -> str:
     return unicodedata.normalize("NFC", rel.as_posix()).casefold()
 
 
-def _write_if_changed(target: Path, data: bytes) -> None:
+def _write_if_changed(target: Path, data: bytes, mode: int | None = None) -> None:
     """Write `data` to `target` only when it differs from what is already there.
 
     The write goes through a temp file in the same directory plus `os.replace`,
     so a reader never observes a half-written file and a read-only target needs
     no chmod (POSIX rename is governed by the directory). The temp name is
-    randomized: a fixed suffix could collide with a real source filename. File
-    mode is not carried over from the source — unchanged from the previous
-    behaviour, where `write_bytes` also created plain 0644 files.
+    randomized: a fixed suffix could collide with a real source filename.
+
+    `mode` is the mode a file Duet owns outright must end up with. `None` means
+    "take no position": an existing file keeps the mode it has, a new one gets
+    0644. That is what the co-owned config files need (`.claude/settings.json`,
+    `.codex/config.toml`) — there the mode is as much the user's as the keys we
+    leave alone. The mode is always set explicitly, because `mkstemp` creates
+    0600 and `os.replace` carries the temp file's mode over to the target, so a
+    write that said nothing about the mode would narrow the file to 0600.
     """
     try:
-        if target.stat().st_size == len(data) and target.read_bytes() == data:
-            return
+        st: os.stat_result | None = target.stat()
+        unchanged = st.st_size == len(data) and target.read_bytes() == data
     except OSError:
-        pass  # missing or unreadable — fall through and write it
+        st, unchanged = None, False  # missing or unreadable — write it
+
+    if mode is None:
+        mode = stat.S_IMODE(st.st_mode) if st is not None else 0o644
+
+    # Right bytes, wrong mode: chmod in place, so the catch-up deploy over an
+    # already up-to-date tree costs no Drive revision at all. Deliberately not
+    # inside the `except OSError` above — a failing chmod must surface, not fall
+    # through to rewriting a file whose content is already correct.
+    if unchanged:
+        if stat.S_IMODE(st.st_mode) != mode:
+            os.chmod(target, mode)
+        return
 
     fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".duet-", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+        os.chmod(tmp_name, mode)
         os.replace(tmp_name, target)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
