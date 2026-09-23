@@ -167,7 +167,7 @@ def _deploy_skills(
             )
             continue
         seen[name] = entry
-        to_deploy.append((name, src))
+        to_deploy.append((name, src, entry))
 
     # Two client targets for the same declared set: `.claude/skills/` (Claude
     # Code) and `.agents/skills/` (cross-client convention, read by Kimi Code).
@@ -187,7 +187,7 @@ def _deploy_skills(
 
 
 def _deploy_and_prune_skills(
-    target_root: Path, to_deploy: list[tuple[str, Path]]
+    target_root: Path, to_deploy: list[tuple[str, Path, str]]
 ) -> tuple[list[str], list[str]]:
     """Mirror the declared skill set into `target_root`, then prune.
 
@@ -199,13 +199,13 @@ def _deploy_and_prune_skills(
     deployed: list[str] = []
     if to_deploy:
         target_root.mkdir(parents=True, exist_ok=True)
-        for name, src in to_deploy:
-            _mirror_tree_bytes(src, target_root / name)
+        for name, src, ref in to_deploy:
+            _mirror_tree_bytes(src, target_root / name, ref)
             deployed.append(name)
 
     pruned: list[str] = []
     if target_root.is_dir():
-        keep = {name for name, _ in to_deploy}
+        keep = {name for name, _, _ in to_deploy}
         for child in sorted(target_root.iterdir()):
             if child.name == PRUNED_DIR:
                 continue
@@ -221,9 +221,14 @@ def _deploy_and_prune_skills(
     return deployed, pruned
 
 
-def _mirror_tree_bytes(src_dir: Path, dst_dir: Path) -> None:
+def _mirror_tree_bytes(src_dir: Path, dst_dir: Path, ref: str | None = None) -> None:
     """Mirror `src_dir` onto `dst_dir` as raw bytes (binary-safe), touching only
     what actually differs.
+
+    `ref` is the declared `@`-path of the skill. When given, the root
+    `SKILL.md` is written with the provenance banner inserted after its
+    frontmatter (`_bannered_skill_manifest`); every other file is a byte copy.
+    The read-only mode says "not yours"; the banner says whose it is.
 
     Deliberately incremental rather than rmtree-and-rebuild. These trees are
     materialized inside the user's Drive folder, where removing a directory
@@ -269,7 +274,10 @@ def _mirror_tree_bytes(src_dir: Path, dst_dir: Path) -> None:
                 shutil.rmtree(out, ignore_errors=True)
             out.parent.mkdir(parents=True, exist_ok=True)
             executable = bool(src.stat().st_mode & stat.S_IXUSR)
-            _write_if_changed(out, src.read_bytes(), mode=0o555 if executable else 0o444)
+            data = src.read_bytes()
+            if ref is not None and rel == Path(SKILL_MANIFEST):
+                data = _bannered_skill_manifest(data, ref)
+            _write_if_changed(out, data, mode=0o555 if executable else 0o444)
 
     # Pass 2 — drop what the source no longer has. Deepest paths first, so a
     # directory is emptied before it is removed, over a listing materialized up
@@ -281,6 +289,28 @@ def _mirror_tree_bytes(src_dir: Path, dst_dir: Path) -> None:
             shutil.rmtree(stale, ignore_errors=True)
         else:
             stale.unlink(missing_ok=True)
+
+
+def _bannered_skill_manifest(data: bytes, ref: str) -> bytes:
+    """Insert the provenance banner into a `SKILL.md` body.
+
+    The banner goes right after the closing `---` of the frontmatter, so the
+    client still parses `name` / `description` from the top of the file; a
+    manifest without frontmatter gets the banner as its first line. A source
+    that is not valid UTF-8 is copied untouched — the banner is a courtesy,
+    never a reason to fail the deploy.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    banner = _banner(ref)
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            head, body = text[: end + 5], text[end + 5 :]
+            return f"{head}{banner}\n{body}".encode("utf-8")
+    return f"{banner}\n\n{text}".encode("utf-8")
 
 
 def _mirror_key(rel: Path) -> str:

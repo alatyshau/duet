@@ -123,8 +123,25 @@ def test_skills_deploy_copies_tree(ctx, backend_dir, sources):
     report = deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
     assert report["deployed"]["skills_deployed"] == ["alpha"]
     out = ctx / ".claude" / "skills" / "alpha"
-    assert (out / "SKILL.md").read_text(encoding="utf-8") == "# alpha"
+    # SKILL.md is the one file that is not a byte copy: it opens with the
+    # provenance banner naming the declared @-path, then the source body.
+    assert (out / "SKILL.md").read_text(encoding="utf-8") == (
+        f"<!-- {GENERATED_BANNER} from @Src/alpha — edit the source, not this file -->\n\n# alpha"
+    )
     assert (out / "nested" / "f.bin").read_bytes() == b"\x00\x01\x02"
+
+
+def test_skills_banner_goes_after_frontmatter(ctx, backend_dir, sources):
+    # Claude Code parses `name` / `description` from the frontmatter at the top
+    # of SKILL.md, so the banner must not push the frontmatter down.
+    d = _make_skill(sources, "alpha", with_manifest=False)
+    (d / "SKILL.md").write_text("---\nname: alpha\n---\n\n# alpha\n", encoding="utf-8")
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+    out = (ctx / ".claude" / "skills" / "alpha" / "SKILL.md").read_text(encoding="utf-8")
+    assert out == (
+        "---\nname: alpha\n---\n"
+        f"<!-- {GENERATED_BANNER} from @Src/alpha — edit the source, not this file -->\n\n# alpha\n"
+    )
 
 
 def test_skills_missing_manifest_skipped(ctx, backend_dir, sources):
@@ -239,7 +256,7 @@ def test_skills_redeploy_rewrites_only_the_changed_file(ctx, backend_dir, source
     changed = {k for k in before if before[k] != after[k]}
     assert changed == {str(Path("alpha") / "SKILL.md")}
     out = ctx / ".claude" / "skills" / "alpha" / "SKILL.md"
-    assert out.read_text(encoding="utf-8") == "# alpha v2"
+    assert out.read_text(encoding="utf-8").endswith("\n\n# alpha v2")
 
 
 def test_skills_redeploy_drops_what_the_source_removed(ctx, backend_dir, sources):
@@ -272,7 +289,7 @@ def test_skills_mirror_survives_readonly_destination_file(ctx, backend_dir, sour
 
     (sources / "alpha" / "SKILL.md").write_text("# alpha v2", encoding="utf-8")
     deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
-    assert out.read_text(encoding="utf-8") == "# alpha v2"
+    assert out.read_text(encoding="utf-8").endswith("\n\n# alpha v2")
 
 
 def _mode(path: Path) -> int:
@@ -393,7 +410,7 @@ def test_skills_deploy_also_mirrors_to_agents_dir(ctx, backend_dir, sources):
     report = deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
     assert report["deployed"]["agents_skills_deployed"] == ["alpha"]
     out = ctx / ".agents" / "skills" / "alpha"
-    assert (out / "SKILL.md").read_text(encoding="utf-8") == "# alpha"
+    assert (out / "SKILL.md").read_text(encoding="utf-8").endswith("\n\n# alpha")
 
 
 def test_skills_prune_backs_up_ghost_in_agents_dir(ctx, backend_dir, sources):
