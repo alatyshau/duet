@@ -7,8 +7,9 @@ context's `context.json` declarations and materializes them next to the context:
   ``<context>/.agents/skills/<name>/`` (cross-client convention, read by Kimi
   Code). Both targets are Duet-managed: deploy the declared set, prune
   everything else. Deployed files are read-only (``0444``, or ``0555`` when the
-  source file is executable). Absent key → no-op; present (even ``[]``) →
-  manage.
+  source file is executable). Test suites, eval sets and dev caches
+  (``SKILL_EXCLUDED_DIRS``) are not deployed. Absent key → no-op; present
+  (even ``[]``) → manage.
 - ``instructions`` → per-client dot-folder files inside the context folder:
   ``.claude/CLAUDE.md`` (Claude Code), ``.kimi-code/AGENTS.md`` (Kimi Code),
   ``.agents/rules/gemini.md`` (Antigravity). Composed from per-client
@@ -59,6 +60,14 @@ SKILLS_SUBDIR = "skills"
 # Holding area inside each skills dir for pruned skills. Never itself pruned
 # (it is the backup target). A declared skill may not use this reserved name.
 PRUNED_DIR = ".pruned"
+# Directory names never mirrored out of a skill source, at any depth: the
+# skill's own test suite, its eval set (`evals/evals.json`, the skill-creator
+# layout) and the caches its development leaves behind. A
+# client never needs them at runtime, and on Drive every deployed file is a
+# synced file the user did not ask for.
+SKILL_EXCLUDED_DIRS = frozenset(
+    {"tests", "evals", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+)
 
 # out relative path (inside the context folder) → template filename (in this
 # package directory). Per-client dot-folder locations, verified against each
@@ -246,14 +255,23 @@ def _mirror_tree_bytes(src_dir: Path, dst_dir: Path, ref: str | None = None) -> 
     here would be silently reverted on the next window open — the source is the
     thing to edit. The executable bit is the one thing carried over from the
     source, because a skill may ship scripts meant to be run directly.
+
+    Directories named in `SKILL_EXCLUDED_DIRS` are left out wherever they sit
+    in the source. Pass 2 then treats a copy of them already in the
+    destination as something the source dropped, so a tree deployed before
+    the exclusion existed is cleaned on the next deploy.
     """
     # Defense in depth: `_deploy_skills` validates the source, but the prune
     # pass below deletes inside the user's Drive folder. An unreadable or empty
     # source (unmounted repo, revoked permissions) must degrade to a no-op, not
-    # to "remove everything".
+    # to "remove everything". A source holding nothing but excluded material
+    # counts as empty for the same reason.
     if not src_dir.is_dir():
         return
-    entries = sorted(src_dir.rglob("*"))
+    entries = [
+        p for p in sorted(src_dir.rglob("*"))
+        if not _is_excluded(p.relative_to(src_dir), p.is_dir())
+    ]
     if not entries:
         return
 
@@ -289,6 +307,17 @@ def _mirror_tree_bytes(src_dir: Path, dst_dir: Path, ref: str | None = None) -> 
             shutil.rmtree(stale, ignore_errors=True)
         else:
             stale.unlink(missing_ok=True)
+
+
+def _is_excluded(rel: Path, is_dir: bool) -> bool:
+    """Whether a source path lies inside an excluded directory, or is one.
+
+    Only directory names count. A plain file that happens to be called
+    `tests` is still copied, so the last part is checked only when the path
+    is a directory; every earlier part is a directory by construction.
+    """
+    dirs = rel.parts if is_dir else rel.parts[:-1]
+    return any(part in SKILL_EXCLUDED_DIRS for part in dirs)
 
 
 def _bannered_skill_manifest(data: bytes, ref: str) -> bytes:

@@ -379,6 +379,92 @@ def test_mirror_no_op_when_source_is_missing_or_empty(tmp_path):
     assert (dst / "SKILL.md").read_text(encoding="utf-8") == "precious"
 
 
+def test_skills_tests_and_caches_are_not_deployed(ctx, backend_dir, sources):
+    # A skill's own test suite, its eval set and the caches its development leaves behind
+    # are never needed by a client — at the root or nested under scripts.
+    src = _make_skill(sources, "alpha")
+    for rel in (
+        "tests/test_x.py",
+        "tests/fixtures/case.json",
+        "evals/evals.json",
+        "scripts/tool/tests/test_tool.py",
+        "scripts/tool/__pycache__/tool.cpython-314.pyc",
+        ".pytest_cache/README.md",
+        "scripts/tool/run.py",
+    ):
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        (src / rel).write_text("x", encoding="utf-8")
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+
+    for target in (".claude", ".agents"):
+        out = ctx / target / "skills" / "alpha"
+        assert (out / "scripts" / "tool" / "run.py").is_file()
+        assert not (out / "tests").exists()
+        assert not (out / "evals").exists()
+        assert not (out / "scripts" / "tool" / "tests").exists()
+        assert not (out / "scripts" / "tool" / "__pycache__").exists()
+        assert not (out / ".pytest_cache").exists()
+
+
+def test_skills_exclusion_matches_directory_names_only(ctx, backend_dir, sources):
+    # Near-misses stay: a file literally named `tests`, a `tests.md`, a
+    # `test_utils.py`, and a singular `test/` directory (a nested sub-skill in
+    # the wild is named that).
+    src = _make_skill(sources, "alpha")
+    for rel in ("tests", "tests.md", "scripts/test_utils.py", "test/SKILL.md"):
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        (src / rel).write_text("x", encoding="utf-8")
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+
+    out = ctx / ".claude" / "skills" / "alpha"
+    for rel in ("tests", "tests.md", "scripts/test_utils.py", "test/SKILL.md"):
+        assert (out / rel).is_file(), rel
+
+
+def test_skills_redeploy_removes_previously_deployed_tests(ctx, backend_dir, sources):
+    # Trees deployed before the exclusion existed carry `tests/` and caches,
+    # read-only like every deployed file. The next deploy cleans them up.
+    _make_skill(sources, "alpha")
+    (sources / "alpha" / "tests").mkdir()
+    (sources / "alpha" / "tests" / "test_x.py").write_text("x", encoding="utf-8")
+    out = ctx / ".claude" / "skills" / "alpha"
+    for rel in ("tests/test_x.py", "scripts/__pycache__/x.pyc"):
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_text("old", encoding="utf-8")
+        (out / rel).chmod(0o444)
+
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+    assert not (out / "tests").exists()
+    assert not (out / "scripts" / "__pycache__").exists()
+    assert (out / "SKILL.md").is_file()
+
+
+def test_skills_redeploy_touches_nothing_with_excluded_dirs(ctx, backend_dir, sources):
+    _make_skill(sources, "alpha")
+    (sources / "alpha" / "tests").mkdir()
+    (sources / "alpha" / "tests" / "test_x.py").write_text("x", encoding="utf-8")
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+
+    before = _tree_identity(ctx / ".claude" / "skills")
+    assert list(before) == [str(Path("alpha") / "SKILL.md")]
+    deploy_instructions(ctx, _manifest(skills=["@Src/alpha"]), None, _ctx_folders(sources), backend_dir)
+    assert _tree_identity(ctx / ".claude" / "skills") == before
+
+
+def test_mirror_no_op_when_source_holds_only_excluded_dirs(tmp_path):
+    # Same guard as an empty source: nothing to mirror must not read as
+    # "empty the destination".
+    src = tmp_path / "src"
+    (src / "tests").mkdir(parents=True)
+    (src / "tests" / "test_x.py").write_text("x", encoding="utf-8")
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "SKILL.md").write_text("precious", encoding="utf-8")
+
+    _mirror_tree_bytes(src, dst)
+    assert (dst / "SKILL.md").read_text(encoding="utf-8") == "precious"
+
+
 def test_mirror_key_folds_case_and_unicode_form():
     # Drive's macOS folder is case-insensitive and may return a different
     # Unicode normal form than the source repo stores. Both must compare equal,
