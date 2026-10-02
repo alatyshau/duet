@@ -120,7 +120,7 @@ export const MACHINE_SCHEMA: SchemaSpec = {
  *   `git_url` field.
  * - v4: { version: 4, ... } — drops `workspace_config` (workspace assembly is now always
  *   context-first, the option is gone). New optional fields `skills` / `instructions` / `memory` / `system_prompt`
- *   are additive (no migration needed — absent is valid). Backend reads only v4.
+ *   / `ticket_code` are additive (no migration needed — absent is valid). Backend reads only v4.
  *
  * Caller is responsible for the file rename + delete-of-legacy: this migration only transforms
  * the JSON payload.
@@ -170,8 +170,8 @@ export const CONTEXT_SCHEMA: SchemaSpec = {
     3: (data) => {
       // v3 → v4: drop `workspace_config` (the primary_folder option is removed;
       // workspace assembly is now always context-first). All other keys —
-      // including the new additive `skills` / `instructions` / `memory` / `system_prompt` — pass
-      // through untouched.
+      // including the new additive `skills` / `instructions` / `memory` / `system_prompt` /
+      // `ticket_code` — pass through untouched.
       const next: Record<string, unknown> = { ...data, version: 4 }
       delete next.workspace_config
       return next

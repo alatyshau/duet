@@ -9,18 +9,22 @@ v3 introduced multi-repo terminal contexts via the `git_repos` map
 (alias → URL). v4 drops `workspace_config` (workspace assembly is now always
 context-first) and adds per-context deployment declarations: `skills`,
 `instructions` (lists of @-paths), `memory` and `system_prompt` (a single
-@-path each).
+@-path each), and `ticket_code` — the business's three-letter ticket code.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 
 MANIFEST_FILENAME = "context.json"
 TARGET_VERSION = 4
+
+# A business's ticket code: exactly three uppercase Latin letters (`DUE`).
+TICKET_CODE_RE = re.compile(r"[A-Z]{3}")
 
 
 @dataclass
@@ -36,6 +40,7 @@ class Manifest:
     instructions: list[str] | None = None
     memory: str | None = None
     system_prompt: str | None = None
+    ticket_code: str | None = None
 
 
 def read_manifest(
@@ -51,6 +56,9 @@ def read_manifest(
     Errors (when `errors` list provided):
         - `invalid_manifest`: file present but not parseable as JSON / wrong shape.
         - `unrecognized_manifest_version`: file present but `version` is not 4.
+        - `invalid_ticket_code`: `ticket_code` is not three uppercase Latin
+          letters. Only the field is dropped; the manifest stays valid, because
+          a typo in the code must not unregister the whole business.
 
     Backend never writes manifests; upgrades happen in Host.
     """
@@ -218,6 +226,8 @@ def read_manifest(
     if not ok:
         return None
 
+    ticket_code = _read_ticket_code(data, errors, manifest_path, folder)
+
     return Manifest(
         version=version,
         name=name,
@@ -230,6 +240,7 @@ def read_manifest(
         instructions=instructions,
         memory=memory,
         system_prompt=system_prompt,
+        ticket_code=ticket_code,
     )
 
 
@@ -300,6 +311,34 @@ def _read_at_path_string(
         f"`{key}` must be a non-empty string when present",
     )
     return None, False
+
+
+def _read_ticket_code(
+    data: dict,
+    errors: list[dict] | None,
+    manifest_path: Path,
+    folder: Path | str,
+) -> str | None:
+    """Parse the optional `ticket_code` field (`"DUE"`).
+
+    Field-level: an invalid value is reported as `invalid_ticket_code` and
+    dropped, the rest of the manifest is kept.
+    """
+    raw = data.get("ticket_code")
+    if raw is None:
+        return None
+    if isinstance(raw, str) and TICKET_CODE_RE.fullmatch(raw):
+        return raw
+    if errors is not None:
+        errors.append({
+            "path": str(manifest_path),
+            "reason_code": "invalid_ticket_code",
+            "description": (
+                f"context.json at {folder}: `ticket_code` must be three uppercase "
+                f"Latin letters, got {raw!r}; field ignored"
+            ),
+        })
+    return None
 
 
 def read_reference_repos(folder: Path | str | None) -> dict[str, str] | None:

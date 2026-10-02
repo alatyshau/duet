@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { formatAtReference } from '../../core/pathUtils';
+import { nodeFs } from '../../core/fs';
+import { formatAtReference, formatBusinessReference, formatTicketReference } from '../../core/pathUtils';
 
 /**
  * Best-effort fallback for keyboard invocation: VS Code does not pass the
@@ -29,7 +30,12 @@ function activeResource(): vscode.Uri | undefined {
 }
 
 /**
- * Copy each selected resource as a Duet @-reference: `` `@<rootFolder>/<relative>` ``.
+ * Copy each selected resource as a Duet @-reference, first form that applies:
+ *   1. inside a ticket folder → `` `@<ticket>/<relative>` `` (`` `@DUE009/INDEX.md` ``),
+ *      which survives the ticket's moves between `work/`, `backlog/`, `archive/`;
+ *   2. inside a business → `` `@<business name>/<relative>` `` through the nearest
+ *      `context.json`, with the name Duet registers (`@СЕМЬЯ`, not `@!СЕМЬЯ`);
+ *   3. otherwise (repos under DuetData) → `` `@<rootFolder>/<relative>` ``.
  *
  * Invocation paths:
  *   - Explorer context menu → VS Code passes `(resource, resources)`; the
@@ -69,7 +75,11 @@ export async function copyAtPath(resource?: vscode.Uri, resources?: vscode.Uri[]
         // fall back to the workspace folder's display name in that case.
         const rootName = path.basename(folder.uri.fsPath) || folder.name;
         const relative = path.relative(folder.uri.fsPath, uri.fsPath);
-        lines.push(formatAtReference(rootName, relative));
+        lines.push(
+            formatTicketReference(uri.fsPath)
+            ?? await formatBusinessReference(uri.fsPath, (file) => nodeFs.readFile(file, 'utf8'))
+            ?? formatAtReference(rootName, relative)
+        );
     }
 
     if (lines.length > 0) {

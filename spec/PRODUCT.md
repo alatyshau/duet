@@ -98,7 +98,8 @@ Three entity types live in `entities.db`:
   "git_repos": {"Duet": "git@github.com:owner/duet.git"},
   "skills": ["@anthropic-skills.git/skills/pdf"],
   "instructions": ["@Duet.git/packages/instructions/executor.md"],
-  "memory": "@DuetLab/README.md" }
+  "memory": "@DuetLab/README.md",
+  "ticket_code": "DUE" }
 { "version": 4, "name": "БАЗА", "icon": "🗂", "meta": true }
 { "version": 4, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
 ```
@@ -115,6 +116,7 @@ Three entity types live in `entities.db`:
 | `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` and `<context>/.agents/skills/` (see [Deploy Instructions](#deploy-instructions)) |
 | `instructions` | list | optional | `@`-paths whose bodies compose the per-client `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` / `.agents/rules/gemini.md` |
 | `memory` | string | optional | A single `@`-path to the context-memory file; surfaced in orientation's `memory` block |
+| `ticket_code` | string | optional | The business's ticket code: three uppercase Latin letters (`DUE`). Tickets of the business are numbered `<code><3 chars>` (`DUE009`; a leading letter types the ticket — `X` program, `A` process), and `@<number>` resolves through the one context that declares the code (see [Agent alpha paths](#alias-resolution)). Codes are added when first needed, not assigned in advance |
 | `system_prompt` | string | optional | A single `@`-path to a Claude output-style file (frontmatter + body) that becomes the context's **system prompt** in Claude Code, Codex and Kimi Code (see [Deploy Instructions](#deploy-instructions)). Unlike `instructions`, it replaces the client's default prompt instead of joining the composed instruction files |
 
 **Validation rules** (strict v4 reader; implementation `packages/backend/services/manifest.py:read_manifest`):
@@ -123,6 +125,7 @@ Three entity types live in `entities.db`:
 - `reference_repos` shares the alias namespace with `git_repos` — within-manifest overlap is rejected as `invalid_manifest`.
 - `skills` / `instructions` must be lists of non-empty strings when present (shape only; `@`-path resolution happens at deploy / orientation time).
 - `memory` / `system_prompt` must be a non-empty string when present.
+- `ticket_code` is **field-level**: a value that is not three uppercase Latin letters is reported as `invalid_ticket_code` and dropped, the rest of the manifest stays valid (a typo must not unregister the business). A code declared by two or more contexts is reported as `ticket_code_collision`, and ticket paths with that code do not resolve until one context keeps it.
 - No regex / Windows-reserved-name / URL-leading-`-` guards: manifests are user-written, this is intentional.
 
 **Workspace assembly is context-first.** Opening a context with `git_repos` builds a multi-root `.code-workspace` with the **Drive folder first**, cloned repos after (in `git_repos` order). The order is fixed — the former `workspace_config.primary_folder` knob was removed in v4 (its migration drops the field). The first folder is the default cwd for terminals and the anchor for file pickers, so the context's Drive folder (and its `.claude/CLAUDE.md`) anchors the session. The same (re)generation also writes `<context>/.kimi-code/local.toml` with the repo dirs as `additional_dir` entries — a workaround for Kimi Code's blindness to VS Code multi-root workspaces.
@@ -262,6 +265,8 @@ DuetConfig/
 **Contract:** unresolved alias → error (fail fast, not silent fallback). All path comparisons normalize through NFC (macOS NFD vs NTFS NFC).
 
 **Deploy-time `@`-paths are a separate alias space.** The `skills` / `instructions` / `memory` / `system_prompt` declarations use `@<head>/<rest>` resolved by `packages/backend/services/at_paths.py` — `<head>` is a **repo dir** under `DuetData/repos` (e.g. `@anthropic-skills.git`) or a **context name** (e.g. `@DuetLab` → that context's Drive folder), drawn from the Backend's internal hierarchy, not from `{machine}.json`. `..`-traversal escaping the matched root is rejected; an unresolvable `@`-path is skipped with a warning (not fatal — deploy is best-effort per declaration).
+
+**Agent alpha paths are resolved by the MCP tool `resolve_paths`.** Agents write `@<head>/<rest>` in notes, plans and chat, and resolve it through Duet MCP, never by searching the disk. `<head>` is, in this order: a repo dir under `DuetData/repos` (`@Duet.git`), a context name exactly as registered in the entities DB (`@DuetLab`, `@МетаЛаб` — not the folder name `!МетаЛаб`; no aliases), or a ticket number (`@DUE009`, `@DUEX01`). A ticket resolves through the context whose manifest declares its `ticket_code`, to the folder `<number>_*` wherever it lies inside that context's `work/` (active), `backlog/` (waiting) or `archive/` (closed), at any grouping depth (`archive/202609/`, `archive/2026/09/`); so the short form stays valid when the ticket moves. Alpha paths keep their spaces and are always written in backticks. The tool answers in Markdown: the absolute path whenever one can be built (also for a file that does not exist yet, with the nearest existing folder), the ticket's kind and state, or the reason an address does not resolve and what to do — including the exact `ticket_code` line to add when a code is not declared yet. Ticket heads are not part of the deploy-time alias space above: `skills` / `instructions` / `memory` / `system_prompt` declarations do not accept them. Backend detail: [backend COMPONENT.md → Alpha-path resolution](../packages/backend/spec/COMPONENT.md#alpha-path-resolution-resolve_paths). Decisions: DUE009 (`@DUE009/Решения.md`).
 
 ### Repository Naming
 
@@ -416,7 +421,7 @@ npm run verify:backend  # pytest
 
 1. Make code changes; ensure `npm run verify` passes.
 2. `cd packages/host && npm run release` (or `cd packages/extension && npm run vsix` for Extension).
-3. Commit: code + bumped `version` + `BUILD_SHA` together.
+3. Commit: code + bumped `version` together (`resources/BUILD_SHA` is gitignored — it ships inside the build, not in the commit).
 4. Push.
 
 Agent never commits — only prepares the message.

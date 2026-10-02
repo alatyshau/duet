@@ -119,9 +119,9 @@ Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`.
 
 #### `duet.copyAtPath` — copy `@`-reference
 
-User-facing command in the Explorer right-click menu (group `6_copypath`). Copies the resource as `` `@<rootFolder>/<relative>` ``.
+User-facing command in the Explorer right-click menu (group `6_copypath`). Copies the resource as an alpha path in the first form that applies: inside a ticket folder — the short ticket form `` `@<ticket>/<relative-to-ticket>` ``; inside a business — `` `@<business name>/<relative>` `` through the nearest `context.json`; otherwise (repos under DuetData) — `` `@<rootFolder>/<relative>` ``.
 
-Example: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace folder copies as `` `@Duet.git/packages/host/spec/COMPONENT.md` ``.
+Examples: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace folder copies as `` `@Duet.git/packages/host/spec/COMPONENT.md` ``; `DuetLab/work/DUE009_AlphaPaths/Решения.md` copies as `` `@DUE009/Решения.md` ``; `!СЕМЬЯ/ЗОЖ/план.md` copies as `` `@СЕМЬЯ/ЗОЖ/план.md` ``.
 
 **Why it exists:**
 1. **Multi-root disambiguation.** Native VS Code Copy Relative Path strips the workspace root, so `packages/host` could come from any open folder. Including the root folder name removes that ambiguity.
@@ -131,7 +131,9 @@ Example: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace folde
 
 | Decision | Rationale |
 |----------|-----------|
-| Root name = `path.basename(workspaceFolder.uri.fsPath)` | On-disk folder name is what the user has on the filesystem. `*.code-workspace` `name` field can override the display label, but `@`-reference points at the filesystem — basename stays stable. Falls back to `folder.name` for filesystem roots where basename is empty |
+| Business head = `name` from the nearest `context.json` (walking up from the resource itself) | Alpha paths use the business name as Duet registers it, not the folder name (DUE009, decision В3): the folder `!СЕМЬЯ` is the business `СЕМЬЯ`, and `@!СЕМЬЯ/…` would not resolve. The nearest business wins, so a file of `Duet` inside `DuetLab` copies as `@Duet/…`. Read straight from disk, no Backend call; a manifest without a non-empty `name` is skipped |
+| Fallback head = `path.basename(workspaceFolder.uri.fsPath)` | For resources outside any business — repos under `DuetData/repos` (`@Duet.git/…`), whose dir name is their alpha-path head. Falls back to `folder.name` for filesystem roots where basename is empty |
+| Inside a ticket → `` `@DUE009/<rest>` `` | The short form stays valid when the ticket moves between `work/`, `backlog/` and `archive/`; the long `@DuetLab/work/DUE009_…/` breaks. The ticket is the outermost folder matching `^[A-Z]{3}(\d{3}\|[A-Z]\d{2})(_\|$)` below a `work`/`backlog`/`archive` folder (any grouping depth, e.g. `archive/2026/09/`), the same grammar Backend's `resolve_paths` resolves. Pure path logic, no Backend call; whether the business has declared its `ticket_code` yet is `resolve_paths`' concern (it tells the agent which line to add) |
 | Forward slashes always | The `@`-reference is platform-agnostic; `formatAtReference` normalizes `\` → `/` |
 | Empty relative → `` `@<root>` `` | When the resource IS the workspace root, trailing `/` dropped |
 | No success notification | Native Copy Path is silent; multi-select would otherwise spam toasts |
@@ -142,9 +144,9 @@ Example: `packages/host/spec/COMPONENT.md` inside the `Duet.git` workspace folde
 | Keybinding `Cmd+Shift+C` (mac) / `Alt+Shift+C` (win/linux) | Active in either Explorer tree or editor. Resolves target via `activeTextEditor`. Folders out of reach for keybinding — use right-click menu |
 | Registered before pointer guard | Works even when Duet Host is not configured |
 
-**Known limitation:** in a multi-root workspace where two folders share the same basename (e.g. `frontend/spec` and `backend/spec` added as roots), `@spec/...` is ambiguous. No detection — user expected to keep root basenames unique.
+**Known limitation:** for resources outside any business (the basename fallback), two workspace folders with the same basename give the same `@<name>/...`. No detection — user expected to keep root basenames unique.
 
-Pure logic: `core/pathUtils.ts:formatAtReference(rootName, relativePath)`. Shell: `vscode/commands/copyAtPath.ts`.
+Pure logic: `core/pathUtils.ts:formatTicketReference(absolutePath)` (ticket form or `null`), then `formatBusinessReference(absolutePath, readText)` (business form or `null`; file reading injected), then `formatAtReference(rootName, relativePath)`. Shell: `vscode/commands/copyAtPath.ts`.
 
 ### Workspace Files
 
@@ -263,7 +265,7 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 | @-ref resolver | `core/pathUtils.ts` (`resolveAtRef`) |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` (`writeContextWithReposWorkspace`) |
-| Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatAtReference`) |
+| Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatTicketReference`, `formatBusinessReference`, `formatAtReference`) |
 | Tree decorations | `vscode/providers/TreeDecorationProvider.ts` |
 | Accordion controller | `core/tree/AccordionController.ts` |
 | Entity types in Extension | `core/api-client.ts` → `ContextEntity` type |

@@ -384,6 +384,31 @@ class TestDeployFieldsValidation:
         assert errors[0]["reason_code"] == "invalid_manifest"
         assert "system_prompt" in errors[0]["description"]
 
+class TestTicketCode:
+    """`ticket_code` is field-level: a bad value drops the field, not the manifest."""
+
+    def test_valid_code(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 4, "name": "X", "ticket_code": "DUE"})
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.ticket_code == "DUE"
+
+    def test_absent_is_none(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"version": 4, "name": "X"})
+        manifest = read_manifest(tmp_path, [])
+        assert manifest is not None
+        assert manifest.ticket_code is None
+
+    def test_invalid_code_drops_field_keeps_manifest(self, tmp_path: Path) -> None:
+        for bad in ("due", "DU", "DUEX", "ДУЕ", 7, ""):
+            _write(tmp_path, {"version": 4, "name": "X", "ticket_code": bad})
+            errors: list[dict] = []
+            manifest = read_manifest(tmp_path, errors)
+            assert manifest is not None and manifest.name == "X", bad
+            assert manifest.ticket_code is None, bad
+            assert [e["reason_code"] for e in errors] == ["invalid_ticket_code"], bad
+
+
 class TestReadReferenceRepos:
     def test_returns_dict_when_present(self, tmp_path: Path) -> None:
         _write(tmp_path, {

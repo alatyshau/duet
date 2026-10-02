@@ -506,6 +506,47 @@ class TestScanErrors:
         assert len(collisions) == 1
         assert "Conflict" in collisions[0]["description"]
 
+    def test_ticket_code_collision_error(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """One error per code declared by two contexts; both stay registered."""
+        root_path = tmp_path / "Root"
+        ManifestBuilder.context(root_path, "Root", ticket_code="ROO")
+        ManifestBuilder.context(root_path / "A", "Alpha", ticket_code="DUE")
+        ManifestBuilder.context(root_path / "B", "Beta", ticket_code="DUE")
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        collisions = [e for e in result["errors"] if e["reason_code"] == "ticket_code_collision"]
+        assert len(collisions) == 1
+        assert '"DUE"' in collisions[0]["description"]
+        assert "Alpha" in collisions[0]["description"]
+        assert "Beta" in collisions[0]["description"]
+        assert db.find_by_name("Alpha") and db.find_by_name("Beta")
+
+    def test_invalid_ticket_code_keeps_context(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A typo in `ticket_code` is reported but never unregisters the business."""
+        root_path = tmp_path / "Root"
+        ManifestBuilder.context(root_path, "Root")
+        ManifestBuilder.context(root_path / "Lab", "Lab", ticket_code="due")
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        assert [e["reason_code"] for e in result["errors"]] == ["invalid_ticket_code"]
+        assert db.find_by_name("Lab") is not None
+
     def test_invalid_manifest_error(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:

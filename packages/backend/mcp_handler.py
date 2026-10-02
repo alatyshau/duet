@@ -15,6 +15,7 @@ from mcp.types import ErrorData, INVALID_PARAMS
 
 from config import get_duet_data_path, get_timezone, get_version
 from services.entities import EntitiesService
+from services.resolve_paths import render_markdown
 from services.workspace import WorkspaceService
 
 
@@ -251,6 +252,27 @@ def turn_report(report: str) -> str:
             )
         )
     return report
+
+
+@mcp.tool(structured_output=False)
+def resolve_paths(paths: list[str]) -> str:
+    """Resolve alpha paths to absolute paths. Pass all addresses in one call.
+
+    An alpha path is `@<business>/...`, `@<repo>.git/...` or `@<ticket>/...`
+    (`@DUE009`, `@DUEX01/notes.md`): a ticket resolves wherever its folder now
+    lies, in work, backlog or archive.
+
+    Args:
+        paths: Alpha paths, e.g. ["@DUE009/INDEX.md", "@DuetLab/README.md"].
+
+    Returns Markdown, one `### <path>` section per address: the absolute path;
+    for a ticket, its kind and state; for a missing file, the path anyway and
+    the nearest existing folder; for an address that does not resolve, the
+    reason and what to do.
+    """
+    if not paths:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message="paths must not be empty"))
+    return render_markdown(get_workspace_service().resolve_paths(paths))
 
 
 @mcp.tool()

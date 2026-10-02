@@ -27,6 +27,7 @@ server.py (entry point, lifecycle)
     │   ├── products.py      products/components discovery (product/component discovery)
     │   ├── deploy_instructions.py  deploy a context's skills/instructions/system_prompt into its Drive folder
     │   ├── at_paths.py      `@<name>/<rest>` resolver (repos / context folders)
+    │   ├── resolve_paths.py agent-facing alpha-path resolver (repos / contexts / tickets) behind `resolve_paths`
     │   └── manifest.py      strict v4 manifest reader
     ├── scanner.py           hierarchy scan, strict v4 reader
     ├── watcher.py           manifest file watcher, auto-rescan
@@ -51,9 +52,10 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan (strict v4), `git_repos` → N product_repo while Drive context recursion continues | HTTP, config writes, manifest upgrades, products/components discovery |
 | `services/products.py` | Build orientation `products[]` + components (product/component discovery) | DB writes, HTTP |
-| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory`/`system_prompt` @-path declarations) | Migrations (Host owns) |
+| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory`/`system_prompt` @-path declarations and the field-level `ticket_code`) | Migrations (Host owns) |
 | `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
 | `services/at_paths.py` | Resolve `@<repo-dir>` (under `DuetData/repos`) or `@<context-name>` (→ that context's Drive folder); reject `..` escape | File copy, HTTP, DB |
+| `services/resolve_paths.py` | Resolve agent alpha paths incl. tickets (`@DUE009`), explain every failure, render the tool's Markdown | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Merge bootstrapper + per-agent core → one file per agent | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file lookup | DB, HTTP |
@@ -105,6 +107,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `timestamp` | string directly |
 | `duet_data_path` | string directly |
 | `turn_plan` | Plan text as unstructured content (prototype: one turn's checklist, stateless; `fmt` picks `md` / `html` / `line` / `plain`; `structured_output=False` keeps the client from showing a `{"result": ...}` envelope) |
+| `resolve_paths` | Markdown text, one `### <path>` section per requested alpha path (see [Alpha-path resolution](#alpha-path-resolution-resolve_paths)); `structured_output=False`; empty list → `INVALID_PARAMS` |
 | `turn_report` | The given report text unchanged, as unstructured content (prototype: one agent report on preparing the answer, free-form Markdown chosen by the caller; the first non-empty line must be a `### ` heading with text, otherwise `INVALID_PARAMS`; `structured_output=False` for the same reason as `turn_plan`) |
 | `orientation` | dict directly |
 | `contexts` | list directly |
@@ -208,6 +211,16 @@ Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_
 
 **REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII). Returns result directly (not wrapped).
 
+### Alpha-path resolution (`resolve_paths`)
+
+The MCP tool `resolve_paths(paths)` resolves the alpha paths agents write (normative grammar: [PRODUCT.md → @Alias Resolution](../../../spec/PRODUCT.md#alias-resolution)). Logic: `services/resolve_paths.py`; `WorkspaceService.resolve_paths` feeds it the contexts from the DB and `<DuetData>/repos`. One call takes a list; every address gets its own result, and a failure in one never fails the call.
+
+- **Head order:** repo dir under `DuetData/repos` → context name (canonical DB name, NFC; input is NFC-normalized) → ticket number `^[A-Z]{3}(\d{3}|[A-Z]\d{2})$`. `..` escaping the matched root is refused.
+- **Tickets:** the owner is the one context whose manifest declares that `ticket_code`; codes are read **live** from the manifests on each call (not from the DB), so a code added a moment ago works without waiting for the watcher's rescan. The folder `<number>` / `<number>_*` is searched in the owner's `work/`, `backlog/`, `archive/` with up to 3 grouping levels (`archive/2026/09/`), never inside another ticket folder; state = first status dir; kind by the number's letter (`X` program, `A` process, none project); archive month from `YYYYMM` or `YYYY/MM`.
+- **Missing file:** the absolute path is still returned (the agent may be creating it), with the nearest existing folder as an alpha path and an absolute path.
+- **Refusals** (stable `error_code`, Russian message telling what to do): `not_alpha_path`, `unknown_head` (suggests an exact-case name when only the case differs), `escapes_root`, `ticket_not_found`, `ticket_ambiguous` (two folders with one number), `ticket_code_conflict` (code declared by 2+ contexts), `ticket_code_unregistered` — the tool searches every context for the folder and names the `context.json` and the exact line `"ticket_code": "XYZ"` to add; when the folder sits in a context with another code, it says so instead.
+- **Output:** Markdown, no JSON, no resolution chain (decided in DUE009). A future HTTP endpoint would serialize the same `Resolution` objects.
+
 ### Deploy Instructions
 
 `POST /deploy-instructions` with body `{"workspace_paths": [...]}` resolves the owning context (same multi-path resolution as orientation) and materializes that context's `skills` / `instructions` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
@@ -293,7 +306,7 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 **`/scan` behavior:**
 - **Debounce:** if last scan completed < 5 seconds ago, returns `{ status: "skipped", reason: "recent_scan", entities_count: 0, errors: [] }`. All scan responses conform to `ScanResult` shape (via `make_scan_result()` factory).
 - **Blocking:** scan runs synchronously. During scan, backend does NOT respond to other requests. Typical duration: 1-5 seconds. OK because single-user local app.
-- **Scan errors** in response: `{path, reason_code, description}`. Codes: `name_collision`, `repo_collision`, `invalid_manifest`, `unrecognized_manifest_version`. Backend never writes manifests; Host owns missing-file creation and version upgrades.
+- **Scan errors** in response: `{path, reason_code, description}`. Codes: `name_collision`, `repo_collision`, `invalid_manifest`, `unrecognized_manifest_version`, `invalid_ticket_code` (field dropped, context kept), `ticket_code_collision` (one per code declared by 2+ contexts; all stay registered). Backend never writes manifests; Host owns missing-file creation and version upgrades.
 - **`run_scan_with_cache()`** (in `server.py`): shared function that runs scan + writes JSON cache (`scan.json`, `contexts.json`). Used by both `POST /scan` and ManifestWatcher.
 
 ### Manifest Watcher
@@ -485,6 +498,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Manifest reader (strict v4) | `services/manifest.py:read_manifest()` |
 | Deploy skills/instructions/system_prompt | `services/deploy_instructions.py:deploy_instructions()` |
 | `@<name>/<rest>` resolution | `services/at_paths.py:resolve_at_path()` |
+| Agent alpha paths, tickets | `services/resolve_paths.py:resolve_paths()`, `WorkspaceService.resolve_paths()` |
 | Context-memory pointer | `services/workspace.py:_build_memory()` |
 | Products/components discovery | `services/products.py:build_products()` |
 | Description extraction | `description.py:extract_description()` |

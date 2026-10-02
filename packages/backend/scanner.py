@@ -10,6 +10,9 @@ Key behaviors:
 - `git_repos` registers N `product_repo` children (one per alias); Drive
   recursion still continues so nested context folders are discoverable.
 - Deterministic order: readdir results sorted by name.
+- Ticket codes: a `ticket_code` declared by two or more contexts is reported
+  as `ticket_code_collision`. The scanner only reports; `resolve_paths`
+  refuses such a code at call time.
 """
 
 import os
@@ -69,6 +72,8 @@ class Scanner:
         self._current_root_folder: Path | None = None
         # Structured errors collected during scan
         self.errors: list[dict] = []
+        # ticket_code → [(context name, manifest path)] seen during the walk
+        self._ticket_codes: dict[str, list[tuple[str, Path]]] = {}
 
     def _to_relative_path(self, absolute_path: Path) -> str:
         """Convert absolute path to relative path from current root context's parent.
@@ -108,6 +113,7 @@ class Scanner:
         try:
             self._scan_in_progress = True
             self.errors = []
+            self._ticket_codes = {}
             self.db.init()
             self.db.clear()
 
@@ -118,6 +124,7 @@ class Scanner:
                 self._current_root_folder = path
                 self._scan_context(path, parent_id=None)
 
+            self._report_ticket_code_collisions()
             entities = self.db.get_all_entities()
             return make_scan_result("completed", entities_count=len(entities), errors=self.errors)
         finally:
@@ -233,6 +240,11 @@ class Scanner:
 
         self._register_reference_repos(manifest, context_id, manifest_path)
 
+        if manifest.ticket_code:
+            self._ticket_codes.setdefault(manifest.ticket_code, []).append(
+                (unique_name, manifest_path)
+            )
+
         if manifest.git_repos:
             # One product_repo per alias. Do not return here: nested Drive
             # folders may carry their own context.json and must stay visible
@@ -258,6 +270,22 @@ class Scanner:
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
             self._scan_context(Path(entry.path), context_id)
+
+    def _report_ticket_code_collisions(self) -> None:
+        """Emit one `ticket_code_collision` per code declared by 2+ contexts."""
+        for code, owners in self._ticket_codes.items():
+            if len(owners) < 2:
+                continue
+            names = ", ".join(name for name, _ in owners)
+            self.errors.append({
+                "path": str(owners[0][1]),
+                "reason_code": "ticket_code_collision",
+                "description": (
+                    f'Ticket code "{code}" is declared by {len(owners)} contexts: '
+                    f"{names}. Ticket paths with this code do not resolve until "
+                    f"only one context keeps it"
+                ),
+            })
 
     def _register_reference_repos(
         self, manifest: Manifest, parent_id: int, manifest_path: Path | None = None

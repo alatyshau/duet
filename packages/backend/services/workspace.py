@@ -37,6 +37,7 @@ from services.manifest import (
     read_reference_repos as _read_manifest_reference_repos,
 )
 from services.at_paths import resolve_at_path
+from services.resolve_paths import ContextRef, Resolution, resolve_paths as _resolve_paths
 from services.deploy_instructions import deploy_instructions as _deploy_instructions
 from services.products import build_products
 
@@ -278,6 +279,18 @@ class WorkspaceService:
             if folder:
                 out[entity.name] = str(folder)
         return out
+
+    def resolve_paths(self, paths: list[str]) -> list[Resolution]:
+        """Resolve agent-facing alpha paths (repos, contexts, tickets).
+
+        See `services/resolve_paths.py`; contexts come from the entities DB,
+        ticket codes are read live from their manifests.
+        """
+        contexts = [
+            ContextRef(name=name, folder=Path(folder))
+            for name, folder in self._build_context_folders().items()
+        ]
+        return _resolve_paths(paths, get_repos_path(), contexts)
 
     def _build_memory(self, entity: Entity) -> dict | None:
         """Resolve the context-memory pointer (`context.json` → `memory`).
