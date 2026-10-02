@@ -236,7 +236,7 @@ Per-package pipeline (full release contract: see /spec/PRODUCT.md → Pre-commit
 npm run vsix   # bump + build + package → dist/duet-{version}.vsix
 ```
 
-`build-vsix.js`: bump patch → update UI title → esbuild --production → vsce package.
+`build-vsix.js`: bump patch → update UI title → esbuild --production → vsce package. The built VSIX is then copied into `DuetData/` (release rule in [PRODUCT.md → Pre-commit Verification](../../../spec/PRODUCT.md#pre-commit-verification)).
 
 | Script | What |
 |--------|------|

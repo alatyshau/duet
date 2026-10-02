@@ -513,7 +513,7 @@ Per-package pipeline (full release contract: see /spec/PRODUCT.md → Pre-commit
 npm run release [-- --mac|--win|--linux]   # default: --mac
 ```
 
-`build-release.cjs`: bump patch → write `resources/BUILD_SHA` (git short SHA) → `electron-vite build` → `electron-builder` → `dist/Duet-{version}.dmg`.
+`build-release.cjs`: bump patch → write `resources/BUILD_SHA` (git short SHA) → `electron-vite build` → `electron-builder` → `dist/Duet-{version}.dmg`. The built DMG is then copied into `DuetData/` (release rule in [PRODUCT.md → Pre-commit Verification](../../../spec/PRODUCT.md#pre-commit-verification)).
 
 | Tool | Role |
 |------|------|

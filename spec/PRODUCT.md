@@ -421,8 +421,9 @@ npm run verify:backend  # pytest
 
 1. Make code changes; ensure `npm run verify` passes.
 2. `cd packages/host && npm run release` (or `cd packages/extension && npm run vsix` for Extension).
-3. Commit: code + bumped `version` together (`resources/BUILD_SHA` is gitignored — it ships inside the build, not in the commit).
-4. Push.
+3. Copy the artifacts into `DuetData/`: `packages/host/dist/Duet-{version}.dmg` and `packages/extension/dist/duet-{version}.vsix`. Always, on every release — the user installs Host and the Extension from there (rule set by Andrei, 2026-10-02).
+4. Commit: code + bumped `version` together (`resources/BUILD_SHA` is gitignored — it ships inside the build, not in the commit).
+5. Push.
 
 Agent never commits — only prepares the message.
 
