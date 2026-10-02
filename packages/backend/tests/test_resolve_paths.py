@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mcp_handler import mcp
 from mcp_handler import resolve_paths as resolve_paths_tool
+from services.at_paths import resolve_at_path
 from services.resolve_paths import (
     ContextRef,
     describe_ticket,
@@ -231,20 +232,53 @@ class TestRefusals:
         assert res.error_code == "unknown_head"
         assert "`@DuetLab`" in res.error
 
-    def test_escape_refused(self, tree: dict) -> None:
-        assert _one(tree, "@DuetLab/../x").error_code == "escapes_root"
-        assert _one(tree, "@DUE009/../../README.md").error_code == "escapes_root"
+    def test_dot_segments_refused(self, tree: dict) -> None:
+        """No `.` or `..` anywhere: `@..` once reached the parent of the repos dir."""
+        for raw in ("@DuetLab/../x", "@DUE009/../../README.md", "@Duet.git/spec/../spec",
+                    "@..", "@../data/entities.db", "@.", "@./Duet.git", "@DuetLab/./x",
+                    "@DuetLab\\..\\x"):
+            res = _one(tree, raw)
+            assert res.error_code == "dot_segment", raw
+            assert res.absolute is None, raw
 
-    def test_dot_heads_refused(self, tree: dict) -> None:
-        """`@..` must not reach the parent of the repos dir (DuetData)."""
-        for raw in ("@..", "@../data/entities.db", "@.", "@./Duet.git"):
-            assert _one(tree, raw).error_code == "escapes_root", raw
+    def test_symlink_out_of_the_root_refused(self, tree: dict, tmp_path: Path) -> None:
+        outside = _dir(tmp_path / "outside")
+        (tree["lab"] / "link").symlink_to(outside, target_is_directory=True)
+        assert _one(tree, "@DuetLab/link/x").error_code == "escapes_root"
 
     def test_one_failure_does_not_stop_the_rest(self, tree: dict) -> None:
         results = resolve_paths(["@nope", "@DuetLab"], tree["repos"], tree["contexts"])
         assert results[0].error and results[1].error is None
         out = render_markdown(results)
         assert out.index("### @nope") < out.index("### @DuetLab")
+
+
+class TestSameGrammarAsDeploy:
+    """Deploy declarations and the tool share `services/at_paths.py`; on every
+    address that is not a ticket they must give the same answer."""
+
+    ADDRESSES = (
+        "@Duet.git", "@Duet.git/spec/PRODUCT.md", "@Duet.git/нет/файла.md",
+        "@DuetLab", "@DuetLab/README.md", "@DuetLab/нет.md", "@DuetLab/",
+        "@DuetLab//README.md", "@DuetLab\\README.md", "  @DuetLab/README.md ",
+        "@МетаЛаб", "@Семейный ЛикБез",
+        "@Семейный ЛикБез".replace("й", "и\u0306"),  # NFD
+        "@duetlab", "@nope", "@", "@/abs", "DuetLab/README.md", "",
+        "@..", "@.", "@DuetLab/..", "@DuetLab/./README.md", "@Duet.git/spec/../spec",
+        "@DuetLab\\..\\x",
+    )
+
+    def test_same_answer_on_every_address(self, tree: dict) -> None:
+        folders = {c.name: str(c.folder) for c in tree["contexts"]}
+        for raw in self.ADDRESSES:
+            deploy = resolve_at_path(raw, tree["repos"], folders)
+            tool = _one(tree, raw)
+            assert deploy == tool.absolute, raw
+
+    def test_tickets_are_only_for_the_tool(self, tree: dict) -> None:
+        folders = {c.name: str(c.folder) for c in tree["contexts"]}
+        assert resolve_at_path("@DUE009/INDEX.md", tree["repos"], folders) is None
+        assert _one(tree, "@DUE009/INDEX.md").error is None
 
 
 class TestTool:

@@ -26,7 +26,7 @@ server.py (entry point, lifecycle)
     │   ├── entities.py      EntitiesService — /contexts, /scan
     │   ├── products.py      products/components discovery (product/component discovery)
     │   ├── deploy_instructions.py  deploy a context's skills/instructions/system_prompt into its Drive folder
-    │   ├── at_paths.py      `@<name>/<rest>` resolver (repos / context folders)
+    │   ├── at_paths.py      alpha-path grammar: form, repo/context heads, containment
     │   ├── resolve_paths.py agent-facing alpha-path resolver (repos / contexts / tickets) behind `resolve_paths`
     │   └── manifest.py      strict v4 manifest reader
     ├── scanner.py           hierarchy scan, strict v4 reader
@@ -54,7 +54,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `services/products.py` | Build orientation `products[]` + components (product/component discovery) | DB writes, HTTP |
 | `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory`/`system_prompt` @-path declarations and the field-level `ticket_code`) | Migrations (Host owns) |
 | `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
-| `services/at_paths.py` | Resolve `@<repo-dir>` (under `DuetData/repos`) or `@<context-name>` (→ that context's Drive folder); reject `..` escape | File copy, HTTP, DB |
+| `services/at_paths.py` | The one grammar of alpha paths, shared by deploy and `resolve_paths`: parse `@<head>/<rest>`, find the repo dir (under `DuetData/repos`) or context (→ its Drive folder) a head stands for, keep the target inside it; refuse `.` / `..` segments | Tickets, file copy, HTTP, DB |
 | `services/resolve_paths.py` | Resolve agent alpha paths incl. tickets (`@DUE009`), explain every failure, render the tool's Markdown | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Merge bootstrapper + per-agent core → one file per agent | DB, HTTP |
@@ -218,14 +218,14 @@ The MCP tool `resolve_paths(paths)` resolves the alpha paths agents write (norma
 - **Head order:** repo dir under `DuetData/repos` → context name (canonical DB name, NFC; input is NFC-normalized) → ticket number `^[A-Z]{3}(\d{3}|[A-Z]\d{2})$`. `..` escaping the matched root is refused.
 - **Tickets:** the owner is the one context whose manifest declares that `ticket_code`; codes are read **live** from the manifests on each call (not from the DB), so a code added a moment ago works without waiting for the watcher's rescan. The folder `<number>` / `<number>_*` is searched in the owner's `work/`, `backlog/`, `archive/` with up to 3 grouping levels (`archive/2026/09/`), never inside another ticket folder; state = first status dir; kind by the number's letter (`X` program, `A` process, none project); archive month from `YYYYMM` or `YYYY/MM`.
 - **Missing file:** the absolute path is still returned (the agent may be creating it), with the nearest existing folder as an alpha path and an absolute path.
-- **Refusals** (stable `error_code`, Russian message telling what to do): `not_alpha_path`, `unknown_head` (suggests an exact-case name when only the case differs), `escapes_root`, `ticket_not_found`, `ticket_ambiguous` (two folders with one number), `ticket_code_conflict` (code declared by 2+ contexts), `ticket_code_unregistered` — the tool searches every context for the folder and names the `context.json` and the exact line `"ticket_code": "XYZ"` to add; when the folder sits in a context with another code, it says so instead.
+- **Refusals** (stable `error_code`, Russian message telling what to do): `not_alpha_path`, `dot_segment` (a `.` or `..` segment anywhere in the address), `unknown_head` (suggests an exact-case name when only the case differs), `escapes_root` (the target leaves its root, e.g. through a symlink), `ticket_not_found`, `ticket_ambiguous` (two folders with one number), `ticket_code_conflict` (code declared by 2+ contexts), `ticket_code_unregistered` — the tool searches every context for the folder and names the `context.json` and the exact line `"ticket_code": "XYZ"` to add; when the folder sits in a context with another code, it says so instead.
 - **Output:** Markdown, no JSON, no resolution chain (decided in DUE009). A future HTTP endpoint would serialize the same `Resolution` objects.
 
 ### Deploy Instructions
 
 `POST /deploy-instructions` with body `{"workspace_paths": [...]}` resolves the owning context (same multi-path resolution as orientation) and materializes that context's `skills` / `instructions` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
 
-**@-path resolution** (`services/at_paths.py:resolve_at_path`): `@<head>/<rest>` resolves `<head>` to either a repo directory `<DuetData>/repos/<head>` (when it exists) or a context named `<head>` (→ that context's Drive folder). Entries that don't start with `@`, have an empty/absolute body, or escape the matched root via `..` resolve to `None` (warning + skip).
+**@-path resolution** (`services/at_paths.py`): `parse_at_path` takes `@<head>/<rest>` apart (`/` and `\` both separate segments, empty segments are dropped, text is compared in NFC), `find_base` resolves `<head>` to either a repo directory `<DuetData>/repos/<head>` (when it exists) or a context named `<head>` (→ that context's Drive folder), `join_under` keeps the target inside it. A `.` or `..` segment is refused anywhere in the address, because nothing needs one and leaving it to `Path.resolve()` once let `@..` reach the parent of the repos dir. `resolve_at_path` is those three for deploy declarations: a malformed, dotted, unknown or escaping entry resolves to `None` (warning + skip). The `resolve_paths` tool calls the same three and adds only ticket heads and its explanations; `tests/test_resolve_paths.py::TestSameGrammarAsDeploy` pins that both give one answer on every non-ticket address. Ticket heads are not accepted in deploy declarations.
 
 **skills** (byte-for-byte copy into two targets: `<context>/.claude/skills/<name>/` for Claude Code and `<context>/.agents/skills/<name>/` for Kimi Code — cross-client convention):
 - Absent key → not managed at all (either target). Present (even `[]`) → manage.
@@ -497,7 +497,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Hierarchy scan | `scanner.py:_scan_context()` |
 | Manifest reader (strict v4) | `services/manifest.py:read_manifest()` |
 | Deploy skills/instructions/system_prompt | `services/deploy_instructions.py:deploy_instructions()` |
-| `@<name>/<rest>` resolution | `services/at_paths.py:resolve_at_path()` |
+| `@<name>/<rest>` resolution | `services/at_paths.py` (`parse_at_path`, `find_base`, `join_under`, `resolve_at_path`) |
 | Agent alpha paths, tickets | `services/resolve_paths.py:resolve_paths()`, `WorkspaceService.resolve_paths()` |
 | Context-memory pointer | `services/workspace.py:_build_memory()` |
 | Products/components discovery | `services/products.py:build_products()` |

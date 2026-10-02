@@ -287,5 +287,17 @@ describe('pathUtils', () => {
             expect(resolveAtRef('Duet.git', gitFolders)).toBeNull();
             expect(resolveAtRef('@', gitFolders)).toBeNull();
         });
+
+        it('refuses `.` and `..` segments anywhere, as the Backend does', () => {
+            for (const ref of ['@..', '@.', '@../data', '@Duet.git/..', '@Duet.git/a/../b',
+                '@Duet.git/./a', '@Duet.git\\..\\a', '@OntoCore/..']) {
+                expect(resolveAtRef(ref, gitFolders, 'OntoCore', '/drive/OntoCore'), ref).toBeNull();
+            }
+        });
+
+        it('treats a backslash as a separator', () => {
+            expect(resolveAtRef('@Duet.git\\packages', gitFolders))
+                .toBe(path.join('/abs/DuetData/repos/Duet.git', 'packages'));
+        });
     });
 });

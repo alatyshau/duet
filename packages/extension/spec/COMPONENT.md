@@ -96,7 +96,7 @@ Both providers are synchronous wrappers around a snapshot:
 | `duet.contexts` (ДЕЛА) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. Terminal contexts highlighted when any of their `git_repos` aliases is open in a workspace folder |
 | `duet.context` (КОНТЕКСТ) | `ContextProvider` | `apiClient.orientation(currentFolderPaths)` (`OrientationResponse`) | Chain of contexts the current workspace folders resolve into → top-level products → components. `workspace.kind === 'unknown'` → single info node |
 
-Product `path` (`@<alias>.git` for git-products, `@<context_name>[/<sub>]` for drive-products) resolves against `workspace.git_folders` / `workspace.context_folder` via `core/pathUtils.ts:resolveAtRef`. Components carry paths relative to their product. Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md](UI.md).
+Product `path` (`@<alias>.git` for git-products, `@<context_name>[/<sub>]` for drive-products) resolves against `workspace.git_folders` / `workspace.context_folder` via `core/pathUtils.ts:resolveAtRef`, the extension's own copy of the alpha-path grammar that the Backend owns in `services/at_paths.py` (it resolves the refs of one `orientation()` answer without a round trip): `/` and `\` separate segments, a `.` or `..` segment makes the ref unresolvable. Components carry paths relative to their product. Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md](UI.md).
 
 ### Commands
 

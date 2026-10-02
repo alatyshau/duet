@@ -164,7 +164,12 @@ async function readBusinessName(dir: string, readText: ReadText): Promise<string
  *    resolved against `contextFolder`.
  *
  * Returns null when the head matches neither a known git alias nor the
- * context name — caller decides how to surface that to the user.
+ * context name, or when the reference has a `.` / `..` segment — caller
+ * decides how to surface that to the user.
+ *
+ * This is the extension's copy of the alpha-path grammar, which the Backend
+ * owns in `services/at_paths.py`; it resolves the product refs of one
+ * `orientation()` answer without a round trip, so keep the two in step.
  */
 export function resolveAtRef(
     atRef: string,
@@ -175,9 +180,10 @@ export function resolveAtRef(
     if (!atRef.startsWith('@')) {
         return null;
     }
-    const stripped = atRef.slice(1);
-    const segments = stripped.split('/').filter(Boolean);
-    if (segments.length === 0) {
+    // Same grammar as the Backend's `services/at_paths.py`: `/` and `\` both
+    // separate segments, empty ones are dropped, `.` and `..` are refused.
+    const segments = atRef.slice(1).split(/[\\/]/).filter(Boolean);
+    if (segments.length === 0 || segments.some(s => s === '.' || s === '..')) {
         return null;
     }
     const [head, ...tail] = segments;

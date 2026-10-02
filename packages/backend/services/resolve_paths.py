@@ -16,10 +16,12 @@ is the first of those folders. Codes are read live from the manifests on each
 call, so a code the agent has just added works on the next call, without
 waiting for a rescan.
 
-Unlike `at_paths.resolve_at_path` (deploy declarations: returns a path or
-None), this resolver explains every failure, because its reader is an agent
-that has to act on the answer. `render_markdown` turns the results into the
-tool's text; the structured results are the contract for any future JSON API.
+The form of an address, the repo and context heads and the containment check
+are not decided here: they are `services/at_paths.py`, the same code that
+resolves deploy declarations. This module adds what an agent needs on top —
+ticket heads, and an explanation for every failure, because its reader has to
+act on the answer. `render_markdown` turns the results into the tool's text;
+the structured results are the contract for any future JSON API.
 """
 
 from __future__ import annotations
@@ -30,10 +32,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from normalization import normalize_path
+from services.at_paths import (
+    AtPathError,
+    canonical_at_path,
+    find_base,
+    join_under,
+    parse_at_path,
+)
 from services.manifest import MANIFEST_FILENAME, read_manifest
 
-
-AT_PREFIX = "@"
 
 # `DUE009`, `DUEX01`, `DUEA01`: code + (three digits | letter + two digits).
 TICKET_NUMBER_RE = re.compile(r"([A-Z]{3})(\d{3}|[A-Z]\d{2})")
@@ -49,6 +56,14 @@ MAX_GROUPING_DEPTH = 3
 # Ticket kind by the leading letter of the number: (word, grammatical gender).
 TICKET_KINDS = {"": ("Проект", "m"), "X": ("Программа", "f"), "A": ("Процесс", "m")}
 UNKNOWN_KIND = ("Тикет", "m")
+
+# What the agent is told when an address is refused by its form alone.
+_FORM_REFUSALS = {
+    "not_alpha_path": "Не альфа-путь: адрес начинается с `@`, за которым идёт имя "
+                      "бизнеса, репозитория или номер тикета.",
+    "dot_segment": "Не разрешён: в альфа-пути нет сегментов `.` и `..`. Пишите путь "
+                   "от имени бизнеса, репозитория или номера тикета, без переходов.",
+}
 
 MONTHS = (
     "январь", "февраль", "март", "апрель", "май", "июнь",
@@ -106,29 +121,22 @@ class _Resolver:
     def __init__(self, repos_path: Path | None, contexts: list[ContextRef]):
         self.repos_path = repos_path
         self.contexts = contexts
-        self.by_name = {normalize_path(c.name): c for c in contexts}
+        self.context_folders = {c.name: c.folder for c in contexts}
         self._codes: dict[str, str | None] | None = None  # name → ticket_code
 
     # --- entry point ---
 
     def resolve(self, raw: str) -> Resolution:
-        path = normalize_path(raw.strip())
-        res = Resolution(path=path)
-        if not path.startswith(AT_PREFIX) or len(path) == 1 or path[1] == "/":
-            return _fail(res, "not_alpha_path",
-                         "Не альфа-путь: адрес начинается с `@`, за которым идёт имя "
-                         "бизнеса, репозитория или номер тикета.")
+        res = Resolution(path=canonical_at_path(raw))
+        try:
+            parsed = parse_at_path(res.path)
+        except AtPathError as e:
+            return _fail(res, e.code, _FORM_REFUSALS[e.code])
+        head, rest = parsed.head, parsed.rest
 
-        head, _, rest = path[1:].partition("/")
-        rest = rest.strip("/")
-        if head in (".", ".."):
-            return _fail(res, "escapes_root",
-                         f"Не разрешён: `@{head}` не имя бизнеса, репозитория или тикета.")
-
-        if self.repos_path is not None and (self.repos_path / head).is_dir():
-            return self._finish(res, head, (self.repos_path / head).resolve(), rest)
-        if head in self.by_name:
-            return self._finish(res, head, Path(self.by_name[head].folder).resolve(), rest)
+        base = find_base(head, self.repos_path, self.context_folders)
+        if base is not None:
+            return self._finish(res, head, base, rest)
 
         match = TICKET_NUMBER_RE.fullmatch(head)
         if match:
@@ -206,12 +214,10 @@ class _Resolver:
     # --- shared tail ---
 
     def _finish(self, res: Resolution, head: str, base: Path, rest: str) -> Resolution:
-        target = (base / rest).resolve() if rest else base
         try:
-            target.relative_to(base)
-        except ValueError:
-            return _fail(res, "escapes_root",
-                         f"Не разрешён: путь выходит за пределы `@{head}`.")
+            target = join_under(base, rest)
+        except AtPathError as e:
+            return _fail(res, e.code, f"Не разрешён: путь выходит за пределы `@{head}`.")
         res.absolute = target
         res.exists = target.exists()
         if not res.exists:

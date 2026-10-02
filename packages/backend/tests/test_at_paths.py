@@ -1,8 +1,10 @@
-"""Unit tests for the `@<name>/<rest>` path resolver (`services/at_paths.py`).
+"""Unit tests for the alpha-path grammar (`services/at_paths.py`).
 
-The resolver maps deployment declarations (`skills` / `instructions` / `memory`)
-to absolute paths over two roots: git repos under `<DuetData>/repos` (by repo
-dir name) and context folders on Drive (by context name).
+The module owns the form of `@<head>/<rest>`, the two roots a head can stand
+for (git repos under `<DuetData>/repos` by dir name, context folders on Drive
+by context name) and the containment check. `resolve_at_path` maps deployment
+declarations (`skills` / `instructions` / `memory`) over it; the `resolve_paths`
+tool stands on the same functions (see `test_resolve_paths.py`).
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from services.at_paths import resolve_at_path
+from services.at_paths import AtPath, AtPathError, parse_at_path, resolve_at_path
 
 
 @pytest.fixture
@@ -67,18 +69,65 @@ def test_unknown_head_returns_none(roots):
     assert resolve_at_path("@nope/x", repos, ctx_folders) is None
 
 
-def test_traversal_escape_rejected(roots):
+@pytest.mark.parametrize("address", [
+    "@DuetLab/../secret",
+    "@anthropic-skills.git/../../etc",
+    "@anthropic-skills.git/a/../file.txt",  # stays inside the root, still refused
+    "@DuetLab/./README.md",
+    "@..",
+    "@../data/entities.db",
+    "@.",
+    "@./anthropic-skills.git",
+    "@DuetLab/a\\..\\b",  # a backslash separates segments on every OS
+])
+def test_dot_segments_refused(address, roots):
     repos, ctx_folders = roots
-    # `..` that climbs out of the matched root must be rejected.
-    assert resolve_at_path("@DuetLab/../secret", repos, ctx_folders) is None
-    assert resolve_at_path("@anthropic-skills.git/../../etc", repos, ctx_folders) is None
+    assert resolve_at_path(address, repos, ctx_folders) is None
+    with pytest.raises(AtPathError) as refused:
+        parse_at_path(address)
+    assert refused.value.code == "dot_segment"
 
 
-def test_traversal_inside_root_allowed(roots):
+def test_symlink_out_of_the_root_refused(roots, tmp_path: Path):
     repos, ctx_folders = roots
-    # `..` that stays within the root resolves fine.
-    out = resolve_at_path("@anthropic-skills.git/a/../file.txt", repos, ctx_folders)
-    assert out == (repos / "anthropic-skills.git" / "file.txt").resolve()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repos / "anthropic-skills.git" / "link").symlink_to(outside, target_is_directory=True)
+    assert resolve_at_path("@anthropic-skills.git/link", repos, ctx_folders) is None
+
+
+def test_separators_and_empty_segments(roots):
+    repos, ctx_folders = roots
+    expected = (repos / "anthropic-skills.git" / "a").resolve()
+    for address in ("@anthropic-skills.git/a/", "@anthropic-skills.git//a",
+                    "@anthropic-skills.git\\a", "  @anthropic-skills.git/a  "):
+        assert resolve_at_path(address, repos, ctx_folders) == expected, address
+
+
+def test_head_matches_in_nfc(roots, tmp_path: Path):
+    import unicodedata
+
+    repos, _ = roots
+    ctx = tmp_path / "drive" / "Семейный ЛикБез"
+    ctx.mkdir(parents=True)
+    name = "Семейный ЛикБез"
+    nfd = unicodedata.normalize("NFD", name)
+    assert nfd != name
+    assert resolve_at_path(f"@{nfd}/x", repos, {name: str(ctx)}) == (ctx / "x").resolve()
+    assert resolve_at_path(f"@{name}/x", repos, {nfd: str(ctx)}) == (ctx / "x").resolve()
+
+
+def test_parse_splits_head_and_rest():
+    assert parse_at_path("@DuetLab") == AtPath("DuetLab", "")
+    assert parse_at_path("@DuetLab/work/DUE009") == AtPath("DuetLab", "work/DUE009")
+    assert parse_at_path("@DUE009/Решения.md") == AtPath("DUE009", "Решения.md")
+
+
+@pytest.mark.parametrize("bad", ["", "no-prefix", "@", "@/abs", "@/", "@\\x", "DuetLab/x"])
+def test_parse_refuses_malformed(bad):
+    with pytest.raises(AtPathError) as refused:
+        parse_at_path(bad)
+    assert refused.value.code == "not_alpha_path"
 
 
 def test_no_repos_path_falls_back_to_context(roots):
