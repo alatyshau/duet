@@ -102,6 +102,7 @@ server.py (entry point, lifecycle)
 | `timestamp` | string directly |
 | `duet_data_path` | string directly |
 | `turn_plan` | Plan text as unstructured content (prototype: one turn's checklist, stateless; `fmt` picks `md` / `html` / `line` / `plain`; `structured_output=False` keeps the client from showing a `{"result": ...}` envelope) |
+| `turn_report` | The given report text unchanged, as unstructured content (prototype: one agent report on preparing the answer, free-form Markdown chosen by the caller; the first non-empty line must be a `### ` heading with text, otherwise `INVALID_PARAMS`; `structured_output=False` for the same reason as `turn_plan`) |
 | `orientation` | dict directly |
 | `contexts` | list directly |
 | `scan` | dict directly |

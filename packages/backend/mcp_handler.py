@@ -210,6 +210,49 @@ def turn_plan(items: list[str], current: int = 0, fmt: str = "md") -> str:
     return "\n".join(lines)
 
 
+_REPORT_EXAMPLE = "### PPUAA — R18"
+
+
+@mcp.tool(structured_output=False)
+def turn_report(report: str) -> str:
+    """Show one agent report on how the answer to the user was prepared.
+
+    Prototype. One call shows one report in free-form Markdown; what the
+    report contains is decided by the caller, not by the tool. The report is
+    returned unchanged, so the client displays it next to the answer.
+
+    The first non-empty line must be a level-3 heading with text, for example:
+
+    ```markdown
+    ### PPUAA — R18
+
+    **Parse.** Вопрос: кто задаёт формат отчёта. Ответ нужен, а не действие.
+
+    **Plan.** Ответить, разделив, что задаёт инструмент и что задаёт агент.
+    ```
+
+    Args:
+        report: The report in Markdown, starting with a "### " heading.
+
+    Returns text. Declared unstructured on purpose: a structured return
+    would add an output schema, and the client then shows the
+    {"result": ...} envelope instead of the text.
+    """
+    first = next((line for line in report.splitlines() if line.strip()), None)
+    if first is None or not first.startswith("### ") or not first[4:].strip():
+        raise McpError(
+            ErrorData(
+                code=INVALID_PARAMS,
+                message=(
+                    "report must start with a level-3 heading: the first non-empty "
+                    "line begins with exactly '### ' followed by text, "
+                    f"e.g. '{_REPORT_EXAMPLE}'"
+                ),
+            )
+        )
+    return report
+
+
 @mcp.tool()
 def orientation(workspace_paths: list[str] | None = None) -> dict:
     """Get full workspace information.
