@@ -14,9 +14,9 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │             AI Clients (external, MCP consumers)                │
-│           Claude Code  ·  Codex  ·  Antigravity                 │
+│  Claude Code · Codex · Antigravity · Kimi Code · Claude Desktop │
 └──────▲────────────────────────────────────────────▲─────────────┘
-       │ MCP (HTTP)                                 │ reads configs
+       │ MCP (HTTP; stdio bridge for Desktop)       │ reads configs
        │                                            │ + merged
        │                                            │ instructions
        │                                            │ (written by Host)

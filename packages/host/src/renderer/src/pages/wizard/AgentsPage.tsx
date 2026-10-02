@@ -1,6 +1,6 @@
 /*
  * Шаг 7: AI Агенты — обнаружение и конфигурация AI клиентов.
- * Четыре карточки (Claude Code, Codex, Antigravity, Kimi Code) + кнопка "Настроить все".
+ * Пять карточек (Claude Code, Codex, Antigravity, Kimi Code, Claude Desktop) + кнопка "Настроить все".
  * Не установленный клиент = skipped (не ошибка).
  */
 import { useState, useEffect } from 'react'
@@ -88,7 +88,7 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
           AI Агенты
         </h2>
         <p className="text-muted-foreground mt-1">
-          Обнаружение и конфигурация Claude Code, Codex, Antigravity, Kimi Code
+          Обнаружение и конфигурация Claude Code, Codex, Antigravity, Kimi Code, Claude Desktop
         </p>
       </div>
 
@@ -157,6 +157,13 @@ export function WizardAgentsPage({ onStatusChange }: WizardAgentsPageProps): Rea
             <code className="text-[11px] bg-muted px-1 rounded">~/.kimi-code/mcp.json</code>.
             Кастомные агенты не разливаются.
           </li>
+          <li>
+            <strong>Claude Desktop:</strong> только MCP сервер (duet) в{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">claude_desktop_config.json</code> —
+            через stdio-мост{' '}
+            <code className="text-[11px] bg-muted px-1 rounded">mcp_stdio_bridge.py</code>, который
+            запускается Python из venv Duet. После настройки полностью перезапустите Claude Desktop.
+          </li>
         </ul>
       </div>
     </div>
@@ -183,6 +190,10 @@ const AGENT_INSTALL_INFO: Record<string, { desc: string; url: string }> = {
   kimi: {
     desc: 'Kimi Code — AI-агент от Moonshot AI для терминала.',
     url: 'https://www.kimi.com/code/'
+  },
+  'claude-desktop': {
+    desc: 'Claude Desktop — приложение Claude от Anthropic для macOS и Windows.',
+    url: 'https://claude.ai/download'
   }
 }
 

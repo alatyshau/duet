@@ -1,5 +1,6 @@
 /*
- * ЧТО: Обнаружение и конфигурация AI клиентов (Claude Code, Codex, Antigravity, Kimi Code).
+ * ЧТО: Обнаружение и конфигурация AI клиентов (Claude Code, Codex, Antigravity, Kimi Code,
+ *      Claude Desktop).
  * ЗАЧЕМ: Host конфигурирует AI клиенты прямой записью файлов (не CLI).
  * КТО ИСПОЛЬЗУЕТ: main process, страница "AI Агенты".
  *
@@ -12,6 +13,7 @@
  *   - Codex:        single instructions file (thin `sessionPrompt`).
  *   - Antigravity:  single GEMINI.md (thin `sessionPrompt`).
  *   - Kimi Code:    SYSTEM.md (thin `sessionPrompt` wrapping `${base_prompt}`).
+ *   - Claude Desktop: только MCP — через stdio-мост из backend (промпт некуда положить).
  *
  *   Custom subagents in Codex/Antigravity/Kimi Code are intentionally not
  *   deployed — Antigravity does not support them globally; Codex and Kimi Code
@@ -27,6 +29,8 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readDeployedVersion } from './deploy'
+import { venvPythonPath } from './backend'
+import { atomicWriteJson, readJsonStrict } from './json-io'
 import { readMergedAgents, triggerMerge, type MergedAgents } from './instructions'
 import type { AgentInfo, AgentCheckedFile, AgentIssue } from '../shared/types'
 
@@ -514,6 +518,122 @@ export const configureKimi = (
 }
 
 // =============================================================================
+// CLAUDE DESKTOP
+// =============================================================================
+
+/**
+ * Detect + configure Claude Desktop.
+ *
+ * Контракт: `claude_desktop_config.json` → `mcpServers.duet` — stdio-сервер
+ *   `command` = Python из `DuetData/.venv`,
+ *   `args`    = [`DuetData/backend/mcp_stdio_bridge.py`, `http://127.0.0.1:<port>/mcp/`].
+ *
+ * Claude Desktop запускает из этого файла только stdio-процессы (`type: "http"` он не
+ * читает), поэтому до HTTP MCP backend'а он доходит через мост. Python и мост ставит
+ * деплой (venv + DuetData/backend), так что запись одинакова на macOS и Windows и не
+ * зависит от Node/npx. URL со слэшем: `/mcp` отвечает 307, а мост редиректы не ходит.
+ *
+ * Файл принадлежит Claude Desktop (в нём его preferences): меняется только ключ `duet`,
+ * атомарно и только если запись отличается; битый JSON не перезаписывается. Desktop
+ * читает файл на старте — после настройки его нужно перезапустить.
+ *
+ * Системный промпт не разливается: у чатов Claude Desktop нет файла для него.
+ */
+
+const CLAUDE_DESKTOP_CONFIG_FILE = 'claude_desktop_config.json'
+const MCP_STDIO_BRIDGE_FILE = 'mcp_stdio_bridge.py'
+
+interface StdioServer {
+  command: string
+  args: string[]
+}
+
+/**
+ * Папка конфигурации Claude Desktop (документирована на modelcontextprotocol.io,
+ * «Connect to local MCP servers»). Linux-сборки официально нет; путь — по XDG.
+ * Windows MSIX-установка (Microsoft Store) читает другой путь — не поддержана.
+ */
+export function claudeDesktopConfigDir(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Claude')
+  if (platform === 'win32') return join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'Claude')
+  return join(env.XDG_CONFIG_HOME || join(home, '.config'), 'Claude')
+}
+
+/** Ожидаемая запись `mcpServers.duet` для Claude Desktop. */
+export function claudeDesktopDuetServer(
+  duetDataPath: string,
+  port: number,
+  platform: NodeJS.Platform = process.platform
+): StdioServer {
+  return {
+    command: venvPythonPath(join(duetDataPath, '.venv'), platform),
+    args: [join(duetDataPath, 'backend', MCP_STDIO_BRIDGE_FILE), `http://127.0.0.1:${port}/mcp/`]
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sameStdioServer(entry: unknown, expected: StdioServer): boolean {
+  if (!isPlainObject(entry)) return false
+  return (
+    entry.command === expected.command &&
+    Array.isArray(entry.args) &&
+    JSON.stringify(entry.args) === JSON.stringify(expected.args)
+  )
+}
+
+export const configureClaudeDesktop = (duetDataPath: string, port: number): AgentInfo => {
+  const desktopDir = claudeDesktopConfigDir()
+  if (!existsSync(desktopDir)) return detectClaudeDesktop(duetDataPath, port)
+
+  const configPath = join(desktopDir, CLAUDE_DESKTOP_CONFIG_FILE)
+  const read = readJsonStrict(configPath)
+  let config: Record<string, unknown> = {}
+  if (read.kind === 'ok' && isPlainObject(read.data)) {
+    config = read.data
+  } else if (read.kind !== 'missing') {
+    const reason = read.kind === 'ok' ? 'не JSON-объект' : read.error
+    return {
+      id: 'claude-desktop',
+      name: 'Claude Desktop',
+      status: 'needs_setup',
+      details: `${CLAUDE_DESKTOP_CONFIG_FILE} не читается (${reason}) — Duet его не трогает`,
+      checkedFiles: [{ path: configPath, ok: false }]
+    }
+  }
+
+  try {
+    if (!isPlainObject(config.mcpServers)) {
+      config.mcpServers = {}
+    }
+    const mcpServers = config.mcpServers as Record<string, unknown>
+    const expected = claudeDesktopDuetServer(duetDataPath, port)
+    if (!sameStdioServer(mcpServers.duet, expected)) {
+      mcpServers.duet = expected
+      atomicWriteJson(configPath, config)
+      const info = detectClaudeDesktop(duetDataPath, port)
+      return info.status === 'configured'
+        ? { ...info, details: `${info.details}. Перезапустите Claude Desktop` }
+        : info
+    }
+  } catch (e) {
+    return {
+      id: 'claude-desktop',
+      name: 'Claude Desktop',
+      status: 'needs_setup',
+      details: `Ошибка конфигурации: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+  return detectClaudeDesktop(duetDataPath, port)
+}
+
+// =============================================================================
 // DETECT ALL
 // =============================================================================
 
@@ -527,7 +647,8 @@ export const detectAgents = (duetDataPath: string, port: number): AgentInfo[] =>
     detectClaudeCode(merged, duetDataPath, port),
     detectCodex(merged.sessionPrompt, duetDataPath, port),
     detectAntigravity(merged.sessionPrompt, duetDataPath, port),
-    detectKimi(merged.sessionPrompt, duetDataPath, port)
+    detectKimi(merged.sessionPrompt, duetDataPath, port),
+    detectClaudeDesktop(duetDataPath, port)
   ]
 }
 
@@ -857,6 +978,58 @@ function detectKimi(sessionContent: string | null, duetDataPath: string, port: n
   }
 }
 
+function detectClaudeDesktop(duetDataPath: string, port: number): AgentInfo {
+  const desktopDir = claudeDesktopConfigDir()
+  if (!existsSync(desktopDir)) {
+    return {
+      id: 'claude-desktop',
+      name: 'Claude Desktop',
+      status: 'not_found',
+      details: 'Не установлен'
+    }
+  }
+
+  const configPath = join(desktopDir, CLAUDE_DESKTOP_CONFIG_FILE)
+  const expected = claudeDesktopDuetServer(duetDataPath, port)
+  const read = readJsonStrict(configPath)
+  const mcpServers =
+    read.kind === 'ok' && isPlainObject(read.data) ? read.data.mcpServers : undefined
+  const hasMcp = isPlainObject(mcpServers) && sameStdioServer(mcpServers.duet, expected)
+  const hasPython = existsSync(expected.command)
+  const hasBridge = existsSync(expected.args[0])
+
+  const checkedFiles: AgentCheckedFile[] = [
+    { path: configPath, ok: hasMcp },
+    { path: expected.command, ok: hasPython },
+    { path: expected.args[0], ok: hasBridge }
+  ]
+
+  if (hasMcp && hasPython && hasBridge) {
+    const version = readDeployedVersion(duetDataPath)
+    return {
+      id: 'claude-desktop',
+      name: 'Claude Desktop',
+      status: 'configured',
+      details: 'MCP настроен (stdio-мост)',
+      version: version ?? undefined,
+      checkedFiles
+    }
+  }
+
+  const parts: string[] = []
+  if (hasMcp) parts.push('MCP прописан')
+  if (!hasPython || !hasBridge) parts.push('мост не развёрнут — запустите деплой backend')
+  const detail = parts.length > 0 ? parts.join(', ') : 'Claude Desktop найден'
+
+  return {
+    id: 'claude-desktop',
+    name: 'Claude Desktop',
+    status: 'needs_setup',
+    details: detail,
+    checkedFiles
+  }
+}
+
 /** Устанавливает outputStyle: "duet-executor" в ~/.claude/settings.json */
 function configureClaudeSettings(claudeDir: string): void {
   const settingsPath = join(claudeDir, 'settings.json')
@@ -944,6 +1117,7 @@ export const configureAllAgents = async (
   configureCodex(merged.sessionPrompt, duetDataPath, port)
   configureAntigravity(merged.sessionPrompt, duetDataPath, port)
   configureKimi(merged.sessionPrompt, duetDataPath, port)
+  configureClaudeDesktop(duetDataPath, port)
   // Re-detect after configure to return full AgentInfo with checkedFiles
   return detectAgents(duetDataPath, port)
 }

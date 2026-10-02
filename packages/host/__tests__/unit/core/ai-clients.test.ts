@@ -7,6 +7,7 @@
  *   - Codex: single instructions file (executor only)
  *   - Antigravity: single GEMINI.md (executor only)
  *   - Kimi Code: SYSTEM.md (thin session prompt + ${base_prompt})
+ *   - Claude Desktop: MCP only, as a stdio server run through the backend's bridge
  *
  * Tests create the merged files in DuetData/tmp before exercising configure/detect.
  */
@@ -15,6 +16,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { stringify as stringifyToml } from 'smol-toml'
 import { createTestContext, type TestContext } from '../../helpers'
+import { venvPythonPath } from '../../../src/core/backend'
 
 // Mock os.homedir to use test tmp dir
 vi.mock('os', async (importOriginal) => {
@@ -33,6 +35,9 @@ import {
   configureCodex,
   configureAntigravity,
   configureKimi,
+  configureClaudeDesktop,
+  claudeDesktopConfigDir,
+  claudeDesktopDuetServer,
   detectAgents,
   configureAllAgents,
   fixAgentIssue,
@@ -64,6 +69,15 @@ function writeMergedAgents(
   writeFileSync(join(duetDataDir, 'duet.md'), sessionPrompt, 'utf-8')
   writeFileSync(join(duetDataDir, 'duet-executor.md'), executor, 'utf-8')
   writeFileSync(join(duetDataDir, 'duet-vizir.md'), vizir, 'utf-8')
+}
+
+/** Lays out what a backend deploy leaves for the stdio bridge: venv Python + bridge script. */
+function deployBridge(duetDataDir: string): void {
+  const python = venvPythonPath(join(duetDataDir, '.venv'))
+  mkdirSync(join(python, '..'), { recursive: true })
+  writeFileSync(python, '')
+  mkdirSync(join(duetDataDir, 'backend'), { recursive: true })
+  writeFileSync(join(duetDataDir, 'backend', 'mcp_stdio_bridge.py'), '')
 }
 
 /**
@@ -124,6 +138,14 @@ const NULL_MERGED: MergedAgents = { sessionPrompt: null, executor: null, vizir: 
 // TESTS
 // =============================================================================
 
+const savedAppData = process.env.APPDATA
+const savedXdgConfigHome = process.env.XDG_CONFIG_HOME
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key]
+  else process.env[key] = value
+}
+
 describe('core/ai-clients', () => {
   let ctx: TestContext
   let homeDir: string
@@ -136,12 +158,17 @@ describe('core/ai-clients', () => {
     delete process.env.CODEX_HOME
     delete process.env.GEMINI_HOME
     delete process.env.KIMI_CODE_HOME
+    // Claude Desktop's config dir hangs off these on Windows / Linux — keep it inside the test home
+    process.env.APPDATA = join(homeDir, 'AppData', 'Roaming')
+    process.env.XDG_CONFIG_HOME = join(homeDir, '.config')
   })
 
   afterEach(() => {
     delete process.env.CODEX_HOME
     delete process.env.GEMINI_HOME
     delete process.env.KIMI_CODE_HOME
+    restoreEnv('APPDATA', savedAppData)
+    restoreEnv('XDG_CONFIG_HOME', savedXdgConfigHome)
     ctx.cleanup()
   })
 
@@ -153,11 +180,12 @@ describe('core/ai-clients', () => {
     it('returns not_found when no agents installed', () => {
       const agents = detectAgents(ctx.duetDataDir, TEST_PORT)
 
-      expect(agents).toHaveLength(4)
+      expect(agents).toHaveLength(5)
       expect(agents[0]).toMatchObject({ id: 'claude-code', status: 'not_found' })
       expect(agents[1]).toMatchObject({ id: 'codex', status: 'not_found' })
       expect(agents[2]).toMatchObject({ id: 'antigravity', status: 'not_found' })
       expect(agents[3]).toMatchObject({ id: 'kimi', status: 'not_found' })
+      expect(agents[4]).toMatchObject({ id: 'claude-desktop', status: 'not_found' })
     })
 
     it('returns needs_setup when ~/.claude exists but not configured', () => {
@@ -1092,6 +1120,168 @@ describe('core/ai-clients', () => {
   })
 
   // ===========================================================================
+  // configureClaudeDesktop
+  // ===========================================================================
+
+  describe('claudeDesktopConfigDir', () => {
+    it('uses Application Support on macOS', () => {
+      expect(claudeDesktopConfigDir('darwin', {}, '/Users/u')).toBe(
+        join('/Users/u', 'Library', 'Application Support', 'Claude')
+      )
+    })
+
+    it('uses %APPDATA% on Windows, falling back to AppData/Roaming', () => {
+      expect(
+        claudeDesktopConfigDir('win32', { APPDATA: 'C:/Users/u/AppData/Roaming' }, 'C:/Users/u')
+      ).toBe(join('C:/Users/u/AppData/Roaming', 'Claude'))
+      expect(claudeDesktopConfigDir('win32', {}, 'C:/Users/u')).toBe(
+        join('C:/Users/u', 'AppData', 'Roaming', 'Claude')
+      )
+    })
+
+    it('uses XDG_CONFIG_HOME on Linux, falling back to ~/.config', () => {
+      expect(claudeDesktopConfigDir('linux', { XDG_CONFIG_HOME: '/x' }, '/home/u')).toBe(
+        join('/x', 'Claude')
+      )
+      expect(claudeDesktopConfigDir('linux', {}, '/home/u')).toBe(
+        join('/home/u', '.config', 'Claude')
+      )
+    })
+  })
+
+  describe('claudeDesktopDuetServer', () => {
+    it('runs the bridge with the venv Python and the slash-terminated MCP URL', () => {
+      expect(claudeDesktopDuetServer('/data', TEST_PORT, 'darwin')).toEqual({
+        command: join('/data', '.venv', 'bin', 'python3'),
+        args: [join('/data', 'backend', 'mcp_stdio_bridge.py'), `${MCP_URL}/`]
+      })
+    })
+
+    it('uses Scripts/python.exe on Windows', () => {
+      expect(claudeDesktopDuetServer('/data', TEST_PORT, 'win32').command).toBe(
+        join('/data', '.venv', 'Scripts', 'python.exe')
+      )
+    })
+  })
+
+  describe('configureClaudeDesktop', () => {
+    const configPath = (): string => join(claudeDesktopConfigDir(), 'claude_desktop_config.json')
+    interface DesktopConfig {
+      preferences?: unknown
+      mcpServers: Record<string, unknown>
+    }
+    const readConfig = (): DesktopConfig => JSON.parse(readFileSync(configPath(), 'utf-8'))
+    const expectedServer = (): ReturnType<typeof claudeDesktopDuetServer> =>
+      claudeDesktopDuetServer(ctx.duetDataDir, TEST_PORT)
+
+    it('returns not_found and writes nothing when Claude Desktop is not installed', () => {
+      const result = configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      expect(result).toMatchObject({ id: 'claude-desktop', status: 'not_found' })
+      expect(existsSync(claudeDesktopConfigDir())).toBe(false)
+    })
+
+    it('creates the config with the duet stdio server and asks for a restart', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      deployBridge(ctx.duetDataDir)
+
+      const result = configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+      expect(result.details).toContain('Перезапустите Claude Desktop')
+      expect(readConfig().mcpServers.duet).toEqual(expectedServer())
+    })
+
+    it('keeps Desktop preferences and other MCP servers', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      writeFileSync(
+        configPath(),
+        JSON.stringify({
+          preferences: { sidebarMode: 'chat', trusted: ['/Users/u/Мой Диск'] },
+          mcpServers: { other: { command: 'other', args: ['x'] } }
+        })
+      )
+
+      configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      const config = readConfig()
+      expect(config.preferences).toEqual({ sidebarMode: 'chat', trusted: ['/Users/u/Мой Диск'] })
+      expect(config.mcpServers.other).toEqual({ command: 'other', args: ['x'] })
+      expect(config.mcpServers.duet).toEqual(expectedServer())
+    })
+
+    it('replaces a hand-written npx entry', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      writeFileSync(
+        configPath(),
+        JSON.stringify({
+          mcpServers: { duet: { command: 'npx', args: ['-y', 'mcp-remote', `${MCP_URL}/`] } }
+        })
+      )
+
+      configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      expect(readConfig().mcpServers.duet).toEqual(expectedServer())
+    })
+
+    it('does not rewrite the file when the entry already matches', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      deployBridge(ctx.duetDataDir)
+      const compact = JSON.stringify({ a: 1, mcpServers: { duet: expectedServer() } })
+      writeFileSync(configPath(), compact)
+
+      const result = configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('configured')
+      expect(readFileSync(configPath(), 'utf-8')).toBe(compact)
+    })
+
+    it('leaves an unreadable config untouched', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      writeFileSync(configPath(), 'not json {{{')
+
+      const result = configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('needs_setup')
+      expect(result.details).toContain('не читается')
+      expect(readFileSync(configPath(), 'utf-8')).toBe('not json {{{')
+    })
+
+    it('reports needs_setup while the backend (venv + bridge) is not deployed', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+
+      const result = configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+
+      expect(result.status).toBe('needs_setup')
+      expect(result.details).toContain('деплой')
+      expect(readConfig().mcpServers.duet).toEqual(expectedServer())
+      expect(result.checkedFiles?.map((f) => f.ok)).toEqual([true, false, false])
+    })
+
+    it('detect agrees with configure (round-trip)', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      deployBridge(ctx.duetDataDir)
+
+      const configured = configureClaudeDesktop(ctx.duetDataDir, TEST_PORT)
+      const detected = detectAgents(ctx.duetDataDir, TEST_PORT)[4]
+
+      expect(detected.status).toBe(configured.status)
+      expect(detected.checkedFiles).toEqual(configured.checkedFiles)
+    })
+
+    it('detect flags a duet entry that points at another port', () => {
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      deployBridge(ctx.duetDataDir)
+      configureClaudeDesktop(ctx.duetDataDir, TEST_PORT + 1)
+
+      const detected = detectAgents(ctx.duetDataDir, TEST_PORT)[4]
+
+      expect(detected.status).toBe('needs_setup')
+      expect(detected.checkedFiles?.[0].ok).toBe(false)
+    })
+  })
+
+  // ===========================================================================
   // additionalDirectories check
   // ===========================================================================
 
@@ -1215,11 +1405,12 @@ describe('core/ai-clients', () => {
     it('returns results for all agents', async () => {
       const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
-      expect(results).toHaveLength(4)
+      expect(results).toHaveLength(5)
       expect(results[0].id).toBe('claude-code')
       expect(results[1].id).toBe('codex')
       expect(results[2].id).toBe('antigravity')
       expect(results[3].id).toBe('kimi')
+      expect(results[4].id).toBe('claude-desktop')
     })
 
     it('configures all found agents using merged content from disk', async () => {
@@ -1229,6 +1420,8 @@ describe('core/ai-clients', () => {
       mkdirSync(join(homeDir, '.codex'), { recursive: true })
       mkdirSync(join(homeDir, '.gemini'), { recursive: true })
       mkdirSync(join(homeDir, '.kimi-code'), { recursive: true })
+      mkdirSync(claudeDesktopConfigDir(), { recursive: true })
+      deployBridge(ctx.duetDataDir)
 
       const results = await configureAllAgents(ctx.duetDataDir, TEST_PORT)
 
@@ -1236,6 +1429,7 @@ describe('core/ai-clients', () => {
       expect(results[1].status).toBe('configured')
       expect(results[2].status).toBe('configured')
       expect(results[3].status).toBe('configured')
+      expect(results[4].status).toBe('configured')
     })
   })
 

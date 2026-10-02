@@ -38,6 +38,8 @@ server.py (entry point, lifecycle)
     ├── aliases.py           @alias resolver
     ├── fileio.py            atomic_write()
     └── normalization.py     NFC paths
+
+mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop (stdlib only)
 ```
 
 ### Module Responsibilities
@@ -59,6 +61,7 @@ server.py (entry point, lifecycle)
 | `pointer.py` | Read pointer file | Write pointer |
 | `aliases.py` | Resolve `@alias` → absolute path | Config management |
 | `config.py` | Read pointer + settings + machine config, path getters | Write config files |
+| `mcp_stdio_bridge.py` | Standalone stdio ⇄ HTTP forwarder to `/mcp`, launched by Claude Desktop | Import any backend module or the MCP SDK |
 
 ### Boundaries (CRITICAL)
 
@@ -114,6 +117,22 @@ server.py (entry point, lifecycle)
 - `/stop` is REST-only — AI must not stop backend.
 - Errors: `McpError` with JSON-RPC codes (`INVALID_PARAMS` -32602, `INTERNAL_ERROR` -32603).
 - Empty result returns `[]`, not exception.
+
+### MCP stdio bridge
+
+`mcp_stdio_bridge.py` lets a client that can only launch stdio MCP servers reach `/mcp`. Claude Desktop is the one such client: Host registers `<DuetData>/.venv` Python + `<DuetData>/backend/mcp_stdio_bridge.py http://127.0.0.1:<port>/mcp/` in its `claude_desktop_config.json` (Host spec, *AI Clients*). It is not part of the server process — Desktop starts one bridge per connection, and the bridge talks to the running backend over HTTP like any other client.
+
+| Contract | Behavior |
+|----------|----------|
+| Wire | Newline-delimited JSON-RPC on stdin/stdout, UTF-8; each message is POSTed to the URL as is. The answer (plain JSON, or SSE `data:` lines) is written back; `202` produces no output |
+| Session | `Mcp-Session-Id` from the `initialize` answer and `MCP-Protocol-Version` from its result are sent on every later message; `DELETE` ends the session when stdin closes |
+| Backend not up | Connection failures are retried for 30 s (Desktop starts at login, often before Host has started the backend; a deploy restarts it) |
+| Backend restarted | A `404` (session forgotten) makes the bridge replay the client's own `initialize` on a new session, send `notifications/initialized`, and resend the request once; the replay's answer is not shown to the client. Concurrent requests share one replay. A failed replay keeps the stale session id, so the next message meets `404` again and retries (a message with no id gets `400`, which would never trigger a retry); a client `initialize` that failed is replayed before the next message |
+| Failure | Any request the backend cannot answer still gets a JSON-RPC error (`-32603`) on its own id — never silence. Diagnostics go to stderr (Desktop: `mcp-server-duet.log`) |
+| Concurrency | Requests run in parallel threads, so a long tool call does not hold up the rest; `initialize`, notifications and responses are forwarded in order |
+| Not covered | The server→client GET stream: the backend answers with plain JSON (`json_response=True`) and never pushes on its own |
+
+Standard library only, so it runs on any venv regardless of the installed MCP SDK version. Deployed with the rest of `packages/backend` (`**/*.py`). Tests: `tests/test_mcp_stdio_bridge.py` (against a fake `/mcp` that can forget sessions).
 
 ### Orientation
 
@@ -459,6 +478,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 |---------|------|
 | HTTP endpoints | `server.py` |
 | MCP tools | `mcp_handler.py` |
+| MCP stdio bridge | `mcp_stdio_bridge.py` |
 | Workspace info / orientation | `services/workspace.py` |
 | Entity listing | `services/entities.py` |
 | Hierarchy scan | `scanner.py:_scan_context()` |
