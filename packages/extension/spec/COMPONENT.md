@@ -6,10 +6,10 @@ VS Code extension — tree views, commands, and workspace management as a thin c
 
 ## Purpose
 
-Extension is a **passive view** over the entities and orientation that Backend exposes via HTTP. It never writes config, never owns process lifecycle, never re-derives domain rules. Its job is to:
+Extension is a **passive view** over the entities that Backend exposes via HTTP. It never writes config, never owns process lifecycle, never re-derives domain rules. Its job is to:
 
 1. Read pointer file → discover Backend port.
-2. Pull `/contexts` and `/orientation` from Backend.
+2. Pull `/contexts` from Backend.
 3. Render two tree views (ДЕЛА, КОНТЕКСТ) — see [UI.md](UI.md).
 4. Open contexts as multi-root VS Code workspaces (clone repos when needed).
 5. Provide one editor command: Copy @-Path.
@@ -41,7 +41,7 @@ Anything beyond that — root-context editing, schema migrations, AI client conf
 | Decision | Rationale |
 |----------|-----------|
 | Pointer-based config | `pointer.ts` reads `~/.org.ve68.duet` for paths, `{machine}.json` for port |
-| Backend HTTP API as data source | `DuetApiClient` — all entity data via `/contexts`, `/scan`, `/orientation` |
+| Backend HTTP API as data source | `DuetApiClient` — all entity data via `/contexts`, `/scan` |
 | `ContextEntity[]` sync pattern | Load once on activation, pass to providers, update on refresh. No per-node HTTP calls |
 | FileSystem interface (`fs.ts`) | DI for testing without mocks |
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
@@ -60,30 +60,28 @@ All entity data flows from Backend:
 
 | Source | Method | Data |
 |--------|--------|------|
-| `GET /contexts` | `apiClient.contexts()` | All `context` entities with `absolute_path`, `meta`, optional `git_repos` map |
-| `POST /orientation` | `apiClient.orientation(paths)` | `workspace` block, `context.chain`, `products[]` with nested `components[]`, optional `memory` (`{ref, path}` or `null`) |
+| `GET /contexts` | `apiClient.contexts()` | All `context` entities with `absolute_path`, `parent_id`, `meta`, `description`, optional `git_repos` map |
 | `POST /scan` | `apiClient.scan()` | Triggers backend rescan |
-| `POST /deploy-instructions` | `apiClient.deployInstructions(paths)` | Asks backend to deploy the owning context's `skills`/`instructions` into its Drive folder. Fire-and-forget |
+| `POST /deploy-instructions` | `apiClient.deployInstructions(paths)` | Asks backend to deploy the `skills`/`instructions` of the window's business into its Drive folder. Fire-and-forget |
 
-`ContextEntity[]` (from `/contexts`) is kept in memory and feeds the ДЕЛА view. The single `OrientationResponse` (from `/orientation`) feeds the КОНТЕКСТ view and is re-fetched on workspace folder change. Both refresh on `duet.refresh`.
+`ContextEntity[]` (from `/contexts`) is kept in memory and feeds both views, ДЕЛА and КОНТЕКСТ. Both rebuild on workspace folder change (no HTTP) and reload on `duet.refresh`.
 
 **Root context configuration is Host-only.** Extension intentionally has no add/remove/reorder commands and no write path to `settings.json` or `{machine}.json` (see /spec/PRODUCT.md → File Ownership). All edits go through the Host wizard.
 
 ### Data Flow
 
 ```
-activation → apiClient.contexts()    → ContextEntity[]     → ContextTreeProvider (ДЕЛА view)
-           → apiClient.orientation() → OrientationResponse → ContextProvider (КОНТЕКСТ view)
+activation → apiClient.contexts() → ContextEntity[] → ContextTreeProvider (ДЕЛА view)
+                                                    → ContextProvider     (КОНТЕКСТ view)
 
 refresh    → apiClient.scan()
-           → apiClient.contexts()    → updateContexts()    on ContextTreeProvider
-           → apiClient.orientation() → updateOrientation() on ContextProvider
+           → apiClient.contexts() → updateContexts() on both providers
 ```
 
 Both providers are synchronous wrappers around a snapshot:
 
 - **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full list of contexts loaded once on activation. Each entity carries `meta`, `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences (meta / root / has git products / regular) are derived from these fields rather than from a `type` enum. A context has git products iff `git_repos` has one or more aliases; it may still have nested Drive child contexts.
-- **КОНТЕКСТ view** (`ContextProvider`) works over a single `OrientationResponse` — backend already resolved the current workspace folders into a chain, products, and components. The provider renders that shape directly. On workspace folder change it calls a `refreshOrientation` callback.
+- **КОНТЕКСТ view** (`ContextProvider`) works over the same `ContextEntity[]` and the window's folders; the tree is built by the pure function `core/tree/contextPanel.ts:buildContextPanel`. Which business is current and what the panel shows: [UI.md → КОНТЕКСТ](UI.md).
 
 **Tree order:** owned by Backend's `/contexts` response (see /spec/PRODUCT.md → Invariants). `core/tree/contextTree.ts` is a passive view that preserves API order and never re-sorts.
 
@@ -93,10 +91,10 @@ Both providers are synchronous wrappers around a snapshot:
 
 | View ID | Provider | Data source | Renders |
 |---------|----------|-------------|---------|
-| `duet.contexts` (ДЕЛА) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. Terminal contexts highlighted when any of their `git_repos` aliases is open in a workspace folder |
-| `duet.context` (КОНТЕКСТ) | `ContextProvider` | `apiClient.orientation(currentFolderPaths)` (`OrientationResponse`) | Chain of contexts the current workspace folders resolve into → top-level products → components. `workspace.kind === 'unknown'` → single info node |
+| `duet.contexts` (ДЕЛА) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. A context is highlighted when its own folder is among the window's folders |
+| `duet.context` (КОНТЕКСТ) | `ContextProvider` | the same `ContextEntity[]` | Venture → current business → businesses directly under it. No business folder in the window → single info node |
 
-Product `path` (`@<alias>.git` for git-products, `@<context_name>[/<sub>]` for drive-products) resolves against `workspace.git_folders` / `workspace.context_folder` via `core/pathUtils.ts:resolveAtRef`, the extension's own copy of the alpha-path grammar that the Backend owns in `services/at_paths.py` (it resolves the refs of one `orientation()` answer without a round trip): `/` and `\` separate segments, a `.` or `..` segment makes the ref unresolvable. Components carry paths relative to their product. Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md](UI.md).
+Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md](UI.md).
 
 ### Commands
 
@@ -191,7 +189,7 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 | 1. Read pointer | `readPointer()` → `duetDataPath`, set `duet.hasPointer` |
 | 2. Read port | `readPort()` → port (default 19680), create `DuetApiClient` |
 | 3. Set initializing | `duet.initializing=true`, `duet.ready=false` → spinner |
-| 4. Load contexts + orientation | `apiClient.contexts()`, `apiClient.orientation(currentFolderPaths)` |
+| 4. Load contexts | `apiClient.contexts()` |
 | 5. Register providers | Create and register all tree providers |
 | 6. Set ready | `duet.ready=true`, `duet.initializing=false` → main views appear |
 
@@ -207,12 +205,12 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 
 ### Deploy Instructions Trigger
 
-Extension asks Backend to deploy the open context's instruction components (skills / instructions) into its Drive folder via `apiClient.deployInstructions(workspacePaths)`. The call is **debounced** (500ms) and **fire-and-forget** — warnings/errors are logged to the "Duet Backend" output channel, never surfaced as blocking UI. Backend is idempotent and serializes concurrent calls per context.
+Extension asks Backend to deploy the instruction components of the window's business (skills / instructions) into its Drive folder via `apiClient.deployInstructions(workspacePaths)`. The call is **debounced** (500ms) and **fire-and-forget** — warnings/errors are logged to the "Duet Backend" output channel, never surfaced as blocking UI. Backend is idempotent and serializes concurrent calls per context.
 
 Fires on:
-- **Activation** — after the initial orientation fetch, with the current workspace folder paths.
+- **Activation** — after the contexts load, with the current workspace folder paths.
 - **`onDidChangeWorkspaceFolders`** — with the new folder paths.
-- **`duet.refresh`** — after the rescan + orientation refresh.
+- **`duet.refresh`** — after the rescan.
 
 Implementation: `vscode/extension.ts` (`triggerDeployInstructions`).
 
@@ -261,8 +259,8 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 | Backend API client | `core/api-client.ts` (incl. `deployInstructions`) |
 | Deploy-instructions trigger | `vscode/extension.ts` (`triggerDeployInstructions`) |
 | Context tree logic (ДЕЛА view) | `core/tree/contextTree.ts` |
-| КОНТЕКСТ view (orientation-driven) | `vscode/providers/ContextProvider.ts` |
-| @-ref resolver | `core/pathUtils.ts` (`resolveAtRef`) |
+| КОНТЕКСТ view | `vscode/providers/ContextProvider.ts` |
+| КОНТЕКСТ tree shape, current business | `core/tree/contextPanel.ts` (`buildContextPanel`, `findCurrentBusiness`) |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` (`writeContextWithReposWorkspace`) |
 | Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatTicketReference`, `formatBusinessReference`, `formatAtReference`) |

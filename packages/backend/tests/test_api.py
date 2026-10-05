@@ -119,56 +119,11 @@ class TestContextsEndpoint:
 
 @pytest.mark.asyncio
 class TestOrientationEndpoint:
-    """Tests for /orientation endpoint."""
+    """`orientation` is an MCP tool only; the REST operation is gone."""
 
-    async def test_returns_base_info(self, client: AsyncClient, duet_data: Path) -> None:
+    async def test_rest_operation_removed(self, client: AsyncClient) -> None:
         response = await client.post("/orientation", json={"workspace_paths": []})
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["workspace"]["kind"] == "unknown"
-        assert data["workspace"]["reason"] == "no_workspace_path"
-        assert data["duet_paths"]["duetDataPath"] == str(duet_data)
-
-    async def test_returns_chain(
-        self, client: AsyncClient, db, duet_data_builder, monkeypatch
-    ) -> None:
-        """Returns chain for workspace path under repos."""
-        builder = duet_data_builder
-        builder.add_root_context("Root")
-        builder.add_repo("Product", components=["extension"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        mid_path = root_path / "Mid"
-        mid_path.mkdir()
-        from tests.fixtures import ManifestBuilder
-        ManifestBuilder.context(mid_path, "Mid")
-
-        product_path = mid_path / "Product"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Product", git_url="https://...")
-
-        from scanner import Scanner
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        from services.workspace import WorkspaceService
-        from services.entities import EntitiesService
-        from mcp_handler import init_services
-        workspace_service = WorkspaceService(db)
-        entities_service = EntitiesService(db)
-        init_services(workspace_service, entities_service, time.time())
-
-        repo_path = str(builder.get_repo_path("Product") / "packages" / "extension")
-        response = await client.post("/orientation", json={"workspace_paths": [repo_path]})
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["workspace"]["kind"] == "context"
-        chain = data["context"]["chain"]
-        assert len(chain) == 3
-        assert [c["name"] for c in chain] == ["Root", "Mid", "Product"]
-        assert all(c["type"] == "context" for c in chain)
+        assert response.status_code in (404, 405)
 
 
 @pytest.mark.asyncio

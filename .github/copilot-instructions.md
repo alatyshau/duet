@@ -33,7 +33,7 @@
 
 **Be extremely cautios about deletions:** Never do harm or dangerous operations like git checkout or replacing whole file contents or replacing the whole file. Always double-check that and ask permission first! Always prefer safe operations!
 
-**Orientation:** At session start, call `orientation(workspace_paths=[<current repo>])` MCP tool — returns entity chain (business→stream→product), components, `duet_paths.instructionsPath`. This is the primary orientation call before reading any files.
+**Orientation:** At session start, call the `orientation(path=<current repo>)` MCP tool and do what its answer says before reading any files.
 
 **Instructions root:** Use `duet_paths.instructionsPath` from orientation response. Paths in tables below are relative to it.
 

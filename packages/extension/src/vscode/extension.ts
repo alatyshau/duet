@@ -8,7 +8,7 @@ import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { copyAtPath } from './commands/copyAtPath';
 import { Paths } from '../core/paths';
-import { DuetApiClient, OrientationResponse } from '../core/api-client';
+import { DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
 
 let backendOutputChannel: vscode.OutputChannel | null = null;
@@ -84,16 +84,6 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.commands.registerCommand('duet.selectNode', () => {})
         );
 
-        const fetchOrientation = async (workspacePaths: string[]): Promise<OrientationResponse | null> => {
-            try {
-                return await apiClient.orientation(workspacePaths);
-            } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
-                backendOutputChannel?.appendLine(`orientation() failed: ${msg}`);
-                return null;
-            }
-        };
-
         // Deploy the open context's instruction components (skills / instructions)
         // into its Drive folder. Fire-and-forget and debounced: activation,
         // workspace-folder changes and `duet.refresh` can fire near-together;
@@ -126,11 +116,10 @@ export async function activate(context: vscode.ExtensionContext) {
             backendOutputChannel.appendLine(`Backend OK: ${contexts.length} contexts loaded`);
 
             const initialWorkspacePaths = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
-            const initialOrientation = await fetchOrientation(initialWorkspacePaths);
             triggerDeployInstructions(initialWorkspacePaths);
 
-            const contextTreeProvider = new ContextTreeProvider(contexts, paths.reposPath);
-            const contextProvider = new ContextProvider(initialOrientation, fetchOrientation);
+            const contextTreeProvider = new ContextTreeProvider(contexts);
+            const contextProvider = new ContextProvider(contexts);
             context.subscriptions.push(
                 vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
             );
@@ -163,9 +152,8 @@ export async function activate(context: vscode.ExtensionContext) {
                         try {
                             const newContexts = await refreshFromBackend(apiClient, paths);
                             contextTreeProvider.updateContexts(newContexts);
+                            contextProvider.updateContexts(newContexts);
                             const currentPaths = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
-                            const orientation = await fetchOrientation(currentPaths);
-                            contextProvider.updateOrientation(orientation);
                             triggerDeployInstructions(currentPaths);
                         } catch (error) {
                             vscode.window.showErrorMessage(`Scan failed: ${error}`);

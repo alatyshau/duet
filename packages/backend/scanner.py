@@ -7,6 +7,9 @@ auto-upgrade and self-heal of legacy manifests.
 Key behaviors:
 - Single recursive function `_scan_context` for every level.
 - Global name uniqueness: priority-based (context > product_repo > reference_repo).
+- A repo declared by several contexts under one name with one address is one
+  shared clone: registered once, no collision. One name with different
+  addresses is a `repo_collision`.
 - `git_repos` registers N `product_repo` children (one per alias); Drive
   recursion still continues so nested context folders are discoverable.
 - Deterministic order: readdir results sorted by name.
@@ -53,6 +56,13 @@ TYPE_PRIORITIES = {
     "product_repo": 3,
     "reference_repo": 5,
 }
+
+
+def _same_address(a: str | None, b: str | None) -> bool:
+    """Compare two repo addresses, ignoring a trailing `/` and `.git`."""
+    def norm(url: str | None) -> str:
+        return (url or "").strip().rstrip("/").removesuffix(".git")
+    return bool(norm(a)) and norm(a) == norm(b)
 
 
 class Scanner:
@@ -188,6 +198,20 @@ class Scanner:
             })
             return suffixed_name
 
+    def _is_shared_repo(self, repo_entity_name: str, url: str) -> bool:
+        """True when this repo is already registered under the same name and address.
+
+        The identity of a clone on disk is its name: `X` means `repos/X.git`.
+        Several businesses may declare the same name with the same address —
+        that is one shared clone, registered once (by the first declarer) and
+        not a collision. The same name with a different address is a real
+        conflict over one clone folder and goes on to `repo_collision`.
+        """
+        existing = self.db.find_by_name(repo_entity_name)
+        if existing is None or existing.type not in ("product_repo", "reference_repo"):
+            return False
+        return _same_address(existing.git_url, url)
+
     def _readdir_sorted(self, folder_path: Path) -> list[os.DirEntry]:
         """Read directory entries sorted by name for deterministic scan order."""
         try:
@@ -251,6 +275,8 @@ class Scanner:
             # in the context tree.
             for alias, url in manifest.git_repos.items():
                 repo_entity_name = f"{alias}.git"
+                if self._is_shared_repo(repo_entity_name, url):
+                    continue
                 resolved_repo_name = self._resolve_unique_name(
                     repo_entity_name, "product_repo", manifest_path
                 )
@@ -296,6 +322,8 @@ class Scanner:
 
         for ref_name, ref_url in manifest.reference_repos.items():
             ref_entity_name = f"{ref_name}.git"
+            if self._is_shared_repo(ref_entity_name, ref_url):
+                continue
             resolved_name = self._resolve_unique_name(
                 ref_entity_name, "reference_repo", manifest_path
             )

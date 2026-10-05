@@ -149,43 +149,43 @@ describe('ContextTreeProvider', () => {
             expect(provider.getActiveRootId()).toBeNull();
         });
 
-        it('should find root by git context name', () => {
+        it('should not find a root by an open repo folder', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
                 makeContext({ id: '2', name: 'MyProduct', icon: 'P', absolute_path: '/drive/biz1/product', parent_id: '1', git_repos: { MyProduct: 'git@github.com:user/MyProduct.git' } }),
             ];
 
+            // A repo may be declared by several businesses, so it marks none.
             setWorkspaceFolders([path.join(reposPath, 'MyProduct.git')]);
-            provider = new ContextTreeProvider(contexts, reposPath);
+            provider = new ContextTreeProvider(contexts);
 
-            expect(provider.getActiveRootId()).toBe(1);
+            expect(provider.getActiveRootId()).toBeNull();
         });
     });
 
     describe('getTreeItem label generation', () => {
-        it('should show orange marker for current git-backed context', () => {
-            const reposPath = path.join(TEMP_DIR, 'repos');
+        it('should show orange marker for the business whose folder is open', () => {
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
                 makeContext({ id: '2', name: 'MyProduct', icon: 'P', absolute_path: '/drive/biz1/product', parent_id: '1', git_repos: { MyProduct: 'git@github.com:user/MyProduct.git' } }),
             ];
 
-            setWorkspaceFolders([path.join(reposPath, 'MyProduct.git')]);
-            provider = new ContextTreeProvider(contexts, reposPath);
+            setWorkspaceFolders(['/drive/biz1/product']);
+            provider = new ContextTreeProvider(contexts);
 
             const bizNode = provider.getRoots()[0];
             const children = (provider.getChildren(bizNode) as unknown[])
                 .filter((c: unknown) => 'entityId' in (c as object)) as { entityId: number }[];
             const product = children.find(c => c.entityId === 2);
 
-            if (product) {
-                const item = provider.getTreeItem(product as never);
-                expect(item.label).toContain('🟠'); // Orange = active
-            }
+            expect(product).toBeDefined();
+            const item = provider.getTreeItem(product as never);
+            expect(item.label).toContain('🟠'); // Orange = active
+            expect(provider.getActiveRootId()).toBe(1);
         });
 
-        it('should highlight git-backed context when any of its aliases is open (multi-repo)', () => {
+        it('should not mark a business when only one of its repos is open', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'МетаЛаб', icon: 'M', absolute_path: '/drive/metalab' }),
@@ -199,11 +199,8 @@ describe('ContextTreeProvider', () => {
                 }),
             ];
 
-            // Open only ONE of the two aliases — the context label "DuetLab" does
-            // not match any opened folder basename. Pre-multi-repo highlight broke
-            // here because the matcher compared `node.label` instead of aliases.
             setWorkspaceFolders([path.join(reposPath, 'Duet.git')]);
-            provider = new ContextTreeProvider(contexts, reposPath);
+            provider = new ContextTreeProvider(contexts);
 
             const root = provider.getRoots()[0];
             const children = (provider.getChildren(root) as unknown[])
@@ -212,27 +209,29 @@ describe('ContextTreeProvider', () => {
 
             expect(duetLab).toBeDefined();
             const item = provider.getTreeItem(duetLab as never);
-            expect(item.label).toContain('🟠');
+            expect(item.label).toContain('◻️');
+            expect(provider.getActiveRootId()).toBeNull();
         });
 
-        it('should treat root as active when one descendant git alias is open', () => {
+        it('should mark a business whose folder is open next to a repo folder', () => {
             const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'МетаЛаб', icon: 'M', absolute_path: '/drive/metalab' }),
-                makeContext({
-                    id: '2', name: 'DuetLab', icon: 'L', absolute_path: '/drive/metalab/duetlab',
-                    parent_id: '1',
-                    git_repos: {
-                        Duet: 'git@x:Duet.git',
-                        'Duet-Instructions': 'git@x:Duet-Instructions.git'
-                    }
-                }),
+                makeContext({ id: '2', name: 'DuetLab', icon: 'L', absolute_path: '/drive/metalab/duetlab', parent_id: '1', git_repos: { Duet: 'git@x:Duet.git' } }),
+                makeContext({ id: '3', name: 'Other', icon: 'O', absolute_path: '/drive/metalab/other', parent_id: '1', git_repos: { Duet: 'git@x:Duet.git' } }),
             ];
 
-            setWorkspaceFolders([path.join(reposPath, 'Duet-Instructions.git')]);
-            provider = new ContextTreeProvider(contexts, reposPath);
+            // Both businesses declare the repo; only the one whose folder is open is current.
+            setWorkspaceFolders(['/drive/metalab/other', path.join(reposPath, 'Duet.git')]);
+            provider = new ContextTreeProvider(contexts);
 
-            expect(provider.getActiveRootId()).toBe(1);
+            const root = provider.getRoots()[0];
+            const children = (provider.getChildren(root) as unknown[])
+                .filter((c: unknown) => 'entityId' in (c as object)) as { entityId: number }[];
+            const label = (id: number) => provider.getTreeItem(children.find(c => c.entityId === id) as never).label;
+
+            expect(label(2)).toContain('◻️');
+            expect(label(3)).toContain('🟠');
         });
 
         it('should show white marker for inactive nested context', () => {
@@ -255,25 +254,23 @@ describe('ContextTreeProvider', () => {
         });
 
         it('should show orange marker for ancestor of active node (chain highlighting)', () => {
-            const reposPath = path.join(TEMP_DIR, 'repos');
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
                 makeContext({ id: '2', name: 'ParentStream', icon: 'S', absolute_path: '/drive/biz1/stream', parent_id: '1' }),
                 makeContext({ id: '3', name: 'ChildProduct', icon: 'P', absolute_path: '/drive/biz1/stream/product', parent_id: '2', git_repos: { ChildProduct: 'git@github.com:user/ChildProduct.git' } }),
             ];
 
-            setWorkspaceFolders([path.join(reposPath, 'ChildProduct.git')]);
-            provider = new ContextTreeProvider(contexts, reposPath);
+            setWorkspaceFolders(['/drive/biz1/stream/product']);
+            provider = new ContextTreeProvider(contexts);
 
             const bizNode = provider.getRoots()[0];
             const children = (provider.getChildren(bizNode) as unknown[])
                 .filter((c: unknown) => 'entityId' in (c as object)) as { entityId: number }[];
             const stream = children.find(c => c.entityId === 2);
 
-            if (stream) {
-                const item = provider.getTreeItem(stream as never);
-                expect(item.label).toContain('🟠');
-            }
+            expect(stream).toBeDefined();
+            const item = provider.getTreeItem(stream as never);
+            expect(item.label).toContain('🟠');
         });
 
         it('should show brackets in root label', () => {

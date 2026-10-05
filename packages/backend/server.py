@@ -154,38 +154,6 @@ async def duet_data_path_handler(request: Request) -> JSONResponse:
     return JSONResponse({"path": get_duet_data_path_str()})
 
 
-async def orientation_handler(request: Request) -> JSONResponse:
-    """POST /orientation - Full workspace orientation.
-
-    Request body: {"workspace_paths": ["/path1", "/path2"]}
-    Response includes a `memory` field: the resolved context-memory pointer
-    `{ref, path}` (from `context.json` → `memory`), or `null` when none declared.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse(
-            {"error": "Invalid JSON body", "code": "BAD_REQUEST"},
-            status_code=400,
-        )
-
-    workspace_paths = body.get("workspace_paths", [])
-    if not isinstance(workspace_paths, list):
-        return JSONResponse(
-            {"error": "'workspace_paths' must be a list", "code": "BAD_REQUEST"},
-            status_code=400,
-        )
-
-    try:
-        result = get_workspace_service().get_orientation(workspace_paths=workspace_paths)
-    except ConfigError as e:
-        return JSONResponse(
-            {"error": str(e), "code": "CONFIG_ERROR"},
-            status_code=422,
-        )
-    return JSONResponse(result)
-
-
 async def contexts_handler(request: Request) -> JSONResponse:
     """GET /contexts - Get all context entities."""
     result = get_entities_service().get_contexts()
@@ -252,8 +220,8 @@ async def scan_handler(request: Request) -> JSONResponse:
 async def deploy_instructions_handler(request: Request) -> JSONResponse:
     """POST /deploy-instructions - Deploy a context's instruction components.
 
-    Request body: {"workspace_paths": ["/path1", "/path2"]}. Resolves the
-    owning context and materializes its `skills` / `instructions` declarations
+    Request body: {"workspace_paths": ["/path1", "/path2"]}. Picks the
+    business from the business folders among the paths and materializes its `skills` / `instructions` declarations
     into its Drive folder. Idempotent.
 
     Response: {status, deployed: {...}, warnings: [...]}.
@@ -415,7 +383,6 @@ def create_app() -> Starlette:
         Route("/stop", stop_handler, methods=["POST"]),
         Route("/timestamp", timestamp_handler, methods=["GET"]),
         Route("/duet-data-path", duet_data_path_handler, methods=["GET"]),
-        Route("/orientation", orientation_handler, methods=["POST"]),
         Route("/contexts", contexts_handler, methods=["GET"]),
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/deploy-instructions", deploy_instructions_handler, methods=["POST"]),

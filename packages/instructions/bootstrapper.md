@@ -4,14 +4,7 @@
 
 **Chat language:** RU
 
-**At session start:** call `orientation(workspace_paths=[<all working directories>])` MCP tool. This is a blocking gate — do not proceed with any work until you receive and process the response.
-
-**From the response, extract and use for the entire session:**
-- **`duet_paths`** — `duetDataPath`, `machineConfig`.
-- **`workspace`** — `kind`, `context_name`, `context_folder`, `git_folders` (and `reference_repos` if any): the contexts you are physically standing in.
-- **`context`** — `breadcrumb` + `chain` (each item: `type`, `name`, `icon?`, `description?`): the line of parent contexts above you. Read it — it tells you what concerns enclose your work.
-- **`products`** — discovered products and their `components` (each with `spec?`, `description?`). Read the relevant `spec` first to orient in the code.
-- **`memory`** — the context-memory pointer (`{ref, path}`) or `null`. When set, this is durable context-level knowledge — read it.
+**At session start:** call the `orientation(path=<folder>)` MCP tool with the folder the session was opened in — its starting working directory, not a repo added beside it. This is a blocking gate: do not proceed with any work until you have done what the response says.
 
 ## Duet MCP tools
 

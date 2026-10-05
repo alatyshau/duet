@@ -9,7 +9,7 @@ Three sidebar views, each with its own visibility gate:
 | View | ID | Purpose | Provider | Data source |
 |------|-----|---------|----------|-------------|
 | DUET (status) | `duet.status` | Shown when backend not ready — welcome message or spinner | Stub `TreeDataProvider` (empty array) | — |
-| КОНТЕКСТ | `duet.context` | Render the chain of contexts the current workspace folders resolve into, plus the products and components of the current context | `ContextProvider.ts` | `POST /orientation` (`OrientationResponse`) |
+| КОНТЕКСТ | `duet.context` | Show where the window stands: the venture, the current business, the businesses directly under it | `ContextProvider.ts` | `GET /contexts` (`ContextEntity[]`, the list ДЕЛА already holds) |
 | ДЕЛА | `duet.contexts` | Full forest of root contexts and descendants for navigation | `ContextTreeProvider.ts` | `GET /contexts` (`ContextEntity[]`) |
 
 ### Visibility
@@ -55,7 +55,7 @@ Full forest of root contexts and descendants, accordion pattern, alias-based hig
 | Icons: emoji from manifest in label (e.g. `🔬 МетаЛаб`) | Custom icons from manifests, no ThemeIcon |
 | Description: `[git]` marker for contexts with git products (non-empty `git_repos`); otherwise empty | Show role at a glance, no `мета-контекст` / `контекст` decoration |
 | **Chain highlighting**: 🟠 for active node + all ancestors | User sees path to current work |
-| Git-context highlight is alias-based: match `git_repos` keys against open `<alias>.git` folder names (NOT the context label) | A DuetLab-style context with aliases `Duet`, `Duet-Instructions` lights up when either repo is open; matching by label would silently miss the case |
+| A context is current only when its own folder is among the window's folders; an open repo folder marks nobody | One repo may be declared by several businesses, so a repo cannot say which of them the window belongs to. The panel opens business folders, and the business folder is what identifies the window |
 | Toggle button (fold icon) | Single button to expand/collapse all |
 | Click = select, arrow = toggle | User can select without collapsing |
 
@@ -88,9 +88,9 @@ Non-root nodes:
 - `ContextTreeProvider.ts` — state tracking, label generation
 - `ContextTree.ts` — `getDescendants()` for expand-to-leaves
 
-## КОНТЕКСТ — current chain
+## КОНТЕКСТ — current business
 
-Renders the chain of contexts the current workspace folders resolve into, plus products and components of the current context.
+Shows where the window stands in the tree of businesses: the venture, the current business and the businesses directly under it. Built from the `/contexts` list.
 
 ### Behavioral contracts
 
@@ -98,25 +98,25 @@ Renders the chain of contexts the current workspace folders resolve into, plus p
 |----------|-----|
 | Welcome view when no folder open | User knows how to open folder |
 | Settings via submenu (not QuickPick) | Faster access, no intermediate dialog |
-| Nodes always expanded | Breadcrumb should show full path |
-| Single info-node fallback (no clickable error nodes) | `workspace.kind === "unknown"` rendered as one «Папка вне иерархии контекстов» node; backend already classifies, view doesn't re-classify |
-| Chain labels: emoji prefix from `chain[*].icon` (e.g. `🎭 DuetLab`) | Visual parity with ДЕЛА — same manifest icon, same `Entity.icon` source on backend |
-| Description column: empty for products, `comp` for components, empty for chain nodes | Suffix `.git` in product name already distinguishes git from drive-products; component path is decorative noise (already in tooltip) |
+| Nodes always expanded | The panel should show the whole path at a glance |
+| Current business = the business whose folder is among the window's folders | Same rule as the 🟠 marker in ДЕЛА; a repo folder never chooses a business |
+| Several business folders open → the meta-context, otherwise the first in the window's folder order | Same tie-break the Backend uses when it deploys instructions. The Backend, unlike the panel, also accepts a folder inside a business: a window opened on a ticket folder gets instructions deployed and an empty panel |
+| Single info node «В окне не открыта папка бизнеса» when no window folder is a business folder | A window with only a repo, or a folder inside a business that is not the business folder itself, has no current business |
+| Labels: emoji prefix from the manifest icon (e.g. `🎭 DuetLab`) | Visual parity with ДЕЛА — same `icon` field of `/contexts` |
+| Tooltip: description (manifest `description`, else README first sentence), then the folder path | The panel names the business; the meaning is one hover away |
 
 ### Tree shape
 
-Four kinds of nodes built from `OrientationResponse`:
+Built by `core/tree/contextPanel.ts:buildContextPanel` from `ContextEntity[]` and the window's folders:
 
-| Kind | Source | Children |
-|------|--------|----------|
-| `chain` | each element of `response.context.chain[]` | next chain element; on the last chain node — top-level `products[]` |
-| `product` | `response.products[]` | the product's `components[]` |
-| `component` | `product.components[]` | none |
-| `info` | fallback when `workspace.kind === "unknown"`, `chain` is empty, or orientation is `null` | none |
+| Node | Role | Children |
+|------|------|----------|
+| venture | root of the current business's parent chain | the current business |
+| current business | the business whose folder is open | the businesses directly under it |
+| child business | `parent_id` = current business | none (deeper levels are in ДЕЛА) |
+| `info` | fallback when the window has no business folder | none |
 
-Paths in `product.path` / `component.path` are `@`-refs (`@Duet.git`, `@OntoCore/LangLab`, `packages/backend`). Resolution against `workspace.git_folders` / `workspace.context_folder` happens in `core/pathUtils.ts:resolveAtRef`; result is shown in tooltips — not in the description column, which only carries the `comp` marker for components.
-
-The legacy КОНТЕКСТ error-code table (`orphan`, `name_conflict`, `outside_repos`, `outside_hierarchy`) was removed together with `core/tree/contextBreadcrumb.ts` — backend now exposes only the binary `kind: "context" | "unknown"` and the view honours that distinction.
+Intermediate parents between the venture and the current business are not shown. When the current business is itself a venture, it is the root and its child businesses hang directly under it.
 
 ## Future
 

@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { ContextTree, TreeNode } from '../../core/tree/contextTree';
 import { ContextEntity } from '../../core/api-client';
-import { normalizePath, isPathInside } from '../../core/pathUtils';
+import { normalizePath } from '../../core/pathUtils';
 
 class VisualRoot {
     readonly id = 'visual-root';
@@ -41,9 +40,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
     readonly onDidChangeTreeData: vscode.Event<TreeElement | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private tree: ContextTree;
-    /** Context names extracted from git repos in repos/ folder */
-    private currentGitContextNames: Set<string> = new Set();
-    /** Normalized paths of all open workspace folders (for Drive folders) */
+    /** Normalized paths of all open workspace folders */
     private currentOpenPaths: Set<string> = new Set();
     /** True if all root contexts are open (root-contexts.code-workspace) */
     private allRootsOpen: boolean = false;
@@ -51,7 +48,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
     private expandedRootId: number | null = null;
     private disposables: vscode.Disposable[] = [];
 
-    constructor(contexts: ContextEntity[], private readonly reposPath?: string) {
+    constructor(contexts: ContextEntity[]) {
         this.tree = new ContextTree(contexts);
         this.updateCurrentContext();
 
@@ -79,30 +76,15 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
                 return true;
             }
         }
-        // Also check git-backed contexts (their folders sit in repos/, not under root path).
-        // A root is active if any descendant git-backed context has an open alias.
-        if (this.currentGitContextNames.size > 0) {
-            const root = this.tree.getRoots().find(r => normalizePath(r.id) === normalizedAncestor);
-            if (root) {
-                const children = this.tree.getChildren(root.entityId);
-                return this.hasActiveDescendant(children);
-            }
-        }
         return false;
     }
 
     /**
-     * Recursively check if any descendant is currently active (open).
-     * For contexts with `git_repos`: match any alias against currently
-     * open `<alias>.git` folder basenames — the context label itself need
-     * not equal the repo alias (e.g. context "DuetLab" holds aliases
-     * "Duet" and "Duet-Instructions").
+     * Recursively check if any descendant is currently active: its business
+     * folder is among the window's folders.
      */
     private hasActiveDescendant(nodes: TreeNode[]): boolean {
         for (const node of nodes) {
-            if (node.hasGit && this.hasOpenAlias(node)) {
-                return true;
-            }
             if (this.currentOpenPaths.has(normalizePath(node.id))) {
                 return true;
             }
@@ -116,24 +98,14 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
         return false;
     }
 
-    private hasOpenAlias(node: TreeNode): boolean {
-        for (const alias of Object.keys(node.gitRepos)) {
-            if (this.currentGitContextNames.has(alias)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
-     * Update sets of currently open folders for highlighting.
-     * Tracks both:
-     * - Context names from git repos (repos/*.git)
-     * - Direct Drive folder paths (for contexts on Drive)
-     * Also detects if all root contexts are open (root-contexts.code-workspace).
+     * Update the set of currently open folders for highlighting.
+     * A business is current only when its own folder is among them: a repo
+     * folder marks nobody, because one repo may be declared by several
+     * businesses. Also detects if all root contexts are open
+     * (root-contexts.code-workspace).
      */
     private updateCurrentContext(): void {
-        this.currentGitContextNames.clear();
         this.currentOpenPaths.clear();
         this.allRootsOpen = false;
 
@@ -143,20 +115,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
         }
 
         for (const folder of folders) {
-            const fsPath = folder.uri.fsPath;
-
-            // Always add to open paths (for Drive folders)
-            this.currentOpenPaths.add(normalizePath(fsPath));
-
-            // Check if folder is in repos/ directory (for git-backed contexts)
-            if (this.reposPath && isPathInside(fsPath, this.reposPath)) {
-                // Extract context name from folder name (remove .git suffix)
-                const folderName = path.basename(fsPath);
-                const contextName = folderName.endsWith('.git')
-                    ? folderName.slice(0, -4)
-                    : folderName.replace(/\.wt-\d+$/, ''); // Handle worktrees
-                this.currentGitContextNames.add(contextName);
-            }
+            this.currentOpenPaths.add(normalizePath(folder.uri.fsPath));
         }
 
         // Check if all root contexts are open (marker goes to [МОИ ДЕЛА] instead)
@@ -219,13 +178,12 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None;
 
-        // Check if this node is currently open (git-backed context by alias match,
-        // or Drive folder by path). Skip marker for roots if all roots are open
+        // Check if this node is currently open: its business folder is among the
+        // window's folders. Skip marker for roots if all roots are open
         // (marker is on [МОИ ДЕЛА]).
         const isCurrent =
             !this.allRootsOpen &&
-            ((node.hasGit && this.hasOpenAlias(node)) ||
-            this.currentOpenPaths.has(normalizePath(node.id)));
+            this.currentOpenPaths.has(normalizePath(node.id));
 
         // For roots, check if any open path is inside this root.
         const isRootActive = node.isRoot && this.isPathAncestorOfAnyOpen(node.id);

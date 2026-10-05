@@ -278,7 +278,7 @@ Detects and configures AI clients via direct file writes (no CLI). Backend produ
 
 **Issues:** `AgentIssue[]` — actionable problems beyond basic config (e.g. `additionalDirectories` in Claude Code `settings.json`). Each issue has `reason_code`, `description`, `fixable`. Fix via `fixAgentIssue(agentId, reasonCode)`.
 
-**`additionalDirectories` check:** Claude Code `settings.json` may contain `additionalDirectories`, which pollutes VS Code multi-root workspace and breaks orientation. Detect reports issue with `reason_code: "additional_directories"`, fixable by removing the key.
+**`additionalDirectories` check:** Claude Code `settings.json` may contain `additionalDirectories`, which adds extra folders to the VS Code multi-root workspace. Detect reports issue with `reason_code: "additional_directories"`, fixable by removing the key.
 
 **Legacy uborka:** `cleanupLegacyClaudeFiles(duetDataPath)` removes pre-multi-agent artifacts (`~/.claude/output-styles/duet.md`, `~/.claude/agents/duet.md`, `DuetData/duet-instructions.md`). Idempotent. Does **not** touch user-personal `~/.claude/agents/vizir.md` or any non-Duet files. **Runs automatically** at the end of every successful Claude Code configure pass — immediately after the three new files (`duet-executor.md` output-style + executor/vizir custom agents) are written. Safe-by-construction: the cleanup runs only after the new files exist on disk, so users have no migration window where both old and new are missing. Failed deletions surface in the agent's `details` string for the wizard.
 

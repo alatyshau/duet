@@ -10,7 +10,7 @@ Backend is the system's strict reader and DB owner. It does not write manifests,
 
 Three things Backend is the only authority for:
 1. **The entity database.** SQLite at `DuetData/data/entities.db`, native sqlite3.
-2. **Orientation algorithm.** Resolves workspace paths → entity → products/components tree.
+2. **Orientation.** Resolves a folder → its business (or its repo) → the text answer an agent starts a session with; the same rule picks the business for deploying instructions.
 3. **Merged AI instructions.** Composes bootstrapper + per-agent core → one file per agent.
 
 ## Architecture
@@ -22,16 +22,15 @@ server.py (entry point, lifecycle)
     │
     ├── mcp_handler.py       MCP tools, service getters
     ├── services/
-    │   ├── workspace.py     WorkspaceService — orientation response
+    │   ├── workspace.py     WorkspaceService — folder → business, orientation answer
     │   ├── entities.py      EntitiesService — /contexts, /scan
-    │   ├── products.py      products/components discovery (product/component discovery)
     │   ├── deploy_instructions.py  deploy a context's skills/instructions/system_prompt into its Drive folder
     │   ├── at_paths.py      alpha-path grammar: form, repo/context heads, containment
     │   ├── resolve_paths.py agent-facing alpha-path resolver (repos / contexts / tickets) behind `resolve_paths`
     │   └── manifest.py      strict v4 manifest reader
     ├── scanner.py           hierarchy scan, strict v4 reader
     ├── watcher.py           manifest file watcher, auto-rescan
-    ├── description.py       extract_description, spec file lookup
+    ├── description.py       extract_description (for /contexts), spec file lookup
     ├── instructions.py      merge pipeline (multi-agent)
     ├── db.py                SQLite operations
     ├── config.py            read-only configuration
@@ -50,8 +49,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `server.py` | HTTP routes, lifecycle, DI init, logging setup | Business logic |
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
-| `scanner.py` | Hierarchy scan (strict v4), `git_repos` → N product_repo while Drive context recursion continues | HTTP, config writes, manifest upgrades, products/components discovery |
-| `services/products.py` | Build orientation `products[]` + components (product/component discovery) | DB writes, HTTP |
+| `scanner.py` | Hierarchy scan (strict v4), `git_repos` → N product_repo while Drive context recursion continues; a repo declared by several contexts under one name and address is registered once | HTTP, config writes, manifest upgrades |
 | `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory`/`system_prompt` @-path declarations and the field-level `ticket_code`) | Migrations (Host owns) |
 | `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
 | `services/at_paths.py` | The one grammar of alpha paths, shared by deploy and `resolve_paths`: parse `@<head>/<rest>`, find the repo dir (under `DuetData/repos`) or context (→ its Drive folder) a head stands for, keep the target inside it; refuse `.` / `..` segments | Tickets, file copy, HTTP, DB |
@@ -94,10 +92,9 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | POST | `/stop` | `{ status: "stopping" }`, triggers shutdown |
 | GET | `/timestamp` | `{ timestamp: "YYMMDD_HHMMSS<tz>" }` |
 | GET | `/duet-data-path` | `{ path: "/absolute/path" }` |
-| POST | `/orientation` | Body: `{"workspace_paths": [...]}`. Returns duet_paths, workspace, context, products[], memory (v4 shape — see Orientation below) |
 | GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
-| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Resolves the owning context, deploys its `skills`/`instructions`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
+| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Picks the business from the paths, deploys its `skills`/`instructions`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
 
 ### MCP Tools
@@ -109,7 +106,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `turn_plan` | Plan text as unstructured content (prototype: one turn's checklist, stateless; `fmt` picks `md` / `html` / `line` / `plain`; `structured_output=False` keeps the client from showing a `{"result": ...}` envelope) |
 | `resolve_paths` | Markdown text, one `### <path>` section per requested alpha path (see [Alpha-path resolution](#alpha-path-resolution-resolve_paths)); `structured_output=False`; empty list → `INVALID_PARAMS` |
 | `turn_report` | The given report text unchanged, as unstructured content (prototype: one agent report on preparing the answer, free-form Markdown chosen by the caller; the first non-empty line must be a `### ` heading with text, otherwise `INVALID_PARAMS`; `structured_output=False` for the same reason as `turn_plan`) |
-| `orientation` | dict directly |
+| `orientation` | Markdown text for one folder (see [Orientation](#orientation)); `structured_output=False` |
 | `contexts` | list directly |
 | `scan` | dict directly |
 | `health` | `{ status, version, uptime_seconds }` |
@@ -139,77 +136,13 @@ Standard library only, so it runs on any venv regardless of the installed MCP SD
 
 ### Orientation
 
-`POST /orientation` with body `{"workspace_paths": [...]}` is the primary orientation endpoint for AI agents. MCP analog: `orientation(workspace_paths: list[str])`.
+Contract — what the tool answers for which folder: [PRODUCT.md → Orientation](../../../spec/PRODUCT.md#orientation). Logic: `services/workspace.py`, `WorkspaceService.get_orientation(path)`. Below is only what the contract does not say.
 
-**Multi-path entity resolution:**
-
-1. Classify each path: `git` (under `DuetData/repos/`) or `context` (contains `context.json`) or ignored.
-2. Resolve entities from classified paths.
-3. If the meta-context (`meta=true`) is among the resolved entities, it wins; otherwise the first resolved context is used.
-
-Multi-repo contexts (`git_repos` with N aliases) unify all `repos/<alias>.git` paths to one owner: each path resolves through its `product_repo` entity to the same parent context. Opening any of a context's declared repo paths (or its Drive folder) returns the same context regardless of which path the agent opened.
-
-**Response shape (v4):**
-
-| Block | Fields | When |
-|-------|--------|------|
-| `duet_paths` | `duetDataPath`, `machineConfig` | Always |
-| `workspace` | `kind`, `context_name`, `context_folder`, `git_folders[, addons]` | Always |
-| `context` | `breadcrumb`, `chain[{type, name, icon, description?}]` | When entity resolved |
-| `products` | `[{name, path, spec?, description?, components: [...]}]` | When entity resolved |
-| `memory` | `{ref, path}` (resolved from `context.json` → `memory` @-path) or `null` when none declared / unresolvable | When entity resolved |
-
-**`workspace` fields:**
-
-| Field | Type | Value |
-|-------|------|-------|
-| `kind` | string | `"context"` for resolved entity, `"unknown"` for unresolved paths |
-| `context_name` | string \| null | Current context name (last `context.chain[]` entry) |
-| `context_folder` | string \| null | Absolute path to the context's Drive folder |
-| `git_folders` | map | `{alias: expected_absolute_path}` for every alias in `git_repos`. Path is always `{repos}/{alias}.git` whether the clone exists or not — consumers check `Path(...).exists()`. Order matches manifest insertion |
-| `reference_repos` | map, optional | `{name.git: absolute_path}` for existing reference clones |
-
-**Meta-context addons** (only when `entity.meta=true`):
-
-| Field | Value |
-|-------|-------|
-| `root_context_folders` | Map `{name: absolute_path}` of every top-level context |
-| `duet_data_folder` | Absolute path to DuetData |
-
-Unknown workspace adds `reason` discriminator (`no_workspace_path` \| `path_not_in_hierarchy` \| `entity_not_in_db`) and the four canonical fields with empty / null values.
-
-**`products[*]` fields:**
-
-| Field | Type | Value |
-|-------|------|-------|
-| `name` | string | Duet-ontology slug. Rule A: `{alias}.git`. Rules B/D: context name. Rule C: subfolder name. No `.git` on drive-products |
-| `path` | string | @-ref. Git: `@<alias>.git`; Drive (B/D): `@<context_name>`; Drive (C): `@<context_name>/<sub>` |
-| `spec` | string, optional | Relative path to spec file. Absent when description came from README |
-| `description` | string, optional | First sentence from the spec or README |
-| `components` | array | `[{name, path, spec?, description?}]` |
-
-**`products[*].components[*]` fields:**
-
-| Field | Type | Value |
-|-------|------|-------|
-| `name` | string | Subfolder name |
-| `path` | string | Relative to `product.path`. E.g. `packages/backend` or `MetaMathematics` |
-| `spec` | string, optional | Relative to `component.path`. E.g. `spec/COMPONENT.md` |
-| `description` | string, optional | First sentence from the spec or README |
-
-**Discovery rules** (normative implementation: `services/products.py:build_products`):
-- Products: A — `git_repos` aliases; B — `<context>/spec/PRODUCT.md`; C — `<sub>/spec/PRODUCT.md` without `<sub>/context.json`; D — README fallback when A/B/C all empty.
-- Components: per-product, one level deep, four ordered paths: `packages/<comp>/spec/COMPONENT.md` → `packages/<comp>/README*.md` → `<comp>/spec/COMPONENT.md` → `<comp>/README*.md`.
-- Skip-list at every level (`drafts`, `work`, `archive`, `bin`, `out`, `dist`, `build`, `node_modules`, `target`, `__pycache__`, `.venv`, `venv`, `src`, `spec`, `docs`, `tests`, `test`, `examples`, hidden dotfiles). `packages` is the monorepo container, never itself a component.
-- `README*.md` priority: exact `README.md` wins; otherwise alphabetically first.
-
-**Path conventions:** absolute paths only in `workspace` (`context_folder`, `git_folders[*]`). Inside `products[]` and `components[]` — @-ref or relative. `product.spec` is relative to `product.path`; `component.spec` is relative to `component.path`. Optional fields omitted when absent (no `null` placeholders); empty collections are explicit (`components: []`, `git_folders: {}`).
-
-**`chain[].description` priority:** `context.json::description` (when non-empty) > first sentence of `README.md` at the context's Drive folder.
-
-**`chain[].icon`** mirrors `Entity.icon` (set by Scanner from manifest, or default: `📚` meta, `📦` context with `git_repos`, `📁` context without `git_repos`).
-
-**REST note:** `/orientation` is POST (JSON body avoids URL-length issues with long paths containing non-ASCII). Returns result directly (not wrapped).
+- **Check order.** The input is NFC-normalized and resolved; `DuetData/repos` is checked before the venture folders.
+- **`resolve_business(folder)`** is the one rule "folder → business", shared with Deploy Instructions. The folder's path relative to its venture folder is matched against `drive_path` with `db.find_closest_entity`, so the nearest registered context wins. A folder under `DuetData/repos` resolves to `None`.
+- **Names after `@`** are the registered entity names (`МетаЛаб`), not folder names (`!МетаЛаб`).
+- **Repo answer.** The repo is the first path segment under `repos`; a worktree folder `X.wt-N` stands for `X.git`; the `repos` folder itself is answered as outside Duet. `Declared by` is read from the manifests on disk of every context in the DB, because a shared repo has only one `product_repo` row (see Scanner).
+- **Not registered.** A folder inside a venture folder for which the DB has no context — the venture has no valid manifest, or the first scan has not finished — is answered with ``Not a business folder: this path is inside a venture folder, but no business is registered for it. Run `scan` and call `orientation` again.``
 
 ### Alpha-path resolution (`resolve_paths`)
 
@@ -223,7 +156,7 @@ The MCP tool `resolve_paths(paths)` resolves the alpha paths agents write (norma
 
 ### Deploy Instructions
 
-`POST /deploy-instructions` with body `{"workspace_paths": [...]}` resolves the owning context (same multi-path resolution as orientation) and materializes that context's `skills` / `instructions` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
+`POST /deploy-instructions` with body `{"workspace_paths": [...]}` picks the business and materializes that context's `skills` / `instructions` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Each path goes through `resolve_business`; when several businesses resolve, the meta-context (`meta=true`) wins, otherwise the first; when none does (a window with only repo folders), the answer is `no_owning_context`. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
 
 **@-path resolution** (`services/at_paths.py`): `parse_at_path` takes `@<head>/<rest>` apart (`/` and `\` both separate segments, empty segments are dropped, text is compared in NFC), `find_base` resolves `<head>` to either a repo directory `<DuetData>/repos/<head>` (when it exists) or a context named `<head>` (→ that context's Drive folder), `join_under` keeps the target inside it. A `.` or `..` segment is refused anywhere in the address, because nothing needs one and leaving it to `Path.resolve()` once let `@..` reach the parent of the repos dir. `resolve_at_path` is those three for deploy declarations: a malformed, dotted, unknown or escaping entry resolves to `None` (warning + skip). The `resolve_paths` tool calls the same three and adds only ticket heads and its explanations; `tests/test_resolve_paths.py::TestSameGrammarAsDeploy` pins that both give one answer on every non-ticket address. Ticket heads are not accepted in deploy declarations.
 
@@ -306,7 +239,7 @@ Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffi
 **`/scan` behavior:**
 - **Debounce:** if last scan completed < 5 seconds ago, returns `{ status: "skipped", reason: "recent_scan", entities_count: 0, errors: [] }`. All scan responses conform to `ScanResult` shape (via `make_scan_result()` factory).
 - **Blocking:** scan runs synchronously. During scan, backend does NOT respond to other requests. Typical duration: 1-5 seconds. OK because single-user local app.
-- **Scan errors** in response: `{path, reason_code, description}`. Codes: `name_collision`, `repo_collision`, `invalid_manifest`, `unrecognized_manifest_version`, `invalid_ticket_code` (field dropped, context kept), `ticket_code_collision` (one per code declared by 2+ contexts; all stay registered). Backend never writes manifests; Host owns missing-file creation and version upgrades.
+- **Scan errors** in response: `{path, reason_code, description}`. Codes: `name_collision`, `repo_collision` (one repo name declared with different addresses; the same name with the same address is one shared clone, registered once under its first declarer), `invalid_manifest`, `unrecognized_manifest_version`, `invalid_ticket_code` (field dropped, context kept), `ticket_code_collision` (one per code declared by 2+ contexts; all stay registered). Backend never writes manifests; Host owns missing-file creation and version upgrades.
 - **`run_scan_with_cache()`** (in `server.py`): shared function that runs scan + writes JSON cache (`scan.json`, `contexts.json`). Used by both `POST /scan` and ManifestWatcher.
 
 ### Manifest Watcher
@@ -334,7 +267,7 @@ Implementation: `watcher.py`.
 
 ### JSON Cache Pattern
 
-Backend writes operation results to `DuetData/data/` as JSON files (atomic). Host's file watcher on `DuetData/data/` picks up changes and refreshes wizard state without HTTP polling. Extension does **not** consume these files — it uses HTTP (`GET /contexts`, `POST /scan`, `POST /orientation`) directly.
+Backend writes operation results to `DuetData/data/` as JSON files (atomic). Host's file watcher on `DuetData/data/` picks up changes and refreshes wizard state without HTTP polling. Extension does **not** consume these files — it uses HTTP (`GET /contexts`, `POST /scan`, `POST /deploy-instructions`) directly.
 
 | File | Source | Consumer |
 |------|--------|----------|
@@ -348,9 +281,9 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic). Hos
 
 ### Description Extraction
 
-Extracts description from markdown — first sentence of first paragraph after H1, or H1 text if next content is structural. Used by `context.chain[].description` (from README.md) and `components[].description` (from spec file).
+Extracts description from markdown — first sentence of first paragraph after H1, or H1 text if next content is structural. Used by `description` in `GET /contexts` (from README.md, when the manifest has none).
 
-**Legacy `find_spec_file()` fallback chain** (`ARCHITECTURE.md`, `INDEX.md`, `BUSINESS.md`, `STREAM.md`) is no longer consulted by orientation — those names lingered from the pre-rename taxonomy. The function is retained as a utility but is not on the orientation hot path.
+**Legacy `find_spec_file()` fallback chain** (`ARCHITECTURE.md`, `INDEX.md`, `BUSINESS.md`, `STREAM.md`) has no caller in the Backend; the function is retained as a utility.
 
 ### Database Schema
 
@@ -422,7 +355,7 @@ entities_service = EntitiesService(db)
 init_services(workspace_service, entities_service, _start_time)
 
 # Usage (anywhere)
-get_workspace_service().get_orientation(...)
+get_workspace_service().get_orientation(path)
 ```
 
 **Contract:** services initialized once in lifespan. Never create new instances elsewhere.
@@ -492,7 +425,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | HTTP endpoints | `server.py` |
 | MCP tools | `mcp_handler.py` |
 | MCP stdio bridge | `mcp_stdio_bridge.py` |
-| Workspace info / orientation | `services/workspace.py` |
+| Folder → business, orientation answer | `services/workspace.py` (`resolve_business`, `get_orientation`) |
 | Entity listing | `services/entities.py` |
 | Hierarchy scan | `scanner.py:_scan_context()` |
 | Manifest reader (strict v4) | `services/manifest.py:read_manifest()` |
@@ -500,7 +433,6 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | `@<name>/<rest>` resolution | `services/at_paths.py` (`parse_at_path`, `find_base`, `join_under`, `resolve_at_path`) |
 | Agent alpha paths, tickets | `services/resolve_paths.py:resolve_paths()`, `WorkspaceService.resolve_paths()` |
 | Context-memory pointer | `services/workspace.py:_build_memory()` |
-| Products/components discovery | `services/products.py:build_products()` |
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback (legacy) | `description.py:find_spec_file()` |
 | Merge pipeline | `instructions.py:merge_duet_instructions()` |

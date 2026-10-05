@@ -760,8 +760,8 @@ function detectClaudeCode(merged: MergedAgents, duetDataPath: string, port: numb
 
 /**
  * Проверяет проблемы конфигурации Claude Code.
- * additionalDirectories в settings.json засоряет multi-root workspace VS Code,
- * ломая orientation (лишние пути попадают в workspace_paths).
+ * additionalDirectories в settings.json добавляет лишние папки в multi-root
+ * workspace VS Code.
  */
 function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
   const issues: AgentIssue[] = []
@@ -777,7 +777,7 @@ function checkClaudeCodeIssues(settingsPath: string): AgentIssue[] {
         issues.push({
           reason_code: 'additional_directories',
           description:
-            'settings.json содержит additionalDirectories — этот параметр засоряет workspace в VS Code и ломает orientation. Удалите его.',
+            'settings.json содержит additionalDirectories — этот параметр добавляет лишние папки в workspace VS Code. Удалите его.',
           fixable: true
         })
       }

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OrientationResponse } from '../../core/api-client';
+import { ContextEntity } from '../../core/api-client';
 
 vi.mock('vscode', () => ({
     workspace: {
@@ -39,229 +39,148 @@ vi.mock('vscode', () => ({
     env: { openExternal: vi.fn() },
 }));
 
+import * as vscode from 'vscode';
 import { ContextProvider } from '../../vscode/providers/ContextProvider';
+import { buildContextPanel, findCurrentBusiness } from '../../core/tree/contextPanel';
 
-function duetLabOrientation(): OrientationResponse {
+function makeContext(overrides: Partial<ContextEntity> & { id: string; name: string }): ContextEntity {
     return {
-        duet_paths: {
-            duetDataPath: '/abs/DuetData',
-            machineConfig: '/abs/DuetConfig/mac.json'
-        },
-        context: {
-            chain: [
-                { name: 'МетаЛаб', icon: '🔬', description: 'Кузница языка' },
-                { name: 'ТехноЛаб', icon: '📁' },
-                { name: 'DuetLab', icon: '🎭', description: 'Платформа Human ⇄ AI' }
-            ]
-        },
-        workspace: {
-            kind: 'context',
-            context_name: 'DuetLab',
-            context_folder: '/abs/Drive/!МетаЛаб/ТехноЛаб/DuetLab',
-            git_folders: {
-                Duet: '/abs/DuetData/repos/Duet.git',
-                'Duet-Instructions': '/abs/DuetData/repos/Duet-Instructions.git'
-            }
-        },
-        products: [
-            {
-                name: 'Duet',
-                path: '@Duet.git',
-                spec: 'spec/PRODUCT.md',
-                description: 'Платформа Human ⇄ AI.',
-                components: [
-                    { name: 'backend', path: 'packages/backend', spec: 'spec/COMPONENT.md', description: 'Python HTTP API.' },
-                    { name: 'extension', path: 'packages/extension', spec: 'spec/COMPONENT.md' },
-                    { name: 'host', path: 'packages/host', spec: 'spec/COMPONENT.md' }
-                ]
-            },
-            {
-                name: 'Duet-Instructions',
-                path: '@Duet-Instructions.git',
-                description: 'Инструкции для AI.',
-                components: []
-            }
-        ]
+        type: 'context',
+        icon: null,
+        path: '',
+        absolute_path: null,
+        parent_id: null,
+        meta: false,
+        git_repos: null,
+        ...overrides,
     };
 }
 
+function setWorkspaceFolders(paths: string[]) {
+    (vscode.workspace as unknown as { workspaceFolders: { uri: { fsPath: string } }[] }).workspaceFolders =
+        paths.map(p => ({ uri: { fsPath: p } }));
+}
+
+/** МетаЛаб → ТехноЛаб → DuetLab → {Research, Shell}; a sibling venture !БАЗА (meta). */
+function metaLab(): ContextEntity[] {
+    return [
+        makeContext({ id: '1', name: 'МетаЛаб', icon: '🔬', absolute_path: '/drive/!МетаЛаб', description: 'Кузница языка' }),
+        makeContext({ id: '2', name: 'ТехноЛаб', icon: '📁', absolute_path: '/drive/!МетаЛаб/ТехноЛаб', parent_id: '1' }),
+        makeContext({
+            id: '3', name: 'DuetLab', icon: '🎭', absolute_path: '/drive/!МетаЛаб/ТехноЛаб/DuetLab', parent_id: '2',
+            git_repos: { Duet: 'git@x:Duet.git' }
+        }),
+        makeContext({ id: '4', name: 'Research', icon: '📁', absolute_path: '/drive/!МетаЛаб/ТехноЛаб/DuetLab/Research', parent_id: '3' }),
+        makeContext({ id: '5', name: 'Shell', icon: '📁', absolute_path: '/drive/!МетаЛаб/ТехноЛаб/DuetLab/Shell', parent_id: '3' }),
+        makeContext({ id: '6', name: 'Deep', icon: '📁', absolute_path: '/drive/!МетаЛаб/ТехноЛаб/DuetLab/Shell/Deep', parent_id: '5' }),
+        makeContext({ id: '7', name: 'БАЗА', icon: '📚', absolute_path: '/drive/!БАЗА', meta: true }),
+    ];
+}
+
+const DUETLAB = '/drive/!МетаЛаб/ТехноЛаб/DuetLab';
+
+describe('findCurrentBusiness', () => {
+    it('is the business whose folder is among the window folders', () => {
+        expect(findCurrentBusiness(metaLab(), [DUETLAB])?.name).toBe('DuetLab');
+    });
+
+    it('is nobody when only a repo folder is open', () => {
+        expect(findCurrentBusiness(metaLab(), ['/DuetData/repos/Duet.git'])).toBeNull();
+    });
+
+    it('is nobody for a folder inside a business that is not a business folder', () => {
+        expect(findCurrentBusiness(metaLab(), [`${DUETLAB}/work/DUE013_X`])).toBeNull();
+    });
+
+    it('prefers the meta-context, otherwise the first window folder', () => {
+        expect(findCurrentBusiness(metaLab(), [DUETLAB, '/drive/!БАЗА'])?.name).toBe('БАЗА');
+        expect(findCurrentBusiness(metaLab(), [`${DUETLAB}/Shell`, DUETLAB])?.name).toBe('Shell');
+    });
+});
+
+describe('buildContextPanel', () => {
+    it('shows the venture, the current business and the businesses under it', () => {
+        const root = buildContextPanel(metaLab(), [DUETLAB, '/DuetData/repos/Duet.git'])!;
+
+        expect(root.name).toBe('МетаЛаб');
+        expect(root.role).toBe('venture');
+        // Intermediate parent ТехноЛаб is not shown.
+        expect(root.children.map(c => [c.name, c.role])).toEqual([['DuetLab', 'current']]);
+        // Direct children only: Deep is under Shell.
+        expect(root.children[0].children.map(c => [c.name, c.role])).toEqual([
+            ['Research', 'child'],
+            ['Shell', 'child'],
+        ]);
+        expect(root.children[0].children.every(c => c.children.length === 0)).toBe(true);
+    });
+
+    it('shows a venture as its own root with its businesses', () => {
+        const root = buildContextPanel(metaLab(), ['/drive/!МетаЛаб'])!;
+
+        expect([root.name, root.role]).toEqual(['МетаЛаб', 'venture']);
+        expect(root.children.map(c => [c.name, c.role])).toEqual([['ТехноЛаб', 'child']]);
+    });
+
+    it('is null when the window has no business folder', () => {
+        expect(buildContextPanel(metaLab(), [])).toBeNull();
+        expect(buildContextPanel(metaLab(), ['/random'])).toBeNull();
+    });
+});
+
 describe('ContextProvider', () => {
     let provider: ContextProvider;
-    const refreshFn = vi.fn();
 
     beforeEach(() => {
-        refreshFn.mockReset();
+        setWorkspaceFolders([]);
     });
 
     afterEach(() => {
         provider?.dispose();
     });
 
-    describe('chain rendering', () => {
-        it('renders the full chain as nested context nodes', () => {
-            const orientation = duetLabOrientation();
-            provider = new ContextProvider(orientation, refreshFn);
+    it('renders the panel as nested business nodes with icon labels', () => {
+        setWorkspaceFolders([DUETLAB]);
+        provider = new ContextProvider(metaLab());
 
-            const roots = provider.getChildren() as Array<{ kind: string; name?: string }>;
-            expect(roots).toHaveLength(1);
-            expect(roots[0].kind).toBe('chain');
-            expect(roots[0].name).toBe('МетаЛаб');
+        const roots = provider.getChildren() as Array<{ kind: string; name?: string }>;
+        expect(roots).toHaveLength(1);
+        expect(provider.getTreeItem(roots[0] as never).label).toBe('🔬 МетаЛаб');
 
-            const tehno = provider.getChildren(roots[0] as never) as Array<{ kind: string; name?: string }>;
-            expect(tehno).toHaveLength(1);
-            expect(tehno[0].name).toBe('ТехноЛаб');
+        const current = provider.getChildren(roots[0] as never) as Array<{ name?: string }>;
+        expect(current.map(c => c.name)).toEqual(['DuetLab']);
+        expect(provider.getTreeItem(current[0] as never).label).toBe('🎭 DuetLab');
 
-            const duetlab = provider.getChildren(tehno[0] as never) as Array<{ kind: string; name?: string }>;
-            expect(duetlab).toHaveLength(1);
-            expect(duetlab[0].name).toBe('DuetLab');
-        });
-
-        it('places products as children of the last chain item', () => {
-            provider = new ContextProvider(duetLabOrientation(), refreshFn);
-
-            const chain1 = (provider.getChildren() as Array<unknown>)[0];
-            const chain2 = (provider.getChildren(chain1 as never) as Array<unknown>)[0];
-            const last = (provider.getChildren(chain2 as never) as Array<unknown>)[0];
-            const products = provider.getChildren(last as never) as Array<{ kind: string; name?: string; atRef?: string }>;
-
-            expect(products.map(p => p.name)).toEqual(['Duet', 'Duet-Instructions']);
-            expect(products.every(p => p.kind === 'product')).toBe(true);
-        });
-
-        it('places components under each product', () => {
-            provider = new ContextProvider(duetLabOrientation(), refreshFn);
-
-            const chain1 = (provider.getChildren() as Array<unknown>)[0];
-            const chain2 = (provider.getChildren(chain1 as never) as Array<unknown>)[0];
-            const last = (provider.getChildren(chain2 as never) as Array<unknown>)[0];
-            const products = provider.getChildren(last as never) as Array<{ kind: string; name?: string }>;
-
-            const duet = products.find(p => p.name === 'Duet')!;
-            const components = provider.getChildren(duet as never) as Array<{ kind: string; name?: string; relativePath?: string }>;
-            expect(components.map(c => c.name)).toEqual(['backend', 'extension', 'host']);
-            expect(components.every(c => c.kind === 'component')).toBe(true);
-
-            const instr = products.find(p => p.name === 'Duet-Instructions')!;
-            expect(provider.getChildren(instr as never)).toEqual([]);
-        });
+        const children = provider.getChildren(current[0] as never) as Array<{ name?: string }>;
+        expect(children.map(c => c.name)).toEqual(['Research', 'Shell']);
+        expect(provider.getParent(children[0] as never)).toBe(current[0]);
     });
 
-    describe('@-ref resolution', () => {
-        it('resolves product.path against workspace.git_folders for git-products', () => {
-            provider = new ContextProvider(duetLabOrientation(), refreshFn);
+    it('puts the description and the folder into the tooltip', () => {
+        setWorkspaceFolders(['/drive/!МетаЛаб']);
+        provider = new ContextProvider(metaLab());
 
-            const chain1 = (provider.getChildren() as Array<unknown>)[0];
-            const chain2 = (provider.getChildren(chain1 as never) as Array<unknown>)[0];
-            const last = (provider.getChildren(chain2 as never) as Array<unknown>)[0];
-            const products = provider.getChildren(last as never) as Array<{ name?: string; absolutePath?: string | null }>;
-
-            const duet = products.find(p => p.name === 'Duet')!;
-            expect(duet.absolutePath).toBe('/abs/DuetData/repos/Duet.git');
-        });
-
-        it('resolves drive-product paths against workspace.context_folder', () => {
-            const r: OrientationResponse = {
-                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc' },
-                context: { chain: [{ name: 'OntoCore', icon: '📁' }] },
-                workspace: {
-                    kind: 'context',
-                    context_name: 'OntoCore',
-                    context_folder: '/drive/OntoCore',
-                    git_folders: {}
-                },
-                products: [
-                    { name: 'OntoCore', path: '@OntoCore', components: [
-                        { name: 'LangLab', path: 'LangLab' }
-                    ] }
-                ]
-            };
-            provider = new ContextProvider(r, refreshFn);
-
-            const chain = (provider.getChildren() as Array<unknown>)[0];
-            const products = provider.getChildren(chain as never) as Array<{ name?: string; absolutePath?: string | null }>;
-            expect(products[0].absolutePath).toBe('/drive/OntoCore');
-
-            const components = provider.getChildren(products[0] as never) as Array<{ name?: string; absolutePath?: string | null }>;
-            expect(components[0].absolutePath).toBe('/drive/OntoCore/LangLab');
-        });
+        const root = (provider.getChildren() as unknown[])[0];
+        expect(provider.getTreeItem(root as never).tooltip).toBe('Кузница языка\n/drive/!МетаЛаб');
     });
 
-    describe('unknown workspace fallback', () => {
-        it('shows an info node when workspace.kind is "unknown"', () => {
-            const r: OrientationResponse = {
-                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc' },
-                workspace: { kind: 'unknown', git_folders: {}, context_folder: '/random' },
-                products: []
-            };
-            provider = new ContextProvider(r, refreshFn);
+    it('shows an info node when no business folder is open', () => {
+        setWorkspaceFolders(['/DuetData/repos/Duet.git']);
+        provider = new ContextProvider(metaLab());
 
-            const roots = provider.getChildren() as Array<{ kind: string; message?: string }>;
-            expect(roots).toHaveLength(1);
-            expect(roots[0].kind).toBe('info');
-            expect(roots[0].message).toContain('вне иерархии');
-        });
-
-        it('shows an info node when chain is empty even with kind=context', () => {
-            const r: OrientationResponse = {
-                duet_paths: { duetDataPath: '/dd', machineConfig: '/mc' },
-                workspace: { kind: 'context', context_name: 'X', context_folder: '/x', git_folders: {} },
-                context: { chain: [] },
-                products: []
-            };
-            provider = new ContextProvider(r, refreshFn);
-
-            const roots = provider.getChildren() as Array<{ kind: string }>;
-            expect(roots[0].kind).toBe('info');
-        });
-
-        it('shows an info node when orientation is null', () => {
-            provider = new ContextProvider(null, refreshFn);
-            const roots = provider.getChildren() as Array<{ kind: string; message?: string }>;
-            expect(roots[0].kind).toBe('info');
-            expect(roots[0].message).toContain('Контекст');
-        });
+        const roots = provider.getChildren() as Array<{ kind: string; message?: string }>;
+        expect(roots).toHaveLength(1);
+        expect(roots[0].kind).toBe('info');
+        expect(roots[0].message).toContain('папка бизнеса');
     });
 
-    describe('updateOrientation', () => {
-        it('rebuilds the tree from a fresh response', () => {
-            provider = new ContextProvider(null, refreshFn);
-            expect((provider.getChildren() as Array<{ kind: string }>)[0].kind).toBe('info');
+    it('rebuilds from a fresh list of businesses', () => {
+        setWorkspaceFolders([DUETLAB]);
+        provider = new ContextProvider([]);
+        expect((provider.getChildren() as Array<{ kind: string }>)[0].kind).toBe('info');
 
-            provider.updateOrientation(duetLabOrientation());
-            const roots = provider.getChildren() as Array<{ kind: string; name?: string }>;
-            expect(roots[0].kind).toBe('chain');
-            expect(roots[0].name).toBe('МетаЛаб');
-        });
-    });
-
-    describe('TreeItem labels', () => {
-        it('prepends manifest icon to chain labels and uses "comp" for components, no description for products', () => {
-            provider = new ContextProvider(duetLabOrientation(), refreshFn);
-
-            const chain1 = (provider.getChildren() as Array<unknown>)[0];
-            const chainItem1 = provider.getTreeItem(chain1 as never);
-            expect(chainItem1.label).toBe('🔬 МетаЛаб');
-
-            const chain2 = (provider.getChildren(chain1 as never) as Array<unknown>)[0];
-            const chainItem2 = provider.getTreeItem(chain2 as never);
-            expect(chainItem2.label).toBe('📁 ТехноЛаб');
-
-            const last = (provider.getChildren(chain2 as never) as Array<unknown>)[0];
-            const chainItem3 = provider.getTreeItem(last as never);
-            expect(chainItem3.label).toBe('🎭 DuetLab');
-
-            const products = provider.getChildren(last as never) as Array<unknown>;
-            const duet = (products as Array<{ name: string }>).find(p => p.name === 'Duet')!;
-
-            const productItem = provider.getTreeItem(duet as never);
-            // Product label is the bare name; suffix `.git` in the name itself
-            // distinguishes git-products visually — no separate marker needed.
-            expect(productItem.description).toBeUndefined();
-
-            const components = provider.getChildren(duet as never) as Array<unknown>;
-            const backend = (components as Array<{ name: string }>).find(c => c.name === 'backend')!;
-            const componentItem = provider.getTreeItem(backend as never);
-            expect(componentItem.description).toBe('comp');
-        });
+        provider.updateContexts(metaLab());
+        const roots = provider.getChildren() as Array<{ kind: string; name?: string }>;
+        expect(roots[0].kind).toBe('business');
+        expect(roots[0].name).toBe('МетаЛаб');
     });
 });

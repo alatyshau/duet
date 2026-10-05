@@ -100,7 +100,7 @@ class TestScannerNormalization:
 class TestWorkspaceServiceNormalization:
     """Tests that WorkspaceService handles NFD input paths."""
 
-    def test_resolve_entity_with_nfd_path(
+    def test_resolve_business_with_nfd_path(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         builder = DuetDataBuilder(tmp_path)
@@ -121,13 +121,13 @@ class TestWorkspaceServiceNormalization:
         service = WorkspaceService(db)
 
         nfd_product_path = unicodedata.normalize("NFD", str(product_path))
-        entity = service._resolve_entity(nfd_product_path)
+        entity = service.resolve_business(nfd_product_path)
 
         assert entity is not None
         assert entity.name == "Андрей"
         assert entity.type == "context"
 
-    def test_resolve_entity_with_nfc_path(
+    def test_resolve_business_with_nfc_path(
         self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         builder = DuetDataBuilder(tmp_path)
@@ -147,7 +147,7 @@ class TestWorkspaceServiceNormalization:
 
         service = WorkspaceService(db)
 
-        entity = service._resolve_entity(str(product_path))
+        entity = service.resolve_business(str(product_path))
 
         assert entity is not None
         assert entity.name == "Андрей"
@@ -176,12 +176,9 @@ class TestWorkspaceServiceNormalization:
         nfd_path = unicodedata.normalize("NFD", str(product_path))
         result = service.get_orientation(nfd_path)
 
-        assert result["workspace"]["kind"] == "context"
-        chain = result["context"]["chain"]
-        assert len(chain) == 3
-        assert chain[0]["name"] == "СЕМЬЯ"
-        assert chain[1]["name"] == "ЗОЖ"
-        assert chain[2]["name"] == "Андрей"
+        assert "`@Андрей` (active business folder)" in result
+        assert "`@СЕМЬЯ` (parent venture folder)" in result
+        assert unicodedata.is_normalized("NFC", result)
 
 
 class TestConfigNormalization:

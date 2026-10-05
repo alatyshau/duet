@@ -600,6 +600,57 @@ class TestScanErrors:
         # Error path points to the manifest for Fix button
         assert "context.json" in repo_errors[0]["path"]
 
+    def test_shared_repo_is_not_a_collision(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """One name with one address in several manifests is one shared clone."""
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
+        for name, kwargs in (
+            ("A", {"git_repos": {"Lib": "git@github.com:test/lib.git"}}),
+            ("B", {"git_repos": {"Lib": "git@github.com:test/lib"}}),
+            ("C", {"reference_repos": {"Lib": "git@github.com:test/lib.git"}}),
+        ):
+            folder = root_path / name
+            folder.mkdir()
+            ManifestBuilder.context(folder, name, **kwargs)
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        assert result["errors"] == []
+        repos = [e for e in db.get_all_entities() if e.type != "context"]
+        assert [(e.name, e.type) for e in repos] == [("Lib.git", "product_repo")]
+        assert db.get_entity(repos[0].parent_id).name == "A"
+
+    def test_same_repo_name_with_different_address_collides(
+        self, db: DatabaseManager, tmp_path: Path, monkeypatch
+    ) -> None:
+        """One name with different addresses is a real conflict over one clone folder."""
+        root_path = tmp_path / "Root"
+        root_path.mkdir()
+        ManifestBuilder.context(root_path, "Root")
+        for name, url in (("A", "git@github.com:test/lib.git"), ("B", "git@github.com:fork/lib.git")):
+            folder = root_path / name
+            folder.mkdir()
+            ManifestBuilder.context(folder, name, git_repos={"Lib": url})
+
+        monkeypatch.setattr(
+            "scanner.get_root_context_folders",
+            lambda: [str(root_path)]
+        )
+
+        result = Scanner(db).scan()
+
+        repo_errors = [e for e in result["errors"] if e["reason_code"] == "repo_collision"]
+        assert len(repo_errors) == 1
+        assert "Lib.git" in repo_errors[0]["description"]
+
     def test_errors_empty_on_clean_scan(
         self, db: DatabaseManager, tmp_path: Path, monkeypatch
     ) -> None:

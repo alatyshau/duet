@@ -1,83 +1,12 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { formatAtReference, formatBusinessReference, formatTicketReference, resolveAtRef } from '../../core/pathUtils';
+import { formatAtReference, formatBusinessReference, formatTicketReference } from '../../core/pathUtils';
 
 // We need to mock process.platform for Windows tests
 // Import the module after setting up mocks
 
 describe('pathUtils', () => {
-    describe('isPathInside (Unix)', () => {
-        let isPathInside: (childPath: string, parentPath: string) => boolean;
-
-        beforeEach(async () => {
-            vi.resetModules();
-            // Mock Unix platform
-            vi.stubGlobal('process', { ...process, platform: 'darwin' });
-            const module = await import('../../core/pathUtils');
-            isPathInside = module.isPathInside;
-        });
-
-        afterEach(() => {
-            vi.unstubAllGlobals();
-        });
-
-        it('should return true for direct child', () => {
-            expect(isPathInside('/repos/Duet.git', '/repos')).toBe(true);
-            expect(isPathInside('/repos/Duet.git', '/repos/')).toBe(true);
-        });
-
-        it('should return true for nested child', () => {
-            expect(isPathInside('/repos/sub/Duet.git', '/repos')).toBe(true);
-        });
-
-        it('should return false for sibling', () => {
-            expect(isPathInside('/other/Duet.git', '/repos')).toBe(false);
-        });
-
-        it('should return false for parent', () => {
-            expect(isPathInside('/repos', '/repos/Duet.git')).toBe(false);
-        });
-
-        it('should return false for equal paths', () => {
-            expect(isPathInside('/repos', '/repos')).toBe(false);
-            expect(isPathInside('/repos/', '/repos')).toBe(false);
-        });
-
-        it('should handle trailing separators', () => {
-            expect(isPathInside('/repos/Duet.git', '/repos/')).toBe(true);
-            expect(isPathInside('/repos/Duet.git/', '/repos')).toBe(true);
-        });
-
-        it('should handle paths with similar prefixes', () => {
-            // /repos-backup is NOT inside /repos
-            expect(isPathInside('/repos-backup/file', '/repos')).toBe(false);
-        });
-    });
-
-    describe('isPathInside (Windows)', () => {
-        let isPathInside: (childPath: string, parentPath: string) => boolean;
-
-        beforeEach(async () => {
-            vi.resetModules();
-            // Mock Windows platform
-            vi.stubGlobal('process', { ...process, platform: 'win32' });
-            const module = await import('../../core/pathUtils');
-            isPathInside = module.isPathInside;
-        });
-
-        afterEach(() => {
-            vi.unstubAllGlobals();
-        });
-
-        it('should be case-insensitive on Windows', () => {
-            // Note: path.normalize on non-Windows still uses forward slashes
-            // This test verifies case-insensitivity logic
-            expect(isPathInside('/Repos/Duet.git', '/repos')).toBe(true);
-            expect(isPathInside('/repos/Duet.git', '/REPOS')).toBe(true);
-        });
-    });
-
     describe('normalizePath', () => {
         let normalizePath: (p: string) => string;
 
@@ -242,62 +171,6 @@ describe('pathUtils', () => {
 
         it('returns null outside any business', async () => {
             expect(await formatBusinessReference('/DuetData/repos/Duet.git/README.md', readText)).toBeNull();
-        });
-    });
-
-    describe('resolveAtRef', () => {
-        const gitFolders = {
-            Duet: '/abs/DuetData/repos/Duet.git',
-            'Duet-Instructions': '/abs/DuetData/repos/Duet-Instructions.git'
-        };
-
-        it('resolves a bare git-alias ref to the cloned repo root', () => {
-            expect(resolveAtRef('@Duet.git', gitFolders, 'DuetLab', '/drive/DuetLab'))
-                .toBe('/abs/DuetData/repos/Duet.git');
-        });
-
-        it('appends trailing segments to the git folder', () => {
-            expect(resolveAtRef('@Duet.git/packages/backend', gitFolders, 'DuetLab', '/drive/DuetLab'))
-                .toBe(path.join('/abs/DuetData/repos/Duet.git', 'packages', 'backend'));
-        });
-
-        it('resolves a context-name ref against context_folder', () => {
-            expect(resolveAtRef('@OntoCore', {}, 'OntoCore', '/drive/OntoCore'))
-                .toBe('/drive/OntoCore');
-        });
-
-        it('resolves a context-name ref with trailing segments', () => {
-            expect(resolveAtRef('@OntoCore/LangLab', {}, 'OntoCore', '/drive/OntoCore'))
-                .toBe(path.join('/drive/OntoCore', 'LangLab'));
-        });
-
-        it('prefers git alias when a context name shares the alias', () => {
-            // Edge case: alias "DuetLab" exists AND context_name is "DuetLab".
-            // gitFolders wins — that's the design-doc precedence.
-            const overlap = { DuetLab: '/abs/repos/DuetLab.git' };
-            expect(resolveAtRef('@DuetLab', overlap, 'DuetLab', '/drive/DuetLab'))
-                .toBe('/abs/repos/DuetLab.git');
-        });
-
-        it('returns null when the head matches neither alias nor context_name', () => {
-            expect(resolveAtRef('@Unknown', gitFolders, 'DuetLab', '/drive/DuetLab')).toBeNull();
-        });
-
-        it('returns null for malformed refs (no @, empty body)', () => {
-            expect(resolveAtRef('Duet.git', gitFolders)).toBeNull();
-            expect(resolveAtRef('@', gitFolders)).toBeNull();
-        });
-
-        it('refuses `.` and `..` segments anywhere, as the Backend does', () => {
-            for (const ref of ['@..', '@.', '@../data', '@Duet.git/..', '@Duet.git/a/../b',
-                '@Duet.git/./a', '@Duet.git\\..\\a', '@OntoCore/..']) {
-                expect(resolveAtRef(ref, gitFolders, 'OntoCore', '/drive/OntoCore'), ref).toBeNull();
-            }
-        });
-
-        it('treats a backslash as a separator', () => {
-            expect(resolveAtRef('@Duet.git\\packages', gitFolders))
-                .toBe(path.join('/abs/DuetData/repos/Duet.git', 'packages'));
         });
     });
 });

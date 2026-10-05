@@ -41,53 +41,6 @@ export interface ContextsResponse {
     contexts: ContextEntity[];
 }
 
-export interface ChainItem {
-    name: string;
-    icon: string;
-    description?: string;
-}
-
-export interface ComponentInfo {
-    name: string;
-    path: string;
-    spec?: string;
-    description?: string;
-}
-
-export interface ProductInfo {
-    name: string;
-    path: string;
-    spec?: string;
-    description?: string;
-    components: ComponentInfo[];
-}
-
-export interface OrientationWorkspace {
-    kind: 'context' | 'unknown';
-    context_name?: string;
-    context_folder?: string;
-    git_folders: Record<string, string>;
-}
-
-/** Context-memory pointer (`context.json` → `memory`), resolved by backend. */
-export interface OrientationMemory {
-    ref: string;
-    path: string;
-}
-
-export interface OrientationResponse {
-    duet_paths: {
-        duetDataPath: string;
-        machineConfig: string;
-    };
-    workspace: OrientationWorkspace;
-    context?: {
-        chain: ChainItem[];
-    };
-    products: ProductInfo[];
-    memory?: OrientationMemory | null;
-}
-
 export interface DeployInstructionsResponse {
     status: 'ok' | 'unknown';
     reason?: string;
@@ -145,10 +98,6 @@ export class DuetApiClient {
 
     async duetDataPath(): Promise<DuetDataPathResponse> {
         return this.get('/duet-data-path');
-    }
-
-    async orientation(workspacePaths?: string[]): Promise<OrientationResponse> {
-        return this.postJson('/orientation', { workspace_paths: workspacePaths ?? [] });
     }
 
     async contexts(): Promise<ContextsResponse> {

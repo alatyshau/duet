@@ -1,11 +1,9 @@
 """Tests for instructions workspace scanning and merge pipeline."""
 
 import json
-import time
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 
 import config
 from db import DatabaseManager
@@ -15,104 +13,8 @@ from instructions import (
     _read_bootstrapper_and_index,
     _merge_one_agent,
 )
-from mcp_handler import init_services, reset_services
 from scanner import Scanner
-from server import create_app
-from services.entities import EntitiesService
-from services.workspace import WorkspaceService
 from tests.fixtures import DuetDataBuilder, ManifestBuilder
-
-
-# === Integration tests: orientation with instructions ===
-
-
-@pytest.mark.asyncio
-class TestOrientationInstructions:
-    """Tests for instructions block in orientation response."""
-
-    async def test_orientation_excludes_instructions(self, tmp_path, monkeypatch):
-        """Orientation response no longer carries instructions catalog or instructionsPath."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Product")
-        duet_data = builder.build(monkeypatch)
-
-        db = DatabaseManager(duet_data / "data" / "test.db")
-        db.init()
-
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
-
-        workspace_service = WorkspaceService(db)
-        entities_service = EntitiesService(db)
-        init_services(workspace_service, entities_service, time.time())
-
-        app = create_app()
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            repo_path = str(builder.get_repo_path("Product"))
-            response = await client.post("/orientation", json={"workspace_paths": [repo_path]})
-
-        reset_services()
-        db.close()
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Instructions catalog not in orientation response (moved to merge_instructions)
-        assert "instructions" not in data
-
-        # instructionsPath removed from duet_paths — Duet no longer depends on a
-        # user instructions workspace (Duet-Instructions.git retired)
-        assert "instructionsPath" not in data["duet_paths"]
-
-
-# === Integration tests: multi-path resolution ===
-
-
-@pytest.mark.asyncio
-class TestMultiPathResolution:
-    """Tests for multi-path entity resolution."""
-
-    async def test_multi_path_picks_meta_context(self, tmp_path, monkeypatch):
-        """When multiple contexts in paths, the meta-context wins."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Regular", "Regular")
-        builder.add_root_context("Meta", "Meta", meta=True)
-        duet_data = builder.build(monkeypatch)
-
-        db = DatabaseManager(duet_data / "data" / "test.db")
-        db.init()
-
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
-
-        workspace_service = WorkspaceService(db)
-        entities_service = EntitiesService(db)
-        init_services(workspace_service, entities_service, time.time())
-
-        app = create_app()
-        transport = ASGITransport(app=app)
-
-        regular_path = str(builder.get_root_context_path(0))
-        meta_path = str(builder.get_root_context_path(1))
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/orientation",
-                json={"workspace_paths": [regular_path, meta_path]},
-            )
-
-        reset_services()
-        db.close()
-
-        assert response.status_code == 200
-        data = response.json()
-        # Meta-context should win over regular context
-        assert data["context"]["chain"][0]["name"] == "Meta"
-        ws = data["workspace"]
-        assert ws["kind"] == "context"
-        assert ws["context_name"] == "Meta"
-        assert "root_context_folders" in ws  # meta-context addon
 
 
 # === Tests for meta column in DB ===

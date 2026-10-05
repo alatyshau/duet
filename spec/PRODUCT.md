@@ -55,8 +55,8 @@
 | **Manifest** | `context.json` v4 inside a context folder |
 | **Chain** | Path from meta/root context down to the current context |
 | **Alias** | Key in a context's `git_repos` map — the github repo name (e.g. `Duet`), no `.git` suffix |
-| **Product** | Top-level unit in orientation, discovered by four rules (see [Spec File Naming](#spec-file-naming)) |
-| **Component** | Nested unit inside a product. Marker is `spec/COMPONENT.md` or `README*.md`, one level deep |
+| **Product** | A git repo a context declares in `git_repos`, addressed as `@<alias>.git`. Described by `spec/PRODUCT.md` in the repo (see [Spec File Naming](#spec-file-naming)) |
+| **Component** | A package inside a product, described by its `spec/COMPONENT.md` |
 
 ### Contexts and Hierarchy
 
@@ -110,12 +110,12 @@ Three entity types live in `entities.db`:
 | `name` | string | required | Globally unique entity name |
 | `icon` | string | optional | Defaults: `📁` for context, `📦` when `git_repos` present |
 | `meta` | bool | optional | `true` marks the meta-context (see Invariants). Host migrates v1's `root` field |
-| `git_repos` | map | optional | `{alias: url}` declaring product clones. When present, scanner registers N `product_repo` children while continuing to recurse through the Drive folder for nested contexts. Insertion order preserved and surfaces in `products[]` order |
+| `git_repos` | map | optional | `{alias: url}` declaring product clones. When present, scanner registers N `product_repo` children while continuing to recurse through the Drive folder for nested contexts. Insertion order preserved. Several contexts may declare the same alias with the same URL — one shared clone (see [Repository Naming](#repository-naming)) |
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
-| `description` | string | optional | Surfaces in orientation's `chain[].description`; takes priority over README first sentence |
+| `description` | string | optional | Surfaces as `description` in `GET /contexts` and in the Extension's КОНТЕКСТ panel; takes priority over README first sentence |
 | `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` and `<context>/.agents/skills/` (see [Deploy Instructions](#deploy-instructions)) |
 | `instructions` | list | optional | `@`-paths whose bodies compose the per-client `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` / `.agents/rules/gemini.md` |
-| `memory` | string | optional | A single `@`-path to the context-memory file; surfaced in orientation's `memory` block |
+| `memory` | string | optional | A single `@`-path to the context-memory file |
 | `ticket_code` | string | optional | The business's ticket code: three uppercase Latin letters (`DUE`). Tickets of the business are numbered `<code><3 chars>` (`DUE009`; a leading letter types the ticket — `X` program, `A` process), and `@<number>` resolves through the one context that declares the code (see [Agent alpha paths](#alias-resolution)). Codes are added when first needed, not assigned in advance |
 | `system_prompt` | string | optional | A single `@`-path to a Claude output-style file (frontmatter + body) that becomes the context's **system prompt** in Claude Code, Codex and Kimi Code (see [Deploy Instructions](#deploy-instructions)). Unlike `instructions`, it replaces the client's default prompt instead of joining the composed instruction files |
 
@@ -123,7 +123,7 @@ Three entity types live in `entities.db`:
 - Keys are `snake_case`. `name` globally unique (see Invariants).
 - `git_repos` must be a non-empty object when present; alias and URL must be non-empty strings.
 - `reference_repos` shares the alias namespace with `git_repos` — within-manifest overlap is rejected as `invalid_manifest`.
-- `skills` / `instructions` must be lists of non-empty strings when present (shape only; `@`-path resolution happens at deploy / orientation time).
+- `skills` / `instructions` must be lists of non-empty strings when present (shape only; `@`-path resolution happens at deploy time).
 - `memory` / `system_prompt` must be a non-empty string when present.
 - `ticket_code` is **field-level**: a value that is not three uppercase Latin letters is reported as `invalid_ticket_code` and dropped, the rest of the manifest stays valid (a typo must not unregister the business). A code declared by two or more contexts is reported as `ticket_code_collision`, and ticket paths with that code do not resolve until one context keeps it.
 - No regex / Windows-reserved-name / URL-leading-`-` guards: manifests are user-written, this is intentional.
@@ -275,11 +275,15 @@ DuetConfig/
 | `{alias}.git` | Main clone of a product (alias from `git_repos` or `reference_repos` name) |
 | `{alias}.wt-N` | Worktree N (planned) |
 
-Aliases from `git_repos` live in a global `{alias}.git` namespace shared with `reference_repos`. Manifest validation rejects within-manifest overlap; cross-manifest collisions surface as `repo_collision` scan errors.
+Aliases from `git_repos` live in a global `{alias}.git` namespace shared with `reference_repos`. Manifest validation rejects within-manifest overlap.
 
-**Manifest alias vs. Duet-ontology slug.** The key in `git_repos` (e.g. `"Duet"`) is the **github repo name** — short, user-facing, no `.git`. Everywhere this product surfaces inside Duet — the clone folder (`DuetData/repos/Duet.git/`), `product_repo.name` in DB, `orientation.products[*].name` (`"Duet.git"`), `orientation.products[*].path` (`"@Duet.git"`) — uses the derived slug `{alias}.git`. The `.git` suffix is added by backend during derivation; it is **not** stored in the manifest.
+**The identity of a clone on disk is its name.** The name `X` in `git_repos` or `reference_repos` means the folder `DuetData/repos/X.git`, and nothing else identifies it:
 
-Drive-products (rules B/C/D in the Orientation algorithm — context-as-product, subfolder-as-product, README fallback) have no git repo. Their slug is just the context/subfolder name without `.git`.
+- **One name, one address, several manifests** — one shared clone. A context may work on the products of other contexts, so several contexts declaring the same repo is normal work: the scanner registers the repo once and reports nothing. Addresses are compared ignoring a trailing `/` and `.git`.
+- **One name, different addresses** — a real conflict over one clone folder: `repo_collision` scan error.
+- **One address under different names** — separate, independent clones. There is no canonical name per address.
+
+**Manifest alias vs. Duet-ontology slug.** The key in `git_repos` (e.g. `"Duet"`) is the **github repo name** — short, user-facing, no `.git`. Everywhere this product surfaces inside Duet — the clone folder (`DuetData/repos/Duet.git/`), `product_repo.name` in DB, the alpha path and the orientation line (`` `@Duet.git` ``) — uses the derived slug `{alias}.git`. The `.git` suffix is added by backend during derivation; it is **not** stored in the manifest.
 
 ## Cross-Component Contracts
 
@@ -304,27 +308,55 @@ Extension (checks /health → detects when backend is up)
 
 ### Orientation
 
-AI agents call `orientation(workspace_paths=[<all working dirs>])` at session start. Backend resolves workspace paths to an entity via multi-path resolution and returns structured context.
+AI agents call the MCP tool `orientation(path)` at session start, with the folder the session was opened in. The answer is Markdown in English with absolute paths. It gives only the base — the paths of this machine and the entry points to read; what a business means is written in those entry points.
 
-**Consumers:** AI agents (via MCP tool), Extension (via HTTP endpoint).
+Where the folder lies decides the answer.
 
-**Multi-path resolution:** classifies each path (gitFolder / contextFolder / ignored), resolves entities. If the meta-context is among them, it wins; otherwise the first resolved context is used. Multi-repo contexts (DuetLab-style) unify all `repos/<alias>.git` paths to one owner — each path resolves through its `product_repo` entity to the same parent context. The first-come fallback also covers the brief window when the DB hasn't caught up with a fresh Host meta-flag write.
+**Inside a venture folder** (a root context folder). The business is the nearest context up the tree, so a ticket's work folder or a direction without `context.json` leads to its business.
 
-**Response blocks (v4 shape):**
+```
+**Paths:**
+* `@DuetData` (path to DuetData): `/Users/me/DuetData`
+* `@DuetLab` (active business folder): `/Users/me/Drive/!МетаЛаб/DuetLab`
+* `@МетаЛаб` (parent venture folder): `/Users/me/Drive/!МетаЛаб`
+* `@Duet.git` (git-repo): `/Users/me/DuetData/repos/Duet.git`
+* `@cookbook.git` (reference repo, read-only): `/Users/me/DuetData/repos/cookbook.git`
 
-| Block | Purpose | Always present? |
-|-------|---------|----------------|
-| `duet_paths` | `duetDataPath`, `machineConfig` | Yes |
-| `workspace` | `kind`, `context_name`, `context_folder`, `git_folders` (map), `[reference_repos]`, `[meta-only addons]` | Yes |
-| `context` | breadcrumb + chain (`type`, `name`, `icon`, `description?`) | When entity resolved |
-| `products` | Top-level array; each product has `name`, `path` (@-ref), `spec?`, `description?`, `components[]` | When entity resolved |
-| `memory` | Context-memory pointer `{ref, path}` resolved from `context.json` → `memory`, or `null` when none declared | When entity resolved |
+**Next immediate steps:**
+* Read venture entry point: `/Users/me/Drive/!МетаЛаб/README.md`
+* Read business entry point: `/Users/me/Drive/!МетаЛаб/DuetLab/INDEX.md`
+```
 
-Detailed shape: [`packages/backend/spec/COMPONENT.md` → Orientation](../packages/backend/spec/COMPONENT.md). Algorithm implementation: `packages/backend/services/products.py:build_products` — code is the normative source.
+- The venture is the root of the parent chain; intermediate parents are not listed. A venture itself is labelled `active venture folder` and has the single step `Read venture entry point`.
+- Repos are the manifest's `git_repos`, then its `reference_repos`, in manifest order, at the expected clone path whether or not the clone exists yet.
+- An entry point is `INDEX.md`, else `README.md`; a business with neither gets no step.
+
+**Inside `DuetData/repos`.** The repo and the businesses that declare it. A repo never chooses a business, because several may declare it.
+
+```
+Not a business folder: this path is inside a git-repo.
+
+**Paths:**
+* `@DuetData` (path to DuetData): `/Users/me/DuetData`
+* `@Duet.git` (git-repo): `/Users/me/DuetData/repos/Duet.git`
+
+**Declared by:**
+* `@DuetLab` (business folder): `/Users/me/Drive/!МетаЛаб/DuetLab`
+* `@Reader` (business folder, read-only reference): `/Users/me/Drive/!МетаЛаб/Reader`
+
+**Next immediate steps:**
+* Read git-repo entry point: `/Users/me/DuetData/repos/Duet.git/README.md`
+```
+
+`Declared by` reads `no business declares this repo` when none does; the step is omitted when the repo has no `README.md`.
+
+**Anywhere else.** `Not a business folder: this path is outside Duet.`
+
+[Deploy Instructions](#deploy-instructions) picks the business by the same rule. The exact texts are pinned by `packages/backend/tests/test_workspace.py`; backend internals: [`packages/backend/spec/COMPONENT.md` → Orientation](../packages/backend/spec/COMPONENT.md).
 
 ### Deploy Instructions
 
-A context can declare per-context AI artifacts that Duet materializes into its Drive folder. The Extension calls `POST /deploy-instructions` (on activation, on workspace-folder change, and on `duet.refresh`); the Backend resolves the owning context and deploys. Idempotent (atomic writes + prune), so safe to call on every trigger; Host is not involved.
+A context can declare per-context AI artifacts that Duet materializes into its Drive folder. The Extension calls `POST /deploy-instructions` (on activation, on workspace-folder change, and on `duet.refresh`); the Backend picks the business by the [Orientation](#orientation) rule from the window's folders (with several business folders the meta-context wins, else the first) and deploys. Idempotent (atomic writes + prune), so safe to call on every trigger; Host is not involved.
 
 | Component | `context.json` field | Target | Behavior |
 |-----------|---------------------|--------|----------|
@@ -349,16 +381,12 @@ The source is a Claude output-style file (frontmatter + body) and stays the only
 
 ### Spec File Naming
 
-The orientation algorithm (v4) uses **single canonical spec files** — no fallback chain. A missing canonical file means the entity has no spec; orientation falls back to `README*.md` only for description (never as the spec path).
+Products and components are described by **single canonical spec files** — no fallback chain.
 
 | Where | Canonical spec file |
 |-------|---------------------|
-| product (alias from `git_repos`, rule A) | `<repo>/spec/PRODUCT.md` |
-| product (context-as-product, rule B) | `<context>/spec/PRODUCT.md` |
-| product (subfolder, rule C) | `<sub>/spec/PRODUCT.md` |
+| product (a git repo) | `<repo>/spec/PRODUCT.md` |
 | component | `<…>/<comp>/spec/COMPONENT.md` |
-
-First sentence of `PRODUCT.md` / `COMPONENT.md` becomes the entity's `description` in orientation. If the spec file is absent, orientation tries `README*.md` (exact `README.md` wins; otherwise alphabetically first) — that yields a description but no `spec` field.
 
 ### File Ownership
 

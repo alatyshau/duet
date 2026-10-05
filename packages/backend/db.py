@@ -6,7 +6,8 @@ Stores three entity kinds:
   means the context owns one or more git-backed products. Drive context
   discovery may still continue below that folder. The `git_url` column is
   never populated on context rows.
-- `product_repo`: registered once per alias in a context's `git_repos` map.
+- `product_repo`: registered once per alias in a context's `git_repos` map;
+  a repo several contexts declare is registered by the first of them.
   Entity name = `{alias}.git`, `git_url` = URL from the manifest.
   Path-resolution helper; not shown in tree.
 - `reference_repo`: read-only clones declared via `reference_repos` map.
@@ -321,8 +322,7 @@ class DatabaseManager:
     def find_meta_context(self) -> Entity | None:
         """Find the meta-context entity (meta=true in context.json).
 
-        Used by multi-path resolution to determine primary context
-        when multiple contexts are in workspace_paths.
+        Wins when a window has several business folders open.
         """
         with self._lock:
             if not self.conn:

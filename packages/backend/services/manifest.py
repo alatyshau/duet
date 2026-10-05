@@ -208,8 +208,8 @@ def read_manifest(
                     f"alias '{alias}' is in both git_repos and reference_repos",
                 )
                 return None
-        # Preserve insertion order (Python 3.7+ dict invariant) — products[]
-        # order is the order keys appeared in the manifest.
+        # Preserve insertion order (Python 3.7+ dict invariant): repos are
+        # listed to agents in the order keys appeared in the manifest.
         git_repos = dict(git_repos_raw)
 
     skills, ok = _read_at_path_list(data, "skills", errors, manifest_path, folder)

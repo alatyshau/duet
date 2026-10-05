@@ -7,6 +7,7 @@ Tools delegate to services for business logic.
 import time
 from datetime import datetime
 from html import escape
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from mcp.server.fastmcp import FastMCP
@@ -275,25 +276,20 @@ def resolve_paths(paths: list[str]) -> str:
     return render_markdown(get_workspace_service().resolve_paths(paths))
 
 
-@mcp.tool()
-def orientation(workspace_paths: list[str] | None = None) -> dict:
-    """Get full workspace information.
+@mcp.tool(structured_output=False)
+def orientation(path: str) -> str:
+    """Orient a session in the folder it was opened in. Call once, before any work.
 
     Args:
-        workspace_paths: List of all workspace paths available to the agent.
-            Multi-path resolution: classifies paths, picks the meta-context if
-            present, otherwise the first resolved context (multi-repo contexts
-            unify all `repos/<alias>.git` paths to one owner).
+        path: Absolute path of the folder the session was opened in.
 
-    Returns information about:
-    - duet_paths: {duetDataPath, machineConfig}
-    - workspace: {kind, context_name, context_folder, git_folders[, reference_repos][, meta-only addons]}
-    - context: {breadcrumb, chain with type/name/description?}
-    - products: [{name, path, spec?, description?, components[]}] — top-level array
-    - memory: {ref, path} context-memory pointer, or null when none declared
+    Returns Markdown: the paths of this machine and what to read first.
     """
-    service = _get_workspace_service()
-    return service.get_orientation(workspace_paths=workspace_paths or [])
+    if not Path(path).is_absolute():
+        raise McpError(
+            ErrorData(code=INVALID_PARAMS, message=f"path must be absolute, got {path!r}")
+        )
+    return _get_workspace_service().get_orientation(path)
 
 
 @mcp.tool()

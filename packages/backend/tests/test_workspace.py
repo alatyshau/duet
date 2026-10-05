@@ -1,4 +1,4 @@
-"""Tests for WorkspaceService — entity resolution and orientation shape."""
+"""Tests for WorkspaceService — business resolution and the orientation answer."""
 
 import sys
 from pathlib import Path
@@ -9,892 +9,265 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from db import DatabaseManager
 from scanner import Scanner
-from services.workspace import WorkspaceService
+from services.workspace import (
+    INSIDE_REPO,
+    NOT_REGISTERED,
+    OUTSIDE_DUET,
+    WorkspaceService,
+)
 
 from tests.fixtures import DuetDataBuilder, ManifestBuilder
 
 
-class TestResolveEntity:
-    """Tests for WorkspaceService._resolve_entity method."""
+def _lab(tmp_path: Path, db: DatabaseManager, monkeypatch, **lab_manifest):
+    """Venture `Root` with one business `Lab` under it; returns (builder, service, lab)."""
+    builder = DuetDataBuilder(tmp_path)
+    builder.add_root_context("Root")
+    builder.add_repo("Duet")
+    builder.build(monkeypatch)
+    lab = builder.get_root_context_path(0) / "Lab"
+    lab.mkdir()
+    ManifestBuilder.context(lab, "Lab", **lab_manifest)
+    Scanner(db, repos_path=builder.get_repos_path()).scan()
+    return builder, WorkspaceService(db), lab
 
-    def test_resolve_from_repos_simple(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["extension", "backend"])
-        builder.build(monkeypatch)
 
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://github.com/...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
+class TestResolveBusiness:
+    """resolve_business: the nearest business up the tree, from a business folder only."""
 
-        service = WorkspaceService(db)
-        repo_workspace = str(builder.get_repo_path("Duet"))
+    def test_business_folder_itself(self, tmp_path, db, monkeypatch) -> None:
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        entity = service.resolve_business(str(lab))
+        assert entity is not None and entity.name == "Lab"
 
-        entity = service._resolve_entity(repo_workspace)
+    def test_venture_folder(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, _ = _lab(tmp_path, db, monkeypatch)
+        entity = service.resolve_business(str(builder.get_root_context_path(0)))
+        assert entity is not None and entity.name == "Root"
 
-        assert entity is not None
-        assert entity.name == "Duet"
-        assert entity.type == "context"
+    def test_deeper_folder_leads_to_nearest_business(self, tmp_path, db, monkeypatch) -> None:
+        """A ticket folder or a direction without a manifest leads to its business."""
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        ticket = lab / "work" / "LAB001_Task"
+        ticket.mkdir(parents=True)
+        entity = service.resolve_business(str(ticket))
+        assert entity is not None and entity.name == "Lab"
 
-    def test_resolve_from_repos_with_subpath(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["extension"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        service = WorkspaceService(db)
-        subpath = str(builder.get_repo_path("Duet") / "packages" / "extension")
-
-        entity = service._resolve_entity(subpath)
-
-        assert entity is not None
-        assert entity.name == "Duet"
-
-    def test_resolve_from_repos_via_product_repo(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Resolves entity via product_repo entity (DB lookup by `<alias>.git`)."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("MyProduct", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "MyProduct"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "MyProduct", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        repo_entity = db.find_by_name("MyProduct.git")
-        assert repo_entity is not None
-        assert repo_entity.type == "product_repo"
-
-        service = WorkspaceService(db)
-        workspace = str(builder.get_repos_path() / "MyProduct.git")
-
-        entity = service._resolve_entity(workspace)
-
-        assert entity is not None
-        assert entity.name == "MyProduct"
-        assert entity.type == "context"
-
-    def test_resolve_from_drive_simple(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_nested_business_wins_over_its_parent(self, tmp_path, db, monkeypatch) -> None:
         builder = DuetDataBuilder(tmp_path)
         builder.add_root_context("Root")
         builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-
-        mid_path = root_path / "Mid"
-        mid_path.mkdir()
-        ManifestBuilder.context(mid_path, "Mid")
-
-        product_path = mid_path / "Product"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Product")
+        lab = builder.get_root_context_path(0) / "Lab"
+        inherited = lab / "Research" / "Igor"
+        autonomous = lab / "Research" / "Genesis"
+        inherited.mkdir(parents=True)
+        autonomous.mkdir(parents=True)
+        ManifestBuilder.context(lab, "Lab")
+        ManifestBuilder.context(autonomous, "Genesis")
         Scanner(db).scan()
-
         service = WorkspaceService(db)
 
-        entity = service._resolve_entity(str(product_path))
+        assert service.resolve_business(str(inherited)).name == "Lab"
+        assert service.resolve_business(str(autonomous)).name == "Genesis"
 
-        assert entity is not None
-        assert entity.name == "Product"
-
-    def test_resolve_from_drive_child_below_git_repos_context(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Drive child context under a git-backed context resolves to the child."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        onto_path = root_path / "OntoCore"
-        onto_path.mkdir()
-        ManifestBuilder.context(
-            onto_path, "OntoCore",
-            git_repos={"OntoCore": "https://ontocore.git"},
+    def test_repo_folder_chooses_no_business(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, _ = _lab(
+            tmp_path, db, monkeypatch, git_repos={"Duet": "https://github.com/x/duet"}
         )
-        structs_path = onto_path / "OntoCoreStructs"
-        structs_path.mkdir()
-        ManifestBuilder.context(structs_path, "OntoCoreStructs")
+        assert service.resolve_business(str(builder.get_repo_path("Duet"))) is None
+        assert service.resolve_business(str(builder.get_repo_path("Duet") / "packages")) is None
 
+    def test_folder_outside_duet(self, tmp_path, db, monkeypatch) -> None:
+        _, service, _ = _lab(tmp_path, db, monkeypatch)
+        assert service.resolve_business("/some/random/path") is None
+
+    def test_sibling_with_shared_name_prefix_is_not_matched(
+        self, tmp_path, db, monkeypatch
+    ) -> None:
+        """`Root2/…` must not resolve to venture `Root`, nor `Lab2` to `Lab`."""
+        builder, service, lab = _lab(tmp_path, db, monkeypatch)
+        root = builder.get_root_context_path(0)
+        sibling_root = root.parent / "Root2" / "deep"
+        sibling_root.mkdir(parents=True)
+        sibling_lab = root / "Lab2"
+        sibling_lab.mkdir()
+
+        assert service.resolve_business(str(sibling_root)) is None
+        assert service.resolve_business(str(sibling_lab)).name == "Root"
+
+
+class TestOrientationBusiness:
+    """The answer for a business folder: Paths, then Next immediate steps."""
+
+    def test_business_with_venture_and_repos(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, lab = _lab(
+            tmp_path, db, monkeypatch,
+            git_repos={"duet-work": "https://github.com/x/duet-work", "Duet": "https://github.com/x/duet"},
+            reference_repos={"cookbook": "https://github.com/x/cookbook"},
+        )
+        root = builder.get_root_context_path(0)
+        (root / "README.md").write_text("# Root", encoding="utf-8")
+        (lab / "INDEX.md").write_text("# Lab", encoding="utf-8")
+        (lab / "README.md").write_text("# Lab readme", encoding="utf-8")
+        repos = builder.get_repos_path()
+        duet_data = builder.duet_data_path.resolve()
+
+        assert service.get_orientation(str(lab)) == (
+            "**Paths:**\n"
+            f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
+            f"* `@Lab` (active business folder): `{lab}`\n"
+            f"* `@Root` (parent venture folder): `{root}`\n"
+            f"* `@duet-work.git` (git-repo): `{repos / 'duet-work.git'}`\n"
+            f"* `@Duet.git` (git-repo): `{repos / 'Duet.git'}`\n"
+            f"* `@cookbook.git` (reference repo, read-only): `{repos / 'cookbook.git'}`\n"
+            "\n"
+            "**Next immediate steps:**\n"
+            f"* Read venture entry point: `{root / 'README.md'}`\n"
+            f"* Read business entry point: `{lab / 'INDEX.md'}`"
+        )
+
+    def test_venture(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, _ = _lab(tmp_path, db, monkeypatch)
+        root = builder.get_root_context_path(0)
+        (root / "README.md").write_text("# Root", encoding="utf-8")
+        duet_data = builder.duet_data_path.resolve()
+
+        assert service.get_orientation(str(root)) == (
+            "**Paths:**\n"
+            f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
+            f"* `@Root` (active venture folder): `{root}`\n"
+            "\n"
+            "**Next immediate steps:**\n"
+            f"* Read venture entry point: `{root / 'README.md'}`"
+        )
+
+    def test_intermediate_parents_are_not_listed(self, tmp_path, db, monkeypatch) -> None:
+        builder, _, lab = _lab(tmp_path, db, monkeypatch)
+        deep = lab / "Deep"
+        deep.mkdir()
+        ManifestBuilder.context(deep, "Deep")
         Scanner(db, repos_path=builder.get_repos_path()).scan()
 
-        entity = WorkspaceService(db)._resolve_entity(str(structs_path))
+        answer = WorkspaceService(db).get_orientation(str(deep))
 
-        assert entity is not None
-        assert entity.name == "OntoCoreStructs"
+        assert "`@Deep` (active business folder)" in answer
+        assert "`@Root` (parent venture folder)" in answer
+        assert "@Lab" not in answer
 
-    def test_resolve_from_drive_finds_closest(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
+    def test_folder_inside_business_gives_the_same_answer(self, tmp_path, db, monkeypatch) -> None:
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        ticket = lab / "work" / "LAB001_Task"
+        ticket.mkdir(parents=True)
+        assert service.get_orientation(str(ticket)) == service.get_orientation(str(lab))
 
-        root_path = builder.get_root_context_path(0)
-        mid_path = root_path / "Mid"
-        mid_path.mkdir()
-        ManifestBuilder.context(mid_path, "Mid")
-        Scanner(db).scan()
+    def test_no_entry_point_means_no_step(self, tmp_path, db, monkeypatch) -> None:
+        """Neither the venture nor the business has INDEX.md or README.md."""
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        answer = service.get_orientation(str(lab))
+        assert "Next immediate steps" not in answer
+        assert answer.startswith("**Paths:**")
 
-        service = WorkspaceService(db)
+    def test_readme_is_the_entry_point_without_index(self, tmp_path, db, monkeypatch) -> None:
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        (lab / "README.md").write_text("# Lab", encoding="utf-8")
+        answer = service.get_orientation(str(lab))
+        assert f"* Read business entry point: `{lab / 'README.md'}`" in answer
+        assert "venture entry point" not in answer
 
-        deep_path = str(mid_path / "some" / "deep" / "folder")
-
-        entity = service._resolve_entity(deep_path)
-
-        assert entity is not None
-        assert entity.name == "Mid"
-
-    def test_resolve_unknown_path_returns_none(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        service = WorkspaceService(db)
-        assert service._resolve_entity("/some/random/path") is None
-
-    def test_resolve_root_context(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("MyContext")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        service = WorkspaceService(db)
-        entity = service._resolve_entity(str(builder.get_root_context_path(0)))
-
-        assert entity is not None
-        assert entity.name == "MyContext"
-        assert entity.type == "context"
-
-    def test_resolve_does_not_match_sibling_with_shared_prefix(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Baza")
-        builder.add_root_context("Baza2")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        baza2_subpath = builder.get_root_context_path(1) / "subdir"
-        baza2_subpath.mkdir()
-
-        service = WorkspaceService(db)
-        entity = service._resolve_entity(str(baza2_subpath))
-
-        assert entity is not None
-        assert entity.name == "Baza2"
-
-    def test_resolve_does_not_match_sibling_relative_prefix(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A path under unmanifested `Root/AlphaBeta` must resolve to the
-        closest registered ancestor (Root), not to sibling `Root/Alpha`.
-
-        Regression for naive `instr(path, drive_path) = 1` in
-        `find_closest_entity` which matched any string-prefix.
-        """
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-
-        alpha_path = root_path / "Alpha"
-        alpha_path.mkdir()
-        ManifestBuilder.context(alpha_path, "Alpha")
-
-        # AlphaBeta — folder exists but no manifest, so it's not an entity.
-        alpha_beta_path = root_path / "AlphaBeta"
-        alpha_beta_path.mkdir()
-        nested = alpha_beta_path / "sub"
-        nested.mkdir()
-
-        Scanner(db).scan()
-
-        service = WorkspaceService(db)
-        entity = service._resolve_entity(str(nested))
-
-        assert entity is not None
-        assert entity.name == "Root", (
-            f"Expected to resolve into Root, got {entity.name!r} — "
-            "regression to naive prefix matching in find_closest_entity"
+    def test_declared_repo_is_listed_without_a_clone(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, lab = _lab(
+            tmp_path, db, monkeypatch, git_repos={"NotCloned": "https://github.com/x/nc"}
         )
-
-    def test_is_path_in_hierarchy_does_not_match_sibling_prefix(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Baza")
-        builder.build(monkeypatch)
-
-        sibling = tmp_path / "Baza2"
-        sibling.mkdir()
-
-        service = WorkspaceService(db)
-        assert service._is_path_in_hierarchy(str(sibling)) is False
-        assert service._is_path_in_hierarchy(str(sibling / "deep")) is False
-        assert service._is_path_in_hierarchy(
-            str(builder.get_root_context_path(0))
-        ) is True
-
-
-class TestGetOrientation:
-    """Tests for WorkspaceService.get_orientation method."""
-
-    def test_returns_duet_paths_without_workspace_path(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.build(monkeypatch)
-
-        result = WorkspaceService(db).get_orientation()
-
-        assert result["workspace"]["kind"] == "unknown"
-        assert result["workspace"]["reason"] == "no_workspace_path"
-        assert "duet_paths" in result
-        assert "duetDataPath" in result["duet_paths"]
-        assert "machineConfig" in result["duet_paths"]
-        assert "context" not in result
-        assert "products" not in result
-
-    def test_returns_context_for_repos_path(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["extension", "backend"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        mid_path = root_path / "Mid"
-        mid_path.mkdir()
-        ManifestBuilder.context(mid_path, "Mid")
-
-        product_path = mid_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://github.com/...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        repo_path = str(builder.get_repo_path("Duet"))
-        result = WorkspaceService(db).get_orientation(repo_path)
-
-        assert result["workspace"]["kind"] == "context"
-
-        context = result["context"]
-        assert len(context["chain"]) == 3
-        assert context["chain"][0]["name"] == "Root"
-        assert context["chain"][0]["type"] == "context"
-        assert context["chain"][1]["name"] == "Mid"
-        assert context["chain"][2]["name"] == "Duet"
-
-        # icon is always present — mirrors ContextEntity.icon. Scanner default
-        # for a context with git_repos is "📦".
-        for item in context["chain"]:
-            assert "icon" in item
-            assert isinstance(item["icon"], str)
-            assert item["icon"] != ""
-
-        assert context["breadcrumb"] == "Root / Mid / Duet"
-
-    def test_unknown_for_unknown_path(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation("/unknown/path")
-
-        assert result["workspace"]["kind"] == "unknown"
-        assert result["workspace"]["reason"] == "path_not_in_hierarchy"
-        assert "context" not in result
-        assert "products" not in result
-
-    def test_entity_not_in_db(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        # Don't scan -- DB is empty
-
-        root_path = str(builder.get_root_context_path(0))
-        result = WorkspaceService(db).get_orientation(root_path)
-
-        assert result["workspace"]["kind"] == "unknown"
-        assert result["workspace"]["reason"] == "entity_not_in_db"
-
-
-class TestOrientationWorkspaceShape:
-    """Tests for orientation `workspace` block (§3.1) and top-level `products`."""
-
-    def test_orientation_workspace_shape(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """workspace has the four canonical fields and no legacy fields."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        ws = result["workspace"]
-        assert ws["kind"] == "context"
-        assert ws["context_name"] == "Duet"
-        assert ws["context_folder"] == str(product_path)
-        assert ws["git_folders"] == {"Duet": str(builder.get_repo_path("Duet"))}
-
-        # Legacy fields are gone
-        assert "type" not in ws
-        assert "topology" not in ws
-        assert "git_folder" not in ws
-        assert "drive_folder" not in ws
-
-    def test_orientation_products_top_level(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """products[] is at top level, not inside workspace."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["backend"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        assert "products" in result
-        assert isinstance(result["products"], list)
-        # products is NOT inside workspace
-        assert "products" not in result["workspace"]
-
-    def test_orientation_no_top_level_components(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The legacy flat `components[]` at top level is gone."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["backend"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        assert "components" not in result
-
-    def test_orientation_no_top_level_key_files(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The legacy `key_files` at top level is gone."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        repo_path = builder.get_repo_path("Duet")
-        spec_dir = repo_path / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "PRODUCT.md").write_text("# Duet\n\nThe product.")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(str(repo_path))
-
-        assert "key_files" not in result
-
-    def test_path_contract_absolute_in_workspace(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`context_folder` and `git_folders[*]` are absolute paths."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        ws = result["workspace"]
-        assert Path(ws["context_folder"]).is_absolute()
-        for path in ws["git_folders"].values():
-            assert Path(path).is_absolute()
-
-    def test_path_contract_at_ref_for_products(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`product.path` is an @-ref."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        for product in result["products"]:
-            assert product["path"].startswith("@"), product["path"]
-
-    def test_path_contract_relative_for_components(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`component.path` is relative (no `/` prefix, no `@` prefix)."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["backend", "extension"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        repo_path = builder.get_repo_path("Duet")
-        for pkg in ("backend", "extension"):
-            (repo_path / "packages" / pkg / "spec").mkdir(parents=True)
-            (repo_path / "packages" / pkg / "spec" / "COMPONENT.md").write_text(
-                f"# {pkg}\n\nA component."
-            )
-
-        result = WorkspaceService(db).get_orientation(str(repo_path))
-
-        products = result["products"]
-        assert products
-        for product in products:
-            for comp in product.get("components", []):
-                assert not comp["path"].startswith("/"), comp["path"]
-                assert not comp["path"].startswith("@"), comp["path"]
-
-
-class TestOrientationGitFolders:
-    """git_folders behavior across single-repo and multi-repo contexts."""
-
-    def test_single_repo_git_folders_present(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        assert result["workspace"]["git_folders"] == {
-            "Duet": str(builder.get_repo_path("Duet"))
-        }
-
-    def test_multi_repo_git_folders_present(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A context with two git_repos surfaces both aliases in git_folders
-        in manifest order."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.add_repo("Duet-Instructions", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        lab_path = root_path / "DuetLab"
-        lab_path.mkdir()
-        ManifestBuilder.context(
-            lab_path, "DuetLab",
-            git_repos={
-                "Duet": "https://duet.git",
-                "Duet-Instructions": "https://duet-instructions.git",
-            },
-        )
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        ws = result["workspace"]
-        assert ws["context_name"] == "DuetLab"
-        # Order matches manifest insertion order
-        assert list(ws["git_folders"]) == ["Duet", "Duet-Instructions"]
-        assert ws["git_folders"]["Duet"] == str(builder.get_repo_path("Duet"))
-        assert ws["git_folders"]["Duet-Instructions"] == str(
-            builder.get_repo_path("Duet-Instructions")
-        )
-
-    def test_intermediate_context_empty_git_folders(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_root_context_path(0))
-        )
-
-        ws = result["workspace"]
-        assert ws["kind"] == "context"
-        assert ws["git_folders"] == {}
-
-    def test_git_folders_include_declared_aliases_even_without_clone(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A declared `git_repos` alias whose clone is missing still surfaces
-        in `git_folders` with its expected path. Rule A in §2.2 is
-        unconditional — a declared product is a product regardless of
-        on-disk state. Consumers (Extension) decide whether to clone by
-        checking `Path(git_folders[alias]).exists()`.
-        """
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        # An unrelated repo exists, so repos/ is created. The "Missing"
-        # alias under test is the second one and has no clone.
-        builder.add_repo("Other", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        lab_path = root_path / "Lab"
-        lab_path.mkdir()
-        ManifestBuilder.context(
-            lab_path, "Lab",
-            git_repos={
-                "Other": "https://example.com/other.git",
-                "Missing": "https://example.com/missing.git",
-            },
-        )
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(str(lab_path))
-
-        ws = result["workspace"]
-        assert "Missing" in ws["git_folders"]
-        expected = builder.get_repos_path() / "Missing.git"
-        assert ws["git_folders"]["Missing"] == str(expected)
-        # Clone doesn't actually exist on disk
+        expected = builder.get_repos_path() / "NotCloned.git"
         assert not expected.exists()
+        assert f"* `@NotCloned.git` (git-repo): `{expected}`" in service.get_orientation(str(lab))
 
-        # And the product is still emitted (rule A unconditional)
-        products = result["products"]
-        assert [p["name"] for p in products] == ["Other.git", "Missing.git"]
-        missing = products[1]
-        assert missing["path"] == "@Missing.git"
-        # No spec / no description / no components when clone is missing
-        assert "spec" not in missing
-        assert "description" not in missing
-        assert missing["components"] == []
-
-
-class TestOrientationMetaContext:
-    """Meta-context retains its addon fields on top of the canonical four."""
-
-    def test_meta_context_addons(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_name_comes_from_manifest_not_folder(self, tmp_path, db, monkeypatch) -> None:
         builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("MetaCtx", "MetaCtx", meta=True)
-        builder.add_root_context("Other", "Other")
+        builder.add_root_context("Venture", folder_name="!Venture")
         builder.build(monkeypatch)
         Scanner(db).scan()
+        root = builder.get_root_context_path(0)
 
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_root_context_path(0))
+        answer = WorkspaceService(db).get_orientation(str(root))
+
+        assert f"* `@Venture` (active venture folder): `{root}`" in answer
+
+class TestOrientationRepo:
+    """The answer for a folder inside DuetData/repos."""
+
+    def test_repo_declared_by_several_businesses(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, lab = _lab(
+            tmp_path, db, monkeypatch, git_repos={"Duet": "https://github.com/x/duet"}
+        )
+        root = builder.get_root_context_path(0)
+        other = root / "Other"
+        reader = root / "Reader"
+        other.mkdir()
+        reader.mkdir()
+        ManifestBuilder.context(other, "Other", git_repos={"Duet": "https://github.com/x/duet"})
+        ManifestBuilder.context(reader, "Reader", reference_repos={"Duet": "https://github.com/x/duet"})
+        result = Scanner(db, repos_path=builder.get_repos_path()).scan()
+        assert result["errors"] == []
+        repo = builder.get_repo_path("Duet")
+        (repo / "README.md").write_text("# Duet", encoding="utf-8")
+        duet_data = builder.duet_data_path.resolve()
+
+        assert service.get_orientation(str(repo / "packages" / "backend")) == (
+            "Not a business folder: this path is inside a git-repo.\n"
+            "\n"
+            "**Paths:**\n"
+            f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
+            f"* `@Duet.git` (git-repo): `{repo}`\n"
+            "\n"
+            "**Declared by:**\n"
+            f"* `@Lab` (business folder): `{lab}`\n"
+            f"* `@Other` (business folder): `{other}`\n"
+            f"* `@Reader` (business folder, read-only reference): `{reader}`\n"
+            "\n"
+            "**Next immediate steps:**\n"
+            f"* Read git-repo entry point: `{repo / 'README.md'}`"
         )
 
-        ws = result["workspace"]
-        assert ws["kind"] == "context"
-        assert ws["context_name"] == "MetaCtx"
-        assert "root_context_folders" in ws
-        assert "duet_data_folder" in ws
-        assert "MetaCtx" in ws["root_context_folders"]
-        assert "Other" in ws["root_context_folders"]
+    def test_repo_nobody_declares_and_without_readme(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, _ = _lab(tmp_path, db, monkeypatch)
+        repo = builder.get_repo_path("Duet")
+        answer = service.get_orientation(str(repo))
 
+        assert answer.startswith(INSIDE_REPO)
+        assert answer.endswith("**Declared by:**\nno business declares this repo")
+        assert "Next immediate steps" not in answer
 
-class TestOrientationProducts:
-    """Top-level products[] block (§3.2)."""
-
-    def test_single_git_product_with_components(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=["backend"])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(product_path, "Duet", git_url="https://...")
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        repo_path = builder.get_repo_path("Duet")
-        (repo_path / "spec").mkdir()
-        (repo_path / "spec" / "PRODUCT.md").write_text(
-            "# Duet\n\nA platform.", encoding="utf-8",
+    def test_worktree_folder_stands_for_its_repo(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, _ = _lab(
+            tmp_path, db, monkeypatch, git_repos={"Duet": "https://github.com/x/duet"}
         )
-        (repo_path / "packages" / "backend" / "spec").mkdir(parents=True)
-        (repo_path / "packages" / "backend" / "spec" / "COMPONENT.md").write_text(
-            "# Backend\n\nPython HTTP API.", encoding="utf-8",
-        )
+        worktree = builder.get_repos_path() / "Duet.wt-1"
+        worktree.mkdir()
+        answer = service.get_orientation(str(worktree))
+        assert f"* `@Duet.git` (git-repo): `{builder.get_repo_path('Duet')}`" in answer
+        assert "`@Lab` (business folder)" in answer
 
-        result = WorkspaceService(db).get_orientation(str(repo_path))
 
-        products = result["products"]
-        assert len(products) == 1
-        duet = products[0]
-        assert duet["name"] == "Duet.git"
-        assert duet["path"] == "@Duet.git"
-        assert duet["spec"] == "spec/PRODUCT.md"
-        assert duet["description"] == "A platform."
+class TestOrientationOutside:
+    """Folders that belong to no business and no repo."""
 
-        comps = duet["components"]
-        assert len(comps) == 1
-        be = comps[0]
-        assert be["name"] == "backend"
-        assert be["path"] == "packages/backend"
-        assert be["spec"] == "spec/COMPONENT.md"
-        assert be["description"] == "Python HTTP API."
+    def test_folder_outside_duet(self, tmp_path, db, monkeypatch) -> None:
+        _, service, _ = _lab(tmp_path, db, monkeypatch)
+        assert service.get_orientation("/some/random/path") == OUTSIDE_DUET
+        assert OUTSIDE_DUET == "Not a business folder: this path is outside Duet."
 
-    def test_multi_git_products_in_manifest_order(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """DuetLab-style multi-repo context surfaces both products in manifest order."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.add_repo("Duet-Instructions", components=[])
-        builder.build(monkeypatch)
+    def test_repos_folder_itself(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, _ = _lab(tmp_path, db, monkeypatch)
+        assert service.get_orientation(str(builder.get_repos_path())) == OUTSIDE_DUET
 
-        root_path = builder.get_root_context_path(0)
-        lab_path = root_path / "DuetLab"
-        lab_path.mkdir()
-        ManifestBuilder.context(
-            lab_path, "DuetLab",
-            git_repos={
-                "Duet": "https://duet.git",
-                "Duet-Instructions": "https://duet-instructions.git",
-            },
-        )
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        products = result["products"]
-        assert [p["name"] for p in products] == ["Duet.git", "Duet-Instructions.git"]
-        assert [p["path"] for p in products] == ["@Duet.git", "@Duet-Instructions.git"]
-
-    def test_no_products_when_intermediate_context(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_venture_folder_not_registered(self, tmp_path, db, monkeypatch) -> None:
+        """Inside a venture folder, but the scan has not registered it yet."""
         builder = DuetDataBuilder(tmp_path)
         builder.add_root_context("Root")
         builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_root_context_path(0))
-        )
-
-        assert result["products"] == []
-
-
-class TestOrientationContextChain:
-    """`context.chain[*]` description priority + structure."""
-
-    def test_chain_description_priority_manifest_over_readme(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Manifest's `description` field wins over README first sentence."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        ManifestBuilder.context(
-            root_path, "Root",
-            description="Manifest-supplied description.",
-        )
-        (root_path / "README.md").write_text(
-            "# Root\n\nReadme description.",
-            encoding="utf-8",
-        )
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(str(root_path))
-
-        chain = result["context"]["chain"]
-        assert chain[0]["description"] == "Manifest-supplied description."
-
-    def test_chain_description_falls_back_to_readme(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        (root_path / "README.md").write_text(
-            "# Root\n\nReadme-supplied description.",
-            encoding="utf-8",
-        )
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(str(root_path))
-
-        chain = result["context"]["chain"]
-        assert chain[0]["description"] == "Readme-supplied description."
-
-    def test_chain_omits_description_when_neither_present(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_root_context_path(0))
-        )
-
-        chain = result["context"]["chain"]
-        assert "description" not in chain[0]
-
-    def test_chain_passes_manifest_icon_through(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`chain[*].icon` mirrors `Entity.icon` from the manifest."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        ManifestBuilder.context(root_path, "Root", icon="🎭")
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(str(root_path))
-
-        chain = result["context"]["chain"]
-        assert chain[0]["icon"] == "🎭"
-
-    def test_chain_uses_scanner_default_icon_when_manifest_has_none(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Scanner default `📁` (intermediate) is preserved through orientation."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_root_context_path(0))
-        )
-
-        chain = result["context"]["chain"]
-        assert chain[0]["icon"] == "📁"
-
-
-class TestOrientationReferenceRepos:
-    """`workspace.reference_repos` addon survives the new shape."""
-
-    def test_reference_repos_addon(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        product_path = root_path / "Duet"
-        product_path.mkdir()
-        ManifestBuilder.context(
-            product_path, "Duet", git_url="https://...",
-            reference_repos={"cookbook": "https://github.com/anthropics/cookbook.git"},
-        )
-
-        (builder.get_repos_path() / "cookbook.git").mkdir(parents=True)
-
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        result = WorkspaceService(db).get_orientation(
-            str(builder.get_repo_path("Duet"))
-        )
-
-        ws = result["workspace"]
-        assert ws["kind"] == "context"
-        assert "reference_repos" in ws
-        assert "cookbook.git" in ws["reference_repos"]
+        root = builder.get_root_context_path(0)
+        assert WorkspaceService(db).get_orientation(str(root)) == NOT_REGISTERED
 
 
 class TestScannerRelativePaths:
@@ -1023,149 +396,38 @@ class TestScannerRelativePaths:
         assert ref.type == "reference_repo"
         assert ref.git_url == "https://github.com/anthropics/cookbook.git"
 
+class TestResolveBusinesses:
+    """_resolve_businesses: one business for a window with several folders."""
 
-class TestResolveMultiPath:
-    """_resolve_multi_path: meta wins, multi-repo paths unify to one owner."""
-
-    def test_meta_wins_over_first_come(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def _two_roots(self, tmp_path, db, monkeypatch, meta: bool):
         builder = DuetDataBuilder(tmp_path)
         builder.add_root_context("Regular")
-        builder.add_root_context("Meta", meta=True)
+        builder.add_root_context("Meta", meta=meta)
+        builder.add_repo("Duet")
         builder.build(monkeypatch)
-        Scanner(db).scan()
-
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
         regular = str(builder.get_root_context_path(0))
-        meta = str(builder.get_root_context_path(1))
+        other = str(builder.get_root_context_path(1))
+        return builder, WorkspaceService(db), regular, other
 
-        result = WorkspaceService(db)._resolve_multi_path([regular, meta])
-        assert result is not None
-        assert result.name == "Meta"
+    def test_meta_wins_over_first_come(self, tmp_path, db, monkeypatch) -> None:
+        _, service, regular, meta = self._two_roots(tmp_path, db, monkeypatch, meta=True)
+        assert service._resolve_businesses([regular, meta]).name == "Meta"
 
-    def test_first_come_when_meta_not_in_paths(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Meta", meta=True)
-        builder.add_root_context("RegularA")
-        builder.add_root_context("RegularB")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
+    def test_first_come_without_meta(self, tmp_path, db, monkeypatch) -> None:
+        _, service, a, b = self._two_roots(tmp_path, db, monkeypatch, meta=False)
+        assert service._resolve_businesses([a, b]).name == "Regular"
+        assert service._resolve_businesses([b, a]).name == "Meta"
 
-        a = str(builder.get_root_context_path(1))
-        b = str(builder.get_root_context_path(2))
+    def test_repo_folder_is_skipped(self, tmp_path, db, monkeypatch) -> None:
+        builder, service, regular, _ = self._two_roots(tmp_path, db, monkeypatch, meta=False)
+        repo = str(builder.get_repo_path("Duet"))
+        assert service._resolve_businesses([repo, regular]).name == "Regular"
+        assert service._resolve_businesses([repo]) is None
 
-        result = WorkspaceService(db)._resolve_multi_path([a, b])
-        assert result is not None
-        assert result.name == "RegularA"
-
-    def test_first_come_when_meta_missing_in_db(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Solo")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        path = str(builder.get_root_context_path(0))
-        result = WorkspaceService(db)._resolve_multi_path([path])
-        assert result is not None
-        assert result.name == "Solo"
-
-    def test_returns_none_when_no_entities_resolve(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Solo")
-        builder.build(monkeypatch)
-        Scanner(db).scan()
-
-        result = WorkspaceService(db)._resolve_multi_path(["/nowhere/at/all"])
-        assert result is None
-
-    def test_resolve_multi_path_unifies_to_owner(
-        self, tmp_path: Path, db: DatabaseManager, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """DuetLab scenario: opening `[repos/Duet.git, repos/Duet-Instructions.git,
-        DuetLab Drive]` simultaneously must resolve to the single DuetLab context.
-
-        Each `repos/<alias>.git` path goes through its `product_repo` entity
-        whose parent is the owning context — all three paths converge on DuetLab.
-        """
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.add_repo("Duet", components=[])
-        builder.add_repo("Duet-Instructions", components=[])
-        builder.build(monkeypatch)
-
-        root_path = builder.get_root_context_path(0)
-        lab_path = root_path / "DuetLab"
-        lab_path.mkdir()
-        ManifestBuilder.context(
-            lab_path, "DuetLab",
-            git_repos={
-                "Duet": "https://duet.git",
-                "Duet-Instructions": "https://duet-instructions.git",
-            },
-        )
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-
-        service = WorkspaceService(db)
-        paths = [
-            str(builder.get_repo_path("Duet")),
-            str(builder.get_repo_path("Duet-Instructions")),
-            str(lab_path),
-        ]
-        # Each path independently must resolve to the same owning context —
-        # this is what makes "unification" non-trivial. A simpler test where
-        # the first path already resolves correctly wouldn't catch
-        # regressions in path 2 (or in `_resolve_from_repos` for a different
-        # alias). Pin the per-path contract first.
-        ids = [service._resolve_entity(p) for p in paths]
-        assert all(e is not None for e in ids)
-        assert all(e.name == "DuetLab" for e in ids), (
-            f"Per-path resolution diverged: {[e.name for e in ids]}"
-        )
-
-        result = service._resolve_multi_path(paths)
-        assert result is not None
-        assert result.name == "DuetLab"
-
-
-class TestBuildMemory:
-    """Tests for WorkspaceService._build_memory — the orientation memory pointer."""
-
-    def _setup_context(self, tmp_path, db, monkeypatch, **manifest_kw):
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Root")
-        builder.build(monkeypatch)
-        root_path = builder.get_root_context_path(0)
-        ctx_path = root_path / "Proj"
-        ctx_path.mkdir()
-        ManifestBuilder.context(ctx_path, "Proj", **manifest_kw)
-        Scanner(db, repos_path=builder.get_repos_path()).scan()
-        service = WorkspaceService(db)
-        entity = service._resolve_entity(str(ctx_path))
-        return service, entity, ctx_path
-
-    def test_resolves_pointer(self, tmp_path, db, monkeypatch):
-        service, entity, ctx_path = self._setup_context(
-            tmp_path, db, monkeypatch, memory="@Proj/notes.md"
-        )
-        (ctx_path / "notes.md").write_text("domain memory", encoding="utf-8")
-        mem = service._build_memory(entity)
-        assert mem == {"ref": "@Proj/notes.md", "path": str((ctx_path / "notes.md").resolve())}
-
-    def test_null_when_absent(self, tmp_path, db, monkeypatch):
-        service, entity, _ = self._setup_context(tmp_path, db, monkeypatch)
-        assert service._build_memory(entity) is None
-
-    def test_null_when_unresolvable(self, tmp_path, db, monkeypatch):
-        service, entity, _ = self._setup_context(
-            tmp_path, db, monkeypatch, memory="@Nope/x.md"
-        )
-        assert service._build_memory(entity) is None
+    def test_none_when_nothing_resolves(self, db) -> None:
+        assert WorkspaceService(db)._resolve_businesses(["/nowhere/at/all"]) is None
+        assert WorkspaceService(db)._resolve_businesses([]) is None
 
 
 class TestDeployInstructionsService:
@@ -1199,3 +461,39 @@ class TestDeployInstructionsService:
         assert (ctx_path / ".claude" / "CLAUDE.md").is_file()
         assert (ctx_path / ".kimi-code" / "AGENTS.md").is_file()
         assert (ctx_path / ".agents" / "rules" / "gemini.md").is_file()
+
+    def test_repo_folder_chooses_no_business(self, tmp_path, db, monkeypatch):
+        """A window with only a repo folder deploys nothing: the repo may be shared."""
+        builder, service, _ = _lab(
+            tmp_path, db, monkeypatch, git_repos={"Duet": "https://github.com/x/duet"}
+        )
+        result = service.deploy_instructions([str(builder.get_repo_path("Duet"))])
+        assert result == {"status": "unknown", "reason": "no_owning_context"}
+
+
+class TestOrientationMcpTool:
+    """The MCP tool takes one folder and returns the service's text unchanged."""
+
+    def test_tool_returns_text(self, tmp_path, db, monkeypatch) -> None:
+        import time
+
+        from mcp_handler import init_services, orientation, reset_services
+        from services.entities import EntitiesService
+
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        init_services(service, EntitiesService(db), time.time())
+        try:
+            assert orientation(str(lab)) == service.get_orientation(str(lab))
+            assert orientation("/some/random/path") == OUTSIDE_DUET
+        finally:
+            reset_services()
+
+    @pytest.mark.parametrize("path", ["", "work/DUE013", "~/DuetData"])
+    def test_tool_refuses_a_path_that_is_not_absolute(self, path) -> None:
+        # A relative path would be resolved against the backend's own folder.
+        from mcp.shared.exceptions import McpError
+
+        from mcp_handler import orientation
+
+        with pytest.raises(McpError):
+            orientation(path)
