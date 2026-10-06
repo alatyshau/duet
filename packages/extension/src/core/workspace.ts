@@ -24,13 +24,16 @@ export interface WorkspaceFile {
  */
 export function generateContextWithReposWorkspace(
     aliases: string[],
-    drivePath: string
+    drivePath: string,
+    settings?: Record<string, unknown>
 ): WorkspaceFile {
     const repoFolders: WorkspaceFolder[] = aliases.map(alias => ({
         path: path.join('..', 'repos', `${alias}.git`)
     }));
     const driveFolder: WorkspaceFolder = { path: drivePath };
-    return { folders: [driveFolder, ...repoFolders] };
+    const folders = [driveFolder, ...repoFolders];
+    // Without settings the file is what it always was: folders only
+    return settings ? { folders, settings } : { folders };
 }
 
 /**
@@ -89,16 +92,19 @@ export class WorkspaceManager {
      * @param contextName - Context name (e.g., "DuetLab"); used as workspace file basename.
      * @param aliases - `git_repos` keys in declared order; each becomes a folder pointing at `../repos/<alias>.git`.
      * @param drivePath - Absolute path to the context's Drive folder (always the primary/first folder).
+     * @param settings - `settings` block of the file: the colour of the business window
+     *                   (`core/intents/workspaceFile.ts:planBusinessColor`). Omitted — folders only.
      */
     async writeContextWithReposWorkspace(
         contextName: string,
         aliases: string[],
-        drivePath: string
+        drivePath: string,
+        settings?: Record<string, unknown>
     ): Promise<string> {
         await this.ensureDir();
 
         const workspacePath = this.getContextWithReposWorkspacePath(contextName);
-        const workspace = generateContextWithReposWorkspace(aliases, drivePath);
+        const workspace = generateContextWithReposWorkspace(aliases, drivePath, settings);
         await this.fs.writeFile(workspacePath, JSON.stringify(workspace, null, 2), 'utf8');
 
         await this.writeKimiCodeLocalToml(drivePath, aliases);

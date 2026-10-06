@@ -45,56 +45,73 @@ vi.mock('vscode', () => ({
     }
 }));
 
+/** Workspace files the open commands asked to write; the real manager would write under DuetData. */
+const writtenWorkspaces: Array<{ name: string; aliases: string[]; drivePath: string; settings: unknown }> = [];
+
+vi.mock('../../core/workspace', () => ({
+    WorkspaceManager: class {
+        constructor(private readonly workspacesDir: string) {}
+        getContextWithReposWorkspacePath(name: string): string {
+            return `${this.workspacesDir}/${name}.code-workspace`;
+        }
+        async writeContextWithReposWorkspace(name: string, aliases: string[], drivePath: string, settings?: unknown): Promise<string> {
+            writtenWorkspaces.push({ name, aliases, drivePath, settings });
+            return this.getContextWithReposWorkspacePath(name);
+        }
+        async writeRootContextsWorkspace(): Promise<void> { /* not under test here */ }
+    }
+}));
+
 describe('VS Code Commands', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        writtenWorkspaces.length = 0;
     });
 
     describe('openFolder', () => {
-        it('openInCurrentWindow should call vscode.openFolder with forceNewWindow: false', async () => {
-            const node: TreeNode = {
-                id: '/path/to/folder',
-                label: 'Folder',
-                icon: '',
-                type: 'context',
-                isRoot: true,
-                meta: false,
-                hasGit: false,
-                hasChildren: false,
-                entityId: 1,
-                gitRepos: {}
-            };
+        const plainContext = (overrides: Partial<TreeNode> = {}): TreeNode => ({
+            id: '/path/to/folder',
+            label: 'Folder',
+            icon: '',
+            type: 'context',
+            isRoot: true,
+            meta: false,
+            hasGit: false,
+            hasChildren: false,
+            entityId: 1,
+            gitRepos: {},
+            ...overrides
+        });
 
-            await openInCurrentWindow(node);
+        it('a context without git_repos is opened through a workspace file of one folder, not as a plain folder', async () => {
+            await openInCurrentWindow(plainContext());
 
-            expect(vscode.Uri.file).toHaveBeenCalledWith('/path/to/folder');
+            expect(writtenWorkspaces).toEqual([{ name: 'Folder', aliases: [], drivePath: '/path/to/folder', settings: undefined }]);
             expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
                 'vscode.openFolder',
-                expect.objectContaining({ fsPath: '/path/to/folder' }),
+                expect.objectContaining({ fsPath: '/mock/data/folder/workspaces/Folder.code-workspace' }),
                 { forceNewWindow: false }
             );
         });
 
-        it('openInNewWindow should call vscode.openFolder with forceNewWindow: true', async () => {
-            const node: TreeNode = {
-                id: '/path/to/folder',
-                label: 'Folder',
-                icon: '',
-                type: 'context',
-                isRoot: true,
-                meta: false,
-                hasGit: false,
-                hasChildren: false,
-                entityId: 1,
-                gitRepos: {}
-            };
-
-            await openInNewWindow(node);
+        it('openInNewWindow passes forceNewWindow: true', async () => {
+            await openInNewWindow(plainContext());
 
             expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
                 'vscode.openFolder',
-                expect.objectContaining({ fsPath: '/path/to/folder' }),
+                expect.objectContaining({ fsPath: '/mock/data/folder/workspaces/Folder.code-workspace' }),
                 { forceNewWindow: true }
+            );
+        });
+
+        it('a context whose name cannot be a file name is still opened — as its folder', async () => {
+            await openInCurrentWindow(plainContext({ label: 'a/b' }));
+
+            expect(writtenWorkspaces).toEqual([]);
+            expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+                'vscode.openFolder',
+                expect.objectContaining({ fsPath: '/path/to/folder' }),
+                { forceNewWindow: false }
             );
         });
 
@@ -123,6 +140,7 @@ describe('VS Code Commands', () => {
                 expect.anything(),
                 expect.anything()
             );
+            expect(writtenWorkspaces).toEqual([]);
         });
     });
 

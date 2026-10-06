@@ -7,7 +7,7 @@ import { normalizePath } from '../pathUtils';
  * Built from the `/contexts` list the extension already holds — no backend
  * round trip. Three levels at most: the venture (root of the parent chain),
  * the current business, and the businesses directly under it. Intermediate
- * parents are not shown; the full tree is the ДЕЛА view.
+ * parents are not shown; the full tree is the «Все Бизнесы» view.
  */
 
 export type BusinessRole = 'venture' | 'current' | 'child';

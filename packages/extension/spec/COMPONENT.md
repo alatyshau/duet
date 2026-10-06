@@ -1,20 +1,30 @@
 # Extension
 
-VS Code extension — tree views, commands, and workspace management as a thin client over Backend HTTP API.
+VS Code extension — tree views, commands, and workspace management as a thin client over Backend HTTP API, plus the windows of intents (tickets), which it keeps on its own.
 
 > Domain model (contexts, manifests, invariants, root_context_folders order), pointer file, file ownership: see [/spec/PRODUCT.md](/spec/PRODUCT.md). UI layout and per-view contracts: see [UI.md](UI.md). This file documents what Extension itself owns.
 
 ## Purpose
 
-Extension is a **passive view** over the entities that Backend exposes via HTTP. It never writes config, never owns process lifecycle, never re-derives domain rules. Its job is to:
+Extension has two jobs.
+
+**A passive view over the entities that Backend exposes via HTTP.** Here it never writes config, never owns process lifecycle, never re-derives domain rules:
 
 1. Read pointer file → discover Backend port.
 2. Pull `/contexts` from Backend.
-3. Render two tree views (ДЕЛА, КОНТЕКСТ) — see [UI.md](UI.md).
+3. Render two tree views («Все Бизнесы», КОНТЕКСТ) — see [UI.md](UI.md).
 4. Open contexts as multi-root VS Code workspaces (clone repos when needed).
 5. Provide one editor command: Copy @-Path.
 
-Anything beyond that — root-context editing, schema migrations, AI client configuration — lives in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
+**The keeper of intent windows.** An *intent* is a ticket of a business; it is *active* while a window of the program is open on it. Nothing in Backend or in the tickets records that — the Extension keeps it, with files of its own:
+
+6. Mark each window Duet opened — on an intent or on a business — in `DuetData/intents/` and show them («Активная Работа» view).
+7. Show the tickets of the window's business from `work/` and `backlog/` (Корзина view), open an intent from there, move a ticket between the two folders.
+8. Build the workspace file of an intent and give its window a colour and a pinned notepad; give the window of a business a colour by the same rules.
+
+This is an experiment (DUE017): only stock side-bar features, no UI of its own. Contracts: [Intents](#intents).
+
+What the Extension still never does: write `settings.json`, `{machine}.json` or a manifest, edit a ticket's `INDEX.md` (it only reads `parent`, `work-type` and `icon` from it), create a ticket folder. Root-context editing, schema migrations, AI client configuration live in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
 
 ## Architecture
 
@@ -46,15 +56,28 @@ Anything beyond that — root-context editing, schema migrations, AI client conf
 | FileSystem interface (`fs.ts`) | DI for testing without mocks |
 | git clone via spawn | System git handles auth (ssh-agent, credential helper) |
 | Workspace files | Multi-root workspace for repo + Drive folder |
+| Window markers, not ticket fields | Whether an intent is active is a fact about windows of one program on one machine; it lives in `DuetData/intents/<program>/`, never in the ticket on Drive |
+| A bin snapshot in memory | Ticket folders lie on a cloud drive; the view serves rows from memory and reads the disk only when shown, after a move and on refresh |
 
 ### Data Sources
 
-Extension does NOT read `settings.json`. It only reads pointer + machine config:
+Extension does NOT read `settings.json`. Of the configuration it reads only pointer + machine config:
 
 | File | Reader | What Extension uses |
 |------|--------|---------------------|
 | `~/.org.ve68.duet` | `pointer.ts:readPointer()` | `duetDataPath`, `duetConfigPath`, `machine` |
 | `DuetConfig/{machine}.json` | `pointer.ts:readMachineConfig()` | `port` (for backend API) |
+
+It also reads the business folder straight from disk, without Backend:
+
+| What | Reader | What Extension uses |
+|------|--------|---------------------|
+| `<business>/context.json` | `pathUtils.ts:formatBusinessReference`, `intents/tickets.ts:readBusinessManifest` | `name` (Copy @-Path, window marker), `icon` (intent rows, notepad tab label). Read from disk for two reasons: an intent window marks itself before Backend answers, and Backend puts a default icon (`📁`/`📦`) where the manifest has none, while the intent rule is «no icon — no emoji» |
+| `<business>/work/`, `<business>/backlog/` | `intents/tickets.ts:TicketReader` | folders right inside them whose name fits the ticket-number rule (`pathUtils.ts:parseTicketFolderName`, the grammar Copy @-Path uses); `archive/` only to find one ticket by number |
+| Ticket `INDEX.md` | `TicketReader` | frontmatter `parent`, `work-type` and `icon` (the ticket's emoji), from the first 2 KB, remembered by the file's mtime and size, with a timeout per file |
+| `<business>/.vscode/duet-intents.json` | `intents/binOrder.ts` | order of the bin |
+| `DuetData/intents/<program>/` | `intents/markers.ts:MarkerStore` | window markers, order of active intents |
+| The window's `workbench.colorCustomizations` | `vscode/intents/IntentsRuntime.ts` | the colour in force, written into the window marker |
 
 All entity data flows from Backend:
 
@@ -64,14 +87,14 @@ All entity data flows from Backend:
 | `POST /scan` | `apiClient.scan()` | Triggers backend rescan |
 | `POST /deploy-instructions` | `apiClient.deployInstructions(paths)` | Asks backend to deploy the `skills`/`instructions` of the window's business into its Drive folder. Fire-and-forget |
 
-`ContextEntity[]` (from `/contexts`) is kept in memory and feeds both views, ДЕЛА and КОНТЕКСТ. Both rebuild on workspace folder change (no HTTP) and reload on `duet.refresh`.
+`ContextEntity[]` (from `/contexts`) is kept in memory and feeds both views, «Все Бизнесы» and КОНТЕКСТ. Both rebuild on workspace folder change (no HTTP) and reload on `duet.refresh`.
 
 **Root context configuration is Host-only.** Extension intentionally has no add/remove/reorder commands and no write path to `settings.json` or `{machine}.json` (see /spec/PRODUCT.md → File Ownership). All edits go through the Host wizard.
 
 ### Data Flow
 
 ```
-activation → apiClient.contexts() → ContextEntity[] → ContextTreeProvider (ДЕЛА view)
+activation → apiClient.contexts() → ContextEntity[] → ContextTreeProvider («Все Бизнесы» view)
                                                     → ContextProvider     (КОНТЕКСТ view)
 
 refresh    → apiClient.scan()
@@ -80,7 +103,7 @@ refresh    → apiClient.scan()
 
 Both providers are synchronous wrappers around a snapshot:
 
-- **ДЕЛА view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full list of contexts loaded once on activation. Each entity carries `meta`, `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences (meta / root / has git products / regular) are derived from these fields rather than from a `type` enum. A context has git products iff `git_repos` has one or more aliases; it may still have nested Drive child contexts.
+- **«Все Бизнесы» view** (`ContextTreeProvider`) works over `ContextEntity[]` — the full list of contexts loaded once on activation. Each entity carries `meta`, `git_repos` (`Record<alias,url> | null`), and `parent_id`; role differences (meta / root / has git products / regular) are derived from these fields rather than from a `type` enum. A context has git products iff `git_repos` has one or more aliases; it may still have nested Drive child contexts.
 - **КОНТЕКСТ view** (`ContextProvider`) works over the same `ContextEntity[]` and the window's folders; the tree is built by the pure function `core/tree/contextPanel.ts:buildContextPanel`. Which business is current and what the panel shows: [UI.md → КОНТЕКСТ](UI.md).
 
 **Tree order:** owned by Backend's `/contexts` response (see /spec/PRODUCT.md → Invariants). `core/tree/contextTree.ts` is a passive view that preserves API order and never re-sorts.
@@ -91,7 +114,9 @@ Both providers are synchronous wrappers around a snapshot:
 
 | View ID | Provider | Data source | Renders |
 |---------|----------|-------------|---------|
-| `duet.contexts` (ДЕЛА) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. A context is highlighted when its own folder is among the window's folders |
+| `duet.intents` (Активная Работа) | `IntentsProvider` | window markers of the program (`MarkerStore`) | Flat list: business windows, then active intents of every business in the order set by dragging; each row in the colour of its window |
+| `duet.bin` (Корзина) | `BinProvider` | ticket folders of the window's business + markers | Tickets from `work/` and `backlog/` by container; a ticket with an open window is in the colour of that window |
+| `duet.contexts` (Все Бизнесы) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. A context is highlighted when its own folder is among the window's folders |
 | `duet.context` (КОНТЕКСТ) | `ContextProvider` | the same `ContextEntity[]` | Venture → current business → businesses directly under it. No business folder in the window → single info node |
 
 Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md](UI.md).
@@ -100,10 +125,15 @@ Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md
 
 #### `duet.openFolder` — open a context
 
-| Context flavor | Action |
-|----------------|--------|
-| Context without `git_repos` | Open Drive folder directly |
-| Terminal context (`git_repos` non-empty) | Clone every aliased repo into `paths.reposPath/<alias>.git` → generate multi-root workspace → open workspace |
+Every context is opened through a workspace file Duet writes for it; there is one path, and repos only add folders to it.
+
+| Step | Action |
+|------|--------|
+| 1 | Clone every `git_repos` alias that is missing into `paths.reposPath/<alias>.git` (nothing to do for a context without repos) |
+| 2 | Write `DuetData/workspaces/<context>.code-workspace`: the Drive folder, then one folder per alias — a context without `git_repos` gets a file of one folder — plus the `settings` block with the window colour |
+| 3 | Open the file |
+
+Until 0.0.48 a context without `git_repos` was opened as a plain folder and only a context with repos got a file. That was a defect, not a design: a window opened as a folder has no file of Duet's, so it could not carry a colour, and the same business behaved differently only because of whether it declared repos. The one case left where the folder is opened directly is a context whose name cannot be a file name (`isSafeRepoName`).
 
 For any context whose manifest declares `reference_repos`, missing clones are fetched into `paths.reposPath/<name>.git` before the folder/workspace is opened. Clone failure or user cancel aborts the open — an unreachable repo must be removed from the manifest before the context can be opened. Alias names are validated against path traversal (`isSafeRepoName`).
 
@@ -114,6 +144,21 @@ For any context whose manifest declares `reference_repos`, missing clones are fe
 - Finalize pattern: single `resolved` flag prevents duplicate logs on cancel/error/close race.
 
 Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`.
+
+#### Intent commands
+
+All hidden from the Command Palette (`commandPalette: when: false`): they act on a row.
+
+| Command | Where | Action |
+|---------|-------|--------|
+| `duet.intents.refresh` | «Активная Работа» title | Re-read the window markers |
+| `duet.intents.switch` | click on an «Активная Работа» row — and nowhere else | Bring the window of the row forward (see [Switching](#switching-to-a-window)). The bin never switches: it is for managing the backlog and the order |
+| `duet.intents.switchByNumber` | Cmd+1 … Cmd+9 (macOS), `when: duet.hasPointer`; hidden from the Command Palette | The same switch for the row that shows this number in «Активная Работа» now (`intents/active.ts:rowByNumber`); the digit comes as the `args` of the keybinding. An extension's keybinding outranks the editor's own for the same keys, so these replace «focus editor group N»; the user's own keybindings still outrank them |
+| `duet.bin.refresh` | Корзина title | Re-read the business folders |
+| `duet.bin.openHere`, `duet.bin.openNew` | inline on a bin ticket without an open window | Open the intent in the current / a new window — the same two buttons, icons and window behaviour as `duet.openInCurrentWindow` / `duet.openInNewWindow` for a business |
+| `duet.bin.toBacklog` | inline on a bin ticket from `work/` without an open window | Move the ticket folder to `backlog/` |
+
+`duet.intents.*` are registered as soon as the pointer is read; `duet.bin.*` after Backend has answered, with the rest of the backend-dependent commands. Bin commands run one at a time, and each first finds its ticket on disk by number (`intents/tickets.ts:resolveTicketNow`): the view is a snapshot, and no action runs on a stale path. Implementation: `vscode/commands/intents.ts`.
 
 #### `duet.copyAtPath` — copy `@`-reference
 
@@ -148,13 +193,14 @@ Pure logic: `core/pathUtils.ts:formatTicketReference(absolutePath)` (ticket form
 
 ### Workspace Files
 
-Two generated artifacts:
+Generated artifacts:
 
 | Workspace | Location | When Generated | Folders |
 |-----------|----------|----------------|---------|
-| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of a context with `git_repos` | Drive folder of the context first, then one folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved). Assembly is hardcoded **context-first** — the Drive folder is always the primary/first folder |
+| `{Context}.code-workspace` | `DuetData/workspaces/` | On open of any context | Drive folder of the context first, then one folder per `git_repos` alias (relative `../repos/<alias>.git`, declared order preserved); a context without repos — the Drive folder alone. Assembly is hardcoded **context-first** — the Drive folder is always the primary/first folder |
 | `<context>/.kimi-code/local.toml` | context Drive folder | Same write as `{Context}.code-workspace` | Kimi Code multi-root workaround: Kimi's VS Code extension sees only the primary folder, so the cloned repos are written as `[workspace] additional_dir` (absolute paths, declared order). Duet-managed, rewritten wholesale; machine-specific — not for VCS. **Known limitation:** the file lives in the Drive-synced context folder, so on a multi-machine setup (e.g. Mac + Windows) the synced absolute paths are wrong on the other machine — no workaround; the real fix is multi-root support in Kimi's VS Code extension ([MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code), `apps/vscode`, MIT) |
 | `root-contexts.code-workspace` | `DuetData/` (root) | After scan completes | All root context folders + `DuetData` |
+| `{Ticket folder}.code-workspace` | `DuetData/workspaces/{Business}/` | On open of an intent by button | The same folders as the business window: the business folder (absolute), then one per `git_repos` alias (relative `../../repos/<alias>.git`). Carries a `settings` block. A separate builder — `core/intents/workspaceFile.ts`; see [Intent workspace file](#intent-workspace-file). Does not write `.kimi-code/local.toml` |
 
 ```json
 {
@@ -174,7 +220,7 @@ Two generated artifacts:
 | Drive path | Absolute (not portable) |
 | Context-workspace builder | `core/workspace.ts:writeContextWithReposWorkspace(name, aliases, drivePath)` |
 
-Folder order is hardcoded **context-first**: the Drive folder is always emitted first, then the cloned repos in `git_repos` declared order. The builder takes no ordering argument. The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — keeping the Drive folder first makes it the terminal default. Single entry point — no separate single-repo variant. A context with one `git_repos` alias produces a 2-folder workspace; two aliases produce three folders; etc.
+Folder order is hardcoded **context-first**: the Drive folder is always emitted first, then the cloned repos in `git_repos` declared order. The builder takes no ordering argument. The first folder in a VS Code multi-root workspace is the default cwd for terminals and the anchor for file pickers — keeping the Drive folder first makes it the terminal default. Single entry point — no separate single-repo variant and no folder-only variant. A context without `git_repos` produces a 1-folder workspace; one alias — two folders; two aliases — three; etc.
 
 **Alias safety:** aliases originate from user-authored manifest JSON. Before opening a context with `git_repos`, `openFolder.ts:findUnsafeAliases` checks every alias in both `git_repos` and `reference_repos`; if any name fails `isSafeRepoName` (path separators, dots-only, control characters, leading dot), the open is **aborted** with a user-visible error — no clone, no workspace file.
 
@@ -197,6 +243,8 @@ Host owns the full backend lifecycle (start, stop, health). Extension is a pure 
 - `duet.ready=false` → status view shows "Установите и запустите Duet Host".
 - User clicks "Перезагрузить окно" → `workbench.action.reloadWindow`.
 
+The intents runtime starts before this sequence, right after the pointer is read: the window's marker, then the «Активная Работа» view. It needs only `duetDataPath`, so with Backend offline the side bar shows «Активная Работа» above the status view. The Корзина view and its commands are registered in step 5.
+
 **Contracts:**
 - No spawn, no venv, no install — all managed by Host.
 - Single check on activation (no polling, no retry command).
@@ -214,15 +262,127 @@ Fires on:
 
 Implementation: `vscode/extension.ts` (`triggerDeployInstructions`).
 
+### Intents
+
+An intent is a ticket of a business: a folder right inside `work/` or `backlog/` whose name fits the ticket-number rule. It is active while a window of this program is open on it; close the window and the intent is paused. Tickets carry no field for that. Pure logic: `core/intents/`; wiring: `vscode/intents/`, `vscode/providers/IntentsProvider.ts`, `vscode/providers/BinProvider.ts`, `vscode/commands/intents.ts`. What the user sees: [UI.md](UI.md).
+
+#### Window markers
+
+An intent window is a window opened by a workspace file Duet built for a ticket — `DuetData/workspaces/<business>/<ticket folder>.code-workspace` (`intents/window.ts:intentWindowOf`). The ticket is known by its number; where its folder lies now is a field of the marker, not part of the definition.
+
+A business window writes a marker too, so «Активная Работа» lists it. It is recognised in two ways: by a workspace file lying right in `DuetData/workspaces/` (`intents/window.ts:businessWindowOf`) — how a business with repos is opened — or, in a window without a workspace file, by a `context.json` with `version` and `name` in its first folder — a business folder opened directly: by Duet before 0.0.48, or by hand. Such a window is listed and can be switched to, but has no colour until the business is opened by button. The key of a business among the markers is `@<name>` (`businessKey`); a ticket number never starts with `@`. A business opened both ways shares one key and one row.
+
+| Rule | Why |
+|------|-----|
+| File per process: `DuetData/intents/<program>/windows/<key>-<pid>.json`, `<key>` = ticket number or `@<business>`, `<pid>` = extension host of the window | One ticket may be open twice (a window from «Recent», a conflict copy); with a file per ticket the first window to close would erase the other's marker |
+| `<program>` = `vscode.env.uriScheme` (`vscode`, `vscodium`, `cursor`, …); a window reads and writes only the folder of its own program | Each program has its own windows, colours and order. Between programs the rule is «whoever acts is right»: no window checks another program before acting |
+| Written first in `activate`, before anything waits on Backend; removed in `deactivate` with a synchronous unlink | A window started while Backend is down must not look closed, or its workspace file would be rebuilt under it. The extension host is shut down right after `deactivate`, an async unlink may not finish |
+| Content: `subject` (`intent` or `business`), the key (field `ticket`), ticket folder name, business name, path and emoji, the ticket's emoji (`ticketIcon`: its own `icon`, else the nearest one up its `parent` chain — `tickets.ts:TicketReader.inheritedIcon`), what opening again brings the window forward (workspace file, or the folder of a business opened as a folder), where the ticket lies (`work`/`backlog`/`archive`/`missing`), colour in force, pid, time of the write | Everything the «Активная Работа» view shows — icon, name, colour — comes from markers alone, so it needs no Backend. A marker without `subject` and `ticketIcon` (written by 0.0.44) reads as an intent without an own emoji |
+| Dead marker: its process is gone, or it was written before the last system boot. Any reader removes it | A crashed window cannot clean up; after a reboot a pid may belong to another process |
+| On window focus and on a change of `workbench.colorCustomizations` the window checks its marker and writes it again when it is gone or no longer true | Restores a marker removed from outside; keeps the colour honest |
+| Reservation `<key>-<pid>.reserve.json`, written by the window where «open» was clicked (an intent in Корзина, a business with repos in «Все Бизнесы»), with the chosen colour; counts for 30 s or until the real marker of the ticket appears; its pid is not checked | Between the click and the start of the new window the intent would look closed and its colour free. «Open in the current window» ends the process that wrote it |
+| One watcher on `intents/<program>/` with `**/*.json`; the folder is created before the watcher; every event leads to one re-read of the whole folder, debounced 100 ms | Markers lie in the `windows/` subfolder, which a plain `*.json` does not see. The same watcher carries `active.json`, so an order changed in one window changes in the others at once |
+| A row stays 1.5 s after its marker is gone (`intents/active.ts:applyLinger`) | A window reload removes the marker and writes a new one; without the delay the row would blink |
+
+(The word «pointer» is taken by `~/.org.ve68.duet`; this thing is a *window marker*.)
+
+#### Switching to a window
+
+The API has no call that brings another window forward. Switching is opening the intent's workspace file again with `vscode.openFolder` — the call a business is opened with: the program brings forward the window that already has the file. Checked on VS Code 1.140: no second window opens with either value of `forceNewWindow`. The command passes `forceNewWindow: true`, so that if no window has the file after all, a new one opens instead of the current window being replaced.
+
+#### Intent workspace file
+
+`DuetData/workspaces/<business>/<ticket folder>.code-workspace`. The path does not change when the ticket moves between `work/`, `backlog/` and the archive, so the window, its colour and its tabs survive every move; nothing is left in the ticket or on Drive. Renaming the ticket folder gives a new file (and loses the remembered colours) — not handled.
+
+| Rule | Why |
+|------|-----|
+| Duet owns the whole file: rebuilt on every open of the intent by button, and after the rebuild it holds nothing but what Duet writes now. Only the remembered colours survive | One canon for all intents; a hand edit is not a setting |
+| Never written while a window has it open: a ticket with a live marker is switched to, not rebuilt | Rewriting the settings of a living window would recolour it under the user |
+| Deterministic text, written only when the bytes differ, through a temporary file and a rename | No needless write; DuetData is a local disk |
+| Folders: the business folder (absolute path of this machine), then `../../repos/<alias>.git` per `git_repos` alias. A business without repos gives a file of one folder. Missing repos are cloned first, exactly as for a business (`openFolder.ts:prepareBusinessRepos`) | The window shows the same folders as the business window |
+| File absent → first open. File present but unreadable → opened as it is, with one line of notice | A rebuild would roll the intent's main colour again |
+| Read as JSON with comments (`core/jsonc.ts`) | That is the dialect of `.code-workspace` |
+| `duet.intent.canon` — version of what Duet writes (now `4`: since `2` the colour block also sets the selection of lists, since `3` the backdrop of highlighted text, since `4` the tab label carries the intent's emoji, not always the business's). A file with a newer version is opened as it is | Several programs carry their own installed Duet; two versions must not rewrite the file after each other |
+| `duet.intent.colors` — the colours the intent remembers, main first. Absent key and a palette colour in the file → that colour is the main one | Files of older builds keep their colour |
+| Both keys are declared in `contributes.configuration` | Otherwise VS Code marks them as unknown settings |
+
+`settings` of the file, for ticket `DUE017_IntentSwitcher` of a business with icon 🚀:
+
+```json
+"settings": {
+  "workbench.editor.customLabels.patterns": { "**/DUE017_IntentSwitcher/notepad.md": "🧰 Intent Switcher" },
+  "symbols.files.associations": { "notepad.md": "sanity", "INDEX.md": "text", "AGENDA.md": "notebook" },
+  "workbench.editor.pinnedTabsOnSeparateRow": true,
+  "workbench.editor.showTabIndex": true,
+  "workbench.colorCustomizations": {
+    "titleBar.activeBackground": "#1f6f43", "titleBar.activeForeground": "#ffffff",
+    "statusBar.background": "#1f6f43", "statusBar.foreground": "#ffffff",
+    "titleBar.inactiveBackground": "#1f6f43", "titleBar.inactiveForeground": "#ffffff",
+    "list.activeSelectionBackground": "#1f6f43", "list.activeSelectionForeground": "#ffffff",
+    "list.focusOutline": "#1f6f43",
+    "list.filterMatchBackground": "#1f6f4333"
+  },
+  "duet.intent.colors": ["#1f6f43"],
+  "duet.intent.canon": 4
+}
+```
+
+The colour block (`workspaceFile.ts:windowColorBlock`) is everything in the window that carries its colour. A workspace file cannot aim at one view, so each colour acts in every list of the window — which is the point: the window is painted, and everything in it is in its colour.
+
+| What | Colour | Shade |
+|------|--------|-------|
+| Title bar, status bar | background | the window colour itself — the dark version, under white text |
+| Selection of lists: the saturated fill of the selected row while its list has the focus; the outline of the focused row | background, outline | the dark version, white text. The pale selection of a list without focus stays the theme's |
+| Backdrop of highlighted text in lists: the name in this window's own row of «Активная Работа» and in the row of its ticket in Корзина; a match found by typing in any tree | background | the light version — the window colour at one fifth strength (`colors.ts:backdropColor`). Its outline is left to the theme |
+
+The light version is the colour with transparency, not a fixed light colour: over a light side bar it gives a light tint, over a dark one a dark tint, and over the selection in the same colour it vanishes, so the text on it is readable in every case. The shades are held by tests (`intentWorkspaceFile.test.ts`, «readability of the window colours»): contrast of text against what lies behind it, for all eight colours on the side-bar backgrounds of the stock light and dark themes — at least 4.5 everywhere, 3.5 for the one case of this window's own row on a light theme, where the text and its backdrop are two shades of one colour. The activity bar is not coloured.
+
+**Business workspace file.** `DuetData/workspaces/<business>.code-workspace` keeps its folders (`../repos/<alias>.git`) and its `.kimi-code/local.toml` exactly as before, and gains a `settings` block of three keys: the colour block above, `duet.intent.colors` and `duet.intent.canon` (`workspaceFile.ts:planBusinessColor`). The colour is chosen on every open of the business by button, by the same rules as for an intent, and held by a reservation. When a window already has the file open, the file is written back with the colour block it has — folders are refreshed, a living window is never recoloured. A business without repos has the same file with one folder, and so the same colour rules. Without the intents runtime the file is written without a `settings` block, folders only. A program still on 0.0.44 that opens the business strips the block; the next open by a newer version rolls the main colour again.
+
+**Intent name** (`intents/naming.ts`, one function for the view rows, the tab label and the notepad heading): the ticket folder name without the number; underscores become spaces, a space goes where PascalCase starts a word, by Unicode case — `IntentSwitcher` → «Intent Switcher», `UIResearch` → «UI Research», `DuetWork2` → «Duet Work2», `DuetWork_Full` → «Duet Work Full». The emoji of an intent is one wherever the intent is shown — its row in «Активная Работа» and the tab label of its notepad (`naming.ts:intentIcon`): the ticket's own `icon`; else the one of its nearest parent ticket that has one; else `icon` of the business's `context.json`; none of the three — no emoji. The tab label is written into the workspace file, so it takes the emoji the ticket has when the intent is opened by button.
+
+**Window colour** (`intents/colors.ts`), eight colours that carry white text: `#1f6f43`, `#1f4f8f`, `#6b3fa0`, `#1f7a7a`, `#5a6a1f`, `#8f4a1f`, `#8f1f3f`, `#8f1f7a`. «Taken» means held by an open window of this program (markers and reservations).
+
+1. First open: a random colour among those not taken; remembered as the main one.
+2. Later opens use the main colour.
+3. Main colour taken by another window → a spare, chosen the same way and remembered; two spares at most. The main colour stays the main one.
+4. All three taken → a random free colour, not remembered.
+5. More windows than colours → a random one among those met least often among the open windows; not remembered.
+
+#### Bin: reading the business folders
+
+The bin is a snapshot in memory. The disk is read when the view becomes visible, after a finished move, by the refresh button — and when the window's business changes. It is not read on a plain tree refresh: refreshing the root re-queries an expanded tree, and every window opening would otherwise re-read folders on a cloud drive. A window opening or closing only redraws the rows. Readings asked for while one is under way are joined, and tree refreshes that come within 25 ms are sent as one: two refreshes a few milliseconds apart make VS Code ask for the children of rows the second one has already replaced («No tree item with id …» in the extension host log).
+
+The order of the bin is `<business>/.vscode/duet-intents.json` — one flat list of ticket numbers per business, so it is the same for every program and machine. The order inside any group is the relative order of its numbers in the list; a list per parent would break when a ticket changes its parent. The containers — processes and programs — take their order among themselves from the same list. Written only by dragging: the first drag in a group lists all its visible rows as shown (`intents/order.ts:mergeOrderBlock`); opening and closing a window never write it. Read together with the folders; only this exact file name is read, so conflict copies are harmless; an unreadable file leaves the last order read well. Numbers found in the archive are dropped from the list on write. The file lies on Drive: written in place by a single write.
+
+#### Notepad
+
+In an intent window, and only there, at start (`vscode/intents/notepad.ts`, decisions in `intents/notepad.ts:planNotepadFix`):
+
+| Rule | Why |
+|------|-----|
+| No `notepad.md` right in the ticket folder → created with `# DUE017 · Intent Switcher · Notepad` and an empty line. The ticket folder itself is never created | The notepad is part of the intent's window |
+| File present: no level-one heading as the first line → added; a wrong one → replaced, its text kept on the next line as a quote `> …`; a right one → the file is not touched | The heading names the intent in the tab; the user's own heading is not lost |
+| A wrong heading of the shape `# <number> · … · Notepad` — one Duet wrote — is replaced without a quote | Otherwise quotes pile up with every rename of the ticket |
+| The first line is looked for after the frontmatter, which counts only when line one is exactly `---` and a closing `---` follows; empty lines before the heading are skipped | A notepad may carry metadata |
+| The edit goes through the editor's document and is saved; a notepad with unsaved changes is left alone this time | Writing the file past an open editor would fight the user's unsaved text |
+| Then, unless a pinned tab with the notepad exists, it is opened and pinned, and the tab that was active becomes active again | The notepad must not take the user out of the chat |
+| Pinning happens at most once per window session: `vscode.env.sessionId` is kept in `workspaceState` | The extension may restart inside a living window; pinning again would undo the user's choice to unpin or close, which holds until the window starts again. Checked on VS Code 1.140: `sessionId` survives an extension-host restart and changes on a window reload |
+
 ### Tree Decorations
 
-`TreeDecorationProvider.ts` is a `FileDecorationProvider`. Single responsibility today: grey out separator rows so the line/spacer items read as visual gaps rather than active items.
+`TreeDecorationProvider.ts` is a `FileDecorationProvider`: a row names an address as its `resourceUri`, and the provider answers with the colour of the row's text. Registered at the start of activation, before Backend is asked for anything — «Активная Работа» needs it with Backend down.
 
 | URI Scheme | Format | Decoration |
 |------------|--------|------------|
-| `duet-tree` | `duet-tree:/separator/<index>` | `disabledForeground` colour |
+| `duet-tree` | `duet-tree:/separator/<index>` | `disabledForeground` colour — separator rows of «Все Бизнесы» read as gaps |
+| `duet-tree` | `duet-tree:/intent-color/<colour id>/<key>` | the colour of a window — rows of windows in «Активная Работа», rows of tickets with an open window in Корзина |
 
-`SeparatorItem` in `ContextTreeProvider` is the only call site setting `resourceUri` with this scheme. Active-node / root-context colouring is NOT wired here — node labels carry their own emoji-based status (see UI.md). If colour decoration becomes needed, both the provider and the matching `resourceUri` assignment have to land together.
+A decoration can name a colour only by a theme colour id, never by its hex value, so the eight colours of the palette are declared in `contributes.colors` as `duet.intent.color1` … `duet.intent.color8` (`intents/colors.ts:intentColorId`): in light themes the palette colour itself, in dark themes a lighter shade of it. The colour is a function of the address alone: a window that changes its colour gives its rows a new address, so no change event is needed. A row with a `resourceUri` must carry an icon of its own, or the tree draws a file icon from the icon theme; the intent views give every row an icon picture (`vscode/providers/rowLook.ts`, `intents/rowIcon.ts`) — the emoji drawn as a 16-pixel SVG, or an empty one. The user setting `explorer.decorations.colors` switches these colours off, as it does everywhere.
+
+«Все Бизнесы» does not use the colour decoration — its node labels carry their own emoji-based status (see UI.md).
+
+`NotepadDecorationProvider.ts` is a second `FileDecorationProvider`, for one real file: in an intent window the name of its own `notepad.md` — on the tab, and wherever else the editor lists the file — takes the colour of the window, from the same declared colours and by the same rule «the colour in force now»; a change of the window colour is told to the editor through `onDidChangeFileDecorations`. Only the notepad of the ticket the window is opened on, never its folder (`propagate: false`), and nothing in a business window. The editor gives a single file only the colour of its name; a tab's background can be set only per state of the tab, the same for every file of the window.
 
 ## Engineering
 
@@ -258,12 +418,29 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 | DuetData paths | `core/paths.ts` |
 | Backend API client | `core/api-client.ts` (incl. `deployInstructions`) |
 | Deploy-instructions trigger | `vscode/extension.ts` (`triggerDeployInstructions`) |
-| Context tree logic (ДЕЛА view) | `core/tree/contextTree.ts` |
+| Context tree logic («Все Бизнесы» view) | `core/tree/contextTree.ts` |
 | КОНТЕКСТ view | `vscode/providers/ContextProvider.ts` |
 | КОНТЕКСТ tree shape, current business | `core/tree/contextPanel.ts` (`buildContextPanel`, `findCurrentBusiness`) |
 | Sidebar state (context keys) | `core/sidebar-state.ts` |
 | Workspace generation | `core/workspace.ts` (`writeContextWithReposWorkspace`) |
 | Copy @-path command | `vscode/commands/copyAtPath.ts`, `core/pathUtils.ts` (`formatTicketReference`, `formatBusinessReference`, `formatAtReference`) |
-| Tree decorations | `vscode/providers/TreeDecorationProvider.ts` |
+| Intent name, row text, notepad heading | `core/intents/naming.ts` (`rowText`) |
+| Intent and business window by workspace-file path, business key, program folder name | `core/intents/window.ts` |
+| Row icon picture, row colour address | `core/intents/rowIcon.ts`, `vscode/providers/rowLook.ts` |
+| The runtime for commands registered apart from it | `vscode/intents/current.ts` |
+| Window markers, reservations, order of active intents | `core/intents/markers.ts` (`MarkerStore`, `splitMarkers`) |
+| Active windows from markers, their order, row text, linger | `core/intents/active.ts` (`orderActive`, `reorderActive`, `activeRowText`) |
+| Window colour, theme colour ids | `core/intents/colors.ts` (`chooseIntentColor`, `intentColorId`) |
+| Intent workspace file, colour block, colour of a business window | `core/intents/workspaceFile.ts` (`planIntentWorkspace`, `windowColorBlock`, `planBusinessColor`), `core/jsonc.ts` |
+| Ticket folders, frontmatter, move between shelves, `context.json` icon | `core/intents/tickets.ts` (`TicketReader`, `resolveTicketNow`, `moveTicketFolder`, `readBusinessManifest`) |
+| Bin layout and drop decision | `core/intents/binTree.ts` (`buildBinTree`, `decideBinDrop`) |
+| Remembered order (both views) | `core/intents/order.ts`, `core/intents/binOrder.ts` |
+| Notepad heading decision | `core/intents/notepad.ts` (`planNotepadFix`) |
+| Intents state of a window (own marker, watcher) | `vscode/intents/IntentsRuntime.ts` |
+| «Активная Работа» / Корзина views | `vscode/providers/IntentsProvider.ts`, `vscode/providers/BinProvider.ts` |
+| Intent commands | `vscode/commands/intents.ts` (`BinActions`, `switchToIntent`) |
+| Notepad at window start | `vscode/intents/notepad.ts` |
+| Tree decorations (separators, window colours) | `vscode/providers/TreeDecorationProvider.ts` |
+| Colour of the notepad's name on its tab | `vscode/providers/NotepadDecorationProvider.ts` |
 | Accordion controller | `core/tree/AccordionController.ts` |
 | Entity types in Extension | `core/api-client.ts` → `ContextEntity` type |

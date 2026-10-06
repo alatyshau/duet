@@ -53,6 +53,19 @@ describe('workspace', () => {
             expect(result.folders[1].name).toBeUndefined();
         });
 
+        it('without settings the file is folders only, as it always was', () => {
+            const result = generateContextWithReposWorkspace(['Duet'], '/drive/x');
+            expect(Object.keys(result)).toEqual(['folders']);
+        });
+
+        it('carries a settings block when one is given — the colour of the business window', () => {
+            // eslint-disable-next-line @typescript-eslint/naming-convention
+            const settings = { 'workbench.colorCustomizations': { 'titleBar.activeBackground': '#1f6f43' } };
+            const result = generateContextWithReposWorkspace(['Duet'], '/drive/x', settings);
+            expect(result.settings).toEqual(settings);
+            expect(result.folders.map(f => f.path)).toEqual(['/drive/x', path.join('..', 'repos', 'Duet.git')]);
+        });
+
         it('always puts the Drive context folder first (context-first is the only order)', () => {
             const result = generateContextWithReposWorkspace(['Duet'], '/drive/x');
             expect(result.folders[0].path).toBe('/drive/x');

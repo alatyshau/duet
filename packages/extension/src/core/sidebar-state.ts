@@ -4,7 +4,7 @@
  * Uses VS Code setContext to control which view is shown in the sidebar.
  *
  * Context keys used in package.json "when" clauses:
- * - duet.ready        — main views (КОНТЕКСТ, ДЕЛА, ПРОЕКТЫ) visible
+ * - duet.ready        — main views (КОНТЕКСТ, «Все Бизнесы», ПРОЕКТЫ) visible
  * - duet.initializing — status view shows "Подключение к backend..."
  * - !duet.ready       — status view visible (fallback: "Установите Duet Host")
  */

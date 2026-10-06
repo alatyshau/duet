@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.43",
+    "version": "0.0.52",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.104.0"
@@ -77,6 +77,48 @@
                 "title": "Копировать @-путь",
                 "category": "Duet",
                 "shortTitle": "@-путь"
+            },
+            {
+                "command": "duet.intents.refresh",
+                "title": "Обновить интенты",
+                "icon": "$(refresh)",
+                "category": "Duet",
+                "shortTitle": "Обновить"
+            },
+            {
+                "command": "duet.intents.switch",
+                "title": "Переключиться на окно интента",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "title": "Перейти к интенту по номеру",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.bin.refresh",
+                "title": "Обновить корзину",
+                "icon": "$(refresh)",
+                "category": "Duet",
+                "shortTitle": "Обновить"
+            },
+            {
+                "command": "duet.bin.openHere",
+                "title": "Открыть в текущем окне",
+                "icon": "$(go-to-file)",
+                "shortTitle": "Открыть"
+            },
+            {
+                "command": "duet.bin.openNew",
+                "title": "Открыть в новом окне",
+                "icon": "$(link-external)",
+                "shortTitle": "В новом окне"
+            },
+            {
+                "command": "duet.bin.toBacklog",
+                "title": "В бэклог",
+                "icon": "$(inbox)",
+                "shortTitle": "В бэклог"
             }
         ],
         "submenus": [
@@ -94,6 +136,16 @@
                 }
             ],
             "view/title": [
+                {
+                    "command": "duet.intents.refresh",
+                    "when": "view == duet.intents",
+                    "group": "navigation"
+                },
+                {
+                    "command": "duet.bin.refresh",
+                    "when": "view == duet.bin",
+                    "group": "navigation"
+                },
                 {
                     "submenu": "duet.contextSettingsMenu",
                     "when": "view == duet.context",
@@ -121,6 +173,34 @@
                 {
                     "command": "duet.copyAtPath",
                     "when": "false"
+                },
+                {
+                    "command": "duet.intents.refresh",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.intents.switch",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.intents.switchByNumber",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.bin.refresh",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.bin.openHere",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.bin.openNew",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.bin.toBacklog",
+                    "when": "false"
                 }
             ],
             "view/item/context": [
@@ -143,6 +223,21 @@
                     "command": "duet.openInNewWindow",
                     "when": "view == duet.contexts && viewItem != header && viewItem != placeholder && viewItem != separator",
                     "group": "inline@2"
+                },
+                {
+                    "command": "duet.bin.openHere",
+                    "when": "view == duet.bin && viewItem =~ /^ticket-(work|backlog)$/",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "duet.bin.openNew",
+                    "when": "view == duet.bin && viewItem =~ /^ticket-(work|backlog)$/",
+                    "group": "inline@2"
+                },
+                {
+                    "command": "duet.bin.toBacklog",
+                    "when": "view == duet.bin && viewItem == ticket-work",
+                    "group": "inline@3"
                 }
             ]
         },
@@ -152,19 +247,86 @@
                 "key": "alt+shift+c",
                 "mac": "cmd+shift+c",
                 "when": "(filesExplorerFocus || editorTextFocus) && !inputFocus"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+1",
+                "args": 1,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+2",
+                "args": 2,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+3",
+                "args": 3,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+4",
+                "args": 4,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+5",
+                "args": 5,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+6",
+                "args": 6,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+7",
+                "args": 7,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+8",
+                "args": 8,
+                "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.intents.switchByNumber",
+                "mac": "cmd+9",
+                "args": 9,
+                "when": "duet.hasPointer"
             }
         ],
         "viewsContainers": {
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.43",
+                    "title": "Duet 0.0.52",
                     "icon": "resources/duet-icon.svg"
                 }
             ]
         },
         "views": {
             "duet-explorer": [
+                {
+                    "id": "duet.intents",
+                    "name": "Активная Работа",
+                    "when": "duet.hasPointer",
+                    "initialSize": 1
+                },
+                {
+                    "id": "duet.bin",
+                    "name": "Корзина",
+                    "when": "duet.hasPointer && duet.ready",
+                    "visibility": "collapsed",
+                    "initialSize": 2
+                },
                 {
                     "id": "duet.status",
                     "name": "DUET",
@@ -178,7 +340,7 @@
                 },
                 {
                     "id": "duet.contexts",
-                    "name": "ДЕЛА",
+                    "name": "Все Бизнесы",
                     "when": "duet.hasPointer && duet.ready",
                     "initialSize": 4
                 }
@@ -199,6 +361,108 @@
                 "contents": "Нет открытой папки.\n[Открыть папку](command:vscode.openFolder)"
             }
         ],
+        "colors": [
+            {
+                "id": "duet.intent.color1",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #1f6f43 палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#1f6f43",
+                    "dark": "#9abeaa",
+                    "highContrast": "#9abeaa",
+                    "highContrastLight": "#1f6f43"
+                }
+            },
+            {
+                "id": "duet.intent.color2",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #1f4f8f палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#1f4f8f",
+                    "dark": "#9ab0cd",
+                    "highContrast": "#9ab0cd",
+                    "highContrastLight": "#1f4f8f"
+                }
+            },
+            {
+                "id": "duet.intent.color3",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #6b3fa0 палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#6b3fa0",
+                    "dark": "#bca9d4",
+                    "highContrast": "#bca9d4",
+                    "highContrastLight": "#6b3fa0"
+                }
+            },
+            {
+                "id": "duet.intent.color4",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #1f7a7a палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#1f7a7a",
+                    "dark": "#9ac3c3",
+                    "highContrast": "#9ac3c3",
+                    "highContrastLight": "#1f7a7a"
+                }
+            },
+            {
+                "id": "duet.intent.color5",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #5a6a1f палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#5a6a1f",
+                    "dark": "#b5bc9a",
+                    "highContrast": "#b5bc9a",
+                    "highContrastLight": "#5a6a1f"
+                }
+            },
+            {
+                "id": "duet.intent.color6",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #8f4a1f палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#8f4a1f",
+                    "dark": "#cdae9a",
+                    "highContrast": "#cdae9a",
+                    "highContrastLight": "#8f4a1f"
+                }
+            },
+            {
+                "id": "duet.intent.color7",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #8f1f3f палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#8f1f3f",
+                    "dark": "#cd9aa9",
+                    "highContrast": "#cd9aa9",
+                    "highContrastLight": "#8f1f3f"
+                }
+            },
+            {
+                "id": "duet.intent.color8",
+                "description": "Цвет текста строки активного интента, чьё окно имеет цвет #8f1f7a палитры Duet. В тёмных темах — осветлённый оттенок того же цвета.",
+                "defaults": {
+                    "light": "#8f1f7a",
+                    "dark": "#cd9ac3",
+                    "highContrast": "#cd9ac3",
+                    "highContrastLight": "#8f1f7a"
+                }
+            }
+        ],
+        "configuration": {
+            "title": "Duet",
+            "properties": {
+                "duet.intent.colors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "scope": "window",
+                    "description": "Цвета окна, которые помнит интент: главный и два запасных. Duet пишет этот ключ в файл рабочего пространства интента; руками он не правится."
+                },
+                "duet.intent.canon": {
+                    "type": "number",
+                    "default": 0,
+                    "scope": "window",
+                    "description": "Версия состава файла рабочего пространства интента. Duet пишет этот ключ сам; файл с версией новее своей он не пересобирает."
+                }
+            }
+        },
         "mcpServerDefinitionProviders": [
             {
                 "id": "duet",

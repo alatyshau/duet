@@ -40,6 +40,19 @@ export function formatAtReference(rootName: string, relativePath: string): strin
 /** A ticket folder: `DUE009`, `DUEX01_Name` — business code + three-character number. */
 const TICKET_FOLDER_RE = /^([A-Z]{3}(?:\d{3}|[A-Z]\d{2}))(?:_|$)/;
 
+/**
+ * Split a ticket folder name into its number and the rest of the name:
+ * `DUE017_IntentSwitcher` → `DUE017` + `IntentSwitcher`. Returns null when the
+ * name is not a ticket folder — the one rule every ticket reader stands on.
+ */
+export function parseTicketFolderName(name: string): { number: string; rest: string } | null {
+    const match = TICKET_FOLDER_RE.exec(name);
+    if (!match) {
+        return null;
+    }
+    return { number: match[1], rest: name.slice(match[1].length).replace(/^_/, '') };
+}
+
 /** Folders that hold a business's tickets; a ticket is recognised only below one. */
 const TICKET_STATUS_DIRS = new Set(['work', 'backlog', 'archive']);
 

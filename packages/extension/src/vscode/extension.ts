@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ContextTreeProvider } from './providers/ContextTreeProvider';
 import { TreeDecorationProvider } from './providers/TreeDecorationProvider';
+import { NotepadDecorationProvider } from './providers/NotepadDecorationProvider';
 import { AccordionController } from './providers/AccordionController';
 import { ContextProvider, openDataFolderCommand } from './providers/ContextProvider';
 import { readPointer, readPort } from '../core/pointer';
@@ -8,11 +9,21 @@ import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { copyAtPath } from './commands/copyAtPath';
 import { Paths } from '../core/paths';
-import { DuetApiClient } from '../core/api-client';
+import { ContextEntity, DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
+import { IntentsRuntime } from './intents/IntentsRuntime';
+import { setIntentsRuntime } from './intents/current';
+import { ensureNotepad } from './intents/notepad';
+import { IntentsProvider } from './providers/IntentsProvider';
+import { BinProvider } from './providers/BinProvider';
+import { BinActions, switchToIntent } from './commands/intents';
+import { TicketNode } from '../core/intents/binTree';
+import { ActiveIntent, rowByNumber } from '../core/intents/active';
+import { binTitle } from '../core/intents/naming';
 
 let backendOutputChannel: vscode.OutputChannel | null = null;
 let sidebarState: SidebarStateManager | null = null;
+let intentsRuntime: IntentsRuntime | null = null;
 
 class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
@@ -21,6 +32,29 @@ class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Duet extension is active');
+
+    const pointer = readPointer();
+    const dataFolder = pointer?.duetDataPath ?? null;
+    const paths = dataFolder ? new Paths(dataFolder) : null;
+
+    // An intent window says it is open first of all — before anything waits on the backend.
+    // Intents are an experiment: a failure here must not take the rest of the extension down.
+    if (paths) {
+        try {
+            intentsRuntime = new IntentsRuntime(paths);
+            await intentsRuntime.announce();
+            setIntentsRuntime(intentsRuntime);
+            await registerIntentsView(context, intentsRuntime);
+        } catch (e) {
+            console.error('[Duet] intents not started:', e);
+        }
+    }
+
+    // Row decorations: grey separators of «Все Бизнесы», window colours of active intents.
+    // Registered here, not with the backend-dependent views: «Активная Работа» needs it with the backend down.
+    context.subscriptions.push(
+        vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
+    );
 
     sidebarState = new SidebarStateManager();
 
@@ -35,15 +69,12 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('duet.copyAtPath', copyAtPath)
     );
 
-    const pointer = readPointer();
-    const dataFolder = pointer?.duetDataPath ?? null;
     console.log('[Duet] pointer:', pointer ? `OK (${dataFolder})` : 'NULL');
 
     // View visibility: main views require duet.hasPointer && duet.ready (see package.json)
     await vscode.commands.executeCommand('setContext', 'duet.hasPointer', !!pointer);
 
-    if (dataFolder) {
-        const paths = new Paths(dataFolder);
+    if (paths) {
         const port = readPort();
         console.log('[Duet] port:', port);
         const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
@@ -120,10 +151,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const contextTreeProvider = new ContextTreeProvider(contexts);
             const contextProvider = new ContextProvider(contexts);
-            context.subscriptions.push(
-                vscode.window.registerFileDecorationProvider(new TreeDecorationProvider())
-            );
-
+            let binProvider: BinProvider | null = null;
+            try {
+                binProvider = intentsRuntime ? registerBinView(context, intentsRuntime, paths, contexts) : null;
+            } catch (e) {
+                console.error('[Duet] bin view not started:', e);
+            }
             const contextTreeView = vscode.window.createTreeView('duet.contexts', {
                 treeDataProvider: contextTreeProvider,
                 showCollapseAll: false // Hide native collapse, we use toggle
@@ -153,6 +186,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             const newContexts = await refreshFromBackend(apiClient, paths);
                             contextTreeProvider.updateContexts(newContexts);
                             contextProvider.updateContexts(newContexts);
+                            binProvider?.updateContexts(newContexts);
                             const currentPaths = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
                             triggerDeployInstructions(currentPaths);
                         } catch (error) {
@@ -195,6 +229,74 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 }
 
+/**
+ * «Активная Работа» view: the active intents of this program. Needs only the DuetData
+ * path, so it is registered before the backend is asked for anything.
+ */
+async function registerIntentsView(context: vscode.ExtensionContext, runtime: IntentsRuntime): Promise<void> {
+    const provider = new IntentsProvider(runtime);
+    const notepadColor = new NotepadDecorationProvider(runtime);
+    const view = vscode.window.createTreeView('duet.intents', {
+        treeDataProvider: provider,
+        dragAndDropController: provider
+    });
+    context.subscriptions.push(
+        view,
+        provider,
+        runtime,
+        vscode.commands.registerCommand('duet.intents.refresh', () => runtime.refresh()),
+        vscode.commands.registerCommand('duet.intents.switch', (row: ActiveIntent) => switchToIntent(runtime, row, view, provider)),
+        // Cmd+1 … Cmd+9: the same switch as a click on the row that shows the number
+        vscode.commands.registerCommand('duet.intents.switchByNumber', (number: unknown) =>
+            switchToIntent(runtime, rowByNumber(runtime.getActive(), number) ?? undefined, view, provider)),
+        notepadColor,
+        vscode.window.registerFileDecorationProvider(notepadColor)
+    );
+    await runtime.watch();
+    // Not awaited: the notepad must not hold up activation
+    void ensureNotepad(context, runtime, file => notepadColor.setNotepad(file))
+        .catch(e => console.error('[Duet] notepad:', e));
+}
+
+/**
+ * «Корзина» view: the tickets of the window's business. Registered once the
+ * backend has answered — the business comes from its `/contexts`.
+ */
+function registerBinView(
+    context: vscode.ExtensionContext,
+    runtime: IntentsRuntime,
+    paths: Paths,
+    contexts: ContextEntity[]
+): BinProvider {
+    const provider = new BinProvider(contexts, runtime);
+    const actions = new BinActions(paths, runtime, provider);
+    provider.onDrop = (sourceKey, targetKey) => actions.drop(sourceKey, targetKey);
+
+    const view = vscode.window.createTreeView('duet.bin', {
+        treeDataProvider: provider,
+        dragAndDropController: provider
+    });
+    // The title tells whose tickets the view shows: «Корзина DuetLab»
+    const showTitle = () => { view.title = binTitle(provider.currentBusiness()?.name); };
+    showTitle();
+    context.subscriptions.push(
+        view,
+        provider,
+        provider.onDidChangeTreeData(showTitle),
+        view.onDidChangeVisibility(event => provider.setVisible(event.visible)),
+        vscode.commands.registerCommand('duet.bin.refresh', () => provider.reload()),
+        vscode.commands.registerCommand('duet.bin.openHere', (node: TicketNode) => actions.open(node, false)),
+        vscode.commands.registerCommand('duet.bin.openNew', (node: TicketNode) => actions.open(node, true)),
+        vscode.commands.registerCommand('duet.bin.toBacklog', (node: TicketNode) => actions.toBacklog(node))
+    );
+    if (view.visible) {
+        provider.setVisible(true);
+    }
+    return provider;
+}
+
 export function deactivate() {
+    intentsRuntime?.removeOwnMarkerSync();
+    setIntentsRuntime(null);
     disposeGitOutputChannel();
 }

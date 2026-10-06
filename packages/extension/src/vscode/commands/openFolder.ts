@@ -6,6 +6,10 @@ import { TreeNode } from '../../core/tree/contextTree';
 import { WorkspaceManager } from '../../core/workspace';
 import { Paths } from '../../core/paths';
 import { readPointer } from '../../core/pointer';
+import { planBusinessColor } from '../../core/intents/workspaceFile';
+import { readBusinessManifest } from '../../core/intents/tickets';
+import { businessKey } from '../../core/intents/window';
+import { getIntentsRuntime } from '../intents/current';
 
 let gitOutputChannel: vscode.OutputChannel | undefined;
 
@@ -196,9 +200,41 @@ async function cloneRepoSet(
 }
 
 /**
- * Open a context node.
- * For contexts with `git_repos`: clone all aliases, generate
- * multi-root workspace, open it. For others: open the Drive folder directly.
+ * Bring the repos of a business to disk before a window on it is opened: the
+ * same pre-flight and the same cloning that opening the business itself does.
+ * Used by intent windows, which show the business folder and its repos.
+ *
+ * @returns false when an alias is unsafe, a clone failed or the user cancelled —
+ *          the caller must not open the window on a partial set of folders.
+ */
+export async function prepareBusinessRepos(
+    label: string,
+    gitRepos: Record<string, string>,
+    referenceRepos: Record<string, string> | undefined,
+    paths: Paths
+): Promise<boolean> {
+    const unsafeGit = findUnsafeAliases(gitRepos);
+    if (unsafeGit.length > 0) {
+        reportUnsafeAliases(unsafeGit, `${label}.git_repos`);
+        return false;
+    }
+    const unsafeRef = findUnsafeAliases(referenceRepos ?? {});
+    if (unsafeRef.length > 0) {
+        reportUnsafeAliases(unsafeRef, `${label}.reference_repos`);
+        return false;
+    }
+    if (!(await cloneRepoSet(gitRepos, paths.reposPath, `Cloning ${label}...`))) {
+        return false;
+    }
+    return !referenceRepos || cloneRepoSet(referenceRepos, paths.reposPath, 'Cloning reference repos...');
+}
+
+/**
+ * Open a context node. Every context is opened through a workspace file Duet
+ * writes for it — `DuetData/workspaces/<context>.code-workspace`: the Drive
+ * folder first, then one folder per `git_repos` alias, cloned when missing. A
+ * context without `git_repos` gets a file of one folder. The window is opened
+ * by a file in both cases because the file is where its colour lives.
  */
 async function openNode(
     node: TreeNode,
@@ -237,38 +273,11 @@ async function openNode(
     }
 
     if (hasGitRepos) {
-        await openContextWithRepos(node, forceNewWindow, paths);
-        return;
-    }
-
-    // Context without git_repos: clone any reference repos first, then open Drive folder.
-    if (node.referenceRepos) {
-        const ok = await cloneRepoSet(node.referenceRepos, paths.reposPath, 'Cloning reference repos...');
+        const ok = await cloneRepoSet(node.gitRepos, paths.reposPath, `Cloning ${node.label}...`);
         if (!ok) {
             return;
         }
     }
-
-    const uri = vscode.Uri.file(node.id);
-    await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });
-}
-
-/**
- * Open a context that declares `git_repos`.
- * Clones all missing aliases, then generates and opens a multi-root workspace.
- */
-async function openContextWithRepos(
-    node: TreeNode,
-    forceNewWindow: boolean,
-    paths: Paths
-): Promise<void> {
-    const aliases = Object.keys(node.gitRepos);
-
-    const ok = await cloneRepoSet(node.gitRepos, paths.reposPath, `Cloning ${node.label}...`);
-    if (!ok) {
-        return;
-    }
-
     if (node.referenceRepos) {
         const refOk = await cloneRepoSet(node.referenceRepos, paths.reposPath, 'Cloning reference repos...');
         if (!refOk) {
@@ -276,12 +285,77 @@ async function openContextWithRepos(
         }
     }
 
+    // The context name becomes the name of its workspace file. A name that cannot be a
+    // file name is the one case left where the folder is opened directly, without a file.
+    if (!isSafeRepoName(node.label)) {
+        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(node.id), { forceNewWindow });
+        return;
+    }
+
+    await openContextWorkspace(node, hasGitRepos ? Object.keys(node.gitRepos) : [], forceNewWindow, paths);
+}
+
+/**
+ * Write the workspace file of a context and open it.
+ *
+ * Until 0.0.48 a context without `git_repos` was opened as a plain folder, and
+ * only a context with repos got a file. That split left the windows of such
+ * businesses without a colour, which is kept in the file — so the file is now
+ * written for every context, and `aliases` is simply empty when it has no repos.
+ *
+ * @param aliases - `git_repos` keys in declared order; already cloned
+ */
+async function openContextWorkspace(
+    node: TreeNode,
+    aliases: string[],
+    forceNewWindow: boolean,
+    paths: Paths
+): Promise<void> {
     const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
-    const workspacePath = await workspaceManager.writeContextWithReposWorkspace(
-        node.label,
-        aliases,
-        node.id
-    );
+    const workspacePath = workspaceManager.getContextWithReposWorkspacePath(node.label);
+
+    // The window of a business gets a colour by the same rules as the window of an intent.
+    // Without the intents runtime the file is written exactly as it always was: folders only.
+    const runtime = getIntentsRuntime();
+    let settings: Record<string, unknown> | undefined;
+    let write = true;
+    let reserveColor: string | null | undefined;
+    if (runtime) {
+        const key = businessKey(node.label);
+        await runtime.refresh();
+        // The file of a window that is open is not recoloured under it
+        const windowOpen = runtime.hasFileOpen(workspacePath);
+        let existing: string | null = null;
+        try {
+            existing = await fs.readFile(workspacePath, 'utf8');
+        } catch {
+            // no file yet: the first open
+        }
+        const plan = planBusinessColor(existing, runtime.occupiedColors(key), windowOpen);
+        write = plan.action === 'write';
+        settings = plan.action === 'write' ? plan.settings : undefined;
+        // An open window keeps its marker; only a window that is about to start needs its colour held
+        reserveColor = windowOpen ? undefined : plan.color;
+    }
+
+    if (write) {
+        await workspaceManager.writeContextWithReposWorkspace(node.label, aliases, node.id, settings);
+    }
+    if (runtime && reserveColor !== undefined) {
+        const manifest = await readBusinessManifest(node.id);
+        await runtime.reserve({
+            subject: 'business',
+            ticket: businessKey(node.label),
+            ticketFolder: '',
+            business: manifest.name ?? node.label,
+            businessPath: node.id,
+            icon: manifest.icon,
+            ticketIcon: '',
+            workspaceFile: workspacePath,
+            location: 'missing',
+            color: reserveColor
+        });
+    }
 
     const uri = vscode.Uri.file(workspacePath);
     await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow });

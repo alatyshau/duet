@@ -33,6 +33,18 @@ export interface FileSystem {
 
     /** Remove file (unlink) */
     unlink(path: string): Promise<void>;
+
+    /** Size, modification time and kind of a path; rejects when it does not exist */
+    stat(path: string): Promise<FileStat>;
+
+    /** Read at most `bytes` bytes from the start of a file as UTF-8 */
+    readHead(path: string, bytes: number): Promise<string>;
+}
+
+export interface FileStat {
+    mtimeMs: number;
+    size: number;
+    isDirectory: boolean;
 }
 
 /**
@@ -47,6 +59,20 @@ export const nodeFs: FileSystem = {
     readdir: (dirPath, options) => fs.readdir(dirPath, options),
     rename: fs.rename,
     unlink: fs.unlink,
+    stat: async (filePath) => {
+        const stat = await fs.stat(filePath);
+        return { mtimeMs: stat.mtimeMs, size: stat.size, isDirectory: stat.isDirectory() };
+    },
+    readHead: async (filePath, bytes) => {
+        const handle = await fs.open(filePath, 'r');
+        try {
+            const buffer = Buffer.alloc(bytes);
+            const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+            return buffer.subarray(0, bytesRead).toString('utf8');
+        } finally {
+            await handle.close();
+        }
+    },
     atomicWriteFile: async (filePath, data, encoding) => {
         // Write to temp file in same directory (ensures same filesystem for atomic rename)
         const dir = path.dirname(filePath);
@@ -85,6 +111,8 @@ export function createMockFs(overrides: Partial<FileSystem> = {}): FileSystem {
         readdir: overrides.readdir ?? notImplemented('readdir'),
         rename: overrides.rename ?? notImplemented('rename'),
         unlink: overrides.unlink ?? notImplemented('unlink'),
+        stat: overrides.stat ?? notImplemented('stat'),
+        readHead: overrides.readHead ?? notImplemented('readHead'),
         atomicWriteFile: overrides.atomicWriteFile ?? notImplemented('atomicWriteFile'),
     };
 }
