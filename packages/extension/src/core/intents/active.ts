@@ -1,10 +1,9 @@
 import { intentIcon, intentIdentity, rowText, RowText, BUSINESS_TAG } from './naming';
 import { WindowMarker } from './markers';
-import { sortByOrder } from './order';
 
 /**
  * Active windows as the «Активная Работа» view shows them: the business windows of this
- * program, then its intents — the tickets that have a window open. One row per
+ * program and its intents — the tickets that have a window open — in one list. One row per
  * key, whatever the number of windows.
  */
 export interface ActiveIntent {
@@ -121,26 +120,58 @@ export function activeRowText(row: ActiveIntent, number: number | null = null): 
 }
 
 /**
- * Rows in the order the view shows them. Business windows always come first, by
- * name; they take no part in the remembered order. Intents follow in the
- * remembered order, and an intent the order does not hold stands after the
- * listed ones, by number.
+ * Rows in the order the view shows them: one list of open windows, business
+ * windows and intents alike, in the remembered order. A row the order does not
+ * hold yet stands at the end, in the sequence it came in — `listNewRows` gives
+ * that sequence and the caller writes it down, so the place is kept from then on.
  */
 export function orderActive(rows: ActiveIntent[], order: string[]): ActiveIntent[] {
-    const businesses = rows
-        .filter(row => row.subject === 'business')
-        .sort((a, b) => a.name.localeCompare(b.name) || (a.ticket < b.ticket ? -1 : 1));
-    const intents = sortByOrder(rows.filter(row => row.subject === 'intent'), order, row => row.ticket);
-    return [...businesses, ...intents];
+    const position = new Map(order.map((key, at) => [key, at]));
+    const place = (row: ActiveIntent) => position.get(row.ticket) ?? Number.MAX_SAFE_INTEGER;
+    // The sort is stable: rows without a place keep the sequence they came in
+    return [...rows].sort((a, b) => place(a) - place(b));
 }
 
 /**
- * Where a dragged intent lands among the intents. Business rows are not part of
- * the sequence: they cannot be dragged, and a drop on one puts the intent first.
+ * The remembered order with the windows it does not hold yet put at its end,
+ * the one opened earlier first — a new tab always goes to the end, as in a
+ * browser. Null when the order already holds every shown row. When the list
+ * would pass `limit`, keys of windows that are not open leave it, oldest first.
+ *
+ * @param rows - rows shown now
+ * @param live - their markers; the earliest write of a key is when its window came
+ */
+export function listNewRows(
+    order: string[],
+    rows: ActiveIntent[],
+    live: Pick<WindowMarker, 'ticket' | 'writtenAt'>[],
+    limit: number
+): string[] | null {
+    const listed = new Set(order);
+    const cameAt = new Map<string, number>();
+    for (const marker of live) {
+        cameAt.set(marker.ticket, Math.min(cameAt.get(marker.ticket) ?? Infinity, marker.writtenAt));
+    }
+    const fresh = rows
+        .map(row => row.ticket)
+        .filter(key => !listed.has(key))
+        .sort((a, b) => (cameAt.get(a) ?? Infinity) - (cameAt.get(b) ?? Infinity) || (a < b ? -1 : a > b ? 1 : 0));
+    if (fresh.length === 0) {
+        return null;
+    }
+    const shown = new Set(rows.map(row => row.ticket));
+    const next = [...order, ...fresh];
+    let over = next.length - limit;
+    return over <= 0 ? next : next.filter(key => shown.has(key) || over-- <= 0);
+}
+
+/**
+ * Where a dragged row lands among the shown rows. Every row is dragged the
+ * same way, a business window or an intent.
  *
  * @param shown - rows as the view shows them
  * @param target - key of the row the drop landed on, null for a drop past the rows
- * @returns the new sequence of intent keys, or null when nothing changes or the drag is not allowed
+ * @returns the new sequence of keys, or null when nothing changes or the row is not shown
  */
 export function reorderActive(
     shown: ActiveIntent[],
@@ -148,15 +179,12 @@ export function reorderActive(
     target: string | null,
     placeNextTo: (sequence: string[], source: string, target: string | null) => string[]
 ): string[] | null {
-    const intents = shown.filter(row => row.subject === 'intent').map(row => row.ticket);
-    if (!intents.includes(source)) {
+    const sequence = shown.map(row => row.ticket);
+    if (!sequence.includes(source)) {
         return null;
     }
-    const onBusiness = target !== null && shown.some(row => row.ticket === target && row.subject === 'business');
-    const next = onBusiness
-        ? [source, ...intents.filter(key => key !== source)]
-        : placeNextTo(intents, source, target);
-    return next.join('\n') === intents.join('\n') ? null : next;
+    const next = placeNextTo(sequence, source, target);
+    return next.join('\n') === sequence.join('\n') ? null : next;
 }
 
 export interface LingerState {

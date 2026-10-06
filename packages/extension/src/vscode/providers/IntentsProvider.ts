@@ -60,8 +60,8 @@ implements vscode.TreeDataProvider<ActiveIntent>, vscode.TreeDragAndDropControll
     }
 
     handleDrag(source: readonly ActiveIntent[], dataTransfer: vscode.DataTransfer): void {
-        // Business rows always stand first and are not dragged
-        if (source.length > 0 && source[0].subject === 'intent') {
+        // Every row is dragged, a business window like an intent
+        if (source.length > 0) {
             dataTransfer.set(INTENTS_MIME, new vscode.DataTransferItem(source[0].ticket));
         }
     }

@@ -126,7 +126,7 @@ Both providers are synchronous wrappers around a snapshot:
 
 | View ID | Provider | Data source | Renders |
 |---------|----------|-------------|---------|
-| `duet.intents` (Активная Работа) | `IntentsProvider` | window markers of the program (`MarkerStore`) | Flat list: business windows, then active intents of every business in the order set by dragging; each row in the colour of its window |
+| `duet.intents` (Активная Работа) | `IntentsProvider` | window markers of the program (`MarkerStore`) | Flat list: business windows and active intents of every business, in one order set by dragging; each row in the colour of its window |
 | `duet.bin` (Корзина) | `BinProvider` | ticket folders of the window's business + markers | Tickets from `work/` and `backlog/` by container; a ticket with an open window is in the colour of that window |
 | `duet.work` (Рабочая папка) | `work/WorkView` | the folder of one ticket on disk, its order file, the two view files | The files and folders of the shown ticket, without a row for the ticket itself |
 | `duet.contexts` (Все Бизнесы) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. A context is highlighted when its own folder is among the window's folders |
@@ -308,7 +308,7 @@ A business window writes a marker too, so «Активная Работа» list
 | Dead marker: its process is gone, or it was written before the last system boot. Any reader removes it | A crashed window cannot clean up; after a reboot a pid may belong to another process |
 | On window focus, on a change of `workbench.colorCustomizations` and on a file event of the business folder the window checks its marker and writes it again when it is gone or no longer true | Restores a marker removed from outside; keeps the colour honest; a ticket moved to the backlog or the archive shows its new place in every window without waiting for its own window to be focused |
 | Reservation `<key>-<pid>.reserve.json`, written by the window where «open» was clicked (an intent in Корзина, a business with repos in «Все Бизнесы»), with the chosen colour; counts for 30 s or until the real marker of the ticket appears; its pid is not checked | Between the click and the start of the new window the intent would look closed and its colour free. «Open in the current window» ends the process that wrote it |
-| One watcher on `intents/<program>/` with `**/*.json`; the folder is created before the watcher; every event leads to one re-read of the whole folder, debounced 100 ms | Markers lie in the `windows/` subfolder, which a plain `*.json` does not see. The same watcher carries `active.json`, so an order changed in one window changes in the others at once |
+| One watcher on `intents/<program>/` with `**/*.json`; the folder is created before the watcher; every event leads to one re-read of the whole folder, debounced 100 ms | Markers lie in the `windows/` subfolder, which a plain `*.json` does not see. The same watcher carries `active.json`, so an order changed in one window changes in the others at once. `active.json` is written by a drag and by a re-read that finds a window the order does not hold: its key is put at the end (`intents/active.ts:listNewRows`); every window does the same and comes to the same list |
 | A row stays 1.5 s after its marker is gone (`intents/active.ts:applyLinger`) | A window reload removes the marker and writes a new one; without the delay the row would blink |
 
 (The word «pointer» is taken by `~/.org.ve68.duet`; this thing is a *window marker*.)

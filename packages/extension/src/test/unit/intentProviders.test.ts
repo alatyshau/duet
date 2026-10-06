@@ -230,31 +230,31 @@ describe('IntentsProvider', () => {
             const p = new IntentsProvider(asRuntime(runtime));
 
             await p.handleDrop(three[1], transfer('C'));
-            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['C', 'A', 'B']);
+            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['@TestLab', 'C', 'A', 'B']);
 
             await p.handleDrop(three[2], transfer('A'));
-            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['B', 'A', 'C']);
+            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['@TestLab', 'B', 'A', 'C']);
         });
 
         it('a drop past the rows puts the row at the end', async () => {
             const runtime = fakeRuntime(three);
             await new IntentsProvider(asRuntime(runtime)).handleDrop(undefined, transfer('A'));
-            expect(runtime.saveActiveOrder).toHaveBeenCalledWith(['B', 'C', 'A']);
+            expect(runtime.saveActiveOrder).toHaveBeenCalledWith(['@TestLab', 'B', 'C', 'A']);
         });
 
-        it('a business row is not dragged; a drop on it puts the intent first; its key is never saved', async () => {
+        it('a business row is dragged like any other, and an intent may stand before it', async () => {
             const runtime = fakeRuntime(three);
             const p = new IntentsProvider(asRuntime(runtime));
 
             const data = transfer();
             p.handleDrag([three[0]], data);
-            expect(data.get('application/vnd.code.tree.duet.intents')).toBeUndefined();
+            expect(data.get('application/vnd.code.tree.duet.intents')?.value).toBe('@TestLab');
 
             await p.handleDrop(three[2], transfer('@TestLab'));
-            expect(runtime.saveActiveOrder).not.toHaveBeenCalled();
+            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['A', 'B', '@TestLab', 'C']);
 
             await p.handleDrop(three[0], transfer('C'));
-            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['C', 'A', 'B']);
+            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['C', '@TestLab', 'A', 'B']);
         });
 
         it('writes nothing when the order does not change or the dragged thing is not a row of the view', async () => {
@@ -270,9 +270,9 @@ describe('IntentsProvider', () => {
             const runtime = fakeRuntime(three);
             const p = new IntentsProvider(asRuntime(runtime));
             await p.handleDrop(three[1], transfer([three[3]]));
-            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['C', 'A', 'B']);
+            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['@TestLab', 'C', 'A', 'B']);
             await p.handleDrop(three[1], transfer(three[2]));
-            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['B', 'A', 'C']);
+            expect(runtime.saveActiveOrder).toHaveBeenLastCalledWith(['@TestLab', 'B', 'A', 'C']);
         });
 
         it('handleDrag carries the ticket number', () => {

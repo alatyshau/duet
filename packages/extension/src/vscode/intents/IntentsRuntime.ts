@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Paths } from '../../core/paths';
 import { normalizePath } from '../../core/pathUtils';
-import { MarkerStore, RESERVATION_MS, TicketLocation, WindowMarker, occupiedColors } from '../../core/intents/markers';
-import { ActiveIntent, LingerState, activeFromMarkers, applyLinger, orderActive } from '../../core/intents/active';
+import { ACTIVE_ORDER_LIMIT, MarkerStore, RESERVATION_MS, TicketLocation, WindowMarker, occupiedColors } from '../../core/intents/markers';
+import { ActiveIntent, LingerState, activeFromMarkers, applyLinger, listNewRows, orderActive } from '../../core/intents/active';
 import { businessKey, businessWindowOf, intentWindowOf, programFolderName } from '../../core/intents/window';
 import { TicketPlace, TicketReader, readBusinessManifest, withTimeout } from '../../core/intents/tickets';
 import { mergeOrderBlock } from '../../core/intents/order';
@@ -157,7 +157,7 @@ export class IntentsRuntime implements vscode.Disposable {
         await this.refresh();
     }
 
-    /** Active windows of the program: businesses first, then intents in the remembered order. */
+    /** Active windows of the program, businesses and intents in one list, in the remembered order. */
     getActive(): ActiveIntent[] {
         return this.active;
     }
@@ -212,7 +212,7 @@ export class IntentsRuntime implements vscode.Disposable {
         }
     }
 
-    /** Remember the shown order of active intents after a drag. The same for every window of the program. */
+    /** Remember the shown order of active windows after a drag. The same for every window of the program. */
     async saveActiveOrder(shown: string[]): Promise<void> {
         await this.store.writeOrder(mergeOrderBlock(await this.store.readOrder(), shown));
         await this.refresh();
@@ -299,9 +299,21 @@ export class IntentsRuntime implements vscode.Disposable {
 
     private async readOnce(): Promise<void> {
         const live = await this.store.read();
-        const order = await this.store.readOrder();
+        let order = await this.store.readOrder();
         const now = Date.now();
         const { state, recheckIn } = applyLinger(this.linger, activeFromMarkers(live, this.store.pid), now);
+
+        // A window the order does not hold yet takes the last place, and the place is written down at once.
+        // Every window of the program does the same and comes to the same list
+        const withNew = listNewRows(order, state.rows, live, ACTIVE_ORDER_LIMIT);
+        if (withNew) {
+            order = withNew;
+            try {
+                await this.store.writeOrder(order);
+            } catch (error) {
+                console.error('[Duet] order of active windows not written:', error);
+            }
+        }
 
         this.live = live;
         this.linger = state;

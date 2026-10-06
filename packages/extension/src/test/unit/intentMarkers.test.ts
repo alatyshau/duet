@@ -19,6 +19,7 @@ import {
     rowByNumber,
     rowNumber,
     numberedRows,
+    listNewRows,
     orderActive,
     reorderActive
 } from '../../core/intents/active';
@@ -361,7 +362,7 @@ describe('numbers of rows', () => {
 
         const opened = orderActive([...shown, row('@LOS', 'business')], ['DUE017', 'DUE013']);
         expect(opened.map(r => `${rowNumber(opened, r.ticket)}:${r.ticket}`))
-            .toEqual(['1:@DuetLab', '2:@LOS', '3:DUE017', '4:DUE013']);
+            .toEqual(['1:DUE017', '2:DUE013', '3:@DuetLab', '4:@LOS']);
     });
 
     it('only the first nine carry a number', () => {
@@ -390,16 +391,44 @@ describe('orderActive', () => {
         [marker({ subject: 'business', ticket: `@${name}`, ticketFolder: '', business: name })], 0
     )[0];
 
-    it('follows the remembered order; an intent it does not hold stands after, by number', () => {
+    it('follows the remembered order; a row it does not hold stands at the end, in the sequence it came in', () => {
         const rows = [row('DUE013'), row('DUE004'), row('DUE017'), row('DUE008')];
         expect(orderActive(rows, ['DUE017', 'DUE008']).map(r => r.ticket))
-            .toEqual(['DUE017', 'DUE008', 'DUE004', 'DUE013']);
+            .toEqual(['DUE017', 'DUE008', 'DUE013', 'DUE004']);
     });
 
-    it('business windows always come first, by name, whatever the remembered order says', () => {
+    it('a business window is a row like any other: it stands where the order puts it, and at the end when it is new', () => {
         const rows = [row('DUE017'), business('МетаЛаб'), row('DUE008'), business('DuetLab')];
-        expect(orderActive(rows, ['DUE008', '@МетаЛаб', 'DUE017']).map(r => r.ticket))
-            .toEqual(['@DuetLab', '@МетаЛаб', 'DUE008', 'DUE017']);
+        expect(orderActive(rows, ['DUE008', '@МетаЛаб', 'DUE017', '@DuetLab']).map(r => r.ticket))
+            .toEqual(['DUE008', '@МетаЛаб', 'DUE017', '@DuetLab']);
+        expect(orderActive(rows, ['DUE008', 'DUE017']).map(r => r.ticket))
+            .toEqual(['DUE008', 'DUE017', '@МетаЛаб', '@DuetLab']);
+    });
+});
+
+describe('listNewRows', () => {
+    const row = (ticket: string) => activeFromMarkers([marker({ ticket, ticketFolder: `${ticket}_X` })], 0)[0];
+    const at = (ticket: string, writtenAt: number) => ({ ticket, writtenAt });
+
+    it('a new window goes to the end of the order, a business like an intent; the one opened earlier first', () => {
+        const rows = [row('@DuetLab'), row('DUE004'), row('DUE017')];
+        const live = [at('@DuetLab', 30), at('DUE004', 20), at('DUE017', 10)];
+        expect(listNewRows(['DUE017', 'DUE099'], rows, live, 200)).toEqual(['DUE017', 'DUE099', 'DUE004', '@DuetLab']);
+    });
+
+    it('a key written again later keeps the time its window came', () => {
+        const rows = [row('A'), row('B')];
+        expect(listNewRows([], rows, [at('A', 10), at('B', 20), at('A', 99)], 200)).toEqual(['A', 'B']);
+    });
+
+    it('is null when the order holds every shown row: nothing is written', () => {
+        expect(listNewRows(['A', 'B'], [row('B'), row('A')], [at('A', 1), at('B', 2)], 200)).toBeNull();
+        expect(listNewRows([], [], [], 200)).toBeNull();
+    });
+
+    it('past the limit, keys of windows that are not open leave the list, oldest first', () => {
+        const rows = [row('B'), row('N')];
+        expect(listNewRows(['A', 'B', 'C'], rows, [at('B', 1), at('N', 2)], 3)).toEqual(['B', 'C', 'N']);
     });
 });
 
@@ -408,59 +437,21 @@ describe('reorderActive', () => {
     const biz = activeFromMarkers([marker({ subject: 'business', ticket: '@DuetLab', ticketFolder: '' })], 0)[0];
     const shown = [biz, row('A'), row('B'), row('C')];
 
-    it('moves an intent among the intents: up — before the target, down — after it, past the rows — to the end', () => {
-        expect(reorderActive(shown, 'C', 'A', placeNextTo)).toEqual(['C', 'A', 'B']);
-        expect(reorderActive(shown, 'A', 'B', placeNextTo)).toEqual(['B', 'A', 'C']);
-        expect(reorderActive(shown, 'A', null, placeNextTo)).toEqual(['B', 'C', 'A']);
+    it('moves a row among the rows: up — before the target, down — after it, past the rows — to the end', () => {
+        expect(reorderActive(shown, 'C', 'A', placeNextTo)).toEqual(['@DuetLab', 'C', 'A', 'B']);
+        expect(reorderActive(shown, 'A', 'B', placeNextTo)).toEqual(['@DuetLab', 'B', 'A', 'C']);
+        expect(reorderActive(shown, 'A', null, placeNextTo)).toEqual(['@DuetLab', 'B', 'C', 'A']);
     });
 
-    it('a drop on a business row puts the intent first among the intents', () => {
-        expect(reorderActive(shown, 'C', '@DuetLab', placeNextTo)).toEqual(['C', 'A', 'B']);
-    });
-
-    it('a business row is not dragged, and its key never enters the order', () => {
-        expect(reorderActive(shown, '@DuetLab', 'B', placeNextTo)).toBeNull();
-        expect(reorderActive(shown, 'C', '@DuetLab', placeNextTo)).not.toContain('@DuetLab');
+    it('a business row is dragged like any other, and an intent may stand before it', () => {
+        expect(reorderActive(shown, '@DuetLab', 'B', placeNextTo)).toEqual(['A', 'B', '@DuetLab', 'C']);
+        expect(reorderActive(shown, '@DuetLab', null, placeNextTo)).toEqual(['A', 'B', 'C', '@DuetLab']);
+        expect(reorderActive(shown, 'C', '@DuetLab', placeNextTo)).toEqual(['C', '@DuetLab', 'A', 'B']);
     });
 
     it('a drop that changes nothing gives null', () => {
         expect(reorderActive(shown, 'A', 'A', placeNextTo)).toBeNull();
-        expect(reorderActive(shown, 'A', '@DuetLab', placeNextTo)).toBeNull();
+        expect(reorderActive(shown, '@DuetLab', '@DuetLab', placeNextTo)).toBeNull();
         expect(reorderActive(shown, 'ZZZ', 'A', placeNextTo)).toBeNull();
-    });
-});
-
-describe('applyLinger', () => {
-    const row = (ticket: string) => activeFromMarkers([marker({ ticket })], 0)[0];
-    const empty: LingerState = { rows: [], goneAt: new Map() };
-
-    it('shows current rows at once', () => {
-        const { state, recheckIn } = applyLinger(empty, [row('DUE017')], NOW);
-        expect(state.rows.map(r => r.ticket)).toEqual(['DUE017']);
-        expect(recheckIn).toBeNull();
-    });
-
-    it('keeps a row whose marker has just gone, and asks to be called again', () => {
-        const shown = applyLinger(empty, [row('DUE017'), row('DUE008')], NOW).state;
-        const { state, recheckIn } = applyLinger(shown, [row('DUE008')], NOW + 10);
-        expect(state.rows.map(r => r.ticket).sort()).toEqual(['DUE008', 'DUE017']);
-        expect(recheckIn).toBe(LINGER_MS);
-    });
-
-    it('drops the row once the delay is over', () => {
-        const shown = applyLinger(empty, [row('DUE017')], NOW).state;
-        const gone = applyLinger(shown, [], NOW + 10).state;
-        const later = applyLinger(gone, [], NOW + 10 + LINGER_MS);
-        expect(later.state.rows).toEqual([]);
-        expect(later.recheckIn).toBeNull();
-    });
-
-    it('a window reload does not blink: the row comes back within the delay', () => {
-        const shown = applyLinger(empty, [row('DUE017')], NOW).state;
-        const gone = applyLinger(shown, [], NOW + 10).state;
-        const back = applyLinger(gone, [row('DUE017')], NOW + 500);
-        expect(back.state.rows.map(r => r.ticket)).toEqual(['DUE017']);
-        expect(back.state.goneAt.size).toBe(0);
-        expect(back.recheckIn).toBeNull();
     });
 });
