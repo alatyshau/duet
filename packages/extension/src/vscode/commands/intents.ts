@@ -4,16 +4,19 @@ import { nodeFs } from '../../core/fs';
 import { Paths } from '../../core/paths';
 import { ActiveIntent } from '../../core/intents/active';
 import { TicketNode, binTickets, decideBinDrop } from '../../core/intents/binTree';
+import { TicketBoard } from '../../core/intents/board';
 import { pruneArchived, writeBinOrder } from '../../core/intents/binOrder';
 import { intentIcon, intentIdentity, intentTabLabel } from '../../core/intents/naming';
 import { MAX_TICKET_NAME_LENGTH, NewTicket, createTicket, pascalCaseName } from '../../core/intents/newTicket';
 import { mergeOrderBlock } from '../../core/intents/order';
 import { TicketInfo, moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
 import { IntentWorkspacePlan, planIntentWorkspace } from '../../core/intents/workspaceFile';
+import { metaExtraFolders } from '../../core/workspace';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { BinProvider } from '../providers/BinProvider';
 import { IntentsProvider } from '../providers/IntentsProvider';
 import { isSafeRepoName, prepareBusinessRepos } from './openFolder';
+import { getVentureFolders } from '../ventures';
 
 /**
  * Switch to the window of a row of the «Активная Работа» view — an intent or a business.
@@ -60,7 +63,9 @@ export async function switchToIntent(
  * The commands of the bin rows — open an intent, send a ticket to the backlog,
  * carry out a drop — and the creation of a new ticket. They run one at a
  * time. A command of a row finds its ticket on disk by number before it acts —
- * the view is a snapshot, and no action runs on a stale path.
+ * a row is what the board read last, and no action runs on a stale path. After
+ * it changed the business folder a command has the board read it at once, so
+ * its own window shows the result without waiting for the file events.
  */
 export class BinActions {
     private chain: Promise<void> = Promise.resolve();
@@ -68,7 +73,8 @@ export class BinActions {
     constructor(
         private readonly paths: Paths,
         private readonly runtime: IntentsRuntime,
-        private readonly bin: BinProvider
+        private readonly bin: BinProvider,
+        private readonly board: TicketBoard
     ) {}
 
     open(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
@@ -144,7 +150,7 @@ export class BinActions {
             ticket = await createTicket(nodeFs, this.runtime.tickets, businessPath, code, slug, new Date());
         } finally {
             // Also after a failure: a folder may have been made before it
-            await this.bin.reload();
+            await this.board.reload();
         }
         // Nothing holds a number while it is being taken: an agent or another window may have taken it too
         // Names are compared in one Unicode form: a volume may list «й» as two characters
@@ -194,7 +200,7 @@ export class BinActions {
             say(now.state === 'gone'
                 ? `Тикета ${ticketNumber} нет ни в work/, ни в backlog/ — корзина обновлена.`
                 : `У номера ${ticketNumber} несколько папок — корзина обновлена, выберите строку заново.`);
-            await this.bin.reload();
+            await this.board.reload();
             return false;
         }
         let place = now.place;
@@ -206,7 +212,7 @@ export class BinActions {
                 moved = true;
             } catch (error) {
                 say(`Не удалось перенести ${ticketNumber} в work/: ${messageOf(error)}`);
-                await this.bin.reload();
+                await this.board.reload();
                 return false;
             }
         }
@@ -219,7 +225,7 @@ export class BinActions {
                 say(`Имя бизнеса «${business.name}» не годится для имени папки — интент не открыт.`);
             }
             if (moved) {
-                await this.bin.reload();
+                await this.board.reload();
             }
             return false;
         }
@@ -235,6 +241,7 @@ export class BinActions {
         const plan = await this.planWorkspaceFile(workspacePath, {
             businessPath,
             aliases: Object.keys(gitRepos),
+            extraFolders: metaExtraFolders(business.meta, businessPath, getVentureFolders(), this.paths.root),
             ticketFolder: place.folder,
             tabLabel: intentTabLabel(intentIcon(ticketIcon, manifest.icon), identity)
         }, ticketNumber);
@@ -261,7 +268,7 @@ export class BinActions {
             color: plan.color
         });
         if (moved) {
-            await this.bin.reload();
+            await this.board.reload();
         }
         await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow });
         return true;
@@ -309,7 +316,7 @@ export class BinActions {
                 say(`Не удалось перенести ${ticketNumber} в backlog/: ${messageOf(error)}`);
             }
         }
-        await this.bin.reload();
+        await this.board.reload();
     }
 
     /**
@@ -322,9 +329,15 @@ export class BinActions {
         if (!businessPath) {
             return;
         }
-        await Promise.all([this.bin.reload(), this.runtime.refresh()]);
+        await Promise.all([this.board.reload(), this.runtime.refresh()]);
+        if (!this.board.isOrderKnown()) {
+            // What the window remembers is an older order; written, it would replace the newer one in the file.
+            // Refused before anything is moved: a drag is a place and an order together
+            say('Файл порядка корзины не читается — перетаскивание не выполнено.');
+            return;
+        }
 
-        const drop = decideBinDrop(this.bin.getTree(), sourceKey, targetKey, n => this.runtime.isOpen(n));
+        const drop = decideBinDrop(this.board.getTree(), sourceKey, targetKey, n => this.runtime.isOpen(n));
         if (!drop.ok) {
             if (drop.reason) {
                 say(drop.reason);
@@ -336,14 +349,14 @@ export class BinActions {
                 await moveTicketFolder(nodeFs, businessPath, drop.ticket.path, drop.shelf);
             } catch (error) {
                 say(`Не удалось перенести ${drop.ticket.number} в ${drop.shelf}/: ${messageOf(error)}`);
-                await this.bin.reload();
+                await this.board.reload();
                 return;
             }
         }
         try {
-            const present = new Set(binTickets(this.bin.getTree()).map(n => n.ticket.number));
+            const present = new Set(binTickets(this.board.getTree()).map(n => n.ticket.number));
             const order = await pruneArchived(
-                mergeOrderBlock(this.bin.getOrder(), drop.shelfOrder),
+                mergeOrderBlock(this.board.getOrder(), drop.shelfOrder),
                 present,
                 async n => (await this.runtime.tickets.findInArchive(businessPath, n)) !== null
             );
@@ -351,7 +364,7 @@ export class BinActions {
         } catch (error) {
             say(`Порядок корзины не записан: ${messageOf(error)}`);
         }
-        await this.bin.reload();
+        await this.board.reload();
     }
 }
 

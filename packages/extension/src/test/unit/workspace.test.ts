@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import * as path from 'path';
 import {
     generateContextWithReposWorkspace,
-    generateRootContextsWorkspace,
+    metaExtraFolders,
     WorkspaceManager
 } from '../../core/workspace';
 import { createMockFs } from '../../core/fs';
@@ -73,40 +73,38 @@ describe('workspace', () => {
         });
     });
 
-    describe('generateRootContextsWorkspace', () => {
-        it('should create workspace with all root context folders', () => {
-            const folders = [
-                '/Users/test/Drive/МетаЛаб',
-                '/Users/test/Drive/Семья',
-                '/Users/test/Drive/База'
-            ];
+    describe('metaExtraFolders', () => {
+        const ventures = ['/drive/База', '/drive/МетаЛаб', '/drive/Семья'];
 
-            const result = generateRootContextsWorkspace(folders);
-
-            expect(result.folders).toHaveLength(3);
-            expect(result.folders[0].path).toBe('/Users/test/Drive/МетаЛаб');
-            expect(result.folders[1].path).toBe('/Users/test/Drive/Семья');
-            expect(result.folders[2].path).toBe('/Users/test/Drive/База');
+        it('should give no folders to a business that is not meta', () => {
+            expect(metaExtraFolders(false, '/drive/МетаЛаб', ventures, '/data/DuetData')).toEqual([]);
         });
 
-        it('should include DuetData folder when duetDataPath provided', () => {
-            const folders = ['/Users/test/Drive/МетаЛаб'];
-            const result = generateRootContextsWorkspace(folders, '/Users/test/DuetData');
-
-            expect(result.folders).toHaveLength(2);
-            expect(result.folders[0].path).toBe('/Users/test/Drive/МетаЛаб');
-            expect(result.folders[1]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
+        it('should give a meta business the other ventures in tree order, then DuetData', () => {
+            expect(metaExtraFolders(true, '/drive/База', ventures, '/data/DuetData')).toEqual([
+                { path: '/drive/МетаЛаб' },
+                { path: '/drive/Семья' },
+                { path: '/data/DuetData', name: 'DuetData' }
+            ]);
         });
 
-        it('should handle empty array', () => {
-            const result = generateRootContextsWorkspace([]);
-            expect(result.folders).toHaveLength(0);
+        it('should still add DuetData when the ventures are not known yet', () => {
+            expect(metaExtraFolders(true, '/drive/База', [], '/data/DuetData')).toEqual([
+                { path: '/data/DuetData', name: 'DuetData' }
+            ]);
         });
 
-        it('should handle empty array with duetDataPath', () => {
-            const result = generateRootContextsWorkspace([], '/Users/test/DuetData');
-            expect(result.folders).toHaveLength(1);
-            expect(result.folders[0]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
+        it('should come after the business folder and its repos in the workspace file', () => {
+            const extra = metaExtraFolders(true, '/drive/База', ventures, '/data/DuetData');
+            const result = generateContextWithReposWorkspace(['Duet'], '/drive/База', undefined, extra);
+
+            expect(result.folders.map(f => f.path)).toEqual([
+                '/drive/База',
+                path.join('..', 'repos', 'Duet.git'),
+                '/drive/МетаЛаб',
+                '/drive/Семья',
+                '/data/DuetData'
+            ]);
         });
     });
 
@@ -234,6 +232,15 @@ describe('workspace', () => {
                 const localTomlPath = path.join('/drive/Plain', '.kimi-code', 'local.toml');
                 expect(writtenFiles.has(localTomlPath)).toBe(false);
             });
+
+            it('should write the additional folders of a meta business into the file and into local.toml', async () => {
+                const extra = [{ path: '/drive/МетаЛаб' }, { path: '/Users/test/DuetData', name: 'DuetData' }];
+                const workspacePath = await manager.writeContextWithReposWorkspace('База', [], '/drive/База', undefined, extra);
+
+                expect(JSON.parse(writtenFiles.get(workspacePath)!).folders).toEqual([{ path: '/drive/База' }, ...extra]);
+                const content = writtenFiles.get(path.join('/drive/База', '.kimi-code', 'local.toml'));
+                expect(content).toContain('additional_dir = ["/drive/МетаЛаб", "/Users/test/DuetData"]');
+            });
         });
 
         describe('contextWithReposWorkspaceExists', () => {
@@ -257,38 +264,6 @@ describe('workspace', () => {
 
                 const exists = await managerNoFile.contextWithReposWorkspaceExists('NonExistent');
                 expect(exists).toBe(false);
-            });
-        });
-
-        describe('writeRootContextsWorkspace', () => {
-            it('should write workspace file with root context folders', async () => {
-                const outputPath = '/Users/test/DuetData/root-contexts.code-workspace';
-                const folders = ['/drive/МетаЛаб', '/drive/Семья'];
-
-                await manager.writeRootContextsWorkspace(folders, outputPath);
-
-                const content = writtenFiles.get(outputPath);
-                expect(content).toBeDefined();
-
-                const parsed = JSON.parse(content!);
-                expect(parsed.folders).toHaveLength(2);
-                expect(parsed.folders[0].path).toBe('/drive/МетаЛаб');
-                expect(parsed.folders[1].path).toBe('/drive/Семья');
-            });
-
-            it('should include DuetData folder when duetDataPath provided', async () => {
-                const outputPath = '/Users/test/DuetData/root-contexts.code-workspace';
-                const folders = ['/drive/МетаЛаб'];
-
-                await manager.writeRootContextsWorkspace(folders, outputPath, '/Users/test/DuetData');
-
-                const content = writtenFiles.get(outputPath);
-                expect(content).toBeDefined();
-
-                const parsed = JSON.parse(content!);
-                expect(parsed.folders).toHaveLength(2);
-                expect(parsed.folders[0].path).toBe('/drive/МетаЛаб');
-                expect(parsed.folders[1]).toEqual({ path: '/Users/test/DuetData', name: 'DuetData' });
             });
         });
     });

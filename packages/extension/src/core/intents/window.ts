@@ -38,8 +38,7 @@ export function intentWindowOf(workspaceFile: string | undefined, workspacesDir:
 /**
  * A business window opened by a workspace file is one whose file lies right in
  * `DuetData/workspaces/` — where Duet writes the files of businesses with repos:
- * `workspaces/DuetLab.code-workspace`. (`root-contexts.code-workspace` lies in
- * the DuetData root and is not one.) Returns the name the file spells.
+ * `workspaces/DuetLab.code-workspace`. Returns the name the file spells.
  */
 export function businessWindowOf(workspaceFile: string | undefined, workspacesDir: string): string | null {
     if (!workspaceFile || !workspaceFile.endsWith(WORKSPACE_EXT)) {

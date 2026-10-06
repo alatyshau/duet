@@ -1,37 +1,18 @@
 import * as vscode from 'vscode';
 import { DuetApiClient, ContextEntity } from '../../core/api-client';
-import { WorkspaceManager } from '../../core/workspace';
-import { Paths } from '../../core/paths';
 
 /**
  * Trigger backend scan and load fresh contexts.
  *
- * Flow: apiClient.scan() → apiClient.contexts() → workspace generation.
+ * Flow: apiClient.scan() → apiClient.contexts().
  * Returns fresh contexts for updating providers.
  */
-export async function refreshFromBackend(
-    apiClient: DuetApiClient,
-    paths: Paths
-): Promise<ContextEntity[]> {
+export async function refreshFromBackend(apiClient: DuetApiClient): Promise<ContextEntity[]> {
     // 1. Trigger backend scan
     await apiClient.scan();
 
     // 2. Load fresh contexts
     const { contexts } = await apiClient.contexts();
-
-    // 3. Generate root-contexts.code-workspace from root context paths
-    const rootContextFolders = contexts
-        .filter(c => c.parent_id === null && c.absolute_path)
-        .map(c => c.absolute_path!);
-
-    if (rootContextFolders.length > 0) {
-        const workspaceManager = new WorkspaceManager(paths.workspacesPath, paths.reposPath);
-        await workspaceManager.writeRootContextsWorkspace(
-            rootContextFolders,
-            paths.rootContextsWorkspacePath,
-            paths.root
-        );
-    }
 
     return contexts;
 }

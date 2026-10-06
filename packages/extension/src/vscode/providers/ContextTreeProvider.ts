@@ -3,11 +3,6 @@ import { ContextTree, TreeNode } from '../../core/tree/contextTree';
 import { ContextEntity } from '../../core/api-client';
 import { normalizePath } from '../../core/pathUtils';
 
-class VisualRoot {
-    readonly id = 'visual-root';
-    readonly label = '[МОИ ДЕЛА]';
-}
-
 class PlaceholderItem {
     readonly id = 'placeholder';
     readonly label = 'Добавьте root-контекст в Duet Host';
@@ -29,7 +24,7 @@ class SeparatorItem {
     }
 }
 
-type TreeElement = TreeNode | VisualRoot | PlaceholderItem | SeparatorItem;
+type TreeElement = TreeNode | PlaceholderItem | SeparatorItem;
 
 function describeContext(node: TreeNode): string | undefined {
     return node.hasGit ? '[git]' : undefined;
@@ -40,10 +35,8 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
     readonly onDidChangeTreeData: vscode.Event<TreeElement | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private tree: ContextTree;
-    /** Normalized paths of all open workspace folders */
+    /** Normalized paths of the open workspace folders that mark businesses (see `updateCurrentContext`) */
     private currentOpenPaths: Set<string> = new Set();
-    /** True if all root contexts are open (root-contexts.code-workspace) */
-    private allRootsOpen: boolean = false;
     /** Currently expanded root entityId (for status icon) */
     private expandedRootId: number | null = null;
     private disposables: vscode.Disposable[] = [];
@@ -102,12 +95,12 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
      * Update the set of currently open folders for highlighting.
      * A business is current only when its own folder is among them: a repo
      * folder marks nobody, because one repo may be declared by several
-     * businesses. Also detects if all root contexts are open
-     * (root-contexts.code-workspace).
+     * businesses. The window of a meta business also holds the folders of the
+     * other ventures: there the meta business alone is current — the rule of
+     * `core/tree/contextPanel.ts:findCurrentBusiness`, the meta business wins.
      */
     private updateCurrentContext(): void {
         this.currentOpenPaths.clear();
-        this.allRootsOpen = false;
 
         const folders = vscode.workspace.workspaceFolders;
         if (!folders) {
@@ -118,11 +111,10 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             this.currentOpenPaths.add(normalizePath(folder.uri.fsPath));
         }
 
-        // Check if all root contexts are open (marker goes to [МОИ ДЕЛА] instead)
-        const roots = this.tree.getRoots();
-        if (roots.length > 0) {
-            const allOpen = roots.every(r => this.currentOpenPaths.has(normalizePath(r.id)));
-            this.allRootsOpen = allOpen && roots.length === this.currentOpenPaths.size;
+        const openMeta = this.tree.getAllNodes()
+            .find(node => node.meta && this.currentOpenPaths.has(normalizePath(node.id)));
+        if (openMeta) {
+            this.currentOpenPaths = new Set([normalizePath(openMeta.id)]);
         }
     }
 
@@ -147,15 +139,6 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
     }
 
     getTreeItem(element: TreeElement): vscode.TreeItem {
-        if (element instanceof VisualRoot) {
-            // Add marker if all root contexts are open
-            const label = this.allRootsOpen ? `${element.label} ●` : element.label;
-            const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-            item.contextValue = 'header';
-            item.tooltip = 'Открыть все дела в multi-root workspace';
-            return item;
-        }
-
         if (element instanceof PlaceholderItem) {
             const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
             item.contextValue = 'placeholder';
@@ -179,11 +162,8 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             : vscode.TreeItemCollapsibleState.None;
 
         // Check if this node is currently open: its business folder is among the
-        // window's folders. Skip marker for roots if all roots are open
-        // (marker is on [МОИ ДЕЛА]).
-        const isCurrent =
-            !this.allRootsOpen &&
-            this.currentOpenPaths.has(normalizePath(node.id));
+        // window's folders.
+        const isCurrent = this.currentOpenPaths.has(normalizePath(node.id));
 
         // For roots, check if any open path is inside this root.
         const isRootActive = node.isRoot && this.isPathAncestorOfAnyOpen(node.id);
@@ -232,13 +212,12 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
 
     getChildren(element?: TreeElement): vscode.ProviderResult<TreeElement[]> {
         if (!element) {
-            // Root level: VisualRoot + Roots with separators between them
+            // Root level: roots with separators between them
             const roots = this.tree.getRoots();
-            const visualRoot = new VisualRoot();
             if (roots.length === 0) {
-                return [visualRoot, new PlaceholderItem()];
+                return [new PlaceholderItem()];
             }
-            const result: TreeElement[] = [visualRoot];
+            const result: TreeElement[] = [];
             result.push(new SeparatorItem(0, 'line')); // Before first
             roots.forEach((root, idx) => {
                 result.push(root);
@@ -247,7 +226,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
             return result;
         }
 
-        if (element instanceof VisualRoot || element instanceof PlaceholderItem || element instanceof SeparatorItem) {
+        if (element instanceof PlaceholderItem || element instanceof SeparatorItem) {
             return [];
         }
 
@@ -269,7 +248,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
     }
 
     getParent(element: TreeElement): vscode.ProviderResult<TreeElement> {
-        if (element instanceof VisualRoot || element instanceof PlaceholderItem || element instanceof SeparatorItem) {
+        if (element instanceof PlaceholderItem || element instanceof SeparatorItem) {
             return null;
         }
         const node = element as TreeNode;
@@ -307,9 +286,6 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
      * Returns the first active root entityId, or null if none.
      */
     getActiveRootId(): number | null {
-        if (this.allRootsOpen) {
-            return null; // All roots open - no single active
-        }
         const roots = this.tree.getRoots();
         for (const root of roots) {
             if (this.isPathAncestorOfAnyOpen(root.id)) {

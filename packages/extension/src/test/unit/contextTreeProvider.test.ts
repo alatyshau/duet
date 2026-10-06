@@ -135,18 +135,18 @@ describe('ContextTreeProvider', () => {
             expect(provider.getActiveRootId()).toBe(1);
         });
 
-        it('should return null when all roots are open (multi-root workspace)', () => {
+        it('should return the meta business alone in its window, which also holds the other ventures', () => {
             const biz1Path = path.join(TEMP_DIR, 'biz1');
-            const biz2Path = path.join(TEMP_DIR, 'biz2');
+            const basePath = path.join(TEMP_DIR, 'base');
             const contexts = [
                 makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: biz1Path }),
-                makeContext({ id: '2', name: 'Biz2', icon: 'B', absolute_path: biz2Path }),
+                makeContext({ id: '2', name: 'Base', icon: 'B', absolute_path: basePath, meta: true }),
             ];
 
-            setWorkspaceFolders([biz1Path, biz2Path]);
+            setWorkspaceFolders([basePath, biz1Path, path.join(TEMP_DIR, 'DuetData')]);
             provider = new ContextTreeProvider(contexts);
 
-            expect(provider.getActiveRootId()).toBeNull();
+            expect(provider.getActiveRootId()).toBe(2);
         });
 
         it('should not find a root by an open repo folder', () => {
@@ -299,6 +299,47 @@ describe('ContextTreeProvider', () => {
             provider.setExpandedRoot(bizNode.entityId);
             item = provider.getTreeItem(bizNode);
             expect(item.label).toContain('🟦'); // Expanded + inactive
+        });
+    });
+
+    describe('window of a meta business', () => {
+        it('should mark only the meta business, not the other ventures shown in its window', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
+                makeContext({ id: '2', name: 'Base', icon: 'B', absolute_path: '/drive/base', meta: true }),
+                makeContext({ id: '3', name: 'Child', icon: 'C', absolute_path: '/drive/biz1/child', parent_id: '1' }),
+            ];
+            setWorkspaceFolders(['/drive/base', '/drive/biz1', '/data/DuetData']);
+            provider = new ContextTreeProvider(contexts);
+
+            const [biz1, base] = provider.getRoots();
+            expect(provider.getTreeItem(base).label).toContain('🔸');
+            expect(provider.getTreeItem(biz1).label).toContain('🔹');
+        });
+
+        it('should mark every open business when none of them is meta', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
+                makeContext({ id: '2', name: 'Biz2', icon: 'B', absolute_path: '/drive/biz2' }),
+            ];
+            setWorkspaceFolders(['/drive/biz1', '/drive/biz2']);
+            provider = new ContextTreeProvider(contexts);
+
+            const [biz1, biz2] = provider.getRoots();
+            expect(provider.getTreeItem(biz1).label).toContain('🔸');
+            expect(provider.getTreeItem(biz2).label).toContain('🔸');
+        });
+    });
+
+    describe('root level', () => {
+        it('should start with a separator and a venture: there is no header row', () => {
+            const contexts = [
+                makeContext({ id: '1', name: 'Biz1', icon: 'B', absolute_path: '/drive/biz1' }),
+            ];
+            provider = new ContextTreeProvider(contexts);
+
+            const rootChildren = provider.getChildren() as Array<{ id: string }>;
+            expect(rootChildren.map(c => c.id)).toEqual(['separator-line-0', '/drive/biz1', 'separator-line-1']);
         });
     });
 

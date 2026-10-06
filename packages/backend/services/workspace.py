@@ -34,6 +34,7 @@ ENTRY_POINT_FILES = ("INDEX.md", "README.md")
 
 OUTSIDE_DUET = "Not a business folder: this path is outside Duet."
 INSIDE_REPO = "Not a business folder: this path is inside a git-repo."
+OTHER_VENTURES_HEADING = "**Other Ventures** (this venture is meta: it manages others):"
 NOT_REGISTERED = (
     "Not a business folder: this path is inside a venture folder, but no business "
     "is registered for it. Run `scan` and call `orientation` again."
@@ -134,7 +135,8 @@ class WorkspaceService:
         Only the active business and its venture (the root of the parent
         chain) are named; intermediate parents are left to the entry points.
         Repos are listed as the manifest declares them, at the expected
-        clone path, whether or not the clone exists yet.
+        clone path, whether or not the clone exists yet. A meta venture
+        also gets the other ventures (`_other_venture_lines`).
         """
         chain = self.db.get_entity_chain(entity.id)
         venture = chain[0] if len(chain) > 1 else None
@@ -168,7 +170,31 @@ class WorkspaceService:
             kind = "business" if venture else "venture"
             steps.append(f"* Read {kind} entry point: `{entry}`")
 
-        return _join_sections([("Paths", paths), ("Next immediate steps", steps)])
+        blocks = [_join_sections([("Paths", paths)])]
+        if entity.meta and venture is None:
+            others = self._other_venture_lines(entity)
+            if others:
+                blocks.append(OTHER_VENTURES_HEADING + "\n" + "\n".join(others))
+        blocks.append(_join_sections([("Next immediate steps", steps)]))
+        return "\n\n".join(block for block in blocks if block)
+
+    def _other_venture_lines(self, meta_venture: Entity) -> list[str]:
+        """One line per venture other than the meta one, in `root_context_folders` order.
+
+        The meta venture manages the others, so its session gets their
+        folders. Entry points are named by file name only and are not
+        steps: the agent reads one when the work reaches that venture.
+        """
+        lines = []
+        for root in get_root_context_folders():
+            folder = Path(root)
+            entity = self.resolve_business(str(folder))
+            if entity is None or entity.parent_id is not None or entity.id == meta_venture.id:
+                continue
+            entry = _entry_point(folder)
+            tail = f"entry point `{entry.name}`" if entry else "no entry point"
+            lines.append(f"* `@{entity.name}`: `{folder}` — {tail}")
+        return lines
 
     def _render_repo(self, folder: Path, repos_path: Path) -> str:
         """Answer for a folder inside `DuetData/repos`: the repo and who declares it.

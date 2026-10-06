@@ -2,11 +2,10 @@ import * as vscode from 'vscode';
 import { ContextEntity } from '../../core/api-client';
 import { normalizePath } from '../../core/pathUtils';
 import { findCurrentBusiness } from '../../core/tree/contextPanel';
-import { BinNode, buildBinTree, parentOfBinNode } from '../../core/intents/binTree';
-import { readBinOrder } from '../../core/intents/binOrder';
+import { BinNode, parentOfBinNode } from '../../core/intents/binTree';
+import { TicketBoard } from '../../core/intents/board';
 import { rowText } from '../../core/intents/naming';
 import { draggedIdentity } from '../../core/intents/order';
-import { TicketInfo } from '../../core/intents/tickets';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { rowColorResource, rowIcon, rowLabel } from './rowLook';
 
@@ -26,10 +25,10 @@ const UNSEEN_READ_MS = 300;
  * the backlog and the order: a click on a row only selects it, and switching
  * to a window is the job of the «Активная Работа» view alone.
  *
- * The view serves rows from a snapshot in memory. The disk is read when the
- * view is opened, after a finished move and by the refresh button — never on a
- * plain tree refresh, or every window opening would re-read folders on a cloud
- * drive. A change of the window's business drops the snapshot.
+ * The view holds no tickets of its own: it shows the board of the business
+ * (`core/intents/board.ts`), which alone decides when the disk is read, and
+ * draws its rows again when the board says they changed. It tells the board
+ * whose tickets to hold and whether its rows are shown.
  */
 export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.TreeDragAndDropController<BinNode> {
     readonly dropMimeTypes = [BIN_MIME];
@@ -38,14 +37,7 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
     onDrop: BinDropHandler | null = null;
 
     private business: ContextEntity | null;
-    /** Null until the business folders have been read. */
-    private tickets: TicketInfo[] | null = null;
-    private order: string[] = [];
-    private tree: BinNode[] = [];
-    private visible = false;
     private requested = false;
-    private reloading: Promise<void> | null = null;
-    private reloadAgain = false;
     private redrawTimer: ReturnType<typeof setTimeout> | undefined;
     private unseenTimer: ReturnType<typeof setTimeout> | undefined;
     /**
@@ -60,9 +52,15 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
     readonly onDidChangeTreeData = this.emitter.event;
     private readonly disposables: vscode.Disposable[] = [this.emitter];
 
-    constructor(private contexts: ContextEntity[], private readonly runtime: IntentsRuntime) {
+    constructor(
+        private contexts: ContextEntity[],
+        private readonly runtime: IntentsRuntime,
+        private readonly board: TicketBoard
+    ) {
         this.business = findCurrentBusiness(contexts, openPaths());
+        board.setBusiness(this.business?.absolute_path ?? null);
         this.disposables.push(
+            board.onDidChange(() => this.redraw()),
             // A window opened or closed: the colours and the buttons change, the disk is not read
             runtime.onDidChange(() => this.redraw()),
             vscode.workspace.onDidChangeWorkspaceFolders(() => this.updateBusiness())
@@ -83,65 +81,19 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
 
     /**
      * The view was shown or hidden. Each time it is shown the rows return to
-     * their starting shape and the folders are read. The extension only learns
-     * that the view became visible: it cannot tell opening the view from coming
-     * back to the Duet side bar.
+     * their starting shape and the board reads the folders. The extension only
+     * learns that the view became visible: it cannot tell opening the view from
+     * coming back to the Duet side bar.
      */
     setVisible(visible: boolean): void {
-        this.visible = visible;
-        if (visible) {
-            this.generation++;
-            void this.reload();
-        }
-    }
-
-    /**
-     * Read the business folders and the remembered order from disk, rebuild the
-     * rows. A call that comes while a reading is under way leads to one more
-     * reading after it, so whoever awaits sees the disk as it was after their call.
-     */
-    reload(): Promise<void> {
-        if (this.reloading) {
-            this.reloadAgain = true;
-            return this.reloading;
-        }
-        this.reloading = (async () => {
-            try {
-                do {
-                    this.reloadAgain = false;
-                    await this.readOnce();
-                } while (this.reloadAgain);
-            } finally {
-                this.reloading = null;
-                this.redraw();
-            }
-        })();
-        return this.reloading;
-    }
-
-    private async readOnce(): Promise<void> {
-        const business = this.business;
-        const businessPath = business?.absolute_path;
-        if (!businessPath) {
-            this.tickets = null;
-            this.tree = [];
+        if (!visible) {
+            void this.board.setShown(false);
             return;
         }
+        this.generation++;
         this.requested = true;
-        const [tickets, order] = await Promise.all([
-            this.runtime.tickets.readShelves(businessPath),
-            readBinOrder(businessPath)
-        ]);
-        // The window's business changed while the folders were being read
-        if (pathKey(this.business) !== pathKey(business)) {
-            return;
-        }
-        this.tickets = tickets;
-        // An unreadable order file leaves the last order that was read well
-        if (order !== null) {
-            this.order = order;
-        }
-        this.tree = buildBinTree(tickets, this.order);
+        // Drawn once the folders are read: the new row ids and the fresh rows go in one refresh
+        void this.board.setShown(true).finally(() => this.redraw());
     }
 
     /**
@@ -157,18 +109,6 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
     /** The business of the window — the same rule as the КОНТЕКСТ view. */
     currentBusiness(): ContextEntity | null {
         return this.business;
-    }
-
-    getTree(): BinNode[] {
-        return this.tree;
-    }
-
-    getOrder(): string[] {
-        return this.order;
-    }
-
-    getTickets(): TicketInfo[] {
-        return this.tickets ?? [];
     }
 
     getTreeItem(node: BinNode): vscode.TreeItem {
@@ -216,19 +156,19 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
         }
         // The view asks for rows only while it is shown, and is told it became visible right
         // after — that is what reads the folders. Should that word never come, read anyway.
-        if (this.tickets === null && this.business && !this.requested) {
+        if (this.board.getTickets() === null && this.business && !this.requested) {
             this.requested = true;
             this.unseenTimer = setTimeout(() => {
-                if (this.tickets === null && !this.reloading) {
-                    void this.reload();
+                if (this.board.getTickets() === null) {
+                    void this.board.setShown(true);
                 }
             }, UNSEEN_READ_MS);
         }
-        return this.tree;
+        return this.board.getTree();
     }
 
     getParent(node: BinNode): BinNode | undefined {
-        return parentOfBinNode(this.tree, node.key) ?? undefined;
+        return parentOfBinNode(this.board.getTree(), node.key) ?? undefined;
     }
 
     handleDrag(source: readonly BinNode[], dataTransfer: vscode.DataTransfer): void {
@@ -250,20 +190,12 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
 
     private updateBusiness(): void {
         const next = findCurrentBusiness(this.contexts, openPaths());
-        const samePlace = pathKey(next) === pathKey(this.business);
+        if (pathKey(next) !== pathKey(this.business)) {
+            this.requested = false;
+        }
         this.business = next;
-        if (samePlace) {
-            return;
-        }
-        this.tickets = null;
-        this.order = [];
-        this.tree = [];
-        this.requested = false;
-        if (this.visible) {
-            void this.reload();
-        } else {
-            this.redraw();
-        }
+        // Another business drops what the board has read; the same one changes nothing
+        this.board.setBusiness(next?.absolute_path ?? null);
     }
 }
 

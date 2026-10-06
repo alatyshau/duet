@@ -28,10 +28,6 @@ export class Paths {
         return path.join(this.dataFolder, 'workspaces');
     }
 
-    get rootContextsWorkspacePath(): string {
-        return path.join(this.dataFolder, 'root-contexts.code-workspace');
-    }
-
     /** Window markers and the order of active intents, one subfolder per program. */
     get intentsPath(): string {
         return path.join(this.dataFolder, 'intents');

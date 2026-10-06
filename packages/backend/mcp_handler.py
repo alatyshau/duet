@@ -283,7 +283,8 @@ def orientation(path: str) -> str:
     Args:
         path: Absolute path of the folder the session was opened in.
 
-    Returns Markdown: the paths of this machine and what to read first.
+    Returns Markdown: the paths of this machine and what to read first. A
+    meta venture also gets the folders of the other ventures.
     """
     if not Path(path).is_absolute():
         raise McpError(

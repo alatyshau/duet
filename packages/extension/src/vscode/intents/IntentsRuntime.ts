@@ -8,6 +8,7 @@ import { ActiveIntent, LingerState, activeFromMarkers, applyLinger, orderActive 
 import { businessKey, businessWindowOf, intentWindowOf, programFolderName } from '../../core/intents/window';
 import { TicketPlace, TicketReader, readBusinessManifest, withTimeout } from '../../core/intents/tickets';
 import { mergeOrderBlock } from '../../core/intents/order';
+import { coalesce } from '../../core/intents/coalesce';
 
 /** What this window is opened on, when Duet opened it. */
 export interface OwnWindow {
@@ -28,6 +29,8 @@ type MarkerFields = Omit<WindowMarker, 'pid' | 'writtenAt' | 'expiresAt'>;
 
 /** Events of the markers folder are gathered into one re-read. */
 const REFRESH_DEBOUNCE_MS = 100;
+/** Events of the business folder are gathered into one check of the window's own marker. */
+const REANNOUNCE_DEBOUNCE_MS = 500;
 /** Longest wait for the business folder before the marker is written without what it would tell. */
 const ANNOUNCE_READ_MS = 1000;
 
@@ -52,8 +55,8 @@ export class IntentsRuntime implements vscode.Disposable {
 
     private refreshTimer: ReturnType<typeof setTimeout> | undefined;
     private recheckTimer: ReturnType<typeof setTimeout> | undefined;
-    private refreshing: Promise<void> | null = null;
-    private refreshAgain = false;
+    private reannounceTimer: ReturnType<typeof setTimeout> | undefined;
+    private readonly read = coalesce(() => this.readOnce());
 
     private readonly emitter = new vscode.EventEmitter<void>();
     /** Fires when the list of active windows may have changed. */
@@ -136,6 +139,7 @@ export class IntentsRuntime implements vscode.Disposable {
             console.error('[Duet] intents folder not watched:', error);
         }
 
+        this.watchOwnTicket();
         this.disposables.push(
             // A marker removed from outside is put back when the window is next used
             vscode.window.onDidChangeWindowState(state => {
@@ -189,21 +193,7 @@ export class IntentsRuntime implements vscode.Disposable {
 
     /** Re-read the markers and the order from disk. Calls that overlap are joined into one more read. */
     refresh(): Promise<void> {
-        if (this.refreshing) {
-            this.refreshAgain = true;
-            return this.refreshing;
-        }
-        this.refreshing = (async () => {
-            try {
-                do {
-                    this.refreshAgain = false;
-                    await this.readOnce();
-                } while (this.refreshAgain);
-            } finally {
-                this.refreshing = null;
-            }
-        })();
-        return this.refreshing;
+        return this.read();
     }
 
     /**
@@ -262,7 +252,44 @@ export class IntentsRuntime implements vscode.Disposable {
     dispose(): void {
         clearTimeout(this.refreshTimer);
         clearTimeout(this.recheckTimer);
+        clearTimeout(this.reannounceTimer);
         this.disposables.forEach(d => d.dispose());
+    }
+
+    /**
+     * An intent window follows the shelves of its business: its ticket may be
+     * moved to the backlog or the archive, or given another emoji, by an agent
+     * or by hand. The marker is then checked and written again when it is no
+     * longer true, and the other windows learn of it from the marker. The
+     * business folder is the first folder of the window, which the program
+     * watches already; the watcher is the runtime's own, so it needs neither
+     * the backend nor the bin.
+     */
+    private watchOwnTicket(): void {
+        const own = this.ownWindow;
+        if (!own || own.subject !== 'intent') {
+            return;
+        }
+        const changed = () => {
+            clearTimeout(this.reannounceTimer);
+            this.reannounceTimer = setTimeout(() => void this.reannounce(), REANNOUNCE_DEBOUNCE_MS);
+        };
+        // A ticket folder came or went; an `INDEX.md` of the `parent` chain may carry the emoji
+        try {
+            for (const pattern of ['{work,backlog}/*', '{work,backlog}/*/INDEX.md']) {
+                const watcher = vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(vscode.Uri.file(own.businessPath), pattern)
+                );
+                this.disposables.push(
+                    watcher,
+                    watcher.onDidCreate(changed),
+                    watcher.onDidChange(changed),
+                    watcher.onDidDelete(changed)
+                );
+            }
+        } catch (error) {
+            console.error('[Duet] business folder not watched:', error);
+        }
     }
 
     private scheduleRefresh(): void {

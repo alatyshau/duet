@@ -32,6 +32,8 @@ export interface IntentWorkspaceSpec {
     businessPath: string;
     /** `git_repos` aliases in declared order. */
     aliases: string[];
+    /** Additional folders of a meta business (`core/workspace.ts:metaExtraFolders`); absent or empty otherwise. */
+    extraFolders?: Array<{ path: string; name?: string }>;
     /** Ticket folder name: `DUE017_IntentSwitcher`. */
     ticketFolder: string;
     /** Label of the notepad tab: `🧰 Intent Switcher` (`naming.ts:intentTabLabel`). */
@@ -81,7 +83,8 @@ export function buildIntentWorkspaceText(
 ): string {
     const folders = [
         { path: spec.businessPath },
-        ...spec.aliases.map(alias => ({ path: `../../repos/${alias}.git` }))
+        ...spec.aliases.map(alias => ({ path: `../../repos/${alias}.git` })),
+        ...(spec.extraFolders ?? [])
     ];
     const settings = {
         'workbench.editor.customLabels.patterns': {

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { FileSystem, nodeFs } from './fs';
+import { normalizePath } from './pathUtils';
 
 export interface WorkspaceFolder {
     path: string;
@@ -21,34 +22,52 @@ export interface WorkspaceFile {
  * clients treat as cwd and instruction-files source. The cloned repos follow, in
  * declared alias order, so the multi-root layout is deterministic across
  * machines.
+ *
+ * `extraFolders` come last: the additional folders of a meta business
+ * (`metaExtraFolders`), empty for every other business.
  */
 export function generateContextWithReposWorkspace(
     aliases: string[],
     drivePath: string,
-    settings?: Record<string, unknown>
+    settings?: Record<string, unknown>,
+    extraFolders: WorkspaceFolder[] = []
 ): WorkspaceFile {
     const repoFolders: WorkspaceFolder[] = aliases.map(alias => ({
         path: path.join('..', 'repos', `${alias}.git`)
     }));
     const driveFolder: WorkspaceFolder = { path: drivePath };
-    const folders = [driveFolder, ...repoFolders];
+    const folders = [driveFolder, ...repoFolders, ...extraFolders];
     // Without settings the file is what it always was: folders only
     return settings ? { folders, settings } : { folders };
 }
 
 /**
- * Generates root-contexts.code-workspace content.
- * Lists all root context folders, plus DuetData folder.
+ * Additional folders of the window of a meta business (`meta: true` in its
+ * `context.json`): the folders of all the other ventures, in the order of the
+ * tree, then DuetData. They follow the business's own folder and repos, so the
+ * business folder stays the primary one and the business works as any other —
+ * the window only shows more. A business that is not meta gets none.
  *
- * @param rootContextFolders - Absolute paths to root context folders
- * @param duetDataPath - Absolute path to DuetData directory (added as named folder)
+ * @param isMeta - the `meta` flag of the business being opened
+ * @param businessPath - absolute path of its folder; left out of the list
+ * @param ventureFolders - absolute paths of all venture (root business) folders
+ * @param duetDataPath - absolute path of DuetData (added as a named folder)
  */
-export function generateRootContextsWorkspace(rootContextFolders: string[], duetDataPath?: string): WorkspaceFile {
-    const folders: WorkspaceFolder[] = rootContextFolders.map(p => ({ path: p }));
-    if (duetDataPath) {
-        folders.push({ path: duetDataPath, name: 'DuetData' });
+export function metaExtraFolders(
+    isMeta: boolean,
+    businessPath: string,
+    ventureFolders: string[],
+    duetDataPath: string
+): WorkspaceFolder[] {
+    if (!isMeta) {
+        return [];
     }
-    return { folders };
+    const own = normalizePath(businessPath);
+    const folders: WorkspaceFolder[] = ventureFolders
+        .filter(p => normalizePath(p) !== own)
+        .map(p => ({ path: p }));
+    folders.push({ path: duetDataPath, name: 'DuetData' });
+    return folders;
 }
 
 export class WorkspaceManager {
@@ -94,20 +113,22 @@ export class WorkspaceManager {
      * @param drivePath - Absolute path to the context's Drive folder (always the primary/first folder).
      * @param settings - `settings` block of the file: the colour of the business window
      *                   (`core/intents/workspaceFile.ts:planBusinessColor`). Omitted — folders only.
+     * @param extraFolders - additional folders of a meta business (`metaExtraFolders`), absolute paths.
      */
     async writeContextWithReposWorkspace(
         contextName: string,
         aliases: string[],
         drivePath: string,
-        settings?: Record<string, unknown>
+        settings?: Record<string, unknown>,
+        extraFolders: WorkspaceFolder[] = []
     ): Promise<string> {
         await this.ensureDir();
 
         const workspacePath = this.getContextWithReposWorkspacePath(contextName);
-        const workspace = generateContextWithReposWorkspace(aliases, drivePath, settings);
+        const workspace = generateContextWithReposWorkspace(aliases, drivePath, settings, extraFolders);
         await this.fs.writeFile(workspacePath, JSON.stringify(workspace, null, 2), 'utf8');
 
-        await this.writeKimiCodeLocalToml(drivePath, aliases);
+        await this.writeKimiCodeLocalToml(drivePath, aliases, extraFolders.map(f => f.path));
 
         return workspacePath;
     }
@@ -121,18 +142,19 @@ export class WorkspaceManager {
      * with `[workspace] additional_dir` (written interactively by `/add-dir`).
      * Duet generates it alongside the workspace file: the Drive folder is the
      * project root, the cloned repos become `additional_dir` entries
-     * (absolute, in declared alias order).
+     * (absolute, in declared alias order), followed by the additional folders
+     * of a meta business.
      *
      * Duet-managed: rewritten wholesale on every workspace (re)generation.
      * Absolute machine-specific paths — the file must not be committed.
      */
-    private async writeKimiCodeLocalToml(drivePath: string, aliases: string[]): Promise<void> {
-        if (aliases.length === 0) {
+    private async writeKimiCodeLocalToml(drivePath: string, aliases: string[], extraDirs: string[] = []): Promise<void> {
+        if (aliases.length === 0 && extraDirs.length === 0) {
             return;
         }
         const dir = path.join(drivePath, '.kimi-code');
         await this.fs.mkdir(dir, { recursive: true });
-        const dirs = aliases.map(alias => path.join(this.reposDir, `${alias}.git`));
+        const dirs = [...aliases.map(alias => path.join(this.reposDir, `${alias}.git`)), ...extraDirs];
         const content = [
             '# AUTO-GENERATED by Duet · Kimi Code multi-root workaround · do not edit',
             '# Gives Kimi access to the workspace folders beyond the primary one.',
@@ -154,24 +176,5 @@ export class WorkspaceManager {
         } catch {
             return false;
         }
-    }
-
-    /**
-     * Writes root-contexts.code-workspace file.
-     *
-     * @param rootContextFolders - Absolute paths to root context folders
-     * @param outputPath - Path to write workspace file
-     * @param duetDataPath - Absolute path to DuetData directory
-     */
-    async writeRootContextsWorkspace(rootContextFolders: string[], outputPath: string, duetDataPath?: string): Promise<void> {
-        const dir = path.dirname(outputPath);
-        try {
-            await this.fs.access(dir);
-        } catch {
-            await this.fs.mkdir(dir, { recursive: true });
-        }
-
-        const workspace = generateRootContextsWorkspace(rootContextFolders, duetDataPath);
-        await this.fs.writeFile(outputPath, JSON.stringify(workspace, null, 2), 'utf8');
     }
 }

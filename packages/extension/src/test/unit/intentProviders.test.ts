@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ContextEntity } from '../../core/api-client';
 import { ActiveIntent } from '../../core/intents/active';
 import { BinNode } from '../../core/intents/binTree';
-import { TicketInfo } from '../../core/intents/tickets';
+import { TicketBoard } from '../../core/intents/board';
+import { TicketInfo, TicketReader } from '../../core/intents/tickets';
+import { createMemFs } from './helpers/memFs';
 
 vi.mock('vscode', () => ({
     workspace: {
@@ -310,18 +312,24 @@ describe('BinProvider', () => {
         (vscode.workspace as unknown as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: B } }];
     });
 
+    /** The view over a board that reads the fake runtime's tickets; the order file is absent. */
+    function binOf(runtime: ReturnType<typeof fakeRuntime>) {
+        const board = new TicketBoard(runtime.tickets as unknown as TicketReader, createMemFs().fs);
+        return { provider: new BinProvider([business], asRuntime(runtime), board), board };
+    }
+
     async function loaded(openTickets: ActiveIntent[] = []) {
         const runtime = fakeRuntime(openTickets, tickets);
-        const provider = new BinProvider([business], asRuntime(runtime));
-        await provider.reload();
-        return { provider, runtime };
+        const { provider, board } = binOf(runtime);
+        await board.reload();
+        return { provider, runtime, board };
     }
 
     it('is empty in a window without a business folder, and reads nothing', async () => {
         (vscode.workspace as unknown as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: '/elsewhere' } }];
         const runtime = fakeRuntime([], tickets);
-        const provider = new BinProvider([business], asRuntime(runtime));
-        await provider.reload();
+        const { provider, board } = binOf(runtime);
+        await board.reload();
         expect(provider.getChildren()).toEqual([]);
         expect(runtime.tickets.readShelves).not.toHaveBeenCalled();
     });
@@ -336,12 +344,12 @@ describe('BinProvider', () => {
 
     it('asking for rows does not read the folders — becoming visible does, once', async () => {
         const runtime = fakeRuntime([], tickets);
-        const provider = new BinProvider([business], asRuntime(runtime));
+        const { provider, board } = binOf(runtime);
         expect(provider.getChildren()).toEqual([]);
         expect(runtime.tickets.readShelves).not.toHaveBeenCalled();
 
         provider.setVisible(true);
-        await provider.reload();
+        await board.reload();
         expect(provider.getChildren()).toHaveLength(1);
     });
 
@@ -349,7 +357,7 @@ describe('BinProvider', () => {
         vi.useFakeTimers();
         try {
             const runtime = fakeRuntime([], tickets);
-            const provider = new BinProvider([business], asRuntime(runtime));
+            const { provider, board } = binOf(runtime);
             provider.getChildren();
             provider.getChildren();
             await vi.advanceTimersByTimeAsync(400);
@@ -361,8 +369,8 @@ describe('BinProvider', () => {
 
     it('readings asked for while one is under way are joined: one more reading, not one each', async () => {
         const runtime = fakeRuntime([], tickets);
-        const provider = new BinProvider([business], asRuntime(runtime));
-        await Promise.all([provider.reload(), provider.reload(), provider.reload()]);
+        const { provider, board } = binOf(runtime);
+        await Promise.all([board.reload(), board.reload(), board.reload()]);
         expect(runtime.tickets.readShelves).toHaveBeenCalledTimes(2);
     });
 
@@ -370,12 +378,12 @@ describe('BinProvider', () => {
         vi.useFakeTimers();
         try {
             const runtime = fakeRuntime([], tickets);
-            const provider = new BinProvider([business], asRuntime(runtime));
+            const { provider, board } = binOf(runtime);
             const redrawn = vi.fn();
             provider.onDidChangeTreeData(redrawn);
             runtime.fire();
             runtime.fire();
-            await provider.reload();
+            await board.reload();
             expect(redrawn).not.toHaveBeenCalled();
             await vi.advanceTimersByTimeAsync(50);
             expect(redrawn).toHaveBeenCalledTimes(1);
@@ -477,11 +485,11 @@ describe('BinProvider', () => {
     });
 
     it('every showing of the view gives the rows new ids, so they return to the starting shape; a data refresh does not', async () => {
-        const { provider } = await loaded();
+        const { provider, board } = await loaded();
         const node = find(provider.getChildren(), 'DUE008');
         const before = provider.getTreeItem(node).id;
 
-        await provider.reload();
+        await board.reload();
         expect(provider.getTreeItem(find(provider.getChildren(), 'DUE008')).id).toBe(before);
 
         provider.setVisible(true);
@@ -493,7 +501,7 @@ describe('BinProvider', () => {
         provider.setVisible(false);
         expect(runtime.tickets.readShelves).toHaveBeenCalledTimes(1);
         provider.setVisible(true);
-        expect(runtime.tickets.readShelves).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(runtime.tickets.readShelves).toHaveBeenCalledTimes(2));
     });
 
     it('hands a drop over as row keys; a drop past the rows has no target', async () => {

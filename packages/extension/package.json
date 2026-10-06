@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.53",
+    "version": "0.0.56",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.104.0"
@@ -57,20 +57,6 @@
                 "title": "Открыть папку DuetData",
                 "icon": "$(folder-opened)",
                 "category": "Duet"
-            },
-            {
-                "command": "duet.openAllRootContexts",
-                "title": "Открыть все дела в новом окне",
-                "icon": "$(link-external)",
-                "category": "Duet",
-                "shortTitle": "В новом окне"
-            },
-            {
-                "command": "duet.openAllRootContextsHere",
-                "title": "Открыть все дела",
-                "icon": "$(go-to-file)",
-                "category": "Duet",
-                "shortTitle": "Все дела"
             },
             {
                 "command": "duet.copyAtPath",
@@ -220,23 +206,13 @@
             ],
             "view/item/context": [
                 {
-                    "command": "duet.openAllRootContextsHere",
-                    "when": "view == duet.contexts && viewItem == header",
-                    "group": "inline@1"
-                },
-                {
-                    "command": "duet.openAllRootContexts",
-                    "when": "view == duet.contexts && viewItem == header",
-                    "group": "inline@2"
-                },
-                {
                     "command": "duet.openInCurrentWindow",
-                    "when": "view == duet.contexts && viewItem != header && viewItem != placeholder && viewItem != separator",
+                    "when": "view == duet.contexts && viewItem != placeholder && viewItem != separator",
                     "group": "inline@1"
                 },
                 {
                     "command": "duet.openInNewWindow",
-                    "when": "view == duet.contexts && viewItem != header && viewItem != placeholder && viewItem != separator",
+                    "when": "view == duet.contexts && viewItem != placeholder && viewItem != separator",
                     "group": "inline@2"
                 },
                 {
@@ -322,7 +298,7 @@
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.53",
+                    "title": "Duet 0.0.56",
                     "icon": "resources/duet-icon.svg"
                 }
             ]

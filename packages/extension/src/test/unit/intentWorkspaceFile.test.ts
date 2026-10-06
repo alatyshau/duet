@@ -165,6 +165,16 @@ describe('buildIntentWorkspaceText', () => {
         expect(built.folders).toEqual([{ path: '/Users/test/Drive/!МетаЛаб/DuetLab' }]);
     });
 
+    it('a meta business gives its additional folders after its own folder and repos', () => {
+        const extraFolders = [{ path: '/Users/test/Drive/!МетаЛаб' }, { path: '/Users/test/DuetData', name: 'DuetData' }];
+        const built = JSON.parse(buildIntentWorkspaceText({ ...spec, aliases: ['Duet'], extraFolders }, '#1f6f43', []));
+        expect(built.folders).toEqual([
+            { path: spec.businessPath },
+            { path: '../../repos/Duet.git' },
+            ...extraFolders
+        ]);
+    });
+
     it('does not colour the activity bar', () => {
         const text = buildIntentWorkspaceText(spec, '#1f6f43', []);
         expect(text).not.toContain('activityBar');

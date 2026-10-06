@@ -48,7 +48,8 @@ vi.mock('vscode', () => ({
 /** Workspace files the open commands asked to write; the real manager would write under DuetData. */
 const writtenWorkspaces: Array<{ name: string; aliases: string[]; drivePath: string; settings: unknown }> = [];
 
-vi.mock('../../core/workspace', () => ({
+vi.mock('../../core/workspace', async importOriginal => ({
+    ...await importOriginal<typeof import('../../core/workspace')>(),
     WorkspaceManager: class {
         constructor(private readonly workspacesDir: string) {}
         getContextWithReposWorkspacePath(name: string): string {
@@ -58,7 +59,6 @@ vi.mock('../../core/workspace', () => ({
             writtenWorkspaces.push({ name, aliases, drivePath, settings });
             return this.getContextWithReposWorkspacePath(name);
         }
-        async writeRootContextsWorkspace(): Promise<void> { /* not under test here */ }
     }
 }));
 
@@ -153,13 +153,7 @@ describe('VS Code Commands', () => {
                 scan: vi.fn().mockResolvedValue({ status: 'completed' }),
                 contexts: vi.fn().mockResolvedValue({ contexts: mockContexts }),
             } as any;
-            const paths = {
-                workspacesPath: '/tmp/workspaces',
-                reposPath: '/tmp/repos',
-                rootContextsWorkspacePath: '/tmp/root-contexts.code-workspace',
-            } as any;
-
-            const result = await refreshFromBackend(apiClient, paths);
+            const result = await refreshFromBackend(apiClient);
 
             expect(apiClient.scan).toHaveBeenCalled();
             expect(apiClient.contexts).toHaveBeenCalled();

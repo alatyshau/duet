@@ -26,6 +26,8 @@ export function createMemFs(initialFiles: Record<string, string> = {}, initialDi
         let current = dir;
         while (current && current !== path.dirname(current) && !dirs.has(current)) {
             dirs.add(current);
+            // A folder changes when an entry comes or goes, as on a real disk
+            mtimes.set(path.dirname(current), ++clock);
             current = path.dirname(current);
         }
     };
@@ -110,6 +112,8 @@ export function createMemFs(initialFiles: Record<string, string> = {}, initialDi
             if (!dirs.has(path.dirname(to))) {
                 throw missing(path.dirname(to));
             }
+            mtimes.set(path.dirname(from), ++clock);
+            mtimes.set(path.dirname(to), ++clock);
             for (const dir of [...dirs]) {
                 if (dir === from || dir.startsWith(from + path.sep)) {
                     dirs.delete(dir);
@@ -135,7 +139,7 @@ export function createMemFs(initialFiles: Record<string, string> = {}, initialDi
                 return { mtimeMs: mtimes.get(target) ?? 0, size: files.get(target)!.length, isDirectory: false };
             }
             if (dirs.has(target)) {
-                return { mtimeMs: 0, size: 0, isDirectory: true };
+                return { mtimeMs: mtimes.get(target) ?? 0, size: 0, isDirectory: true };
             }
             throw missing(target);
         },

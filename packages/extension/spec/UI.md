@@ -99,7 +99,7 @@ The rules that follow from it. Font colour: every row of «Активная Ра
 
 ## Корзина — work of the current business
 
-A separate collapsible view under «Активная Работа» with its own refresh button, which re-reads the business folders. The current business is found as in КОНТЕКСТ, and the title names it — «Корзина DuetLab» (`intents/naming.ts:binTitle`); in a window without a business the title is the bare «Корзина» and the view is empty, without text.
+A separate collapsible view under «Активная Работа» with its own refresh button, which re-reads the business folders. The rows follow the business folder by themselves: a ticket created, archived, moved or re-parented by an agent, by hand or in another window appears in every window that shows the bin, and so does a changed order; the button is for the case when that did not happen. The current business is found as in КОНТЕКСТ, and the title names it — «Корзина DuetLab» (`intents/naming.ts:binTitle`); in a window without a business the title is the bare «Корзина» and the view is empty, without text.
 
 The bin is for managing the backlog and the order of work. It never switches windows: that is the job of «Активная Работа» alone, and every feature of the bin is measured by this.
 
@@ -168,8 +168,8 @@ Full forest of root contexts and descendants, accordion pattern, alias-based hig
 | Expand root context → expands to leaves | User sees full hierarchy without extra clicks |
 | Auto-expand active root context on startup | Opens the root the user is working in |
 | Solid `────` line between root contexts; blank spacer between first-level children of a root | Visual separation between roots and inside an expanded root, no dotted clutter |
-| Header `[МОИ ДЕЛА]` not collapsible | Visual anchor, not a real node |
-| Header has hover icon → open `root-contexts.code-workspace` | Quick access to multi-root |
+| No header row: the list starts with the first root context | The window over all ventures is the window of the meta business (`meta: true`), an ordinary row of the tree — not a separate entity |
+| In the window of a meta business only that business is marked, though the folders of the other ventures are open in it | The window belongs to one business; the other ventures are shown, not worked in |
 | Placeholder when empty: "Добавьте root-контекст в Duet Host" | User pointed to Host (which owns root-context configuration), not to a non-existent Extension button |
 | Icons: emoji from manifest in label (e.g. `🔬 МетаЛаб`) | Custom icons from manifests, no ThemeIcon |
 | Description: `[git]` marker for contexts with git products (non-empty `git_repos`); otherwise empty | Show role at a glance, no `мета-контекст` / `контекст` decoration |

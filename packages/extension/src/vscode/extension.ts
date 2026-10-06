@@ -8,6 +8,7 @@ import { readPointer, readPort } from '../core/pointer';
 import { refreshFromBackend, dumpIndex } from './commands/refresh';
 import { openInCurrentWindow, openInNewWindow, disposeGitOutputChannel } from './commands/openFolder';
 import { copyAtPath } from './commands/copyAtPath';
+import { setVentureFoldersSource } from './ventures';
 import { Paths } from '../core/paths';
 import { ContextEntity, DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
@@ -16,6 +17,8 @@ import { setIntentsRuntime } from './intents/current';
 import { ensureNotepad } from './intents/notepad';
 import { IntentsProvider } from './providers/IntentsProvider';
 import { BinProvider } from './providers/BinProvider';
+import { watchBoard } from './intents/boardWatch';
+import { TicketBoard } from '../core/intents/board';
 import { BinActions, switchToIntent } from './commands/intents';
 import { TicketNode } from '../core/intents/binTree';
 import { ActiveIntent, rowByNumber } from '../core/intents/active';
@@ -99,14 +102,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Backend-independent commands — work even when backend is down
         context.subscriptions.push(
-            vscode.commands.registerCommand('duet.openAllRootContexts', async () => {
-                const workspacePath = paths.rootContextsWorkspacePath;
-                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: true });
-            }),
-            vscode.commands.registerCommand('duet.openAllRootContextsHere', async () => {
-                const workspacePath = paths.rootContextsWorkspacePath;
-                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow: false });
-            }),
             vscode.commands.registerCommand('duet.openInCurrentWindow', openInCurrentWindow),
             vscode.commands.registerCommand('duet.openInNewWindow', openInNewWindow),
             vscode.commands.registerCommand('duet.contextSettings', () => openDataFolderCommand(paths.reposPath)),
@@ -150,6 +145,8 @@ export async function activate(context: vscode.ExtensionContext) {
             triggerDeployInstructions(initialWorkspacePaths);
 
             const contextTreeProvider = new ContextTreeProvider(contexts);
+            // The window of a meta business shows every venture: opening it reads them from the tree
+            setVentureFoldersSource(() => contextTreeProvider.getRoots().map(root => root.id));
             const contextProvider = new ContextProvider(contexts);
             let binProvider: BinProvider | null = null;
             try {
@@ -183,7 +180,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         cancellable: false
                     }, async () => {
                         try {
-                            const newContexts = await refreshFromBackend(apiClient, paths);
+                            const newContexts = await refreshFromBackend(apiClient);
                             contextTreeProvider.updateContexts(newContexts);
                             contextProvider.updateContexts(newContexts);
                             binProvider?.updateContexts(newContexts);
@@ -268,8 +265,9 @@ function registerBinView(
     paths: Paths,
     contexts: ContextEntity[]
 ): BinProvider {
-    const provider = new BinProvider(contexts, runtime);
-    const actions = new BinActions(paths, runtime, provider);
+    const board = new TicketBoard(runtime.tickets);
+    const provider = new BinProvider(contexts, runtime, board);
+    const actions = new BinActions(paths, runtime, provider, board);
     provider.onDrop = (sourceKey, targetKey) => actions.drop(sourceKey, targetKey);
 
     const view = vscode.window.createTreeView('duet.bin', {
@@ -282,9 +280,11 @@ function registerBinView(
     context.subscriptions.push(
         view,
         provider,
+        watchBoard(board),
+        { dispose: () => board.dispose() },
         provider.onDidChangeTreeData(showTitle),
         view.onDidChangeVisibility(event => provider.setVisible(event.visible)),
-        vscode.commands.registerCommand('duet.bin.refresh', () => provider.reload()),
+        vscode.commands.registerCommand('duet.bin.refresh', () => board.reload()),
         vscode.commands.registerCommand('duet.bin.openHere', (node: TicketNode) => actions.open(node, false)),
         vscode.commands.registerCommand('duet.bin.openNew', (node: TicketNode) => actions.open(node, true)),
         vscode.commands.registerCommand('duet.bin.toBacklog', (node: TicketNode) => actions.toBacklog(node)),

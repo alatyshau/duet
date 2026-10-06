@@ -3,13 +3,14 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { spawn } from 'child_process';
 import { TreeNode } from '../../core/tree/contextTree';
-import { WorkspaceManager } from '../../core/workspace';
+import { WorkspaceManager, metaExtraFolders } from '../../core/workspace';
 import { Paths } from '../../core/paths';
 import { readPointer } from '../../core/pointer';
 import { planBusinessColor } from '../../core/intents/workspaceFile';
 import { readBusinessManifest } from '../../core/intents/tickets';
 import { businessKey } from '../../core/intents/window';
 import { getIntentsRuntime } from '../intents/current';
+import { getVentureFolders } from '../ventures';
 
 let gitOutputChannel: vscode.OutputChannel | undefined;
 
@@ -234,7 +235,8 @@ export async function prepareBusinessRepos(
  * writes for it — `DuetData/workspaces/<context>.code-workspace`: the Drive
  * folder first, then one folder per `git_repos` alias, cloned when missing. A
  * context without `git_repos` gets a file of one folder. The window is opened
- * by a file in both cases because the file is where its colour lives.
+ * by a file in both cases because the file is where its colour lives. A meta
+ * business gets the folders of the other ventures and DuetData after its own.
  */
 async function openNode(
     node: TreeNode,
@@ -339,7 +341,8 @@ async function openContextWorkspace(
     }
 
     if (write) {
-        await workspaceManager.writeContextWithReposWorkspace(node.label, aliases, node.id, settings);
+        const extraFolders = metaExtraFolders(node.meta, node.id, getVentureFolders(), paths.root);
+        await workspaceManager.writeContextWithReposWorkspace(node.label, aliases, node.id, settings, extraFolders);
     }
     if (runtime && reserveColor !== undefined) {
         const manifest = await readBusinessManifest(node.id);

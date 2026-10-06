@@ -141,6 +141,54 @@ class TestOrientationBusiness:
             f"* Read venture entry point: `{root / 'README.md'}`"
         )
 
+    def test_meta_venture_lists_the_other_ventures(self, tmp_path, db, monkeypatch) -> None:
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_root_context("Base")
+        builder.add_root_context("Lab")
+        builder.add_root_context("Family")
+        builder.build(monkeypatch)
+        base, lab, family = (builder.get_root_context_path(i) for i in range(3))
+        ManifestBuilder.context(base, "Base", meta=True)
+        (base / "INDEX.md").write_text("# Base", encoding="utf-8")
+        (lab / "README.md").write_text("# Lab", encoding="utf-8")
+        ticket = base / "work" / "SYS001_Ticket"
+        ticket.mkdir(parents=True)
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+        service = WorkspaceService(db)
+        duet_data = builder.duet_data_path.resolve()
+
+        expected = (
+            "**Paths:**\n"
+            f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
+            f"* `@Base` (active venture folder): `{base}`\n"
+            "\n"
+            "**Other Ventures** (this venture is meta: it manages others):\n"
+            f"* `@Lab`: `{lab}` — entry point `README.md`\n"
+            f"* `@Family`: `{family}` — no entry point\n"
+            "\n"
+            "**Next immediate steps:**\n"
+            f"* Read venture entry point: `{base / 'INDEX.md'}`"
+        )
+        assert service.get_orientation(str(base)) == expected
+        # A ticket folder of the meta venture is the meta venture
+        assert service.get_orientation(str(ticket)) == expected
+        # The other ventures get no such section
+        assert "Other Ventures" not in service.get_orientation(str(lab))
+
+    def test_business_under_a_meta_venture_gets_no_list(self, tmp_path, db, monkeypatch) -> None:
+        builder = DuetDataBuilder(tmp_path)
+        builder.add_root_context("Base")
+        builder.add_root_context("Lab")
+        builder.build(monkeypatch)
+        base = builder.get_root_context_path(0)
+        ManifestBuilder.context(base, "Base", meta=True)
+        news = base / "News"
+        news.mkdir()
+        ManifestBuilder.context(news, "News")
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+
+        assert "Other Ventures" not in WorkspaceService(db).get_orientation(str(news))
+
     def test_intermediate_parents_are_not_listed(self, tmp_path, db, monkeypatch) -> None:
         builder, _, lab = _lab(tmp_path, db, monkeypatch)
         deep = lab / "Deep"

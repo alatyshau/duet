@@ -206,8 +206,7 @@ DuetData/
 ├── duet.md                        # thin session prompt: bootstrapper + skills, no core (Backend writes)
 ├── duet-{agent}.md                # full per-agent instructions for the duet-{agent} subagents (Backend writes)
 ├── .venv/                         # Python virtual environment
-├── backend.log                    # backend log (RotatingFileHandler)
-└── root-contexts.code-workspace   # multi-root for all root contexts
+└── backend.log                    # backend log (RotatingFileHandler)
 ```
 
 ### DuetConfig
@@ -337,6 +336,13 @@ Where the folder lies decides the answer.
 - The venture is the root of the parent chain; intermediate parents are not listed. A venture itself is labelled `active venture folder` and has the single step `Read venture entry point`.
 - Repos are the manifest's `git_repos`, then its `reference_repos`, in manifest order, at the expected clone path whether or not the clone exists yet.
 - An entry point is `INDEX.md`, else `README.md`; a business with neither gets no step.
+- **A meta venture** (`meta: true`) — the session is opened in its folder or anywhere under it that leads to it, a ticket's work folder included — gets one more section between the two, because it manages the other ventures. One line per other venture, in `root_context_folders` order; the entry point is named by file name only and is not a step. A business under a meta venture is not meta and gets no such section.
+
+```
+**Other Ventures** (this venture is meta: it manages others):
+* `@МетаЛаб`: `/Users/me/Drive/!МетаЛаб` — entry point `README.md`
+* `@СЕМЬЯ`: `/Users/me/Drive/!СЕМЬЯ` — no entry point
+```
 
 **Inside `DuetData/repos`.** The repo and the businesses that declare it. A repo never chooses a business, because several may declare it.
 
@@ -409,7 +415,7 @@ Products and components are described by **single canonical spec files** — no 
 | `DuetData/data/{scan,contexts}.json` | reads (wizard, file watcher) | — | **writes** | — |
 | `DuetData/duet.md` (thin session prompt) | reads → output-style + Codex/Antigravity | — | **writes** | — |
 | `DuetData/duet-{agent}.md` | reads → `duet-{agent}` subagents | — | **writes** | — |
-| `DuetData/workspaces/{Context}.code-workspace`, `DuetData/root-contexts.code-workspace`, `<context>/.kimi-code/local.toml` | — | **writes** (on open of a context, after a scan). The context file also carries a `settings` block with the colour of the business window | — | reads (`local.toml`: Kimi Code) |
+| `DuetData/workspaces/{Context}.code-workspace`, `<context>/.kimi-code/local.toml` | — | **writes** (on open of a context). The context file also carries a `settings` block with the colour of the business window | — | reads (`local.toml`: Kimi Code) |
 | `DuetData/workspaces/{Business}/{Ticket folder}.code-workspace` | — | **writes** (whole file, rebuilt on every open of the intent by button; never while a window has it open) | — | — |
 | `DuetData/intents/{program}/windows/*.json`, `DuetData/intents/{program}/active.json` | — | **writes** (each window its own marker; any window removes dead ones and writes the order) | — | — |
 | Ticket folders under `<business>/work/` and `<business>/backlog/` | — | **creates** one in `work/` — the «new ticket» button: the folder and its `INDEX.md`, nothing else; **moves** between the two; never deletes one; reads the listing, and the listing of `archive/` for the next number | — | create and move (work rules, not the platform) |

@@ -119,9 +119,9 @@ describe('business windows', () => {
         expect(businessWindowOf(`${workspaces}/Duet Instructions.code-workspace`, workspaces)).toBe('Duet Instructions');
     });
 
-    it('the file of an intent, the root-contexts file and a foreign file are not', () => {
+    it('the file of an intent, a file in the DuetData root and a foreign file are not', () => {
         expect(businessWindowOf(`${workspaces}/DuetLab/DUE017_IntentSwitcher.code-workspace`, workspaces)).toBeNull();
-        expect(businessWindowOf('/data/DuetData/root-contexts.code-workspace', workspaces)).toBeNull();
+        expect(businessWindowOf('/data/DuetData/other.code-workspace', workspaces)).toBeNull();
         expect(businessWindowOf('/drive/DuetLab/work/DUE017_X/DUE017_X.code-workspace', workspaces)).toBeNull();
         expect(businessWindowOf(undefined, workspaces)).toBeNull();
     });
