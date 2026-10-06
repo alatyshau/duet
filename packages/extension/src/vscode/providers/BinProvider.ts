@@ -145,8 +145,9 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
         // Menu when-clauses stand on these: the buttons differ by shelf and vanish for an open ticket
         item.contextValue = open ? 'ticket-open' : `ticket-${ticket.shelf}`;
         item.tooltip = ticket.path;
-        // A click only selects the row and does not toggle the node — that is the arrow's job, as in «Все Бизнесы»
-        item.command = { command: 'duet.selectNode', title: 'Select' };
+        // A click selects the row and does not toggle the node — that is the arrow's job, as in «Все Бизнесы».
+        // The command also shows the ticket in «Рабочая папка»; it never switches windows
+        item.command = { command: 'duet.bin.select', title: 'Select', arguments: [node] };
         return item;
     }
 

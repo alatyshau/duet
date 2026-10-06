@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.56",
+    "version": "0.0.61",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.104.0"
@@ -111,6 +111,305 @@
                 "title": "В бэклог",
                 "icon": "$(inbox)",
                 "shortTitle": "В бэклог"
+            },
+            {
+                "command": "duet.work.showHidden",
+                "title": "Показать скрытые файлы",
+                "category": "Duet",
+                "icon": "$(eye-closed)"
+            },
+            {
+                "command": "duet.work.hideHidden",
+                "title": "Скрыть скрытые файлы",
+                "category": "Duet",
+                "icon": "$(eye)"
+            },
+            {
+                "command": "duet.work.refresh",
+                "title": "Вернуться к тикету окна и обновить",
+                "category": "Duet",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "duet.work.smartCollapse",
+                "title": "Свернуть всё",
+                "category": "Duet",
+                "icon": "$(collapse-all)"
+            },
+            {
+                "command": "duet.work.smartExpand",
+                "title": "Раскрыть до выбранной глубины",
+                "category": "Duet",
+                "icon": "$(expand-all)",
+                "enablement": "duet.work.ready && duet.work.hasFolders"
+            },
+            {
+                "command": "duet.work.smartExpandBlocked",
+                "title": "Плюс недоступен: выбранная глубина несовместима с «Одна папка за раз»",
+                "category": "Duet",
+                "icon": "$(expand-all)",
+                "enablement": "duet.work.never"
+            },
+            {
+                "command": "duet.work.newFileInRoot",
+                "title": "Новый файл в корне…",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy"
+            },
+            {
+                "command": "duet.work.newFolderInRoot",
+                "title": "Новая папка в корне…",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy"
+            },
+            {
+                "command": "duet.work.resetRootOrder",
+                "title": "Сбросить закрепления верхнего уровня",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy && duet.work.rootManual && !duet.work.orderLocked"
+            },
+            {
+                "command": "duet.work.collapseAll",
+                "title": "Свернуть всё",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState && duet.work.anyExpanded"
+            },
+            {
+                "command": "duet.work.expandAll",
+                "title": "Раскрыть всё",
+                "category": "Duet",
+                "enablement": "duet.work.ready && duet.work.hasFolders && !duet.work.blockAll"
+            },
+            {
+                "command": "duet.work.expandLevel1",
+                "title": "Раскрыть на один уровень",
+                "category": "Duet",
+                "enablement": "duet.work.ready && duet.work.hasFolders && !duet.work.block1"
+            },
+            {
+                "command": "duet.work.expandLevel2",
+                "title": "Раскрыть на два уровня",
+                "category": "Duet",
+                "enablement": "duet.work.ready && duet.work.hasFolders && !duet.work.block2"
+            },
+            {
+                "command": "duet.work.collapseLevel",
+                "title": "Свернуть на один уровень",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState && duet.work.hasFolders"
+            },
+            {
+                "command": "duet.work.depth1",
+                "title": "○ Один уровень",
+                "category": "Duet",
+                "enablement": "!duet.work.block1"
+            },
+            {
+                "command": "duet.work.depth1.on",
+                "title": "● Один уровень",
+                "category": "Duet",
+                "enablement": "!duet.work.block1"
+            },
+            {
+                "command": "duet.work.depth2",
+                "title": "○ Два уровня",
+                "category": "Duet",
+                "enablement": "!duet.work.block2"
+            },
+            {
+                "command": "duet.work.depth2.on",
+                "title": "● Два уровня",
+                "category": "Duet",
+                "enablement": "!duet.work.block2"
+            },
+            {
+                "command": "duet.work.depthAll",
+                "title": "○ Всё",
+                "category": "Duet",
+                "enablement": "!duet.work.blockAll"
+            },
+            {
+                "command": "duet.work.depthAll.on",
+                "title": "● Всё",
+                "category": "Duet",
+                "enablement": "!duet.work.blockAll"
+            },
+            {
+                "command": "duet.work.oneFolder.enable",
+                "title": "☐ Одна папка за раз",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.oneFolder.disable",
+                "title": "☑ Одна папка за раз",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.level1",
+                "title": "○ Уровень 1",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.level1.on",
+                "title": "● Уровень 1",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.level2",
+                "title": "○ Уровень 2",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.level2.on",
+                "title": "● Уровень 2",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.level3",
+                "title": "○ Уровень 3",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.level3.on",
+                "title": "● Уровень 3",
+                "category": "Duet",
+                "enablement": "duet.work.hasViewState"
+            },
+            {
+                "command": "duet.work.follow.enable",
+                "title": "☐ Показывать открытый файл",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.follow.disable",
+                "title": "☑ Показывать открытый файл",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.newFile",
+                "title": "Новый файл…",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy"
+            },
+            {
+                "command": "duet.work.newFolder",
+                "title": "Новая папка…",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy"
+            },
+            {
+                "command": "duet.work.newFileClosed",
+                "title": "Новый файл… — сначала раскройте папку",
+                "category": "Duet",
+                "enablement": "duet.work.never"
+            },
+            {
+                "command": "duet.work.newFolderClosed",
+                "title": "Новая папка… — сначала раскройте папку",
+                "category": "Duet",
+                "enablement": "duet.work.never"
+            },
+            {
+                "command": "duet.work.openWith",
+                "title": "Открыть с помощью…",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.revealMac",
+                "title": "Показать в Finder",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.revealWin",
+                "title": "Показать в Проводнике",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.revealLinux",
+                "title": "Открыть содержащую папку",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.selectForCompare",
+                "title": "Выбрать для сравнения",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.compareWithSelected",
+                "title": "Сравнить с выбранным",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.compareWithSelectedSelf",
+                "title": "Сравнить с выбранным",
+                "category": "Duet",
+                "enablement": "duet.work.never"
+            },
+            {
+                "command": "duet.work.compareSelected",
+                "title": "Сравнить выделенные",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.copyPath",
+                "title": "Копировать абсолютный путь",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.copyAtPath",
+                "title": "Копировать @-путь",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.rename",
+                "title": "Переименовать…",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.duplicate",
+                "title": "Дублировать",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy"
+            },
+            {
+                "command": "duet.work.delete",
+                "title": "Удалить…",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.work.pin",
+                "title": "Закрепить",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy && !duet.work.orderLocked"
+            },
+            {
+                "command": "duet.work.unpin",
+                "title": "Открепить",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy && !duet.work.orderLocked"
+            },
+            {
+                "command": "duet.work.resetOrder",
+                "title": "Сбросить закрепления папки",
+                "category": "Duet",
+                "enablement": "duet.work.ready && !duet.work.busy && !duet.work.orderLocked"
+            },
+            {
+                "command": "duet.bin.select",
+                "title": "Показать в рабочей папке",
+                "category": "Duet"
+            },
+            {
+                "command": "duet.bin.copyAtPath",
+                "title": "Копировать @-путь",
+                "category": "Duet"
             }
         ],
         "submenus": [
@@ -118,6 +417,14 @@
                 "id": "duet.contextSettingsMenu",
                 "label": "Настройки",
                 "icon": "$(gear)"
+            },
+            {
+                "id": "duet.work.depthMenu",
+                "label": "Кнопка плюс раскрывает"
+            },
+            {
+                "id": "duet.work.levelMenu",
+                "label": "Начиная с уровня"
             }
         ],
         "menus": {
@@ -157,6 +464,106 @@
                     "command": "duet.toggleExpand",
                     "when": "view == duet.contexts",
                     "group": "navigation@3"
+                },
+                {
+                    "command": "duet.work.showHidden",
+                    "when": "view == duet.work && !duet.work.showHidden",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "duet.work.hideHidden",
+                    "when": "view == duet.work && duet.work.showHidden",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "duet.work.refresh",
+                    "when": "view == duet.work",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "duet.work.smartCollapse",
+                    "when": "view == duet.work && duet.work.hasExpanded",
+                    "group": "navigation@3"
+                },
+                {
+                    "command": "duet.work.smartExpand",
+                    "when": "view == duet.work && !duet.work.hasExpanded && !duet.work.blockDepth",
+                    "group": "navigation@3"
+                },
+                {
+                    "command": "duet.work.smartExpandBlocked",
+                    "when": "view == duet.work && !duet.work.hasExpanded && duet.work.blockDepth",
+                    "group": "navigation@3"
+                },
+                {
+                    "command": "duet.work.newFileInRoot",
+                    "when": "view == duet.work",
+                    "group": "1_root@1"
+                },
+                {
+                    "command": "duet.work.newFolderInRoot",
+                    "when": "view == duet.work",
+                    "group": "1_root@2"
+                },
+                {
+                    "command": "duet.work.resetRootOrder",
+                    "when": "view == duet.work",
+                    "group": "1_root@3"
+                },
+                {
+                    "command": "duet.work.collapseAll",
+                    "when": "view == duet.work",
+                    "group": "2_tree@1"
+                },
+                {
+                    "command": "duet.work.expandAll",
+                    "when": "view == duet.work",
+                    "group": "2_tree@2"
+                },
+                {
+                    "command": "duet.work.expandLevel1",
+                    "when": "view == duet.work",
+                    "group": "2_tree@3"
+                },
+                {
+                    "command": "duet.work.expandLevel2",
+                    "when": "view == duet.work",
+                    "group": "2_tree@4"
+                },
+                {
+                    "command": "duet.work.collapseLevel",
+                    "when": "view == duet.work",
+                    "group": "2_tree@5"
+                },
+                {
+                    "submenu": "duet.work.depthMenu",
+                    "when": "view == duet.work",
+                    "group": "3_settings@1"
+                },
+                {
+                    "command": "duet.work.oneFolder.enable",
+                    "when": "view == duet.work && !duet.work.oneFolder",
+                    "group": "3_settings@2"
+                },
+                {
+                    "command": "duet.work.oneFolder.disable",
+                    "when": "view == duet.work && duet.work.oneFolder",
+                    "group": "3_settings@2"
+                },
+                {
+                    "submenu": "duet.work.levelMenu",
+                    "when": "view == duet.work",
+                    "group": "3_settings@3"
+                },
+                {
+                    "command": "duet.work.follow.enable",
+                    "when": "view == duet.work && !duet.work.followEditor",
+                    "group": "3_settings@4"
+                },
+                {
+                    "command": "duet.work.follow.disable",
+                    "when": "view == duet.work && duet.work.followEditor",
+                    "group": "3_settings@4"
                 }
             ],
             "explorer/context": [
@@ -202,6 +609,214 @@
                 {
                     "command": "duet.bin.toBacklog",
                     "when": "false"
+                },
+                {
+                    "command": "duet.work.showHidden",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.hideHidden",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.refresh",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.smartCollapse",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.smartExpand",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.smartExpandBlocked",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.newFileInRoot",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.newFolderInRoot",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.resetRootOrder",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.collapseAll",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.expandAll",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.expandLevel1",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.expandLevel2",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.collapseLevel",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.depth1",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.depth1.on",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.depth2",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.depth2.on",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.depthAll",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.depthAll.on",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.oneFolder.enable",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.oneFolder.disable",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.level1",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.level1.on",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.level2",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.level2.on",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.level3",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.level3.on",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.follow.enable",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.follow.disable",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.newFile",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.newFolder",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.newFileClosed",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.newFolderClosed",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.openWith",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.revealMac",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.revealWin",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.revealLinux",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.selectForCompare",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.compareWithSelected",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.compareWithSelectedSelf",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.compareSelected",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.copyPath",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.copyAtPath",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.rename",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.duplicate",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.delete",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.pin",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.unpin",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.work.resetOrder",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.bin.select",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.bin.copyAtPath",
+                    "when": "false"
                 }
             ],
             "view/item/context": [
@@ -229,6 +844,175 @@
                     "command": "duet.bin.toBacklog",
                     "when": "view == duet.bin && viewItem == ticket-work",
                     "group": "inline@3"
+                },
+                {
+                    "command": "duet.work.newFile",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^(file|folder\\.open)/",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "duet.work.newFolder",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^(file|folder\\.open)/",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "duet.work.newFileClosed",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^folder\\.closed/",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "duet.work.newFolderClosed",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^folder\\.closed/",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "duet.work.openWith",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^file/",
+                    "group": "navigation@3"
+                },
+                {
+                    "command": "duet.work.revealMac",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^(file|folder)/ && isMac",
+                    "group": "navigation@4"
+                },
+                {
+                    "command": "duet.work.revealWin",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^(file|folder)/ && isWindows",
+                    "group": "navigation@4"
+                },
+                {
+                    "command": "duet.work.revealLinux",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^(file|folder)/ && isLinux",
+                    "group": "navigation@4"
+                },
+                {
+                    "command": "duet.work.selectForCompare",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^file/",
+                    "group": "3_compare@1"
+                },
+                {
+                    "command": "duet.work.compareWithSelected",
+                    "when": "view == duet.work && !listMultiSelection && resourceSelectedForCompare && viewItem =~ /^file(?!\\.cmp)/",
+                    "group": "3_compare@2"
+                },
+                {
+                    "command": "duet.work.compareWithSelectedSelf",
+                    "when": "view == duet.work && !listMultiSelection && resourceSelectedForCompare && viewItem =~ /^file\\.cmp/",
+                    "group": "3_compare@2"
+                },
+                {
+                    "command": "duet.work.compareSelected",
+                    "when": "view == duet.work && listDoubleSelection && viewItem =~ /^file/",
+                    "group": "3_compare@3"
+                },
+                {
+                    "command": "duet.work.copyPath",
+                    "when": "view == duet.work && viewItem =~ /^(file|folder)/",
+                    "group": "6_copypath@1"
+                },
+                {
+                    "command": "duet.work.copyAtPath",
+                    "when": "view == duet.work && viewItem =~ /^(file|folder)/",
+                    "group": "6_copypath@2"
+                },
+                {
+                    "command": "duet.work.rename",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^(file|folder)/",
+                    "group": "7_modification@1"
+                },
+                {
+                    "command": "duet.work.duplicate",
+                    "when": "view == duet.work && viewItem =~ /^(file|folder)/",
+                    "group": "7_modification@2"
+                },
+                {
+                    "command": "duet.work.delete",
+                    "when": "view == duet.work && viewItem =~ /^(file|folder)/",
+                    "group": "7_modification@3"
+                },
+                {
+                    "command": "duet.work.pin",
+                    "when": "view == duet.work && viewItem =~ /^(file|folder)(?!.*\\.pin)/",
+                    "group": "8_order@1"
+                },
+                {
+                    "command": "duet.work.unpin",
+                    "when": "view == duet.work && viewItem =~ /^(file|folder).*\\.pin/",
+                    "group": "8_order@2"
+                },
+                {
+                    "command": "duet.work.resetOrder",
+                    "when": "view == duet.work && !listMultiSelection && viewItem =~ /^folder\\..*manual$/",
+                    "group": "8_order@3"
+                },
+                {
+                    "command": "duet.bin.copyAtPath",
+                    "when": "view == duet.bin && viewItem =~ /^ticket-/",
+                    "group": "6_copypath@1"
+                }
+            ],
+            "duet.work.depthMenu": [
+                {
+                    "command": "duet.work.depth1.on",
+                    "when": "duet.work.depth != '2' && duet.work.depth != 'all'",
+                    "group": "1@1"
+                },
+                {
+                    "command": "duet.work.depth1",
+                    "when": "duet.work.depth == '2' || duet.work.depth == 'all'",
+                    "group": "1@1"
+                },
+                {
+                    "command": "duet.work.depth2.on",
+                    "when": "duet.work.depth == '2'",
+                    "group": "1@2"
+                },
+                {
+                    "command": "duet.work.depth2",
+                    "when": "duet.work.depth != '2'",
+                    "group": "1@2"
+                },
+                {
+                    "command": "duet.work.depthAll.on",
+                    "when": "duet.work.depth == 'all'",
+                    "group": "1@3"
+                },
+                {
+                    "command": "duet.work.depthAll",
+                    "when": "duet.work.depth != 'all'",
+                    "group": "1@3"
+                }
+            ],
+            "duet.work.levelMenu": [
+                {
+                    "command": "duet.work.level1.on",
+                    "when": "duet.work.oneFolderLevel == '1'",
+                    "group": "1@1"
+                },
+                {
+                    "command": "duet.work.level1",
+                    "when": "duet.work.oneFolderLevel != '1'",
+                    "group": "1@1"
+                },
+                {
+                    "command": "duet.work.level2.on",
+                    "when": "duet.work.oneFolderLevel != '1' && duet.work.oneFolderLevel != '3'",
+                    "group": "1@2"
+                },
+                {
+                    "command": "duet.work.level2",
+                    "when": "duet.work.oneFolderLevel == '1' || duet.work.oneFolderLevel == '3'",
+                    "group": "1@2"
+                },
+                {
+                    "command": "duet.work.level3.on",
+                    "when": "duet.work.oneFolderLevel == '3'",
+                    "group": "1@3"
+                },
+                {
+                    "command": "duet.work.level3",
+                    "when": "duet.work.oneFolderLevel != '3'",
+                    "group": "1@3"
                 }
             ]
         },
@@ -292,13 +1076,221 @@
                 "mac": "cmd+9",
                 "args": 9,
                 "when": "duet.hasPointer"
+            },
+            {
+                "command": "duet.work.rename",
+                "key": "f2",
+                "when": "focusedView == 'duet.work' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "$treeViewId": "duet.work",
+                    "$focusedTreeItem": true
+                }
+            },
+            {
+                "command": "duet.work.rename",
+                "key": "enter",
+                "when": "focusedView == 'duet.work' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "$treeViewId": "duet.work",
+                    "$focusedTreeItem": true
+                }
+            },
+            {
+                "command": "duet.work.delete",
+                "key": "delete",
+                "mac": "cmd+backspace",
+                "when": "focusedView == 'duet.work' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "$treeViewId": "duet.work",
+                    "$focusedTreeItem": true
+                }
+            },
+            {
+                "command": "duet.work.copyAtPath",
+                "key": "alt+shift+c",
+                "mac": "cmd+shift+c",
+                "when": "focusedView == 'duet.work' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "$treeViewId": "duet.work",
+                    "$focusedTreeItem": true
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "down",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusDown",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "up",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusUp",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "left",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.collapse",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "right",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.expand",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "home",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusFirst",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "end",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusLast",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "pageup",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusPageUp",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "key": "pagedown",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusPageDown",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "mac": "ctrl+n",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusDown",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "command": "runCommands",
+                "mac": "ctrl+p",
+                "when": "focusedView == 'duet.bin' && listFocus && !inputFocus && !treestickyScrollFocused",
+                "args": {
+                    "commands": [
+                        "list.focusUp",
+                        {
+                            "command": "duet.bin.select",
+                            "args": {
+                                "$treeViewId": "duet.bin",
+                                "$focusedTreeItem": true
+                            }
+                        }
+                    ]
+                }
             }
         ],
         "viewsContainers": {
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.56",
+                    "title": "Duet 0.0.61",
                     "icon": "resources/duet-icon.svg"
                 }
             ]
@@ -319,6 +1311,11 @@
                     "initialSize": 2
                 },
                 {
+                    "id": "duet.work",
+                    "name": "Рабочая папка",
+                    "when": "duet.hasPointer"
+                },
+                {
                     "id": "duet.status",
                     "name": "DUET",
                     "when": "!duet.ready"
@@ -327,6 +1324,7 @@
                     "id": "duet.context",
                     "name": "КОНТЕКСТ",
                     "when": "duet.hasPointer && duet.ready",
+                    "visibility": "hidden",
                     "initialSize": 1
                 },
                 {

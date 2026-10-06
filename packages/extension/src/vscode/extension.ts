@@ -23,10 +23,13 @@ import { BinActions, switchToIntent } from './commands/intents';
 import { TicketNode } from '../core/intents/binTree';
 import { ActiveIntent, rowByNumber } from '../core/intents/active';
 import { binTitle } from '../core/intents/naming';
+import { registerWorkView } from './work/registerWorkView';
+import { WorkView } from './work/WorkView';
 
 let backendOutputChannel: vscode.OutputChannel | null = null;
 let sidebarState: SidebarStateManager | null = null;
 let intentsRuntime: IntentsRuntime | null = null;
+let workView: WorkView | null = null;
 
 class StubProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
@@ -50,6 +53,15 @@ export async function activate(context: vscode.ExtensionContext) {
             await registerIntentsView(context, intentsRuntime);
         } catch (e) {
             console.error('[Duet] intents not started:', e);
+        }
+        // «Рабочая папка» shows the ticket of the window from the disk alone, so it
+        // starts here too. A failure in it must not take the other views down
+        if (intentsRuntime) {
+            try {
+                workView = registerWorkView(context, intentsRuntime, paths);
+            } catch (e) {
+                console.error('[Duet] work view not started:', e);
+            }
         }
     }
 
@@ -150,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const contextProvider = new ContextProvider(contexts);
             let binProvider: BinProvider | null = null;
             try {
-                binProvider = intentsRuntime ? registerBinView(context, intentsRuntime, paths, contexts) : null;
+                binProvider = intentsRuntime ? registerBinView(context, intentsRuntime, paths, contexts, workView) : null;
             } catch (e) {
                 console.error('[Duet] bin view not started:', e);
             }
@@ -263,7 +275,8 @@ function registerBinView(
     context: vscode.ExtensionContext,
     runtime: IntentsRuntime,
     paths: Paths,
-    contexts: ContextEntity[]
+    contexts: ContextEntity[],
+    work: WorkView | null
 ): BinProvider {
     const board = new TicketBoard(runtime.tickets);
     const provider = new BinProvider(contexts, runtime, board);
@@ -288,6 +301,11 @@ function registerBinView(
         vscode.commands.registerCommand('duet.bin.openHere', (node: TicketNode) => actions.open(node, false)),
         vscode.commands.registerCommand('duet.bin.openNew', (node: TicketNode) => actions.open(node, true)),
         vscode.commands.registerCommand('duet.bin.toBacklog', (node: TicketNode) => actions.toBacklog(node)),
+        // The command of a ticket row: a click, Enter, the space bar and the keys that move the focus
+        // show the ticket in «Рабочая папка». Without that view the row is only selected, as before
+        vscode.commands.registerCommand('duet.bin.select', (node: unknown) => work?.selectFromBin(node)),
+        vscode.commands.registerCommand('duet.bin.copyAtPath', (node: TicketNode) =>
+            node?.kind === 'ticket' ? copyAtPath(vscode.Uri.file(node.ticket.path)) : undefined),
         // Its button is in the title of «Активная Работа», but the business it needs comes from the backend
         vscode.commands.registerCommand('duet.intents.newTicket', () => actions.create())
     );
@@ -298,6 +316,9 @@ function registerBinView(
 }
 
 export function deactivate() {
+    // What is expanded in «Рабочая папка» is written with a delay; the rest of it goes out now
+    workView?.flushViewSync();
+    workView = null;
     intentsRuntime?.removeOwnMarkerSync();
     setIntentsRuntime(null);
     disposeGitOutputChannel();

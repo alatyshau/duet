@@ -24,7 +24,14 @@ Extension has two jobs.
 
 This is an experiment (DUE017): only stock side-bar features, no UI of its own. Contracts: [Intents](#intents).
 
-What the Extension still never does: write `settings.json`, `{machine}.json` or a manifest, edit a ticket's `INDEX.md` (it only reads `parent`, `work-type` and `icon` from it), create a ticket folder. Root-context editing, schema migrations, AI client configuration live in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
+**A file tree of one ticket.** The «Рабочая папка» view (DUE018) shows the folder of the window's ticket the way Explorer shows the folder of a project, with what Explorer lacks — an order of rows set by hand — and it acts on the user's files:
+
+9. Show the files of a ticket, keep the order of its rows in the business folder and what is expanded in `DuetData/views/work/`.
+10. Create, rename, duplicate, move and trash files and folders inside that ticket, by the ordinary operations of the editor's file service.
+
+Contracts: [Work view](#work-view).
+
+What the Extension still never does: write `settings.json`, `{machine}.json` or a manifest, edit a ticket's `INDEX.md` (it only reads `parent`, `work-type` and `icon` from it; the user may rename or trash it through «Рабочая папка» like any file), delete anything for good — a deletion goes to the system trash or does not happen. Root-context editing, schema migrations, AI client configuration live in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
 
 ## Architecture
 
@@ -78,6 +85,11 @@ It also reads the business folder straight from disk, without Backend:
 | `<business>/.vscode/duet-intents.json` | `intents/binOrder.ts` | order of the bin |
 | `DuetData/intents/<program>/` | `intents/markers.ts:MarkerStore` | window markers, order of active intents |
 | The window's `workbench.colorCustomizations` | `vscode/intents/IntentsRuntime.ts` | the colour in force, written into the window marker |
+| The folder of the shown ticket, whole | `folderView/snapshot.ts:readSnapshot` | names and kinds of everything in it, read into memory; file content is never read |
+| `<business>/.vscode/duet-work-order/<number>.json` | `folderView/order.ts` | the pinned rows of a ticket: per folder, a list of pinned folders and a list of pinned files |
+| `DuetData/views/work/tickets/<business folder>/<number>.json` | `work/viewFiles.ts` | what is expanded in a ticket, with the «одна папка за раз» rule and its level |
+| `DuetData/views/work/windows/<program>/<window key>.json` | `work/viewFiles.ts` | the eye, «показывать открытый файл», the depth of the plus button — of one window |
+| `files.exclude`, `explorer.excludeGitIgnore` (with the scope of the ticket's workspace folder) and the `.gitignore` files from that folder down to the ticket and inside it | `vscode/work/WorkView.ts:readFilter` | what Explorer hides, to hide the same |
 
 All entity data flows from Backend:
 
@@ -116,6 +128,7 @@ Both providers are synchronous wrappers around a snapshot:
 |---------|----------|-------------|---------|
 | `duet.intents` (Активная Работа) | `IntentsProvider` | window markers of the program (`MarkerStore`) | Flat list: business windows, then active intents of every business in the order set by dragging; each row in the colour of its window |
 | `duet.bin` (Корзина) | `BinProvider` | ticket folders of the window's business + markers | Tickets from `work/` and `backlog/` by container; a ticket with an open window is in the colour of that window |
+| `duet.work` (Рабочая папка) | `work/WorkView` | the folder of one ticket on disk, its order file, the two view files | The files and folders of the shown ticket, without a row for the ticket itself |
 | `duet.contexts` (Все Бизнесы) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. A context is highlighted when its own folder is among the window's folders |
 | `duet.context` (КОНТЕКСТ) | `ContextProvider` | the same `ContextEntity[]` | Venture → current business → businesses directly under it. No business folder in the window → single info node |
 
@@ -160,6 +173,21 @@ All hidden from the Command Palette (`commandPalette: when: false`): they act on
 | `duet.bin.toBacklog` | inline on a bin ticket from `work/` without an open window | Move the ticket folder to `backlog/` |
 
 `duet.intents.*` are registered as soon as the pointer is read; `duet.bin.*` after Backend has answered, with the rest of the backend-dependent commands — and `duet.intents.newTicket` with them: its button is in the «Активная Работа» title, but the business it needs comes from Backend, so the button is hidden until `duet.ready`. Bin commands run one at a time, and a command of a row first finds its ticket on disk by number (`intents/tickets.ts:resolveTicketNow`): a row is what the board read last, and no action runs on a stale path. Implementation: `vscode/commands/intents.ts`.
+
+#### Work view commands
+
+All `duet.work.*`, all hidden from the Command Palette. Registered with the view, as soon as the pointer is read (`vscode/work/registerWorkView.ts`).
+
+| Commands | Where | Action |
+|----------|-------|--------|
+| `showHidden` / `hideHidden`, `refresh`, `smartCollapse` / `smartExpand` / `smartExpandBlocked` | the title: three buttons, the «…» is added by the platform | The eye; back to the ticket of the window, read anew; collapse all while a folder is seen expanded, else expand to the chosen depth. A button changes its look by a pair of commands with opposite `when`; `smartExpandBlocked` does nothing and only carries the reason in its title |
+| `newFileInRoot`, `newFolderInRoot`, `resetRootOrder`, `collapseAll`, `expandAll`, `expandLevel1`, `expandLevel2`, `collapseLevel` | under «…» | Acts on the whole tree. The root has no row and the tree gives no menu on empty space, so the root's create and reset are here |
+| `depth1` / `depth2` / `depthAll`, `oneFolder.enable` / `.disable`, `level1` … `level3`, `follow.enable` / `.disable`, each value with an `.on` twin | under «…», two of them in submenus | Settings. A menu item of an extension cannot carry a check mark, so a value is a pair of commands with the mark in the title — `○`/`●`, `☐`/`☑`; the twin that shows the chosen value does nothing |
+| `newFile`, `newFolder`, `openWith`, `revealMac` / `revealWin` / `revealLinux`, `selectForCompare`, `compareWithSelected`, `compareSelected`, `copyPath`, `copyAtPath`, `rename`, `duplicate`, `delete`, `pin`, `unpin`, `resetOrder` | context menu of a row | See [UI.md → Рабочая папка](UI.md). `newFileClosed`, `newFolderClosed`, `compareWithSelectedSelf` are greyed twins whose title tells why the item cannot be used |
+| `rename` (Enter, F2), `delete` (Delete; Cmd+Backspace on macOS), `copyAtPath` (Cmd+Shift+C / Alt+Shift+C) | keys, while the focus is in the tree of the view | The keybinding passes the focused row through its `args` — `{ "$treeViewId": "duet.work", "$focusedTreeItem": true }`, which the extension host replaces with the row; a key otherwise gets no argument, and the selection is not where the focus is after the arrows. These commands carry no `enablement`: it would join the keybinding's `when`, and a disabled command would hand Enter back to the stock «open» |
+| `duet.bin.select`, `duet.bin.copyAtPath` | the command of a ticket row of Корзина and the keys that move its focus; its context menu | Show the ticket in the work view; copy its `@`-reference. Registered with the bin; without the work view `duet.bin.select` only selects |
+
+What is available is told to the menus by context keys `duet.work.*`, all computed by one function, `folderView/availability.ts:availability`: `ready`, `busy`, `hasViewState`, `hasFolders`, `hasExpanded`, `anyExpanded`, `showHidden`, `followEditor`, `depth`, `oneFolder`, `oneFolderLevel`, `block1` / `block2` / `blockAll` / `blockDepth` (a mass expansion to that depth would reach the level the rule acts from), `rootManual`, `orderLocked`. Every `when` is written so that a key not yet set gives the default.
 
 #### `duet.copyAtPath` — copy `@`-reference
 
@@ -397,6 +425,81 @@ In an intent window, and only there, at start (`vscode/intents/notepad.ts`, deci
 | Then, unless a pinned tab with the notepad exists, it is opened and pinned, and the tab that was active becomes active again | The notepad must not take the user out of the chat |
 | Pinning happens at most once per window session: `vscode.env.sessionId` is kept in `workspaceState` | The extension may restart inside a living window; pinning again would undo the user's choice to unpin or close, which holds until the window starts again. Checked on VS Code 1.140: `sessionId` survives an extension-host restart and changes on a window reload |
 
+### Work view
+
+«Рабочая папка» (DUE018). What the user sees: [UI.md → Рабочая папка](UI.md). The behaviour is set by the accepted model of the ticket; Explorer is the ceiling of caution — no protection stricter or more complex than Explorer's is built unless the user named the case.
+
+Pure logic: `core/folderView/` — a tree of one folder with an order of its own, a filter and an expansion memory, knowing nothing of tickets, because the same parts are meant for views to come — and `core/work/`. Wiring: `vscode/work/`.
+
+#### Which ticket
+
+`work/shown.ts:nextShown` — a pure function over «what is shown» and an event: the start and the refresh button, a ticket row of the bin, the shown folder gone. The shown ticket is a number *and* a folder path: the bin shows two folders of one number as two rows. The folder is found by `locateTicket`, which, unlike the bin's reader, tells «no such ticket» from «the folders did not answer». Every choice takes a request number; a reading that ends under an older one is dropped, and a file operation holds the paths of the ticket it began in (`WorkView.exclusive`).
+
+#### The tree
+
+| Rule | Why |
+|------|-----|
+| The folder is read into memory whole (`folderView/snapshot.ts`), each folder with a timeout; `getChildren`, `getTreeItem`, `getParent` answer from the snapshot at once | An asynchronous answer lets two readings of one folder meet («Element with id … is already registered»), and «expand all» needs the whole tree |
+| On macOS a name is brought to NFC as it is read | File events come in NFC while `readdir` gives the name as stored; the user's drive holds names in both forms |
+| The tree element is a string `<number>\|<kind>\|<path>`; the row id adds a number of the window and, for a folder, its *epoch* | The extension host finds a row by the identity of its element. The window's number keeps a row dropped from another window from being taken for the view's own |
+| One watcher on the ticket folder; an event names a folder to read again, 250 ms after the first event and without restarting the count; overlapping readings are joined (`intents/coalesce.ts`); a folder whose listing did not change is not redrawn | The ticket lies inside a folder the window watches already, so the events are Explorer's own. An agent that keeps writing must not hold the tree back |
+| Redraws go through one gate of 25 ms, as in the bin; while a drag is under way nothing is drawn | Two refreshes a few milliseconds apart make the tree ask for rows already replaced; a row must not move from under the pointer |
+| A symbolic link to a folder is read while its target lies inside the ticket and is not a folder above the link; else its row shows one line with the reason | The view shows one ticket, not the disk |
+
+#### Hidden files
+
+`folderView/filter.ts:computeHidden` repeats Explorer's own filter (`FilesFilter.isVisible`, VS Code 1.104). The matcher of `files.exclude` (`folderView/glob.ts`) and the reading of `.gitignore` (`folderView/ignore.ts`) are that version's rules written out: Explorer's matcher is not exposed to extensions, the extension has no dependencies, and glob libraries differ in dialect. The visible editors are the active tabs of the tab groups. A newer VS Code may judge a pattern differently — in case, for one — and then the two trees differ until these files follow it.
+
+#### Order and pins
+
+The order of a folder is computed, never stored: folders by the alphabet, then files by the alphabet (`names.ts:compareDefault`), with the pinned rows of each kind first (`order.ts:mergeOrder`). Only the pins are kept: `<business>/.vscode/duet-work-order/<number>.json` — next to the order of the bin, one file per ticket: `{ "version": 2, "folders": { ".": { "dirs": [names…], "files": [names…] }, "sub/folder": { … } } }`, names in NFC. The file name is the one of the earlier model.
+
+| Rule | Why |
+|------|-----|
+| A folder has two lists of pins, of folders and of files; a pin speaks of its own kind only (`mergeOrder`) | Folders and files are never mixed |
+| A list that is absent means the pins the folder starts with: for the files of the root — `PINNED_FILES` (`INDEX.md`, `AGENDA.md`, `notepad.md`), anywhere else none (`startingPins`). The list is written out when a person first changes it, and a folder whose pins are again the starting ones loses its key (`applyOrderOps`) | The file holds only what a person changed; «reset» is «delete the key» |
+| A pin is a name: a name that is not on the disk is not shown and stays in the list; a deletion and a move to another folder do not touch it. Only «Открепить», a reset and a rename through the view change it (`pin`, `unpin`, `reset`, `rename`) | The file may arrive from another machine before the file it speaks of — the lesson already written into `binOrder.ts`; and a starting pin must survive the file being made anew |
+| A drop inside one folder becomes operations on pins (`workCommands.ts:reorder`): `pin` for the dropped rows that are not pinned, then `place` next to the pinned target. A drop into another folder is a move and writes no pins, except `moveFolder` that carries the keys of a moved folder | Moving and pinning are told apart by the folder, which a person sees before dropping — not by what happens to lie under the pointer |
+| Kept the way the order of the bin is: only the exact file name is read; before a write the file is read again and the operation is applied to what was read, touching only the keys it names; one write in place (`order.ts:changeOrder`). No lock and no journal | The neighbour's way, and Explorer's level of caution: two windows that change the pins of one ticket in the same instant leave one of the two changes |
+| A file that cannot be read or parsed, or carries a newer `version`, is never written: the rows stand by the last pins read well, and a change is refused with the reason (`orderLock`). The same while two folders carry the ticket's number | Unreadable pins must not be replaced by none |
+| A file of version 1 — the free arrangement, a list of names per folder — is read as a file with no pins (`parseOrder`) and replaced by the first write. An extension older than this one reads a file of version 2 as «newer»: it shows the default order and refuses to write | Nothing is migrated: the free arrangement was given up, not converted |
+| The view does not recognise a rename made past it: the new name is not pinned, the old one waits in the list | Explorer has no such thing, and no sign of «the same file» is reliable — an agent's write through a temporary file changes the inode |
+
+#### Expansion
+
+VS Code keeps the expansion of a row of an extension's tree by its id, in the memory of the window only, and gives no call to collapse one row; while a row with an id is in the tree, the state its `TreeItem` declares is ignored. So the view keeps the set of expanded folders itself (`work/tree.ts:WorkTree`), always declares the state from it, and to change a folder against the tree's memory raises the folder's *epoch*, which is part of its id: the tree draws that folder anew in the declared state, and every other row keeps its id — and with it the selection and the scroll. One counter for the whole tree, as in the bin, would drop the selection at every press; collapsing all and revealing folder by folder, as `AccordionController` does, would raise a hidden view and scroll it.
+
+| Rule | Why |
+|------|-----|
+| The set changes in two ways: the tree reports what a person did (`didExpand`, `didCollapse`), or the view decides (`enforce`). An event that repeats what the set holds is the echo of the view's own redraw | — |
+| «Одна папка за раз» is one pure function, `expand.ts:oneAtATime`, applied wherever a folder is expanded | The rule must not depend on who expanded |
+| During a drag of the view's own rows an expansion is recorded and nothing else happens; at the end the rule is applied once — for the folder of the target after a drop, of the source after a cancel (`WorkTree.endDrag`). The end is known from `handleDrop` and from the cancellation of the token `handleDrag` was given; a drop taken outside the tree reports neither and counts as a cancel at the next event of the view or of the editor | Decided by the user: while dragging, nothing collapses |
+| With the rule on, expansions of folders below the one just expanded that come within 50 ms are the tail of the platform's recursive gesture: they are not taken, and those folders are drawn collapsed | The gesture sends an event per folder of the branch |
+| What is expanded, the rule and its level are written together to `DuetData/views/work/tickets/…`, 500 ms after the last change of this window and synchronously in `deactivate`; only a window that changed them writes. The file is read on every entry into a ticket and never watched | A ticket comes back whole; a window already showing it does not jump after another one |
+| The file of the active editor is shown by expanding the way to it in the view's own set and then calling `reveal` with `expand: false`, only while the view is visible | Left to `reveal`, the expansions would come back as if made by hand; `reveal` raises a hidden view |
+
+#### File operations
+
+`vscode/work/workDisk.ts` — through `workspace.fs`, the file service Explorer itself uses: a rename moves the open tab along and a trash closes it exactly as after the same act in Explorer, and since `workspace.fs` sends no rename events to extensions, no link is rewritten and nothing lands in the editor's undo stack. Deleting uses the trash; when it refuses, the object stays. One operation runs at a time and nothing is queued.
+
+An operation acts on what the disk says at the moment of the change, not on what the tree showed when it was asked for — between the two a name box or a question may stand open for any time, and every reading of the disk takes its own:
+
+| Rule | Where | Why |
+|------|-------|-----|
+| Every operation that writes into a folder first reads that folder and the one above it, and goes on only when the folder is there and read. A folder that did not answer, a link out of the ticket and a folder that is gone each refuse in one line | `WorkView.unconfirmed`, `folderTrouble` | A listing that failed used to read as an empty folder: a taken name passed for a free one, and a move made a deleted folder again |
+| A new file is created by the disk's own exclusive create (`fs.writeFile` with `wx`), not by `workspace.fs.writeFile` | `workDisk.ts` | `workspace.fs.writeFile` writes over a file that is there; Explorer's own create refuses one. The exclusive flag also closes the gap between the check and the write |
+| What is unsaved is asked again right before each rename, move and delete, and by the real place of the files — a file open under one path is found when the row reaches it through a link to its folder. A row that is a link itself is acted on as the link | `WorkView.unsaved` | The refusal of T78 was checked only before the name box and before the question |
+| An operation writes the order into the file of the ticket it began in, named when it began; the tree is touched only while that ticket is still shown | `Operation.writeOrder`, `WorkView.writeOrderOf` | The order used to go to whatever ticket was shown when the operation ended |
+| A name that differs from the renamed one in case alone passes only when no other object of the folder bears it | `WorkView.isTaken` with `except` | Two names that differ in case are two files on a disk that tells them apart |
+| An act on several objects that stops half-way says why, what was done before and what was not begun | `partial` in `workCommands.ts` | The set must not have to be repeated whole |
+| A write or a deletion of any `.gitignore` in the ticket or above it reads the rules of hiding anew | `WorkView.diskChanged`, the `**/.gitignore` watcher in `watch` | A change of its text changes no listing, and after a deletion no listing holds the file |
+
+A test of these rules goes through the command of the view (`workView.test.ts`, «Ревью: …»), not through the pure function alone: the drop that always landed before its target passed the planner's own test, which handed it a target taken from the same array of rows.
+
+#### What is not built
+
+No row for the ticket; no folded folder chains; no nesting of related files; no git marks; no search of its own; no «open to the side» and no terminal; no cut, copy and paste; no undo of file operations; no relative path; no create buttons in the title; no opening of `INDEX.md` when a ticket is chosen; no rewriting of links; no tickets of other businesses; no permanent deletion.
+
 ### Tree Decorations
 
 `TreeDecorationProvider.ts` is a `FileDecorationProvider`: a row names an address as its `resourceUri`, and the provider answers with the colour of the row's text. Registered at the start of activation, before Backend is asked for anything — «Активная Работа» needs it with Backend down.
@@ -436,7 +539,8 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 | Layer | Tool | Approach |
 |-------|------|----------|
 | `core/` | vitest | Unit tests with mock `ContextEntity[]` and `DuetApiClient` |
-| `vscode/` | @vscode/test-electron | Integration tests (planned) |
+| `vscode/` providers and commands of the intent views and of the work view | vitest | Run against a stand-in for the `vscode` module: the intent views declare theirs in the test file; the work view uses `test/unit/helpers/fakeVscode.ts` — a tree view a test can play the person on — and `helpers/memDisk.ts`, a disk in memory. `workManifest.test.ts` reads `package.json`: a menu is all declaration |
+| `vscode/` in a real window | @vscode/test-electron | Integration tests (planned). What only a real window shows — a click, a drag, the keys, the trash, the cloud drive — is checked by hand |
 
 ### File Map
 
@@ -472,4 +576,19 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 | Tree decorations (separators, window colours) | `vscode/providers/TreeDecorationProvider.ts` |
 | Colour of the notepad's name on its tab | `vscode/providers/NotepadDecorationProvider.ts` |
 | Accordion controller | `core/tree/AccordionController.ts` |
+| Work view: names, default order, name of a copy, judging a typed name | `core/folderView/names.ts` |
+| Work view: a folder read into memory, what to read again on file events | `core/folderView/snapshot.ts` |
+| Work view: what is hidden — `files.exclude`, `.gitignore`, visible editors | `core/folderView/filter.ts`, `glob.ts`, `ignore.ts` |
+| Work view: the order of a folder, the pins file and its operations | `core/folderView/order.ts` |
+| Work view: rows, the empty row, screen order | `core/folderView/rows.ts` |
+| Work view: expansion as pure functions, «одна папка за раз» | `core/folderView/expand.ts` |
+| Work view: meaning of a drop, targets of a command, focus after a deletion | `core/folderView/drop.ts` |
+| Work view: what is available — the context keys | `core/folderView/availability.ts` |
+| Work view: which ticket is shown, the header, finding the ticket folder | `core/work/shown.ts` |
+| Work view: the tree of one ticket — expanded set, epochs, drag, filter | `core/work/tree.ts` (`WorkTree`) |
+| Work view: the ticket file and the window file | `core/work/viewFiles.ts`, `core/paths.ts` |
+| Work view: provider, watchers, header, context keys, name box | `vscode/work/WorkView.ts` |
+| Work view: commands on files, drop, import | `vscode/work/workCommands.ts` (`WorkActions`), `vscode/work/workDisk.ts` |
+| Work view: registration and the table of commands | `vscode/work/registerWorkView.ts` |
+| One-line notices | `vscode/notify.ts` (`say`, `inform`) |
 | Entity types in Extension | `core/api-client.ts` → `ContextEntity` type |

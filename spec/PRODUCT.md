@@ -199,6 +199,10 @@ DuetData/
 │       ├── windows/
 │       │   └── {key}-{pid}.json       # window marker: a window Duet opened — key is a ticket number or @{business} (Extension writes)
 │       └── active.json            # order of active intents, set by dragging (Extension writes)
+├── views/
+│   └── work/                      # «Рабочая папка» view (Extension writes)
+│       ├── tickets/{business folder}/{number}.json   # what is expanded in a ticket, per machine
+│       └── windows/{program}/{window key}.json       # settings of the view that belong to one window
 ├── backend/
 │   ├── VERSION                    # installed backend version (written by Host)
 │   ├── server.py                  # backend code (deployed by Host)
@@ -422,11 +426,14 @@ Products and components are described by **single canonical spec files** — no 
 | Ticket `INDEX.md` | — | reads frontmatter (`parent`, `work-type`, `icon`) | — | **write** (work rules, not the platform) |
 | Ticket `notepad.md` | — | **creates**; keeps its first-line heading (through the editor's document); the rest is the user's | — | — |
 | `<business>/.vscode/duet-intents.json` | — | **writes** (order of the bin, on drag only) | — | — |
+| `<business>/.vscode/duet-work-order/{number}.json` | — | **writes** (pinned rows of a ticket in «Рабочая папка»: on pin and unpin, on a drag among pinned rows, on a rename of a pinned row, on reset) | — | — |
+| `DuetData/views/work/**` | — | **writes** (what is expanded per ticket; the view settings of a window) | — | — |
+| Files and folders inside a ticket folder | — | on the user's act in «Рабочая папка» only: **creates**, **renames**, **moves** within the ticket, **copies**, **moves to the system trash**; never deletes for good, never reads content | — | create and edit (work rules, not the platform) |
 | Context `<context>/.claude/skills/`, `<context>/.agents/skills/`, `.claude/CLAUDE.md`/`.kimi-code/AGENTS.md`/`.agents/rules/gemini.md`, `.claude/output-styles/`, `.kimi-code/agents/agent.md`; the `outputStyle` key of `.claude/settings.json` and the `model_instructions_file` key of `.codex/config.toml` (key-wise — the rest of both files is the user's) | — | triggers `/deploy-instructions` | **writes** (deploy) | reads |
 
 **Single-writer invariant** for `settings.json` and `{machine}.json` (see Invariants): Host is the only writer. Extension does not have its own write path to them; before any root context folder edit it must direct the user to Host.
 
-**What the Extension writes.** Everything it writes belongs to opening windows: the workspace files of contexts and intents, the window markers and the order of active intents in `DuetData/`, and — in the business folder on Drive — the notepad of a ticket, the order file of the bin, the move of a ticket folder between `backlog/` and `work/`, and the folder of a new ticket with its `INDEX.md`. Files in DuetData are written through a temporary file and a rename; files on Drive are written in place by a single write, because a sync client may turn a rename into a conflict copy. Contracts: [extension COMPONENT.md → Intents](../packages/extension/spec/COMPONENT.md#intents).
+**What the Extension writes.** Everything it writes belongs to opening windows: the workspace files of contexts and intents, the window markers and the order of active intents in `DuetData/`, and — in the business folder on Drive — the notepad of a ticket, the order file of the bin, the move of a ticket folder between `backlog/` and `work/`, the folder of a new ticket with its `INDEX.md`, and the order file of a ticket's rows. Apart from opening windows it writes for one view: «Рабочая папка» keeps what is expanded in `DuetData/views/work/` and, on the user's own act, creates, renames, moves, copies and trashes files inside a ticket. Files in DuetData are written through a temporary file and a rename; files on Drive are written in place by a single write, because a sync client may turn a rename into a conflict copy. Contracts: [extension COMPONENT.md → Intents](../packages/extension/spec/COMPONENT.md#intents).
 
 ### Schema Migration Policy
 

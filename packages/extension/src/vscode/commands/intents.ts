@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { messageOf, say } from '../notify';
 import * as path from 'path';
 import { nodeFs } from '../../core/fs';
 import { Paths } from '../../core/paths';
@@ -366,13 +367,4 @@ export class BinActions {
         }
         await this.board.reload();
     }
-}
-
-/** A refusal or a notice is one line. */
-function say(line: string): void {
-    void vscode.window.showWarningMessage(line);
-}
-
-function messageOf(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

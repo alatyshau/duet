@@ -458,11 +458,12 @@ describe('BinProvider', () => {
         expect(provider.getTreeItem(find(provider.getChildren(), 'DUE011')).resourceUri).toBeUndefined();
     });
 
-    it('a click on any row only selects it — the bin never switches windows', async () => {
+    it('a click on a ticket row selects it and shows the ticket in «Рабочая папка» — the bin never switches windows', async () => {
         const { provider } = await loaded([active('DUE008', 'x')]);
         for (const number of ['DUE008', 'DUE011', 'DUE001', 'DUEX02']) {
-            expect(provider.getTreeItem(find(provider.getChildren(), number)).command)
-                .toMatchObject({ command: 'duet.selectNode' });
+            const node = find(provider.getChildren(), number);
+            // The command of the row carries the row itself: two folders of one number are two rows
+            expect(provider.getTreeItem(node).command).toMatchObject({ command: 'duet.bin.select', arguments: [node] });
         }
     });
 
