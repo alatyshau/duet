@@ -6,7 +6,8 @@ import { spaceIntentName } from './naming';
 /**
  * Tickets of a business as they lie on disk: folders right inside `work/` and
  * `backlog/` whose name fits the ticket-number rule. Everything else in those
- * folders is not shown. The archive is read only to find one ticket by number.
+ * folders is not shown. The archive is read only to find one ticket by number
+ * and to collect the numbers a new ticket must stay clear of.
  */
 
 /** The two folders whose tickets the bin shows. */
@@ -193,6 +194,46 @@ export class TicketReader {
         return search(path.join(businessPath, 'archive'), 1);
     }
 
+    /**
+     * Numbers of all tickets of a business: right inside `work/` and
+     * `backlog/`, and in `archive/` down to the depth `findInArchive` reads.
+     * What a new ticket's number must stay clear of — so, unlike the other
+     * readers here, a folder that is there but cannot be read is an error and
+     * not an empty folder: a number counted without it could be a taken one.
+     */
+    async allNumbers(businessPath: string): Promise<string[]> {
+        const numbers: string[] = [];
+        const collect = async (dir: string, levels: number): Promise<void> => {
+            for (const name of await this.subfoldersOrThrow(dir)) {
+                const parsed = parseTicketFolderName(name);
+                if (parsed) {
+                    numbers.push(parsed.number);
+                } else if (levels > 1) {
+                    await collect(path.join(dir, name), levels - 1);
+                }
+            }
+        };
+        await Promise.all([
+            ...SHELVES.map(shelf => collect(path.join(businessPath, shelf), 1)),
+            collect(path.join(businessPath, 'archive'), ARCHIVE_DEPTH)
+        ]);
+        return numbers;
+    }
+
+    /** Subfolders of `dir`; an absent folder has none, any other failure to read it is thrown. */
+    private async subfoldersOrThrow(dir: string): Promise<string[]> {
+        try {
+            const entries = await this.fs.readdir(dir, { withFileTypes: true });
+            return entries.filter(e => e.isDirectory()).map(e => e.name);
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === 'ENOENT' || code === 'ENOTDIR') {
+                return [];
+            }
+            throw new Error(`папка ${dir} не читается: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     private async subfolders(dir: string): Promise<string[]> {
         try {
             const entries = await this.fs.readdir(dir, { withFileTypes: true });
@@ -293,16 +334,18 @@ export async function moveTicketFolder(
     return target;
 }
 
-/** What `context.json` of a business says about its name and emoji. */
+/** What `context.json` of a business says about its name, emoji and ticket code. */
 export interface BusinessManifest {
     /** `name` of the manifest; null when the folder has no manifest Duet would register. */
     name: string | null;
     /** Emoji from `icon`; empty when the manifest has none — the Backend's default icons are not used here. */
     icon: string;
+    /** Three capital letters from `ticket_code`: `DUE`. Null when the manifest declares none. */
+    ticketCode: string | null;
 }
 
 /**
- * Read the name and the emoji of a business straight from its `context.json`.
+ * Read the name, the emoji and the ticket code of a business straight from its `context.json`.
  * An intent window needs them before the Backend answers, and the Backend puts
  * a default icon where the manifest has none — the intent rule is "no icon, no emoji".
  */
@@ -317,11 +360,14 @@ export async function readBusinessManifest(businessPath: string, fileSystem?: Fi
                 name: typeof manifest.version === 'number' && typeof manifest.name === 'string' && manifest.name.trim()
                     ? manifest.name
                     : null,
-                icon: typeof manifest.icon === 'string' ? manifest.icon.trim() : ''
+                icon: typeof manifest.icon === 'string' ? manifest.icon.trim() : '',
+                ticketCode: typeof manifest.ticket_code === 'string' && /^[A-Z]{3}$/.test(manifest.ticket_code.trim())
+                    ? manifest.ticket_code.trim()
+                    : null
             };
         }
     } catch {
         // no manifest or not JSON
     }
-    return { name: null, icon: '' };
+    return { name: null, icon: '', ticketCode: null };
 }

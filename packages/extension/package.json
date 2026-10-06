@@ -2,7 +2,7 @@
     "name": "duet",
     "displayName": "Duet",
     "description": "Life OS for VS Code",
-    "version": "0.0.52",
+    "version": "0.0.53",
     "publisher": "duet-org",
     "engines": {
         "vscode": "^1.104.0"
@@ -96,6 +96,12 @@
                 "category": "Duet"
             },
             {
+                "command": "duet.intents.newTicket",
+                "title": "Новый тикет",
+                "icon": "$(add)",
+                "category": "Duet"
+            },
+            {
                 "command": "duet.bin.refresh",
                 "title": "Обновить корзину",
                 "icon": "$(refresh)",
@@ -137,9 +143,14 @@
             ],
             "view/title": [
                 {
+                    "command": "duet.intents.newTicket",
+                    "when": "view == duet.intents && duet.ready",
+                    "group": "navigation@1"
+                },
+                {
                     "command": "duet.intents.refresh",
                     "when": "view == duet.intents",
-                    "group": "navigation"
+                    "group": "navigation@2"
                 },
                 {
                     "command": "duet.bin.refresh",
@@ -184,6 +195,10 @@
                 },
                 {
                     "command": "duet.intents.switchByNumber",
+                    "when": "false"
+                },
+                {
+                    "command": "duet.intents.newTicket",
                     "when": "false"
                 },
                 {
@@ -307,7 +322,7 @@
             "activitybar": [
                 {
                     "id": "duet-explorer",
-                    "title": "Duet 0.0.52",
+                    "title": "Duet 0.0.53",
                     "icon": "resources/duet-icon.svg"
                 }
             ]

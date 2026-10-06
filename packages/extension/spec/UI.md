@@ -82,7 +82,8 @@ The rules that follow from it. Font colour: every row of «Активная Ра
 
 | Behavior | Why it matters |
 |----------|----------------|
-| At the very top of the Duet side bar; the title holds the name «Активная Работа» and a refresh button, nothing else | The switcher is the first thing in the bar |
+| At the very top of the Duet side bar; the title holds the name «Активная Работа» and two buttons — «новый тикет» and refresh — nothing else | The switcher is the first thing in the bar |
+| «Новый тикет» (`+`, shown once Backend has answered) asks one thing — the name, in an input box — then makes the next ticket of the window's business in `work/` and opens its window, where the notepad is waiting. The number is never asked for: it is the next project number of the business. The typed name becomes the folder name after the number in strict PascalCase — `ui research` and `UI research` both give `DUE023_UiResearch`; Cyrillic stays Cyrillic. Enter on an empty box makes a ticket with the bare number; Escape makes nothing. Parent, area, a move, a rename are not asked — an agent does them later | Adding a ticket is starting active work on it, so the button is here and not in Корзина. One question keeps it one gesture; one strict rule gives the same name however carelessly it was typed |
 | Flat list from the markers of this program's windows: business windows first, by name, then the active intents of all businesses | One list to switch between everything that is open; the business window is where one comes back to |
 | A business window is listed whether it was opened by its workspace file or as a plain folder; it is not mentioned in Корзина — it is opened from «Все Бизнесы» | The bin is the work of a business, not the business |
 | One click switches to the window of the row. Only this view switches | Switching is the purpose of the view |

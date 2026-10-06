@@ -257,22 +257,31 @@ describe('readBusinessManifest', () => {
 
     it('reads the name and the emoji from context.json on disk', async () => {
         expect(await readBusinessManifest(B, readFile('{"version": 4, "name": "DuetLab", "icon": "🚀"}')))
-            .toEqual({ name: 'DuetLab', icon: '🚀' });
+            .toEqual({ name: 'DuetLab', icon: '🚀', ticketCode: null });
     });
 
     it('no icon in the manifest means no emoji — no default is made up', async () => {
         expect(await readBusinessManifest(B, readFile('{"version": 4, "name": "DuetLab"}')))
-            .toEqual({ name: 'DuetLab', icon: '' });
+            .toEqual({ name: 'DuetLab', icon: '', ticketCode: null });
     });
 
     it("a context.json without a version is another tool's file, not a business", async () => {
         expect((await readBusinessManifest(B, readFile('{"name": "something"}'))).name).toBeNull();
     });
 
+    it('reads the ticket code — three capital letters and nothing else', async () => {
+        const code = async (value: string) =>
+            (await readBusinessManifest(B, readFile(`{"version": 4, "name": "DuetLab", "ticket_code": ${value}}`))).ticketCode;
+        expect(await code('"DUE"')).toBe('DUE');
+        expect(await code('"due"')).toBeNull();
+        expect(await code('"DUET"')).toBeNull();
+        expect(await code('7')).toBeNull();
+    });
+
     it('a missing or broken manifest gives nothing', async () => {
-        expect(await readBusinessManifest(B, readFile('{ broken'))).toEqual({ name: null, icon: '' });
+        expect(await readBusinessManifest(B, readFile('{ broken'))).toEqual({ name: null, icon: '', ticketCode: null });
         const missing = createMockFs({ readFile: async () => { throw new Error('ENOENT'); } });
-        expect(await readBusinessManifest(B, missing)).toEqual({ name: null, icon: '' });
+        expect(await readBusinessManifest(B, missing)).toEqual({ name: null, icon: '', ticketCode: null });
     });
 });
 

@@ -412,7 +412,7 @@ Products and components are described by **single canonical spec files** — no 
 | `DuetData/workspaces/{Context}.code-workspace`, `DuetData/root-contexts.code-workspace`, `<context>/.kimi-code/local.toml` | — | **writes** (on open of a context, after a scan). The context file also carries a `settings` block with the colour of the business window | — | reads (`local.toml`: Kimi Code) |
 | `DuetData/workspaces/{Business}/{Ticket folder}.code-workspace` | — | **writes** (whole file, rebuilt on every open of the intent by button; never while a window has it open) | — | — |
 | `DuetData/intents/{program}/windows/*.json`, `DuetData/intents/{program}/active.json` | — | **writes** (each window its own marker; any window removes dead ones and writes the order) | — | — |
-| Ticket folders under `<business>/work/` and `<business>/backlog/` | — | **moves** between the two (never creates or deletes one); reads the listing | — | create and move (work rules, not the platform) |
+| Ticket folders under `<business>/work/` and `<business>/backlog/` | — | **creates** one in `work/` — the «new ticket» button: the folder and its `INDEX.md`, nothing else; **moves** between the two; never deletes one; reads the listing, and the listing of `archive/` for the next number | — | create and move (work rules, not the platform) |
 | Ticket `INDEX.md` | — | reads frontmatter (`parent`, `work-type`, `icon`) | — | **write** (work rules, not the platform) |
 | Ticket `notepad.md` | — | **creates**; keeps its first-line heading (through the editor's document); the rest is the user's | — | — |
 | `<business>/.vscode/duet-intents.json` | — | **writes** (order of the bin, on drag only) | — | — |
@@ -420,7 +420,7 @@ Products and components are described by **single canonical spec files** — no 
 
 **Single-writer invariant** for `settings.json` and `{machine}.json` (see Invariants): Host is the only writer. Extension does not have its own write path to them; before any root context folder edit it must direct the user to Host.
 
-**What the Extension writes.** Everything it writes belongs to opening windows: the workspace files of contexts and intents, the window markers and the order of active intents in `DuetData/`, and — in the business folder on Drive — the notepad of a ticket, the order file of the bin and the move of a ticket folder between `backlog/` and `work/`. Files in DuetData are written through a temporary file and a rename; files on Drive are written in place by a single write, because a sync client may turn a rename into a conflict copy. Contracts: [extension COMPONENT.md → Intents](../packages/extension/spec/COMPONENT.md#intents).
+**What the Extension writes.** Everything it writes belongs to opening windows: the workspace files of contexts and intents, the window markers and the order of active intents in `DuetData/`, and — in the business folder on Drive — the notepad of a ticket, the order file of the bin, the move of a ticket folder between `backlog/` and `work/`, and the folder of a new ticket with its `INDEX.md`. Files in DuetData are written through a temporary file and a rename; files on Drive are written in place by a single write, because a sync client may turn a rename into a conflict copy. Contracts: [extension COMPONENT.md → Intents](../packages/extension/spec/COMPONENT.md#intents).
 
 ### Schema Migration Policy
 

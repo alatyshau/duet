@@ -72,8 +72,8 @@ It also reads the business folder straight from disk, without Backend:
 
 | What | Reader | What Extension uses |
 |------|--------|---------------------|
-| `<business>/context.json` | `pathUtils.ts:formatBusinessReference`, `intents/tickets.ts:readBusinessManifest` | `name` (Copy @-Path, window marker), `icon` (intent rows, notepad tab label). Read from disk for two reasons: an intent window marks itself before Backend answers, and Backend puts a default icon (`📁`/`📦`) where the manifest has none, while the intent rule is «no icon — no emoji» |
-| `<business>/work/`, `<business>/backlog/` | `intents/tickets.ts:TicketReader` | folders right inside them whose name fits the ticket-number rule (`pathUtils.ts:parseTicketFolderName`, the grammar Copy @-Path uses); `archive/` only to find one ticket by number |
+| `<business>/context.json` | `pathUtils.ts:formatBusinessReference`, `intents/tickets.ts:readBusinessManifest` | `name` (Copy @-Path, window marker), `icon` (intent rows, notepad tab label), `ticket_code` (the number of a new ticket). Read from disk for two reasons: an intent window marks itself before Backend answers, and Backend puts a default icon (`📁`/`📦`) where the manifest has none, while the intent rule is «no icon — no emoji» |
+| `<business>/work/`, `<business>/backlog/` | `intents/tickets.ts:TicketReader` | folders right inside them whose name fits the ticket-number rule (`pathUtils.ts:parseTicketFolderName`, the grammar Copy @-Path uses); `archive/` only to find one ticket by number and to collect the numbers a new ticket must stay clear of (`TicketReader.allNumbers`) |
 | Ticket `INDEX.md` | `TicketReader` | frontmatter `parent`, `work-type` and `icon` (the ticket's emoji), from the first 2 KB, remembered by the file's mtime and size, with a timeout per file |
 | `<business>/.vscode/duet-intents.json` | `intents/binOrder.ts` | order of the bin |
 | `DuetData/intents/<program>/` | `intents/markers.ts:MarkerStore` | window markers, order of active intents |
@@ -147,18 +147,19 @@ Implementation: `vscode/commands/openFolder.ts`, `core/workspace.ts`.
 
 #### Intent commands
 
-All hidden from the Command Palette (`commandPalette: when: false`): they act on a row.
+All hidden from the Command Palette (`commandPalette: when: false`): they act on a row or belong to a view's title.
 
 | Command | Where | Action |
 |---------|-------|--------|
 | `duet.intents.refresh` | «Активная Работа» title | Re-read the window markers |
 | `duet.intents.switch` | click on an «Активная Работа» row — and nowhere else | Bring the window of the row forward (see [Switching](#switching-to-a-window)). The bin never switches: it is for managing the backlog and the order |
 | `duet.intents.switchByNumber` | Cmd+1 … Cmd+9 (macOS), `when: duet.hasPointer`; hidden from the Command Palette | The same switch for the row that shows this number in «Активная Работа» now (`intents/active.ts:rowByNumber`); the digit comes as the `args` of the keybinding. An extension's keybinding outranks the editor's own for the same keys, so these replace «focus editor group N»; the user's own keybindings still outrank them |
+| `duet.intents.newTicket` | «Активная Работа» title, `when: duet.ready` | Ask for a name, create the next ticket of the window's business in `work/` and open its window (see [New ticket](#new-ticket)) |
 | `duet.bin.refresh` | Корзина title | Re-read the business folders |
 | `duet.bin.openHere`, `duet.bin.openNew` | inline on a bin ticket without an open window | Open the intent in the current / a new window — the same two buttons, icons and window behaviour as `duet.openInCurrentWindow` / `duet.openInNewWindow` for a business |
 | `duet.bin.toBacklog` | inline on a bin ticket from `work/` without an open window | Move the ticket folder to `backlog/` |
 
-`duet.intents.*` are registered as soon as the pointer is read; `duet.bin.*` after Backend has answered, with the rest of the backend-dependent commands. Bin commands run one at a time, and each first finds its ticket on disk by number (`intents/tickets.ts:resolveTicketNow`): the view is a snapshot, and no action runs on a stale path. Implementation: `vscode/commands/intents.ts`.
+`duet.intents.*` are registered as soon as the pointer is read; `duet.bin.*` after Backend has answered, with the rest of the backend-dependent commands — and `duet.intents.newTicket` with them: its button is in the «Активная Работа» title, but the business it needs comes from Backend, so the button is hidden until `duet.ready`. Bin commands run one at a time, and a command of a row first finds its ticket on disk by number (`intents/tickets.ts:resolveTicketNow`): the view is a snapshot, and no action runs on a stale path. Implementation: `vscode/commands/intents.ts`.
 
 #### `duet.copyAtPath` — copy `@`-reference
 
@@ -354,6 +355,21 @@ The light version is the colour with transparency, not a fixed light colour: ove
 The bin is a snapshot in memory. The disk is read when the view becomes visible, after a finished move, by the refresh button — and when the window's business changes. It is not read on a plain tree refresh: refreshing the root re-queries an expanded tree, and every window opening would otherwise re-read folders on a cloud drive. A window opening or closing only redraws the rows. Readings asked for while one is under way are joined, and tree refreshes that come within 25 ms are sent as one: two refreshes a few milliseconds apart make VS Code ask for the children of rows the second one has already replaced («No tree item with id …» in the extension host log).
 
 The order of the bin is `<business>/.vscode/duet-intents.json` — one flat list of ticket numbers per business, so it is the same for every program and machine. The order inside any group is the relative order of its numbers in the list; a list per parent would break when a ticket changes its parent. The containers — processes and programs — take their order among themselves from the same list. Written only by dragging: the first drag in a group lists all its visible rows as shown (`intents/order.ts:mergeOrderBlock`); opening and closing a window never write it. Read together with the folders; only this exact file name is read, so conflict copies are harmless; an unreadable file leaves the last order read well. Numbers found in the archive are dropped from the list on write. The file lies on Drive: written in place by a single write.
+
+#### New ticket
+
+`duet.intents.newTicket` (`vscode/commands/intents.ts:BinActions.create`, decisions in `intents/newTicket.ts`). The business is the one of the window, as in Корзина; a window without a business refuses in one line.
+
+| Behavior | Why it matters |
+|----------|----------------|
+| The only question is the name, in an input box. Escape cancels; Enter on an empty box goes on with no name | One gesture. The number is Duet's to give, never the user's to type |
+| Name → folder name by `pascalCaseName`: only letters and digits stay, everything else ends a word (an apostrophe is dropped without ending it), and in text typed together a word starts where `spaceIntentName` sees one; each word gets a capital first letter and small letters after it. `ui research`, `UI research` → `UiResearch`; `IntentSwitcher` → `IntentSwitcher`, `UIResearch` → `UiResearch`; `синхронизация корзины` → `СинхронизацияКорзины`; no transliteration. The price of finding words in text typed together: a capital after a single small letter starts a word, `iPhone` → `IPhone`. At most 100 letters and digits — the input box refuses more | One strict rule gives one name however the text was typed, and the folder name and the readable name made from it agree on the words. A slash or a dot cannot make a nested or hidden folder. The folder name also names the workspace file of the window, so it must stay a possible file name |
+| Number: the code from `ticket_code` of the business's `context.json`, then one above the highest three-digit number among all tickets of `work/`, `backlog/` and `archive/` (`TicketReader.allNumbers`, to the depth `findInArchive` reads). Programs (`X`) and processes (`A`) are not counted. No `ticket_code` — refusal in one line that names the field. A folder that is there but cannot be read — a cloud drive may fail so — is an error and nothing is created | The archive holds numbers too; counting the shelves alone would hand out a taken one, and so would counting a shelf that failed to read as empty |
+| The folder is `work/<number>_<Name>`, or `work/<number>` without a name, made without `recursive`: a folder of the very same name that appeared meanwhile is never written into — the command fails and the next click takes the next number | A new ticket never lands inside an existing one |
+| Nothing holds the number between counting and creating, and there is no shared counter. After creating, the number is looked up again: when another folder carries it too — an agent or another window took it in the same moment — one line names both folders and no window is opened | A clash is rare and can be fixed by hand, but only when it is seen; opening by number would otherwise bring the other ticket's window forward |
+| `INDEX.md` is written into it: `folder-type: work`, `work-type: project`, `opened:` the local day, empty `business-area` and `parent`, and a heading. When the write fails, the error says that the folder stays | Without it the ticket has no type in Корзина, and an agent cannot tell a fresh ticket from one that lost its map |
+| Then the ticket is opened in a new window by the same path as «open in a new window» of a bin row; the bin is re-read before that, and also when creating failed. The notepad is made by that window at its start. When the window could not be opened, one line says that the ticket exists and where | One way to open an intent; the notepad belongs to the window. A ticket made without a window must not go unnoticed |
+| Runs in the queue of the bin commands; the name is asked before it takes its turn. A business whose name cannot be a file name is refused before the question; when the business of the window changed while the name was being typed, one line says so and nothing is created | No interleaving with a move or a drop, and an open input box holds up nothing |
 
 #### Notepad
 

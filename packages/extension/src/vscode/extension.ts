@@ -287,7 +287,9 @@ function registerBinView(
         vscode.commands.registerCommand('duet.bin.refresh', () => provider.reload()),
         vscode.commands.registerCommand('duet.bin.openHere', (node: TicketNode) => actions.open(node, false)),
         vscode.commands.registerCommand('duet.bin.openNew', (node: TicketNode) => actions.open(node, true)),
-        vscode.commands.registerCommand('duet.bin.toBacklog', (node: TicketNode) => actions.toBacklog(node))
+        vscode.commands.registerCommand('duet.bin.toBacklog', (node: TicketNode) => actions.toBacklog(node)),
+        // Its button is in the title of «Активная Работа», but the business it needs comes from the backend
+        vscode.commands.registerCommand('duet.intents.newTicket', () => actions.create())
     );
     if (view.visible) {
         provider.setVisible(true);

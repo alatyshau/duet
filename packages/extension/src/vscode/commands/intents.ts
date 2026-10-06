@@ -6,8 +6,9 @@ import { ActiveIntent } from '../../core/intents/active';
 import { TicketNode, binTickets, decideBinDrop } from '../../core/intents/binTree';
 import { pruneArchived, writeBinOrder } from '../../core/intents/binOrder';
 import { intentIcon, intentIdentity, intentTabLabel } from '../../core/intents/naming';
+import { MAX_TICKET_NAME_LENGTH, NewTicket, createTicket, pascalCaseName } from '../../core/intents/newTicket';
 import { mergeOrderBlock } from '../../core/intents/order';
-import { moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
+import { TicketInfo, moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
 import { IntentWorkspacePlan, planIntentWorkspace } from '../../core/intents/workspaceFile';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { BinProvider } from '../providers/BinProvider';
@@ -56,10 +57,10 @@ export async function switchToIntent(
 }
 
 /**
- * The commands of the bin rows: open an intent, send a ticket to the backlog,
- * carry out a drop. They run one at a time, and each finds its ticket on disk
- * by number before it acts — the view is a snapshot, and no action runs on a
- * stale path.
+ * The commands of the bin rows — open an intent, send a ticket to the backlog,
+ * carry out a drop — and the creation of a new ticket. They run one at a
+ * time. A command of a row finds its ticket on disk by number before it acts —
+ * the view is a snapshot, and no action runs on a stale path.
  */
 export class BinActions {
     private chain: Promise<void> = Promise.resolve();
@@ -72,6 +73,36 @@ export class BinActions {
 
     open(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
         return this.enqueue(() => this.doOpen(node, forceNewWindow));
+    }
+
+    /**
+     * Create the next ticket of the window's business and open its window.
+     * The name is asked before the command takes its turn, so an open input
+     * box holds up no other command.
+     */
+    async create(): Promise<void> {
+        const business = this.bin.currentBusiness();
+        if (!business?.absolute_path) {
+            say('В этом окне нет бизнеса — новый тикет создать негде.');
+            return;
+        }
+        // Known before anything is made: the window of the ticket could not be opened
+        if (!isSafeRepoName(business.name)) {
+            say(`Имя бизнеса «${business.name}» не годится для имени папки — тикет не создан.`);
+            return;
+        }
+        const typed = await vscode.window.showInputBox({
+            title: `Новый тикет ${business.name}`,
+            prompt: 'Название тикета; номер Duet подставит сам. Пустое — тикет без названия',
+            validateInput: value => pascalCaseName(value).length > MAX_TICKET_NAME_LENGTH
+                ? `Слишком длинно: в названии не больше ${MAX_TICKET_NAME_LENGTH} букв и цифр`
+                : undefined
+        });
+        // Escape cancels; Enter on an empty box is a ticket with a bare number
+        if (typed === undefined) {
+            return;
+        }
+        return this.enqueue(() => this.doCreate(business.absolute_path!, pascalCaseName(typed)));
     }
 
     toBacklog(node: TicketNode | undefined): Promise<void> {
@@ -90,18 +121,63 @@ export class BinActions {
         return next;
     }
 
+    private async doOpen(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
+        if (!node || node.kind !== 'ticket') {
+            return;
+        }
+        await this.openTicket(node.ticket, forceNewWindow);
+    }
+
+    /** Make the ticket folder with the next number, show it in the bin, open its window. */
+    private async doCreate(businessPath: string, slug: string): Promise<void> {
+        if (this.bin.currentBusiness()?.absolute_path !== businessPath) {
+            say('Пока вводилось название, у окна сменился бизнес — тикет не создан.');
+            return;
+        }
+        const code = (await readBusinessManifest(businessPath)).ticketCode;
+        if (!code) {
+            say('В context.json бизнеса нет ticket_code — трёх заглавных букв кода тикетов; номер выдать не из чего.');
+            return;
+        }
+        let ticket: NewTicket;
+        try {
+            ticket = await createTicket(nodeFs, this.runtime.tickets, businessPath, code, slug, new Date());
+        } finally {
+            // Also after a failure: a folder may have been made before it
+            await this.bin.reload();
+        }
+        // Nothing holds a number while it is being taken: an agent or another window may have taken it too
+        // Names are compared in one Unicode form: a volume may list «й» as two characters
+        const own = ticket.folder.normalize('NFC');
+        const twins = (await this.runtime.tickets.locate(businessPath, ticket.number))
+            .filter(place => place.folder.normalize('NFC') !== own);
+        if (twins.length > 0) {
+            say(`Номер ${ticket.number} заняли одновременно: он у папок ${ticket.folder} и ${twins.map(place => place.folder).join(', ')}. `
+                + 'Одну надо перенумеровать; окно не открыто.');
+            return;
+        }
+        if (!await this.openTicket(ticket, true)) {
+            say(`Тикет ${ticket.folder} создан в work/, но его окно не открылось — откройте его из корзины.`);
+        }
+    }
+
     /**
      * Open the intent of a ticket: move it out of the backlog, bring the
      * business's repos to disk, build the workspace file anew, hold the intent
      * and its colour, open the file.
+     *
+     * @returns whether a window was opened or brought forward
      */
-    private async doOpen(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
+    private async openTicket(
+        ticket: Pick<TicketInfo, 'number' | 'folder' | 'shelf'>,
+        forceNewWindow: boolean
+    ): Promise<boolean> {
         const business = this.bin.currentBusiness();
         const businessPath = business?.absolute_path;
-        if (!node || node.kind !== 'ticket' || !business || !businessPath) {
-            return;
+        if (!business || !businessPath) {
+            return false;
         }
-        const ticketNumber = node.ticket.number;
+        const ticketNumber = ticket.number;
 
         await this.runtime.refresh();
         const active = this.runtime.getActive().find(row => row.ticket === ticketNumber);
@@ -110,16 +186,16 @@ export class BinActions {
             await vscode.commands.executeCommand(
                 'vscode.openFolder', vscode.Uri.file(active.workspaceFile), { forceNewWindow: true }
             );
-            return;
+            return true;
         }
 
-        const now = await resolveTicketNow(this.runtime.tickets, businessPath, node.ticket);
+        const now = await resolveTicketNow(this.runtime.tickets, businessPath, ticket);
         if (now.state === 'gone' || now.state === 'ambiguous') {
             say(now.state === 'gone'
                 ? `Тикета ${ticketNumber} нет ни в work/, ни в backlog/ — корзина обновлена.`
                 : `У номера ${ticketNumber} несколько папок — корзина обновлена, выберите строку заново.`);
             await this.bin.reload();
-            return;
+            return false;
         }
         let place = now.place;
         let moved = now.state === 'moved';
@@ -131,7 +207,7 @@ export class BinActions {
             } catch (error) {
                 say(`Не удалось перенести ${ticketNumber} в work/: ${messageOf(error)}`);
                 await this.bin.reload();
-                return;
+                return false;
             }
         }
 
@@ -145,14 +221,14 @@ export class BinActions {
             if (moved) {
                 await this.bin.reload();
             }
-            return;
+            return false;
         }
 
         const workspacePath = this.paths.intentWorkspacePath(business.name, place.folder);
         const manifest = await readBusinessManifest(businessPath);
         const identity = intentIdentity(place.folder);
         if (!identity) {
-            return;
+            return false;
         }
         // One emoji for the row of the window and for the tab of its notepad
         const ticketIcon = await this.runtime.tickets.inheritedIcon(businessPath, place.path);
@@ -188,6 +264,7 @@ export class BinActions {
             await this.bin.reload();
         }
         await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow });
+        return true;
     }
 
     private async planWorkspaceFile(
