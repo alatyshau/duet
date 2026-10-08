@@ -32,6 +32,38 @@ function boardOf(mem: MemFs): { board: TicketBoard; changes: () => number } {
 
 const numbers = (board: TicketBoard): string[] => binTickets(board.getTree()).map(n => n.ticket.number).sort();
 
+describe('DUE019: a read belongs to a particular source generation', () => {
+    it('A → B → A never publishes the first A reading into the revisited A', async () => {
+        const mem = business();
+        const reader = new TicketReader(mem.fs);
+        const old = await reader.readShelves(B);
+        let releaseFirst!: () => void;
+        let releaseNext!: () => void;
+        let calls = 0;
+        vi.spyOn(reader, 'readShelves').mockImplementation(async () => {
+            if (++calls === 1) {
+                await new Promise<void>(resolve => { releaseFirst = resolve; });
+                return old;
+            }
+            await new Promise<void>(resolve => { releaseNext = resolve; });
+            return [];
+        });
+        const board = new TicketBoard(reader, mem.fs);
+        board.setBusiness(B);
+        const reading = board.setShown(true);
+        await vi.waitFor(() => expect(releaseFirst).toBeDefined());
+        board.setBusiness(OTHER);
+        board.setBusiness(B);
+        releaseFirst();
+        await vi.waitFor(() => expect(releaseNext).toBeDefined());
+        expect(board.getTickets()).toBeNull();
+        releaseNext();
+        await reading;
+        expect(board.getTickets()).toEqual([]);
+        board.dispose();
+    });
+});
+
 describe('coalesce', () => {
     it('joins the calls that come during a run into one more run', async () => {
         let runs = 0;

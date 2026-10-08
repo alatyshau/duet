@@ -3,7 +3,7 @@ import { TreeAction } from '../../core/work/tree';
 import { Paths } from '../../core/paths';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { WorkActions } from './workCommands';
-import { WorkView } from './WorkView';
+import { WorkDeps, WorkView } from './WorkView';
 
 /**
  * «Рабочая папка» view: the files of the window's ticket. Needs only the
@@ -15,9 +15,9 @@ import { WorkView } from './WorkView';
  * belongs to the title of the view.
  */
 export function registerWorkView(
-    context: vscode.ExtensionContext, runtime: IntentsRuntime, paths: Paths
+    context: vscode.ExtensionContext, runtime: IntentsRuntime, paths: Paths, deps: Partial<WorkDeps> = {}
 ): WorkView {
-    const view = new WorkView(context, runtime, paths);
+    const view = new WorkView(context, runtime, paths, deps);
     const actions = new WorkActions(view);
     view.dropHandler = actions;
 
@@ -28,7 +28,7 @@ export function registerWorkView(
         // The title: four buttons
         'showHidden': () => view.setShowHidden(true),
         'hideHidden': () => view.setShowHidden(false),
-        'refresh': () => view.goHome(),
+        'refresh': () => view.refreshHome ? view.refreshHome() : view.goHome(),
         'smartCollapse': () => view.smartToggle(),
         'smartExpand': () => view.smartToggle(),
         // Shown instead of the plus button to tell why it cannot be pressed

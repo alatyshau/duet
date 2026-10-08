@@ -2,10 +2,9 @@ import * as vscode from 'vscode';
 import { ContextEntity } from '../../core/api-client';
 import { normalizePath } from '../../core/pathUtils';
 import { findCurrentBusiness } from '../../core/tree/contextPanel';
-import { BinNode, parentOfBinNode } from '../../core/intents/binTree';
+import { BinNode, binTickets, parentOfBinNode } from '../../core/intents/binTree';
 import { TicketBoard } from '../../core/intents/board';
 import { rowText } from '../../core/intents/naming';
-import { draggedIdentity } from '../../core/intents/order';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { rowColorResource, rowIcon, rowLabel } from './rowLook';
 
@@ -36,8 +35,11 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
     /** Carries out a drop; set by the commands that own the disk operations. */
     onDrop: BinDropHandler | null = null;
 
+    private ownBusiness: ContextEntity | null = null;
+    private previewId: string | null = null;
     private business: ContextEntity | null;
     private requested = false;
+    private visibilityKnown = false;
     private redrawTimer: ReturnType<typeof setTimeout> | undefined;
     private unseenTimer: ReturnType<typeof setTimeout> | undefined;
     /**
@@ -47,6 +49,7 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
      * clock, so a window that starts again never repeats the ids of its last run.
      */
     private generation = Date.now();
+    private readonly dragId = `${Date.now()}:${Math.random()}`;
 
     private readonly emitter = new vscode.EventEmitter<BinNode | undefined | void>();
     readonly onDidChangeTreeData = this.emitter.event;
@@ -57,13 +60,13 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
         private readonly runtime: IntentsRuntime,
         private readonly board: TicketBoard
     ) {
-        this.business = findCurrentBusiness(contexts, openPaths());
+        this.ownBusiness = this.business = findCurrentBusiness(contexts, openPaths());
         board.setBusiness(this.business?.absolute_path ?? null);
         this.disposables.push(
             board.onDidChange(() => this.redraw()),
             // A window opened or closed: the colours and the buttons change, the disk is not read
             runtime.onDidChange(() => this.redraw()),
-            vscode.workspace.onDidChangeWorkspaceFolders(() => this.updateBusiness())
+            vscode.workspace.onDidChangeWorkspaceFolders(() => { this.previewId = null; this.updateBusiness(); })
         );
     }
 
@@ -86,6 +89,8 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
      * coming back to the Duet side bar.
      */
     setVisible(visible: boolean): void {
+        this.visibilityKnown = true;
+        clearTimeout(this.unseenTimer);
         if (!visible) {
             void this.board.setShown(false);
             return;
@@ -106,7 +111,31 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
         this.redrawTimer = setTimeout(() => this.emitter.fire(), REDRAW_DEBOUNCE_MS);
     }
 
-    /** The business of the window — the same rule as the КОНТЕКСТ view. */
+    windowBusiness(): ContextEntity | null { return this.ownBusiness; }
+
+    isForeignBusiness(): boolean { return this.business?.id !== this.ownBusiness?.id; }
+
+    /** Preview a real business, without changing the workspace or reading a hidden board. */
+    showBusiness(entityId: number): boolean {
+        const next = this.contexts.find(b => b.id === String(entityId) && !!b.absolute_path);
+        if (!next) { return false; }
+        this.previewId = next.id;
+        this.setBusiness(next);
+        return true;
+    }
+
+    async goHome(): Promise<void> {
+        this.previewId = null;
+        this.setBusiness(this.ownBusiness);
+        if (this.board.isShown()) { await this.board.reload(); }
+    }
+
+    hasNode(node: unknown): node is BinNode {
+        const row = node as BinNode | undefined;
+        return row?.kind === 'ticket' && binTickets(this.board.getTree()).includes(row);
+    }
+
+    /** The business shown — it may differ from the stable business of the window. */
     currentBusiness(): ContextEntity | null {
         return this.business;
     }
@@ -157,7 +186,7 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
         }
         // The view asks for rows only while it is shown, and is told it became visible right
         // after — that is what reads the folders. Should that word never come, read anyway.
-        if (this.board.getTickets() === null && this.business && !this.requested) {
+        if (this.board.getTickets() === null && this.business && !this.requested && !this.visibilityKnown) {
             this.requested = true;
             this.unseenTimer = setTimeout(() => {
                 if (this.board.getTickets() === null) {
@@ -173,16 +202,22 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
     }
 
     handleDrag(source: readonly BinNode[], dataTransfer: vscode.DataTransfer): void {
-        if (source.length > 0) {
-            dataTransfer.set(BIN_MIME, new vscode.DataTransferItem(source[0].key));
+        if (source.length > 0 && this.hasNode(source[0])) {
+            dataTransfer.set(BIN_MIME, new vscode.DataTransferItem({ key: source[0].key, owner: this.dragId, generation: this.board.getGeneration() }));
         }
     }
 
     async handleDrop(target: BinNode | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
-        const source = draggedIdentity(dataTransfer.get(BIN_MIME)?.value, row => row.key);
-        if (source !== null && this.onDrop) {
-            await this.onDrop(source, target?.key ?? null);
-        }
+        const data = dataTransfer.get(BIN_MIME)?.value as { key?: unknown; generation?: unknown; owner?: unknown } | undefined;
+        if (typeof data?.key !== 'string' || data.owner !== this.dragId || data.generation !== this.board.getGeneration()) { return; }
+        // Old rows cannot be dropped into a newly selected business (including A → B → A).
+        if (target && !this.contains(target)) { return; }
+        if (this.onDrop) { await this.onDrop(data.key, target?.key ?? null); }
+    }
+
+    private contains(node: BinNode): boolean {
+        const find = (rows: BinNode[]): boolean => rows.some(row => row === node || find(row.children));
+        return find(this.board.getTree());
     }
 
     private rowId(node: BinNode): string {
@@ -190,14 +225,23 @@ export class BinProvider implements vscode.TreeDataProvider<BinNode>, vscode.Tre
     }
 
     private updateBusiness(): void {
-        const next = findCurrentBusiness(this.contexts, openPaths());
+        this.ownBusiness = findCurrentBusiness(this.contexts, openPaths());
+        const preview = this.contexts.find(b => b.id === this.previewId && !!b.absolute_path);
+        if (!preview) { this.previewId = null; }
+        this.setBusiness(preview ?? this.ownBusiness);
+    }
+
+    private setBusiness(next: ContextEntity | null): void {
         if (pathKey(next) !== pathKey(this.business)) {
             this.requested = false;
+            clearTimeout(this.unseenTimer);
+            this.generation++;
         }
         this.business = next;
-        // Another business drops what the board has read; the same one changes nothing
         this.board.setBusiness(next?.absolute_path ?? null);
+        this.redraw();
     }
+
 }
 
 function openPaths(): string[] {

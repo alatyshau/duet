@@ -36,7 +36,7 @@ function index(workType: string | null, parent: string | null): string {
 
 describe('parseTicketFrontmatter', () => {
     it('reads parent and work-type', () => {
-        expect(parseTicketFrontmatter(index('project', 'DUEX02'))).toEqual({ parent: 'DUEX02', workType: 'project', icon: '' });
+        expect(parseTicketFrontmatter(index('project', 'DUEX02'))).toEqual({ parent: 'DUEX02', workType: 'project', processType: null, icon: '' });
     });
 
     it('an empty value and null both mean no parent', () => {
@@ -72,8 +72,8 @@ describe('parseTicketFrontmatter', () => {
     });
 
     it('a file without frontmatter gives nothing', () => {
-        expect(parseTicketFrontmatter('# Title\nparent: DUEX02\n')).toEqual({ parent: null, workType: null, icon: '' });
-        expect(parseTicketFrontmatter('')).toEqual({ parent: null, workType: null, icon: '' });
+        expect(parseTicketFrontmatter('# Title\nparent: DUEX02\n')).toEqual({ parent: null, workType: null, processType: null, icon: '' });
+        expect(parseTicketFrontmatter('')).toEqual({ parent: null, workType: null, processType: null, icon: '' });
     });
 
     it('does not read past the closing line', () => {
@@ -82,7 +82,7 @@ describe('parseTicketFrontmatter', () => {
 
     it('reads Windows line breaks', () => {
         expect(parseTicketFrontmatter('---\r\nparent: DUEX02\r\nwork-type: project\r\n---\r\n'))
-            .toEqual({ parent: 'DUEX02', workType: 'project', icon: '' });
+            .toEqual({ parent: 'DUEX02', workType: 'project', processType: null, icon: '' });
     });
 });
 
@@ -113,7 +113,7 @@ describe('TicketReader', () => {
             name: 'Intent Switcher',
             path: `${B}/work/DUE017_IntentSwitcher`,
             shelf: 'work',
-            workType: 'project',
+            workType: 'project', processType: null,
             parent: 'DUEX03',
             icon: ''
         });
@@ -123,7 +123,7 @@ describe('TicketReader', () => {
     it('a ticket without a readable INDEX.md has no parent, no type and no icon', async () => {
         const mem = createMemFs(files);
         const tickets = await new TicketReader(mem.fs).readShelves(B);
-        expect(tickets.find(t => t.number === 'DUE099')).toMatchObject({ workType: null, parent: null, icon: '' });
+        expect(tickets.find(t => t.number === 'DUE099')).toMatchObject({ workType: null, processType: null, parent: null, icon: '' });
     });
 
     it('reads the icon of every ticket, and of one ticket by its folder', async () => {
@@ -174,7 +174,7 @@ describe('TicketReader', () => {
             : readHead(p, bytes);
 
         const tickets = await new TicketReader(mem.fs, 20).readShelves(B);
-        expect(tickets.find(t => t.number === 'DUE017')).toMatchObject({ workType: null, parent: null });
+        expect(tickets.find(t => t.number === 'DUE017')).toMatchObject({ workType: null, processType: null, parent: null });
         expect(tickets.find(t => t.number === 'DUEX03')?.workType).toBe('program');
     });
 
@@ -296,6 +296,7 @@ function ticket(folder: string, shelf: 'work' | 'backlog', workType: string | nu
         path: `${B}/${shelf}/${folder}`,
         shelf,
         workType,
+        processType: null,
         parent,
         icon: ''
     };

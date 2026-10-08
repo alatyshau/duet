@@ -88,7 +88,7 @@ function ticket(
 ): TicketInfo {
     const number = folder.split('_')[0];
     return {
-        number, folder, name: folder.slice(number.length + 1), path: `${B}/${shelf}/${folder}`, shelf, workType, parent, icon
+        number, folder, name: folder.slice(number.length + 1), path: `${B}/${shelf}/${folder}`, shelf, workType, processType: null, parent, icon
     };
 }
 
@@ -367,6 +367,21 @@ describe('BinProvider', () => {
         }
     });
 
+    it('DUE019: hiding cancels fallback reading; known-hidden rows never start a read', async () => {
+        vi.useFakeTimers();
+        try {
+            const runtime = fakeRuntime([], tickets);
+            const { provider, board } = binOf(runtime);
+            provider.getChildren();
+            provider.setVisible(false);
+            await vi.advanceTimersByTimeAsync(400);
+            provider.getChildren();
+            await vi.advanceTimersByTimeAsync(400);
+            expect(runtime.tickets.readShelves).not.toHaveBeenCalled();
+            provider.dispose(); board.dispose();
+        } finally { vi.useRealTimers(); }
+    });
+
     it('readings asked for while one is under way are joined: one more reading, not one each', async () => {
         const runtime = fakeRuntime([], tickets);
         const { provider, board } = binOf(runtime);
@@ -505,28 +520,53 @@ describe('BinProvider', () => {
         await vi.waitFor(() => expect(runtime.tickets.readShelves).toHaveBeenCalledTimes(2));
     });
 
-    it('hands a drop over as row keys; a drop past the rows has no target', async () => {
-        const { provider } = await loaded();
+    it('hands an own drag over as row keys and rejects a stale drag after business switching', async () => {
+        const { provider, board } = await loaded();
         const onDrop = vi.fn(async () => undefined);
         provider.onDrop = onDrop;
         const source = find(provider.getChildren(), 'DUE011');
         const target = find(provider.getChildren(), 'DUE008');
-
         const data = transfer();
         provider.handleDrag([source], data);
-        expect(data.get('application/vnd.code.tree.duet.bin')?.value).toBe(source.key);
-
-        await provider.handleDrop(target, transfer(source.key));
+        expect(data.get('application/vnd.code.tree.duet.bin')?.value).toMatchObject({ key: source.key });
+        await provider.handleDrop(target, data);
         expect(onDrop).toHaveBeenLastCalledWith(source.key, target.key);
-        await provider.handleDrop(undefined, transfer(source.key));
+        await provider.handleDrop(undefined, data);
         expect(onDrop).toHaveBeenLastCalledWith(source.key, null);
-        // whatever shape the tree hands the dragged row back in
-        await provider.handleDrop(target, transfer([source]));
-        expect(onDrop).toHaveBeenLastCalledWith(source.key, target.key);
         await provider.handleDrop(target, transfer({ unrelated: true }));
-        expect(onDrop).toHaveBeenCalledTimes(3);
+        expect(onDrop).toHaveBeenCalledTimes(2);
+        board.setBusiness('/drive/Other');
+        board.setBusiness(B);
+        await board.reload();
+        await provider.handleDrop(undefined, data);
+        expect(onDrop).toHaveBeenCalledTimes(2);
         expect(provider.dropMimeTypes).toEqual(['application/vnd.code.tree.duet.bin']);
     });
+
+    it('DUE019: preview is separate from the window; refresh and repeated selection work', async () => {
+        const other = { ...business, id: '2', name: 'Other', absolute_path: '/drive/Other' };
+        const runtime = fakeRuntime([], tickets);
+        const { provider, board } = binOf(runtime);
+        provider.updateContexts([business, other]);
+        expect(provider.showBusiness(2)).toBe(true);
+        expect(provider.currentBusiness()).toBe(other);
+        expect(provider.windowBusiness()).toBe(business);
+        expect(provider.isForeignBusiness()).toBe(true);
+        expect(board.getBusinessPath()).toBe('/drive/Other');
+        // Selecting a business while hidden reads nothing.
+        expect(runtime.tickets.readShelves).not.toHaveBeenCalled();
+        provider.updateContexts([business, { ...other, name: 'Renamed' }]);
+        expect(provider.currentBusiness()?.name).toBe('Renamed');
+        await provider.goHome();
+        expect(provider.isForeignBusiness()).toBe(false);
+        expect(provider.currentBusiness()?.name).toBe('TestLab');
+        expect(provider.showBusiness(2)).toBe(true);
+        provider.updateContexts([business]);
+        expect(provider.currentBusiness()).toBe(business);
+        expect(provider.showBusiness(999)).toBe(false);
+        provider.dispose(); board.dispose();
+    });
+
 });
 
 describe('NotepadDecorationProvider — the name of this window\'s notepad in the colour of the window', () => {

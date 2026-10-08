@@ -26,6 +26,8 @@ export interface TicketInfo {
     shelf: Shelf;
     /** `work-type` of the ticket's `INDEX.md`, lower case; null when absent or unreadable. */
     workType: string | null;
+    /** `process-type` from INDEX.md; null when absent. */
+    processType: string | null;
     /** Number of the parent ticket from `parent`; null when the ticket has none. */
     parent: string | null;
     /** Emoji of the ticket from `icon`; empty when it has none. */
@@ -35,6 +37,8 @@ export interface TicketInfo {
 export interface TicketFrontmatter {
     parent: string | null;
     workType: string | null;
+    /** `process-type` from INDEX.md; null when absent. */
+    processType: string | null;
     icon: string;
 }
 
@@ -58,19 +62,21 @@ const ARCHIVE_DEPTH = 3;
  * ticket number.
  */
 export function parseTicketFrontmatter(head: string): TicketFrontmatter {
-    const result: TicketFrontmatter = { parent: null, workType: null, icon: '' };
+    const result: TicketFrontmatter = { parent: null, workType: null, processType: null, icon: '' };
     const lines = head.replace(/^﻿/, '').split(/\r?\n/);
     if (lines[0] !== '---') {
         return result;
     }
     for (let i = 1; i < lines.length && lines[i] !== '---'; i++) {
-        const match = /^(parent|work-type|icon)\s*:(.*)$/.exec(lines[i]);
+        const match = /^(parent|work-type|process-type|icon)\s*:(.*)$/.exec(lines[i]);
         if (!match) {
             continue;
         }
         const value = cleanValue(match[2]);
         if (match[1] === 'work-type') {
             result.workType = value ? value.toLowerCase() : null;
+        } else if (match[1] === 'process-type') {
+            result.processType = value ? value.toLowerCase() : null;
         } else if (match[1] === 'icon') {
             result.icon = value ?? '';
         } else {
@@ -93,7 +99,7 @@ function cleanValue(raw: string): string | null {
  */
 export class TicketReader {
     private readonly fs: FileSystem;
-    private readonly cache = new Map<string, { mtimeMs: number; size: number; front: TicketFrontmatter }>();
+    private readonly cache = new Map<string, { mtimeMs: number; size: number; front: TicketFrontmatter; complete: boolean }>();
 
     /** @param timeoutMs - longest wait for one `INDEX.md`; a file on a cloud drive may hang */
     constructor(fileSystem?: FileSystem, private readonly timeoutMs: number = 2000) {
@@ -147,10 +153,42 @@ export class TicketReader {
                 path: place.path,
                 shelf: place.shelf,
                 workType: front.workType,
+                processType: front.processType,
                 parent: front.parent,
                 icon: front.icon
             };
         }));
+    }
+
+    /** Search cannot silently treat unreadable shelves or headers as "no curator". */
+    async findCurator(businessPath: string): Promise<TicketInfo | null> {
+        const places = (await Promise.all(SHELVES.map(async shelf =>
+            (await withTimeout(this.subfoldersOrThrow(path.join(businessPath, shelf)), this.timeoutMs))
+                .filter(folder => parseTicketFolderName(folder) !== null)
+                .map(folder => ({ shelf, folder, path: path.join(businessPath, shelf, folder) }))
+        ))).flat();
+        const tickets = await Promise.all(places.map(async place => {
+            const parsed = parseTicketFolderName(place.folder)!;
+            const front = await this.checkedFrontmatter(path.join(place.path, 'INDEX.md'));
+            return { ...place, number: parsed.number, name: spaceIntentName(parsed.rest), ...front };
+        }));
+        return pickCurator(tickets);
+    }
+
+    /** Revalidate the criterion on the resolved folder before opening it. */
+    async isCuratorAt(ticketPath: string): Promise<boolean> {
+        return isCurator(await this.checkedFrontmatter(path.join(ticketPath, 'INDEX.md')));
+    }
+
+    private async checkedFrontmatter(indexPath: string): Promise<TicketFrontmatter> {
+        try {
+            return await withTimeout(this.readFrontmatter(indexPath, true), this.timeoutMs);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return { parent: null, workType: null, processType: null, icon: '' };
+            }
+            throw new Error(`Не удалось проверить Куратора: ${indexPath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 
     /** Ticket folders of one shelf; an absent shelf folder is an empty shelf. */
@@ -247,20 +285,38 @@ export class TicketReader {
         try {
             return await withTimeout(this.readFrontmatter(indexPath), this.timeoutMs);
         } catch {
-            return { parent: null, workType: null, icon: '' };
+            return { parent: null, workType: null, processType: null, icon: '' };
         }
     }
 
-    private async readFrontmatter(indexPath: string): Promise<TicketFrontmatter> {
+    private async readFrontmatter(indexPath: string, strict = false): Promise<TicketFrontmatter> {
         const stat: FileStat = await this.fs.stat(indexPath);
         const cached = this.cache.get(indexPath);
         if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+            if (strict && !cached.complete) {
+                throw new Error('шапка INDEX.md не завершена в прочитанном фрагменте');
+            }
             return cached.front;
         }
-        const front = parseTicketFrontmatter(await this.fs.readHead(indexPath, INDEX_HEAD_BYTES));
-        this.cache.set(indexPath, { mtimeMs: stat.mtimeMs, size: stat.size, front });
+        const head = await this.fs.readHead(indexPath, INDEX_HEAD_BYTES);
+        const lines = head.replace(/^﻿/, '').split(/\r?\n/);
+        const complete = lines[0] !== '---' || lines.slice(1).includes('---');
+        const front = parseTicketFrontmatter(head);
+        this.cache.set(indexPath, { mtimeMs: stat.mtimeMs, size: stat.size, front, complete });
+        if (strict && !complete) {
+            throw new Error('шапка INDEX.md не завершена в прочитанном фрагменте');
+        }
         return front;
     }
+}
+
+export function isCurator(ticket: Pick<TicketFrontmatter, 'workType' | 'processType'>): boolean {
+    return ticket.workType === 'process' && ticket.processType === 'curator';
+}
+
+/** Canonical ticket numbers have fixed-width suffixes; choose independently of display order. */
+export function pickCurator(tickets: readonly TicketInfo[]): TicketInfo | null {
+    return tickets.filter(isCurator).sort((a, b) => a.number < b.number ? -1 : a.number > b.number ? 1 : 0)[0] ?? null;
 }
 
 /** Reject with a timeout error when `promise` has not settled within `ms` milliseconds. */

@@ -92,7 +92,7 @@ describe('newTicketIndexText', () => {
             '# DUE023 — Bin Sync',
             ''
         ].join('\n'));
-        expect(parseTicketFrontmatter(text)).toEqual({ parent: null, workType: 'project', icon: '' });
+        expect(parseTicketFrontmatter(text)).toEqual({ parent: null, workType: 'project', processType: null, icon: '' });
     });
 
     it('a ticket without a name has the bare number as its heading', () => {

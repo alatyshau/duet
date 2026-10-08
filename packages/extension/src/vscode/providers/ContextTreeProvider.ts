@@ -203,8 +203,9 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<TreeElement>
 
         // Noop command to prevent toggle on label click (toggle only via arrow)
         item.command = {
-            command: 'duet.selectNode',
-            title: 'Select'
+            command: 'duet.contexts.select',
+            title: 'Select',
+            arguments: [node]
         };
 
         return item;

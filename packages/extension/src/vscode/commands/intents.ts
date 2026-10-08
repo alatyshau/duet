@@ -1,23 +1,19 @@
 import * as vscode from 'vscode';
 import { messageOf, say } from '../notify';
-import * as path from 'path';
-import { nodeFs } from '../../core/fs';
+import { FileSystem, nodeFs } from '../../core/fs';
 import { Paths } from '../../core/paths';
 import { ActiveIntent } from '../../core/intents/active';
 import { TicketNode, binTickets, decideBinDrop } from '../../core/intents/binTree';
 import { TicketBoard } from '../../core/intents/board';
 import { pruneArchived, writeBinOrder } from '../../core/intents/binOrder';
-import { intentIcon, intentIdentity, intentTabLabel } from '../../core/intents/naming';
 import { MAX_TICKET_NAME_LENGTH, NewTicket, createTicket, pascalCaseName } from '../../core/intents/newTicket';
 import { mergeOrderBlock } from '../../core/intents/order';
-import { TicketInfo, moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
-import { IntentWorkspacePlan, planIntentWorkspace } from '../../core/intents/workspaceFile';
-import { metaExtraFolders } from '../../core/workspace';
+import { moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { BinProvider } from '../providers/BinProvider';
 import { IntentsProvider } from '../providers/IntentsProvider';
-import { isSafeRepoName, prepareBusinessRepos } from './openFolder';
-import { getVentureFolders } from '../ventures';
+import { isSafeRepoName } from './businessRepos';
+import { TicketBusiness, TicketOpener } from './openTicket';
 
 /**
  * Switch to the window of a row of the «Активная Работа» view — an intent or a business.
@@ -69,17 +65,20 @@ export async function switchToIntent(
  * its own window shows the result without waiting for the file events.
  */
 export class BinActions {
+    private readonly opener: TicketOpener;
     private chain: Promise<void> = Promise.resolve();
 
     constructor(
-        private readonly paths: Paths,
+        paths: Paths,
         private readonly runtime: IntentsRuntime,
         private readonly bin: BinProvider,
-        private readonly board: TicketBoard
-    ) {}
+        private readonly board: TicketBoard,
+        private readonly fs: FileSystem = nodeFs
+    ) { this.opener = new TicketOpener(paths, runtime, () => board.reload(), this.fs); }
 
     open(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
-        return this.enqueue(() => this.doOpen(node, forceNewWindow));
+        const target = this.capture(node);
+        return target ? this.enqueue(() => this.doOpen(node, target.business, forceNewWindow)) : Promise.resolve();
     }
 
     /**
@@ -88,7 +87,7 @@ export class BinActions {
      * box holds up no other command.
      */
     async create(): Promise<void> {
-        const business = this.bin.currentBusiness();
+        const business = this.bin.windowBusiness();
         if (!business?.absolute_path) {
             say('В этом окне нет бизнеса — новый тикет создать негде.');
             return;
@@ -109,15 +108,24 @@ export class BinActions {
         if (typed === undefined) {
             return;
         }
-        return this.enqueue(() => this.doCreate(business.absolute_path!, pascalCaseName(typed)));
+        return this.enqueue(() => this.doCreate(business, pascalCaseName(typed)));
     }
 
     toBacklog(node: TicketNode | undefined): Promise<void> {
-        return this.enqueue(() => this.doToBacklog(node));
+        const target = this.capture(node);
+        return target ? this.enqueue(() => this.doToBacklog(node, target.business.absolute_path!)) : Promise.resolve();
     }
 
     drop(sourceKey: string, targetKey: string | null): Promise<void> {
-        return this.enqueue(() => this.doDrop(sourceKey, targetKey));
+        const business = this.bin.currentBusiness();
+        const generation = this.board.getGeneration();
+        return business?.absolute_path ? this.enqueue(() => this.doDrop(sourceKey, targetKey, business.absolute_path!, generation))
+            : Promise.resolve();
+    }
+
+    private capture(node: TicketNode | undefined): { business: TicketBusiness } | null {
+        const business = this.bin.currentBusiness();
+        return node?.kind === 'ticket' && business?.absolute_path && this.bin.hasNode(node) ? { business } : null;
     }
 
     private enqueue(task: () => Promise<void>): Promise<void> {
@@ -128,27 +136,28 @@ export class BinActions {
         return next;
     }
 
-    private async doOpen(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
+    private async doOpen(node: TicketNode | undefined, business: TicketBusiness, forceNewWindow: boolean): Promise<void> {
         if (!node || node.kind !== 'ticket') {
             return;
         }
-        await this.openTicket(node.ticket, forceNewWindow);
+        await this.opener.open(node.ticket, business, forceNewWindow);
     }
 
     /** Make the ticket folder with the next number, show it in the bin, open its window. */
-    private async doCreate(businessPath: string, slug: string): Promise<void> {
-        if (this.bin.currentBusiness()?.absolute_path !== businessPath) {
+    private async doCreate(business: TicketBusiness, slug: string): Promise<void> {
+        const businessPath = business.absolute_path!;
+        if (this.bin.windowBusiness()?.absolute_path !== businessPath) {
             say('Пока вводилось название, у окна сменился бизнес — тикет не создан.');
             return;
         }
-        const code = (await readBusinessManifest(businessPath)).ticketCode;
+        const code = (await readBusinessManifest(businessPath, this.fs)).ticketCode;
         if (!code) {
             say('В context.json бизнеса нет ticket_code — трёх заглавных букв кода тикетов; номер выдать не из чего.');
             return;
         }
         let ticket: NewTicket;
         try {
-            ticket = await createTicket(nodeFs, this.runtime.tickets, businessPath, code, slug, new Date());
+            ticket = await createTicket(this.fs, this.runtime.tickets, businessPath, code, slug, new Date());
         } finally {
             // Also after a failure: a folder may have been made before it
             await this.board.reload();
@@ -163,139 +172,13 @@ export class BinActions {
                 + 'Одну надо перенумеровать; окно не открыто.');
             return;
         }
-        if (!await this.openTicket(ticket, true)) {
+        if (!await this.opener.open(ticket, business, true)) {
             say(`Тикет ${ticket.folder} создан в work/, но его окно не открылось — откройте его из корзины.`);
         }
     }
 
-    /**
-     * Open the intent of a ticket: move it out of the backlog, bring the
-     * business's repos to disk, build the workspace file anew, hold the intent
-     * and its colour, open the file.
-     *
-     * @returns whether a window was opened or brought forward
-     */
-    private async openTicket(
-        ticket: Pick<TicketInfo, 'number' | 'folder' | 'shelf'>,
-        forceNewWindow: boolean
-    ): Promise<boolean> {
-        const business = this.bin.currentBusiness();
-        const businessPath = business?.absolute_path;
-        if (!business || !businessPath) {
-            return false;
-        }
-        const ticketNumber = ticket.number;
-
-        await this.runtime.refresh();
-        const active = this.runtime.getActive().find(row => row.ticket === ticketNumber);
-        if (active) {
-            // Its window is open: Duet does not write into the file of an open window
-            await vscode.commands.executeCommand(
-                'vscode.openFolder', vscode.Uri.file(active.workspaceFile), { forceNewWindow: true }
-            );
-            return true;
-        }
-
-        const now = await resolveTicketNow(this.runtime.tickets, businessPath, ticket);
-        if (now.state === 'gone' || now.state === 'ambiguous') {
-            say(now.state === 'gone'
-                ? `Тикета ${ticketNumber} нет ни в work/, ни в backlog/ — корзина обновлена.`
-                : `У номера ${ticketNumber} несколько папок — корзина обновлена, выберите строку заново.`);
-            await this.board.reload();
-            return false;
-        }
-        let place = now.place;
-        let moved = now.state === 'moved';
-        if (place.shelf === 'backlog') {
-            try {
-                const movedPath = await moveTicketFolder(nodeFs, businessPath, place.path, 'work');
-                place = { shelf: 'work', folder: place.folder, path: movedPath };
-                moved = true;
-            } catch (error) {
-                say(`Не удалось перенести ${ticketNumber} в work/: ${messageOf(error)}`);
-                await this.board.reload();
-                return false;
-            }
-        }
-
-        const gitRepos = business.git_repos ?? {};
-        const ready = isSafeRepoName(business.name)
-            && await prepareBusinessRepos(business.name, gitRepos, business.reference_repos ?? undefined, this.paths);
-        if (!ready) {
-            if (!isSafeRepoName(business.name)) {
-                say(`Имя бизнеса «${business.name}» не годится для имени папки — интент не открыт.`);
-            }
-            if (moved) {
-                await this.board.reload();
-            }
-            return false;
-        }
-
-        const workspacePath = this.paths.intentWorkspacePath(business.name, place.folder);
-        const manifest = await readBusinessManifest(businessPath);
-        const identity = intentIdentity(place.folder);
-        if (!identity) {
-            return false;
-        }
-        // One emoji for the row of the window and for the tab of its notepad
-        const ticketIcon = await this.runtime.tickets.inheritedIcon(businessPath, place.path);
-        const plan = await this.planWorkspaceFile(workspacePath, {
-            businessPath,
-            aliases: Object.keys(gitRepos),
-            extraFolders: metaExtraFolders(business.meta, businessPath, getVentureFolders(), this.paths.root),
-            ticketFolder: place.folder,
-            tabLabel: intentTabLabel(intentIcon(ticketIcon, manifest.icon), identity)
-        }, ticketNumber);
-
-        if (plan.action === 'write') {
-            await nodeFs.mkdir(path.dirname(workspacePath), { recursive: true });
-            await nodeFs.atomicWriteFile(workspacePath, plan.text, 'utf8');
-        } else if (plan.action === 'as-is') {
-            say(plan.reason === 'newer'
-                ? `Файл окна ${ticketNumber} собран более новой версией Duet — открыт как есть.`
-                : `Файл окна ${ticketNumber} не читается — открыт как есть, без пересборки.`);
-        }
-
-        await this.runtime.reserve({
-            subject: 'intent',
-            ticket: ticketNumber,
-            ticketFolder: place.folder,
-            business: business.name,
-            businessPath,
-            icon: manifest.icon,
-            ticketIcon,
-            workspaceFile: workspacePath,
-            location: 'work',
-            color: plan.color
-        });
-        if (moved) {
-            await this.board.reload();
-        }
-        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspacePath), { forceNewWindow });
-        return true;
-    }
-
-    private async planWorkspaceFile(
-        workspacePath: string,
-        spec: Parameters<typeof planIntentWorkspace>[1],
-        ticketNumber: string
-    ): Promise<IntentWorkspacePlan> {
-        let existing: string | null;
-        try {
-            existing = await nodeFs.readFile(workspacePath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-                // The file is there but cannot be read: do not rebuild what cannot be seen
-                return { action: 'as-is', reason: 'unreadable', color: null };
-            }
-            existing = null;
-        }
-        return planIntentWorkspace(existing, spec, this.runtime.occupiedColors(ticketNumber));
-    }
-
-    private async doToBacklog(node: TicketNode | undefined): Promise<void> {
-        const businessPath = this.bin.currentBusiness()?.absolute_path;
-        if (!node || node.kind !== 'ticket' || !businessPath) {
+    private async doToBacklog(node: TicketNode | undefined, businessPath: string): Promise<void> {
+        if (!node || node.kind !== 'ticket') {
             return;
         }
         const ticketNumber = node.ticket.number;
@@ -312,7 +195,7 @@ export class BinActions {
                 : `У номера ${ticketNumber} несколько папок — корзина обновлена, выберите строку заново.`);
         } else if (now.place.shelf === 'work') {
             try {
-                await moveTicketFolder(nodeFs, businessPath, now.place.path, 'backlog');
+                await moveTicketFolder(this.fs, businessPath, now.place.path, 'backlog');
             } catch (error) {
                 say(`Не удалось перенести ${ticketNumber} в backlog/: ${messageOf(error)}`);
             }
@@ -325,12 +208,16 @@ export class BinActions {
      * made on the fresh rows; the order is written only when the move, if one
      * was needed, succeeded; the view shows the result only after the disk has it.
      */
-    private async doDrop(sourceKey: string, targetKey: string | null): Promise<void> {
-        const businessPath = this.bin.currentBusiness()?.absolute_path;
-        if (!businessPath) {
+    private async doDrop(sourceKey: string, targetKey: string | null, businessPath: string, generation: number): Promise<void> {
+        if (generation !== this.board.getGeneration()) {
             return;
         }
         await Promise.all([this.board.reload(), this.runtime.refresh()]);
+        if (generation !== this.board.getGeneration()) {
+            return;
+        }
+        const tree = this.board.getTree();
+        const previousOrder = this.board.getOrder();
         if (!this.board.isOrderKnown()) {
             // What the window remembers is an older order; written, it would replace the newer one in the file.
             // Refused before anything is moved: a drag is a place and an order together
@@ -338,7 +225,7 @@ export class BinActions {
             return;
         }
 
-        const drop = decideBinDrop(this.board.getTree(), sourceKey, targetKey, n => this.runtime.isOpen(n));
+        const drop = decideBinDrop(tree, sourceKey, targetKey, n => this.runtime.isOpen(n));
         if (!drop.ok) {
             if (drop.reason) {
                 say(drop.reason);
@@ -347,7 +234,7 @@ export class BinActions {
         }
         if (drop.move) {
             try {
-                await moveTicketFolder(nodeFs, businessPath, drop.ticket.path, drop.shelf);
+                await moveTicketFolder(this.fs, businessPath, drop.ticket.path, drop.shelf);
             } catch (error) {
                 say(`Не удалось перенести ${drop.ticket.number} в ${drop.shelf}/: ${messageOf(error)}`);
                 await this.board.reload();
@@ -355,13 +242,13 @@ export class BinActions {
             }
         }
         try {
-            const present = new Set(binTickets(this.board.getTree()).map(n => n.ticket.number));
+            const present = new Set(binTickets(tree).map(n => n.ticket.number));
             const order = await pruneArchived(
-                mergeOrderBlock(this.board.getOrder(), drop.shelfOrder),
+                mergeOrderBlock(previousOrder, drop.shelfOrder),
                 present,
                 async n => (await this.runtime.tickets.findInArchive(businessPath, n)) !== null
             );
-            await writeBinOrder(businessPath, order);
+            await writeBinOrder(businessPath, order, this.fs);
         } catch (error) {
             say(`Порядок корзины не записан: ${messageOf(error)}`);
         }

@@ -369,11 +369,15 @@ describe('М2.1, М3.2, М3.14: какой тикет показан', () => {
         expect(nextShown(other, twin)).toMatchObject({ changed: true, state: { ticket: { path: '/b/backlog/DUE017_X' } } });
     });
 
-    it('М3.2/4: тикет другого бизнеса — показанное остаётся, одна строка', () => {
+    it('DUE019: выбор бизнеса очищает даже собственный тикет; чужой тикет разрешён', () => {
+        expect(nextShown(home, { kind: 'business' }).state).toEqual(NOTHING_SHOWN);
         const step = nextShown(home, { kind: 'select', number: 'ABC001', path: '/c/work/ABC001', sameBusiness: false, ownNumber: 'DUE018' });
-        expect(step.state).toBe(home);
-        expect(step.changed).toBe(false);
-        expect(step.say).toBe('Тикеты другого бизнеса рабочая папка пока не открывает.');
+        expect(step.state.ticket).toEqual({ number: 'ABC001', path: '/c/work/ABC001', own: false });
+        expect(step.changed).toBe(true);
+        expect(step.say).toBeUndefined();
+        // A duplicated number in another business is never marked as the window's own.
+        expect(nextShown(home, { kind: 'select', number: 'DUE018', path: '/c/work/DUE018', sameBusiness: false, ownNumber: 'DUE018' })
+            .state.ticket?.own).toBe(false);
     });
 
     it('М3.14/1: папка переехала — вью идёт за ней, чей тикет — не меняется', () => {

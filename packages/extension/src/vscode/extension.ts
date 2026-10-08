@@ -25,6 +25,7 @@ import { ActiveIntent, rowByNumber } from '../core/intents/active';
 import { binTitle } from '../core/intents/naming';
 import { registerWorkView } from './work/registerWorkView';
 import { WorkView } from './work/WorkView';
+import { BusinessViews } from './intents/businessViews';
 
 let backendOutputChannel: vscode.OutputChannel | null = null;
 let sidebarState: SidebarStateManager | null = null;
@@ -171,6 +172,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 showCollapseAll: false // Hide native collapse, we use toggle
             });
 
+            const businessViews = binProvider ? new BusinessViews(binProvider, workView) : null;
+            if (businessViews) {
+                businessViews.register(context);
+                context.subscriptions.push(contextTreeView.onDidChangeSelection(event =>
+                    { void businessViews.select(event.selection[0]); }));
+            } else {
+                context.subscriptions.push(vscode.commands.registerCommand('duet.contexts.select', () => undefined));
+            }
+
             // Accordion behavior: only one root expanded at a time, expand to leaves
             const accordion = new AccordionController(contextTreeProvider, contextTreeView);
             context.subscriptions.push(...accordion.registerListeners());
@@ -288,7 +298,10 @@ function registerBinView(
         dragAndDropController: provider
     });
     // The title tells whose tickets the view shows: «Корзина DuetLab»
-    const showTitle = () => { view.title = binTitle(provider.currentBusiness()?.name); };
+    const showTitle = () => {
+        view.title = binTitle(provider.currentBusiness()?.name);
+        view.description = provider.isForeignBusiness() ? 'другой бизнес' : '';
+    };
     showTitle();
     context.subscriptions.push(
         view,
@@ -297,21 +310,18 @@ function registerBinView(
         { dispose: () => board.dispose() },
         provider.onDidChangeTreeData(showTitle),
         view.onDidChangeVisibility(event => provider.setVisible(event.visible)),
-        vscode.commands.registerCommand('duet.bin.refresh', () => board.reload()),
         vscode.commands.registerCommand('duet.bin.openHere', (node: TicketNode) => actions.open(node, false)),
         vscode.commands.registerCommand('duet.bin.openNew', (node: TicketNode) => actions.open(node, true)),
         vscode.commands.registerCommand('duet.bin.toBacklog', (node: TicketNode) => actions.toBacklog(node)),
         // The command of a ticket row: a click, Enter, the space bar and the keys that move the focus
         // show the ticket in «Рабочая папка». Without that view the row is only selected, as before
-        vscode.commands.registerCommand('duet.bin.select', (node: unknown) => work?.selectFromBin(node)),
+        vscode.commands.registerCommand('duet.bin.select', (node: TicketNode) => provider.hasNode(node) ? work?.selectFromBin(node) : undefined),
         vscode.commands.registerCommand('duet.bin.copyAtPath', (node: TicketNode) =>
             node?.kind === 'ticket' ? copyAtPath(vscode.Uri.file(node.ticket.path)) : undefined),
         // Its button is in the title of «Активная Работа», but the business it needs comes from the backend
         vscode.commands.registerCommand('duet.intents.newTicket', () => actions.create())
     );
-    if (view.visible) {
-        provider.setVisible(true);
-    }
+    provider.setVisible(view.visible);
     return provider;
 }
 

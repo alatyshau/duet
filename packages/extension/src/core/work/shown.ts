@@ -4,7 +4,7 @@ import { parseTicketFolderName } from '../pathUtils';
 
 /**
  * Which ticket the «Рабочая папка» view shows: the ticket of the window, another
- * ticket of the same business picked in the bin, or none.
+ * ticket of any business picked in the bin, or none.
  */
 export interface ShownTicket {
     number: string;
@@ -41,6 +41,8 @@ export type OwnPlace =
 export type ShownEvent =
     /** The window started, or «обновить» was pressed. */
     | { kind: 'home'; own: OwnPlace }
+    /** A business was selected: wait for an explicit choice of a ticket. */
+    | { kind: 'business' }
     /** A ticket row of the bin was clicked or reached by a key. */
     | { kind: 'select'; number: string; path: string; sameBusiness: boolean; ownNumber: string | null }
     /** The shown folder is gone; `places` are the folders that carry its number now. */
@@ -72,11 +74,11 @@ export function nextShown(before: ShownState, event: ShownEvent): ShownStep {
         const state = home(event.own, before);
         return { state, changed: !sameTicket(before.ticket, state.ticket) || event.own.state === 'found' };
     }
+    if (event.kind === 'business') {
+        return { state: NOTHING_SHOWN, changed: before.ticket !== null || before.trouble !== null };
+    }
     if (event.kind === 'select') {
-        if (!event.sameBusiness) {
-            return { state: before, changed: false, say: 'Тикеты другого бизнеса рабочая папка пока не открывает.' };
-        }
-        const ticket = { number: event.number, path: event.path, own: event.number === event.ownNumber };
+        const ticket = { number: event.number, path: event.path, own: event.sameBusiness && event.number === event.ownNumber };
         // A click on the ticket already shown does not start its view again
         if (sameTicket(before.ticket, ticket)) {
             return { state: before, changed: false };

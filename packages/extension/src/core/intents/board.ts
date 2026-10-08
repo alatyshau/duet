@@ -35,6 +35,7 @@ export const DISK_DEBOUNCE_MS = 300;
  */
 export class TicketBoard {
     private readonly fs: FileSystem;
+    private generation = 0;
     private businessPath: string | null = null;
     /** Null until the business folders have been read. */
     private tickets: TicketInfo[] | null = null;
@@ -69,6 +70,10 @@ export class TicketBoard {
         return this.businessPath;
     }
 
+    getGeneration(): number { return this.generation; }
+
+    isShown(): boolean { return this.shown; }
+
     /** Null until the business folders have been read. */
     getTickets(): TicketInfo[] | null {
         return this.tickets;
@@ -96,6 +101,7 @@ export class TicketBoard {
         if (key(businessPath) === key(this.businessPath)) {
             return;
         }
+        this.generation++;
         this.businessPath = businessPath;
         this.forget();
         this.tell();
@@ -159,6 +165,7 @@ export class TicketBoard {
 
     private async readOnce(): Promise<void> {
         const businessPath = this.businessPath;
+        const generation = this.generation;
         if (!businessPath) {
             return;
         }
@@ -169,7 +176,7 @@ export class TicketBoard {
             readBinOrder(businessPath, this.fs)
         ]);
         // The business changed while the folders were being read
-        if (key(this.businessPath) !== key(businessPath)) {
+        if (generation !== this.generation || key(this.businessPath) !== key(businessPath)) {
             return;
         }
         this.stamp = stamp;

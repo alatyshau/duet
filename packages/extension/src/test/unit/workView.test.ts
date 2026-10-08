@@ -479,11 +479,52 @@ describe('T9–T12, М3.2: другой тикет и «обновить»', () 
         expect(names(view)).toEqual([]);
     });
 
-    it('T13: тикет другого бизнеса — показанное остаётся, одна строка', async () => {
-        const { view, tree } = await open();
-        await view.selectFromBin(ticketNode('ABC001', '/drive/Other/work/ABC001_X'));
+    it('DUE019: чужой тикет показывает файлы, подпись и свои закрепления', async () => {
+        const foreign = '/drive/Other/work/ABC001_X';
+        const { view, tree, disk, actions } = await open({ ...TICKET, [`${foreign}/INDEX.md`]: '', [`${foreign}/a.md`]: '' });
+        await view.selectFromBin(ticketNode('ABC001', foreign));
+        expect(tree.title).toBe('Рабочая папка ABC001');
+        expect(tree.description).toBe('другой тикет');
+        expect(names(view)).toEqual(['f|INDEX.md', 'f|a.md']);
+        expect(fake.warnings).toEqual([]);
+        await actions.pin(el('f', 'a.md', 'ABC001'), undefined);
+        expect(disk.files.has('/drive/Other/.vscode/duet-work-order/ABC001.json')).toBe(true);
+        expect(disk.files.has(`${B}/.vscode/duet-work-order/ABC001.json`)).toBe(false);
+        await view.goHome();
         expect(tree.title).toBe('Рабочая папка DUE018');
-        expect(fake.warnings).toEqual(['Тикеты другого бизнеса рабочая папка пока не открывает.']);
+        expect(tree.description).toBe('');
+    });
+
+    it('DUE019: выбор бизнеса очищает Work, не стирает состояние тикета и освобождает watcher', async () => {
+        const { view, tree, disk, actions } = await open();
+        await actions.pin(el('f', 'b.md'), undefined);
+        const saved = disk.files.get(ORDER);
+        const watchers = [...fake.watchers];
+        await view.clearForBusiness();
+        expect(tree.title).toBe('Рабочая папка');
+        expect(tree.description).toBe('');
+        expect(tree.message).toBeUndefined();
+        expect(names(view)).toEqual([]);
+        expect(watchers.every(w => w.disposed)).toBe(true);
+        expect(disk.files.get(ORDER)).toBe(saved);
+        await view.goHome();
+        expect(tree.title).toBe('Рабочая папка DUE018');
+    });
+
+    it('DUE019: выбор бизнеса отменяет запоздалый возврат к тикету окна', async () => {
+        const { view, tree } = await open();
+        let release!: () => void;
+        const ownPlace = vi.spyOn(view as never, 'ownPlace' as never).mockImplementation(async () => {
+            await new Promise<void>(resolve => { release = resolve; });
+            return { state: 'found', number: 'DUE018', path: T } as never;
+        });
+        const returning = view.goHome();
+        await view.clearForBusiness();
+        release();
+        await returning;
+        expect(tree.title).toBe('Рабочая папка');
+        expect(view.ticket).toBeNull();
+        ownPlace.mockRestore();
     });
 
     it('М2.8: запоздавший результат прежнего выбора не показывается', async () => {

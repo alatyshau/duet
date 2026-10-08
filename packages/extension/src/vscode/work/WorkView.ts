@@ -98,8 +98,8 @@ export interface DropHandler {
 
 /**
  * «Рабочая папка» view — the files of one ticket, as Explorer shows the folder
- * of a project: the ticket of the window by default, or another ticket of the
- * same business picked in the bin. The rows stand in the order a person gave
+ * of a project: the ticket of the window by default, or another ticket of
+ * any business picked in the bin. The rows stand in the order a person gave
  * them, what is expanded is remembered per ticket, files are hidden as
  * Explorer hides them.
  *
@@ -120,6 +120,9 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
     window: WindowView = parseWindowView(null);
     /** Business of the shown ticket. */
     businessPath: string | null = null;
+    /** Both refresh buttons use the same linked return once the bin is registered. */
+    refreshHome: (() => Promise<void>) | null = null;
+
     /** Set by the commands that carry out drops. */
     dropHandler: DropHandler | null = null;
 
@@ -211,7 +214,10 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
 
     /** Read the settings of the window and show its ticket. */
     async begin(): Promise<void> {
-        this.window = parseWindowView(await this.readWindowText());
+        const request = this.request;
+        const window = parseWindowView(await this.readWindowText());
+        if (request !== this.request) { return; }
+        this.window = window;
         this.refreshChrome();
         await this.goHome();
     }
@@ -239,11 +245,20 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
     /** The «обновить» button and the start of the window: back to the ticket of the window, read anew. */
     async goHome(): Promise<void> {
         this.dragEnded();
+        const request = ++this.request;
         const own = await this.ownPlace();
+        if (request !== this.request) { return; }
         const step = nextShown(this.shown, { kind: 'home', own });
         // When the folders did not answer, what is shown stays — and it may be a ticket of the bin
         const stays = step.state.ticket && !step.state.ticket.own;
-        await this.enter(step.state, stays ? this.businessPath : this.runtime.own?.businessPath ?? null);
+        await this.enter(step.state, stays ? this.businessPath : this.runtime.own?.businessPath ?? null, request);
+    }
+
+    /** Selection of a business is not goHome: even a ticket window becomes empty. */
+    async clearForBusiness(): Promise<void> {
+        this.dragEnded();
+        const request = ++this.request;
+        await this.enter(nextShown(this.shown, { kind: 'business' }).state, null, request);
     }
 
     /** A ticket row of the bin was clicked or reached by a key. Rows of groups come here too and change nothing. */
@@ -279,10 +294,10 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
     }
 
     /** Leave the ticket shown and show another state: the title at once, the rows when they are read. */
-    private async enter(state: ShownState, businessPath: string | null): Promise<void> {
+    private async enter(state: ShownState, businessPath: string | null, request = ++this.request): Promise<void> {
         await this.flushView();
+        if (request !== this.request) { return; }
         this.nameBox?.close();
-        const request = ++this.request;
         const remembered = state.ticket ? this.selections.get(state.ticket.number) ?? [] : [];
         const before = this.shown.ticket;
         // The same ticket read anew keeps its rows on the screen while the disk answers
@@ -323,6 +338,7 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
             }
             return;
         }
+        if (request !== this.request) { return; }
         const business = this.businessPath;
         const [orderRead, viewText, places] = await Promise.all([
             business ? readOrder(this.fs, workOrderPath(business, ticket.number)) : Promise.resolve<OrderRead>({ state: 'none' }),
@@ -349,10 +365,9 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
         this.tree.setSnapshot(snapshot);
         // Bringing the saved view back is not a change of this window
         this.tree.dirty = false;
-        this.tree.setFilter(await this.readFilter(ticket));
-        if (request !== this.request) {
-            return;
-        }
+        const filter = await this.readFilter(ticket);
+        if (request !== this.request) { return; }
+        this.tree.setFilter(filter);
         this.load = { state: 'ready' };
         this.refreshChrome();
         this.redrawNow();
@@ -414,8 +429,7 @@ export class WorkView implements vscode.TreeDataProvider<string>, vscode.TreeDra
         if (!ticket) {
             return;
         }
-        // The ticket lies inside a folder of the window, which the program watches already:
-        // this watcher reads nothing and only picks its events out of that stream
+        // RelativePattern also watches a previewed ticket outside this workspace.
         const files = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(ticket.path), '**/*'));
         const changed = (uri: vscode.Uri) => this.diskChanged(uri.fsPath);
         this.watchers.push(files, files.onDidCreate(changed), files.onDidChange(changed), files.onDidDelete(changed));

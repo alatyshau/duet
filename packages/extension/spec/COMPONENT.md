@@ -31,7 +31,7 @@ This is an experiment (DUE017): only stock side-bar features, no UI of its own. 
 
 Contracts: [Work view](#work-view).
 
-What the Extension still never does: write `settings.json`, `{machine}.json` or a manifest, edit a ticket's `INDEX.md` (it only reads `parent`, `work-type` and `icon` from it; the user may rename or trash it through «Рабочая папка» like any file), delete anything for good — a deletion goes to the system trash or does not happen. Root-context editing, schema migrations, AI client configuration live in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
+What the Extension still never does: write `settings.json`, `{machine}.json` or a manifest, edit a ticket's `INDEX.md` (it only reads `parent`, `work-type`, `process-type` and `icon` from it; the user may rename or trash it through «Рабочая папка» like any file), delete anything for good — a deletion goes to the system trash or does not happen. Root-context editing, schema migrations, AI client configuration live in Host. Extension's correct response to «I want to add a root context» is to direct the user to the Host wizard.
 
 ## Architecture
 
@@ -81,7 +81,7 @@ It also reads the business folder straight from disk, without Backend:
 |------|--------|---------------------|
 | `<business>/context.json` | `pathUtils.ts:formatBusinessReference`, `intents/tickets.ts:readBusinessManifest` | `name` (Copy @-Path, window marker), `icon` (intent rows, notepad tab label), `ticket_code` (the number of a new ticket). Read from disk for two reasons: an intent window marks itself before Backend answers, and Backend puts a default icon (`📁`/`📦`) where the manifest has none, while the intent rule is «no icon — no emoji» |
 | `<business>/work/`, `<business>/backlog/` | `intents/tickets.ts:TicketReader` | folders right inside them whose name fits the ticket-number rule (`pathUtils.ts:parseTicketFolderName`, the grammar Copy @-Path uses); `archive/` only to find one ticket by number and to collect the numbers a new ticket must stay clear of (`TicketReader.allNumbers`) |
-| Ticket `INDEX.md` | `TicketReader` | frontmatter `parent`, `work-type` and `icon` (the ticket's emoji), from the first 2 KB, remembered by the file's mtime and size, with a timeout per file |
+| Ticket `INDEX.md` | `TicketReader` | frontmatter `parent`, `work-type`, `process-type` and `icon` (the ticket's emoji), from the first 2 KB, remembered by the file's mtime and size, with a timeout per file |
 | `<business>/.vscode/duet-intents.json` | `intents/binOrder.ts` | order of the bin |
 | `DuetData/intents/<program>/` | `intents/markers.ts:MarkerStore` | window markers, order of active intents |
 | The window's `workbench.colorCustomizations` | `vscode/intents/IntentsRuntime.ts` | the colour in force, written into the window marker |
@@ -127,7 +127,7 @@ Both providers are synchronous wrappers around a snapshot:
 | View ID | Provider | Data source | Renders |
 |---------|----------|-------------|---------|
 | `duet.intents` (Активная Работа) | `IntentsProvider` | window markers of the program (`MarkerStore`) | Flat list: business windows and active intents of every business, in one order set by dragging; each row in the colour of its window |
-| `duet.bin` (Корзина) | `BinProvider` | ticket folders of the window's business + markers | Tickets from `work/` and `backlog/` by container; a ticket with an open window is in the colour of that window |
+| `duet.bin` (Корзина) | `BinProvider` | ticket folders of the shown business + markers | Tickets from `work/` and `backlog/` by container; a ticket with an open window is in the colour of that window |
 | `duet.work` (Рабочая папка) | `work/WorkView` | the folder of one ticket on disk, its order file, the two view files | The files and folders of the shown ticket, without a row for the ticket itself |
 | `duet.contexts` (Все Бизнесы) | `ContextTreeProvider` | `apiClient.contexts()` (`ContextEntity[]`) | Full forest of root contexts and descendants. A context is highlighted when its own folder is among the window's folders |
 | `duet.context` (КОНТЕКСТ) | `ContextProvider` | the same `ContextEntity[]` | Venture → current business → businesses directly under it. No business folder in the window → single info node |
@@ -138,7 +138,9 @@ Per-view rendering rules (icons, decorations, accordion behavior) live in [UI.md
 
 #### `duet.openFolder` — open a context
 
-Every context is opened through a workspace file Duet writes for it; there is one path, and repos only add folders to it.
+Both business open buttons first call `TicketReader.findCurator`: immediate `work/` and `backlog/` tickets with `work-type: process` and `process-type: curator`, choosing the lowest canonical number. `pickCurator` is pure; strict search shares the bin's header cache but rejects unreadable shelves, unreadable INDEX or an unfinished header in the first 2 KB; a missing shelf or missing INDEX is absence. It never falls back to a business on failure. The criterion is checked again on the resolved folder before launching.
+
+A found Curator goes through `vscode/commands/openTicket.ts:TicketOpener`, the same service used by bin rows and new tickets, with an explicit target business and current/new-window mode. Existing-window focus, backlog → work, workspace and colour rules are unchanged. Repository preparation lives in `businessRepos.ts`, shared without circular command imports. With no Curator, the following business-workspace path applies:
 
 | Step | Action |
 |------|--------|
@@ -168,11 +170,11 @@ All hidden from the Command Palette (`commandPalette: when: false`): they act on
 | `duet.intents.switch` | click on an «Активная Работа» row — and nowhere else | Bring the window of the row forward (see [Switching](#switching-to-a-window)). The bin never switches: it is for managing the backlog and the order |
 | `duet.intents.switchByNumber` | Cmd+1 … Cmd+9 (macOS), `when: duet.hasPointer`; hidden from the Command Palette | The same switch for the row that shows this number in «Активная Работа» now (`intents/active.ts:rowByNumber`); the digit comes as the `args` of the keybinding. An extension's keybinding outranks the editor's own for the same keys, so these replace «focus editor group N»; the user's own keybindings still outrank them |
 | `duet.intents.newTicket` | «Активная Работа» title, `when: duet.ready` | Ask for a name, create the next ticket of the window's business in `work/` and open its window (see [New ticket](#new-ticket)) |
-| `duet.bin.refresh` | Корзина title | Re-read the business folders |
+| `duet.bin.refresh` | Корзина title | Restore Корзина to the window’s business and Work to its window binding, then re-read |
 | `duet.bin.openHere`, `duet.bin.openNew` | inline on a bin ticket without an open window | Open the intent in the current / a new window — the same two buttons, icons and window behaviour as `duet.openInCurrentWindow` / `duet.openInNewWindow` for a business |
 | `duet.bin.toBacklog` | inline on a bin ticket from `work/` without an open window | Move the ticket folder to `backlog/` |
 
-`duet.intents.*` are registered as soon as the pointer is read; `duet.bin.*` after Backend has answered, with the rest of the backend-dependent commands — and `duet.intents.newTicket` with them: its button is in the «Активная Работа» title, but the business it needs comes from Backend, so the button is hidden until `duet.ready`. Bin commands run one at a time, and a command of a row first finds its ticket on disk by number (`intents/tickets.ts:resolveTicketNow`): a row is what the board read last, and no action runs on a stale path. Implementation: `vscode/commands/intents.ts`.
+`duet.intents.*` are registered as soon as the pointer is read; `duet.bin.*` after Backend has answered, with the rest of the backend-dependent commands — and `duet.intents.newTicket` with them: its button is in the «Активная Работа» title, but the business it needs comes from Backend, so the button is hidden until `duet.ready`. Bin commands run one at a time, and a command of a row first finds its ticket on disk by number (`intents/tickets.ts:resolveTicketNow`): a row is what the board read last, and no action runs on a stale path. Implementation: `vscode/commands/intents.ts`. Commands capture the row's business before entering the queue; a started operation never writes into a different preview. Drops carry provider identity and board generation, and recheck the generation after asynchronous reads. Order calculation retains the original tree and order across any later preview change.
 
 #### Work view commands
 
@@ -378,6 +380,10 @@ The light version is the colour with transparency, not a fixed light colour: ove
 
 #### Bin: the board of tickets
 
+`BinProvider` keeps the window business separately from a temporary preview. Real selection in «Все Бизнесы» and the internal `duet.contexts.select` row command use `BusinessViews.select`; the row command also handles a repeated click after a return. Selecting a business empties Work, while `duet.bin.select` accepts a current ticket row and shows its real business's files. Separator/placeholder rows do nothing. Workspace-folder changes clear preview; a context rescan preserves a still-existing preview and otherwise returns to the window business.
+
+`BusinessViews.home` is the single return used by both refresh buttons, without calling commands recursively: clear preview, restore Корзина's window business, call `WorkView.goHome` (empty in a business window, own ticket in a ticket window). Work has a separate `clearForBusiness`, never a substitute call to `goHome`. Pending startup, selection and home reads are invalidated before waiting for disk or saved expansion. Every source switch increments the board generation, so even A → B → A discards the first A's late results. Hidden preview changes read nothing. `RelativePattern` watchers follow the displayed source outside the workspace; the runtime's own-marker watcher stays on the window business.
+
 The tickets of the business, the order and the rows built from them are held by one object per window — the board, `core/intents/board.ts:TicketBoard`. Корзина shows the board and reads no disk itself; the bin commands act through it. Shared state of windows is built the same way in both views — a folder on disk, a watcher on it, one joined reading (`intents/coalesce.ts`), a word to the view — and kept in two places on purpose: what is open is a fact about a machine and a program and lies in DuetData; where tickets lie is a fact about the business and lies in its folder.
 
 | Rule | Why |
@@ -433,7 +439,7 @@ Pure logic: `core/folderView/` — a tree of one folder with an order of its own
 
 #### Which ticket
 
-`work/shown.ts:nextShown` — a pure function over «what is shown» and an event: the start and the refresh button, a ticket row of the bin, the shown folder gone. The shown ticket is a number *and* a folder path: the bin shows two folders of one number as two rows. The folder is found by `locateTicket`, which, unlike the bin's reader, tells «no such ticket» from «the folders did not answer». Every choice takes a request number; a reading that ends under an older one is dropped, and a file operation holds the paths of the ticket it began in (`WorkView.exclusive`).
+`work/shown.ts:nextShown` — a pure function over «what is shown» and an event: the start and the refresh button, a business selection (empty), a ticket row of the bin from any business, the shown folder gone. The shown ticket is a number *and* a folder path: the bin shows two folders of one number as two rows. The folder is found by `locateTicket`, which, unlike the bin's reader, tells «no such ticket» from «the folders did not answer». Every choice takes a request number; a reading that ends under an older one is dropped, and a file operation holds the paths of the ticket it began in (`WorkView.exclusive`).
 
 #### The tree
 
@@ -498,7 +504,7 @@ A test of these rules goes through the command of the view (`workView.test.ts`, 
 
 #### What is not built
 
-No row for the ticket; no folded folder chains; no nesting of related files; no git marks; no search of its own; no «open to the side» and no terminal; no cut, copy and paste; no undo of file operations; no relative path; no create buttons in the title; no opening of `INDEX.md` when a ticket is chosen; no rewriting of links; no tickets of other businesses; no permanent deletion.
+No row for the ticket; no folded folder chains; no nesting of related files; no git marks; no search of its own; no «open to the side» and no terminal; no cut, copy and paste; no undo of file operations; no relative path; no create buttons in the title; no opening of `INDEX.md` when a ticket is chosen; no rewriting of links; no permanent deletion.
 
 ### Tree Decorations
 
@@ -571,7 +577,9 @@ Extension is a thin UI client — no backend bundling. Host handles backend depl
 | Intents state of a window (own marker, watcher) | `vscode/intents/IntentsRuntime.ts` |
 | «Активная Работа» / Корзина views | `vscode/providers/IntentsProvider.ts`, `vscode/providers/BinProvider.ts` |
 | Board of tickets, its watcher, joined readings | `core/intents/board.ts`, `vscode/intents/boardWatch.ts`, `core/intents/coalesce.ts` |
-| Intent commands | `vscode/commands/intents.ts` (`BinActions`, `switchToIntent`) |
+| Intent commands | `vscode/commands/intents.ts` (`BinActions`, `switchToIntent`); `vscode/commands/openTicket.ts` (`TicketOpener`) |
+| Linked business preview / return | `vscode/intents/businessViews.ts` (`BusinessViews`) |
+| Business repo preparation | `vscode/commands/businessRepos.ts` |
 | Notepad at window start | `vscode/intents/notepad.ts` |
 | Tree decorations (separators, window colours) | `vscode/providers/TreeDecorationProvider.ts` |
 | Colour of the notepad's name on its tab | `vscode/providers/NotepadDecorationProvider.ts` |

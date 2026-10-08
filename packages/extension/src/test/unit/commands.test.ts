@@ -1,9 +1,13 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { openInCurrentWindow, openInNewWindow, buildGitCloneArgs, isSafeRepoName, findUnsafeAliases } from '../../vscode/commands/openFolder';
 import { refreshFromBackend } from '../../vscode/commands/refresh';
 import { TreeNode } from '../../core/tree/contextTree';
 import * as vscode from 'vscode';
+import { TicketReader, TicketInfo } from '../../core/intents/tickets';
+import { TicketOpener } from '../../vscode/commands/openTicket';
+import { readPointer } from '../../core/pointer';
+import { setIntentsRuntime } from '../../vscode/intents/current';
 
 // Mock pointer
 vi.mock('../../core/pointer', () => ({
@@ -63,8 +67,10 @@ vi.mock('../../core/workspace', async importOriginal => ({
 }));
 
 describe('VS Code Commands', () => {
+    afterEach(() => { vi.restoreAllMocks(); setIntentsRuntime(null); });
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.mocked(readPointer).mockReturnValue({ machine: 'test', duetDataPath: '/mock/data/folder', duetConfigPath: '/mock/config/folder' } as never);
         writtenWorkspaces.length = 0;
     });
 
@@ -92,6 +98,28 @@ describe('VS Code Commands', () => {
                 expect.objectContaining({ fsPath: '/mock/data/folder/workspaces/Folder.code-workspace' }),
                 { forceNewWindow: false }
             );
+        });
+
+        it.each([false, true])('DUE019: curator redirects business open, forceNewWindow=%s', async forceNewWindow => {
+            const curator = { number: 'DUEA01', folder: 'DUEA01_Curator', shelf: 'work', path: '/path/to/folder/work/DUEA01_Curator' } as TicketInfo;
+            vi.spyOn(TicketReader.prototype, 'findCurator').mockResolvedValue(curator);
+            setIntentsRuntime({ tickets: new TicketReader() } as never);
+            const opened = vi.spyOn(TicketOpener.prototype, 'open').mockResolvedValue(true);
+            await (forceNewWindow ? openInNewWindow : openInCurrentWindow)(plainContext());
+            expect(opened).toHaveBeenCalledWith(curator, expect.objectContaining({ name: 'Folder', absolute_path: '/path/to/folder' }), forceNewWindow, true);
+            expect(writtenWorkspaces).toEqual([]);
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        });
+
+        it('DUE019: failed search and unavailable ticket runtime never silently open a business', async () => {
+            const search = vi.spyOn(TicketReader.prototype, 'findCurator').mockRejectedValue(new Error('INDEX unreadable'));
+            await openInCurrentWindow(plainContext());
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Duet: INDEX unreadable');
+            search.mockResolvedValue({ number: 'DUEA01' } as TicketInfo);
+            await openInNewWindow(plainContext());
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('Запуск тикетов недоступен'));
+            expect(writtenWorkspaces).toEqual([]);
+            expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
         });
 
         it('openInNewWindow passes forceNewWindow: true', async () => {
