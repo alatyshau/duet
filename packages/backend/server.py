@@ -15,6 +15,7 @@ Usage:
 import argparse
 import asyncio
 import faulthandler
+import functools
 import logging
 import signal
 import sys
@@ -23,6 +24,7 @@ from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import anyio
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -52,6 +54,7 @@ from mcp_handler import (
     mcp,
 )
 from services.entities import EntitiesService
+from services.tickets import ACTIONS as TICKET_ACTIONS
 from services.workspace import WorkspaceService
 
 
@@ -251,6 +254,43 @@ async def deploy_instructions_handler(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+async def tickets_handler(request: Request) -> JSONResponse:
+    """POST /tickets/{action} - Run a ticket operation.
+
+    `action` is `tickets`, `new_ticket`, `move_ticket`, or `edit_ticket`; the
+    body is a JSON object with the operation's arguments. This is the same
+    code the MCP tools of those names run (`services/tickets`), so the
+    Extension and agents get identical behavior.
+
+    Response: `{text, is_error, tickets}`. `text` is Markdown; a failed
+    operation has `is_error: true` and a text starting with `Error:`.
+    `tickets` lists the tickets the operation looked up, created, moved, or
+    edited as `{number, name, shelf, folder}`, so a client never has to parse
+    the text. HTTP 400 is only for a request that isn't a JSON object, 404
+    for an unknown action.
+    """
+    action = request.path_params["action"]
+    if action not in TICKET_ACTIONS:
+        return JSONResponse(
+            {"error": f"Unknown ticket action '{action}'", "code": "NOT_FOUND"},
+            status_code=404,
+        )
+    try:
+        arguments = await request.json()
+    except Exception:
+        arguments = None
+    if not isinstance(arguments, dict):
+        return JSONResponse(
+            {"error": "Body must be a JSON object of arguments", "code": "BAD_REQUEST"},
+            status_code=400,
+        )
+    # Off the event loop: ticket folders live on a cloud drive that can stall.
+    work = functools.partial(get_workspace_service().ticket_action, action, **arguments)
+    result = await anyio.to_thread.run_sync(work)
+    return JSONResponse(
+        {"text": result.text, "is_error": result.is_error, "tickets": result.tickets})
+
+
 async def merge_instructions_handler(request: Request) -> JSONResponse:
     """POST /merge-duet-instructions - Merge bootstrapper + per-agent core.
 
@@ -387,6 +427,7 @@ def create_app() -> Starlette:
         Route("/scan", scan_handler, methods=["POST"]),
         Route("/deploy-instructions", deploy_instructions_handler, methods=["POST"]),
         Route("/merge-duet-instructions", merge_instructions_handler, methods=["POST"]),
+        Route("/tickets/{action}", tickets_handler, methods=["POST"]),
         # Mount MCP at /mcp (streamable HTTP transport)
         Mount("/mcp", app=mcp_app),
     ]

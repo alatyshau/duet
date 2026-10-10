@@ -3,7 +3,6 @@ import {
     INDEX_HEAD_BYTES,
     TicketInfo,
     TicketReader,
-    moveTicketFolder,
     parseTicketFrontmatter,
     readBusinessManifest,
     resolveTicketNow
@@ -687,37 +686,6 @@ describe('resolveTicketNow', () => {
 
     it('gone: the number is on neither shelf', async () => {
         expect(await resolveTicketNow(at('work/DUE008_CoreProtocols'), B, row)).toEqual({ state: 'gone' });
-    });
-});
-
-describe('moveTicketFolder', () => {
-    it('moves the folder with everything in it to the other shelf', async () => {
-        const mem = createMemFs({
-            [`${B}/backlog/DUE001_DuetWork_Full/INDEX.md`]: 'index',
-            [`${B}/backlog/DUE001_DuetWork_Full/sub/notes.md`]: 'notes',
-            [`${B}/work/DUE017_IntentSwitcher/INDEX.md`]: 'other'
-        });
-        const moved = await moveTicketFolder(mem.fs, B, `${B}/backlog/DUE001_DuetWork_Full`, 'work');
-
-        expect(moved).toBe(`${B}/work/DUE001_DuetWork_Full`);
-        expect(mem.files.get(`${B}/work/DUE001_DuetWork_Full/sub/notes.md`)).toBe('notes');
-        expect(mem.files.has(`${B}/backlog/DUE001_DuetWork_Full/INDEX.md`)).toBe(false);
-    });
-
-    it('creates the shelf folder when the business has none yet', async () => {
-        const mem = createMemFs({ [`${B}/work/DUE017_IntentSwitcher/INDEX.md`]: 'index' });
-        await moveTicketFolder(mem.fs, B, `${B}/work/DUE017_IntentSwitcher`, 'backlog');
-        expect(mem.files.has(`${B}/backlog/DUE017_IntentSwitcher/INDEX.md`)).toBe(true);
-    });
-
-    it('refuses when a folder of that name is already on the shelf, and moves nothing', async () => {
-        const mem = createMemFs({
-            [`${B}/backlog/DUE017_IntentSwitcher/INDEX.md`]: 'old copy',
-            [`${B}/work/DUE017_IntentSwitcher/INDEX.md`]: 'index'
-        });
-        await expect(moveTicketFolder(mem.fs, B, `${B}/work/DUE017_IntentSwitcher`, 'backlog')).rejects.toThrow(/уже есть/);
-        expect(mem.files.get(`${B}/work/DUE017_IntentSwitcher/INDEX.md`)).toBe('index');
-        expect(mem.files.get(`${B}/backlog/DUE017_IntentSwitcher/INDEX.md`)).toBe('old copy');
     });
 });
 

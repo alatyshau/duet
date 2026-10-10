@@ -3,13 +3,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
 import { ContextEntity } from '../../core/api-client';
 import { Paths } from '../../core/paths';
-import { TicketReader } from '../../core/intents/tickets';
+import { Shelf, TicketReader } from '../../core/intents/tickets';
+import { TicketService } from '../../core/intents/ticketService';
 import { TicketBoard } from '../../core/intents/board';
 import { binTickets } from '../../core/intents/binTree';
 import { BinProvider } from '../../vscode/providers/BinProvider';
 import { BinActions } from '../../vscode/commands/intents';
 import { TicketOpener } from '../../vscode/commands/openTicket';
-import { createMemFs } from './helpers/memFs';
+import { MemFs, createMemFs } from './helpers/memFs';
 
 vi.mock('vscode', () => ({
     workspace: {
@@ -40,6 +41,38 @@ const business = (id: string, name: string, absolute_path: string): ContextEntit
 });
 const curator = '---\nwork-type: process\nprocess-type: curator\n---\n';
 
+/**
+ * Stands in for the Duet server: makes and moves ticket folders in the same
+ * in-memory disk the views read, the way `POST /tickets/{action}` does on the
+ * real one. The rules of numbers and names are the server's and are tested there.
+ */
+function fakeTicketService(mem: MemFs, businesses: Record<string, string>): TicketService {
+    const find = async (ticketNumber: string) => {
+        const reader = new TicketReader(mem.fs);
+        const businessPath = businesses[ticketNumber.slice(0, 3)];
+        return { businessPath, place: (await reader.locate(businessPath, ticketNumber))[0] };
+    };
+    return {
+        create: async (code, name) => {
+            const businessPath = businesses[code];
+            const taken = (await new TicketReader(mem.fs).readShelves(businessPath)).map(t => Number(t.number.slice(3)));
+            const ticketNumber = `${code}${String(Math.max(0, ...taken.filter(n => !Number.isNaN(n))) + 1).padStart(3, '0')}`;
+            const slug = name.split(/\s+/).filter(Boolean).join('');
+            const folder = slug ? `${ticketNumber}_${slug}` : ticketNumber;
+            await mem.fs.mkdir(`${businessPath}/work/${folder}`, { recursive: true });
+            await mem.fs.writeFile(`${businessPath}/work/${folder}/INDEX.md`, '---\nwork-type: project\n---\n', 'utf8');
+            return { number: ticketNumber, shelf: 'work', folder, path: `${businessPath}/work/${folder}` };
+        },
+        move: async (ticketNumber, to: Shelf) => {
+            const { businessPath, place } = await find(ticketNumber);
+            const target = `${businessPath}/${to}/${place.folder}`;
+            await mem.fs.mkdir(`${businessPath}/${to}`, { recursive: true });
+            await mem.fs.rename(place.path, target);
+            return target;
+        }
+    };
+}
+
 function setup() {
     const mem = createMemFs({
         [`${H}/context.json`]: '{"version":4,"name":"Home","ticket_code":"HOM"}',
@@ -58,8 +91,9 @@ function setup() {
     };
     const board = new TicketBoard(tickets, mem.fs);
     const bin = new BinProvider([business('1', 'Home', H), business('2', 'Foreign', F)], runtime as never, board);
-    const actions = new BinActions(new Paths('/data'), runtime as never, bin, board, mem.fs);
-    return { mem, tickets, runtime, board, bin, actions };
+    const service = fakeTicketService(mem, { HOM: H, OTH: F });
+    const actions = new BinActions(new Paths('/data'), runtime as never, bin, board, service, mem.fs);
+    return { mem, tickets, runtime, board, bin, actions, service };
 }
 
 beforeEach(() => { vi.clearAllMocks(); });
@@ -109,10 +143,10 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
     });
 
     it('curator from backlog is opened as a normal ticket with the correct business and moved into work', async () => {
-        const { bin, board, tickets, runtime, mem } = setup();
+        const { bin, board, tickets, runtime, mem, service } = setup();
         const row = await tickets.findCurator(F);
         const changed = vi.fn(async () => undefined);
-        const opener = new TicketOpener(new Paths('/data'), runtime as never, changed, mem.fs);
+        const opener = new TicketOpener(new Paths('/data'), runtime as never, service, changed, mem.fs);
         expect(await opener.open(row!, business('2', 'Foreign', F), false, true)).toBe(true);
         expect(mem.dirs.has(`${F}/work/OTHA01_Curator`)).toBe(true);
         expect(mem.dirs.has(C)).toBe(false);
@@ -123,11 +157,11 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
     });
 
     it('existing curator window is focused without rewriting its workspace or moving its folder', async () => {
-        const { bin, board, tickets, runtime, mem } = setup();
+        const { bin, board, tickets, runtime, mem, service } = setup();
         runtime.getActive.mockReturnValue([{ ticket: 'OTHA01', workspaceFile: '/existing.code-workspace' }]);
         const row = await tickets.findCurator(F);
         const before = mem.calls.atomicWriteFile;
-        await new TicketOpener(new Paths('/data'), runtime as never, undefined, mem.fs)
+        await new TicketOpener(new Paths('/data'), runtime as never, service, undefined, mem.fs)
             .open(row!, business('2', 'Foreign', F), false, true);
         expect(mem.calls.atomicWriteFile).toBe(before);
         expect(mem.dirs.has(C)).toBe(true);
@@ -136,13 +170,30 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
     });
 
     it('changed criterion is revalidated before moving or opening the selected curator', async () => {
-        const { bin, board, tickets, runtime, mem } = setup();
+        const { bin, board, tickets, runtime, mem, service } = setup();
         const row = await tickets.findCurator(F);
         await mem.fs.writeFile(`${C}/INDEX.md`, '', 'utf8');
-        await expect(new TicketOpener(new Paths('/data'), runtime as never, undefined, mem.fs)
+        await expect(new TicketOpener(new Paths('/data'), runtime as never, service, undefined, mem.fs)
             .open(row!, business('2', 'Foreign', F), true, true)).rejects.toThrow('изменился');
         expect(mem.dirs.has(C)).toBe(true);
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        bin.dispose(); board.dispose();
+    });
+
+    it('a refusal of the server is shown and nothing is opened', async () => {
+        const { bin, board, actions, service } = setup();
+        service.create = async () => { throw new Error('no project numbers left for code HOM'); };
+        await actions.create();
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Duet: no project numbers left for code HOM');
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        bin.dispose(); board.dispose();
+    });
+
+    it('the name goes to the server as typed: the folder name is made there', async () => {
+        const { bin, board, actions, service } = setup();
+        const create = vi.spyOn(service, 'create');
+        await actions.create();
+        expect(create).toHaveBeenCalledWith('HOM', 'New Ticket');
         bin.dispose(); board.dispose();
     });
 });

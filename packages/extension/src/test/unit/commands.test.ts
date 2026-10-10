@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { TicketReader, TicketInfo } from '../../core/intents/tickets';
 import { TicketOpener } from '../../vscode/commands/openTicket';
 import { readPointer } from '../../core/pointer';
-import { setIntentsRuntime } from '../../vscode/intents/current';
+import { setIntentsRuntime, setTicketService } from '../../vscode/intents/current';
 
 // Mock pointer
 vi.mock('../../core/pointer', () => ({
@@ -67,7 +67,7 @@ vi.mock('../../core/workspace', async importOriginal => ({
 }));
 
 describe('VS Code Commands', () => {
-    afterEach(() => { vi.restoreAllMocks(); setIntentsRuntime(null); });
+    afterEach(() => { vi.restoreAllMocks(); setIntentsRuntime(null); setTicketService(null); });
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(readPointer).mockReturnValue({ machine: 'test', duetDataPath: '/mock/data/folder', duetConfigPath: '/mock/config/folder' } as never);
@@ -104,6 +104,7 @@ describe('VS Code Commands', () => {
             const curator = { number: 'DUEA01', folder: 'DUEA01_Curator', shelf: 'work', path: '/path/to/folder/work/DUEA01_Curator' } as TicketInfo;
             vi.spyOn(TicketReader.prototype, 'findCurator').mockResolvedValue(curator);
             setIntentsRuntime({ tickets: new TicketReader() } as never);
+            setTicketService({ create: vi.fn(), move: vi.fn() });
             const opened = vi.spyOn(TicketOpener.prototype, 'open').mockResolvedValue(true);
             await (forceNewWindow ? openInNewWindow : openInCurrentWindow)(plainContext());
             expect(opened).toHaveBeenCalledWith(curator, expect.objectContaining({ name: 'Folder', absolute_path: '/path/to/folder' }), forceNewWindow, true);

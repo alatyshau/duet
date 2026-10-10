@@ -1,0 +1,1 @@
+Error: multiple folders in DuetLab use ticket number DUE008: `{root}/DuetLab/work/DUE008_CoreProtocols`, `{root}/DuetLab/backlog/DUE008_Blockers`. This needs a human decision: ask the user which one to keep. Don't delete or renumber folders yourself.

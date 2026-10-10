@@ -3,7 +3,7 @@ import { DISK_DEBOUNCE_MS, TicketBoard } from '../../core/intents/board';
 import { binOrderPath } from '../../core/intents/binOrder';
 import { binTickets } from '../../core/intents/binTree';
 import { coalesce } from '../../core/intents/coalesce';
-import { TicketReader, moveTicketFolder } from '../../core/intents/tickets';
+import { TicketReader } from '../../core/intents/tickets';
 import { createMemFs, MemFs } from './helpers/memFs';
 
 const B = '/drive/DuetLab';
@@ -174,7 +174,8 @@ describe('TicketBoard', () => {
         const { board, changes } = boardOf(mem);
         await board.setShown(true);
 
-        await moveTicketFolder(mem.fs, B, `${B}/work/DUE002_Second`, 'backlog');
+        await mem.fs.mkdir(`${B}/backlog`, { recursive: true });
+        await mem.fs.rename(`${B}/work/DUE002_Second`, `${B}/backlog/DUE002_Second`);
         await board.reload();
         const readdirs = mem.calls.readdir;
         const told = changes();

@@ -27,6 +27,7 @@ server.py (entry point, lifecycle)
     │   ├── deploy_instructions.py  deploy a context's skills/instructions/system_prompt into its Drive folder
     │   ├── at_paths.py      alpha-path grammar: form, repo/context heads, containment
     │   ├── resolve_paths.py agent-facing alpha-path resolver (repos / contexts / tickets) behind `resolve_paths`
+    │   ├── tickets/         ticket operations behind `tickets`, `new_ticket`, `move_ticket`, `edit_ticket`
     │   └── manifest.py      strict v4 manifest reader
     ├── scanner.py           hierarchy scan, strict v4 reader
     ├── watcher.py           manifest file watcher, auto-rescan
@@ -54,6 +55,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
 | `services/at_paths.py` | The one grammar of alpha paths, shared by deploy and `resolve_paths`: parse `@<head>/<rest>`, find the repo dir (under `DuetData/repos`) or context (→ its Drive folder) a head stands for, keep the target inside it; refuse `.` / `..` segments | Tickets, file copy, HTTP, DB |
 | `services/resolve_paths.py` | Resolve agent alpha paths incl. tickets (`@DUE009`), explain every failure, render the tool's Markdown | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes |
+| `services/tickets/` | List, create, move and edit tickets; own the ticket folder name and the `INDEX.md` frontmatter; atomic writes with rollback | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes, anything below the frontmatter |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Merge bootstrapper + per-agent core → one file per agent | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file lookup | DB, HTTP |
@@ -95,6 +97,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Picks the business from the paths, deploys its `skills`/`instructions`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
+| POST | `/tickets/{action}` | `action` is `tickets`, `new_ticket`, `move_ticket` or `edit_ticket`; body is a JSON object of that operation's arguments. Runs the same code as the MCP tool of that name and returns `{ text, is_error, tickets }`: Markdown, whether the operation failed, and the tickets it looked up, created, moved or edited as `{ number, name, shelf, folder }`, so a client never parses the text. 404 for an unknown action, 400 for a body that is not a JSON object; a failed operation is HTTP 200 with `is_error: true` — see [Ticket tools](#ticket-tools) |
 | POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
 
 ### MCP Tools
@@ -107,6 +110,10 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `resolve_paths` | Markdown text, one `### <path>` section per requested alpha path (see [Alpha-path resolution](#alpha-path-resolution-resolve_paths)); `structured_output=False`; empty list → `INVALID_PARAMS` |
 | `turn_report` | The given report text unchanged, as unstructured content (prototype: one agent report on preparing the answer, free-form Markdown chosen by the caller; the first non-empty line must be a `### ` heading with text, otherwise `INVALID_PARAMS`; `structured_output=False` for the same reason as `turn_plan`) |
 | `orientation` | Markdown text for one folder (see [Orientation](#orientation)); `structured_output=False` |
+| `tickets` | Markdown: an overview of a business's tickets, a filtered list (`shelf`, `parent`), or one or more tickets by number (see [Ticket tools](#ticket-tools)); read-only; `structured_output=False` |
+| `new_ticket` | Markdown: the new number, folder, stable `@NUMBER` address and the frontmatter written; not idempotent |
+| `move_ticket` | Markdown: the new folder and, when a close or reopen date was recorded, the updated frontmatter; idempotent |
+| `edit_ticket` | Markdown: what changed (with the previous values) and the updated frontmatter; idempotent |
 | `contexts` | list directly |
 | `scan` | dict directly |
 | `health` | `{ status, version, uptime_seconds }` |
@@ -141,8 +148,34 @@ Contract — what the tool answers for which folder: [PRODUCT.md → Orientation
 - **Check order.** The input is NFC-normalized and resolved; `DuetData/repos` is checked before the venture folders.
 - **`resolve_business(folder)`** is the one rule "folder → business", shared with Deploy Instructions. The folder's path relative to its venture folder is matched against `drive_path` with `db.find_closest_entity`, so the nearest registered context wins. A folder under `DuetData/repos` resolves to `None`.
 - **Names after `@`** are the registered entity names (`МетаЛаб`), not folder names (`!МетаЛаб`).
+- **Ticket code.** A business whose manifest declares `ticket_code` gets one line, `**Ticket code:** \`DUE\``, after the paths: it is the one thing about tickets an agent can't learn elsewhere.
 - **Repo answer.** The repo is the first path segment under `repos`; a worktree folder `X.wt-N` stands for `X.git`; the `repos` folder itself is answered as outside Duet. `Declared by` is read from the manifests on disk of every context in the DB, because a shared repo has only one `product_repo` row (see Scanner).
 - **Not registered.** A folder inside a venture folder for which the DB has no context — the venture has no valid manifest, or the first scan has not finished — is answered with ``Not a business folder: this path is inside a venture folder, but no business is registered for it. Run `scan` and call `orientation` again.``
+
+### Ticket tools
+
+Four operations let an agent work with tickets in one call each instead of listing folders, counting numbers and editing frontmatter by hand: `tickets` (read), `new_ticket`, `move_ticket` and `edit_ticket` (write). They have two entry points over one implementation: the MCP tools of those names for agents, and `POST /tickets/{action}` for the Extension. Logic: the `services/tickets/` package; `WorkspaceService.ticket_action` supplies the contexts from the DB and today's date in the configured timezone. This is the one place the Backend writes to a business's Drive folder. It still never writes manifests.
+
+**Model.** A ticket is a folder `<number>_<Name>` under a business's `work/`, `backlog/` or `archive/`, found by the same walk as `resolve_paths` (`list_ticket_folders`), so a number the tools consider free is one the resolver can't find. Its metadata is the YAML frontmatter of its `INDEX.md`. The tools own the ticket's name and the frontmatter. The name lives in the folder name and in the title heading (the first `# ` line) of `INDEX.md`, and a rename changes both — where the heading contains the old name; a heading that doesn't mention it is left alone and reported. Everything else below the frontmatter is never modified. The frontmatter is edited line by line (`frontmatter.py`), never re-serialized, so untouched lines, comments, line endings and the body stay byte for byte.
+
+**Rules the tools enforce.** Numbers: one past the highest in use, per kind (`DUE001`, `DUEX01` programs, `DUEA01` processes); gaps are never reused. Names: PascalCase (`naming.py`); the extension has no copy of this rule and creates and moves tickets through `POST /tickets/{action}`. An empty name makes a ticket with just its number. Parent: only a project has one, and it must be an open program or process of the same business; the business area is inherited from it. Dates: moving to the archive appends today to `closed`, moving out appends to `reopened`; a single date is a scalar, more are a list, nothing is overwritten. A program or process can't be closed while a ticket under it is open.
+
+**Contract.**
+
+- Every operation returns a `Result(text, is_error, tickets)`; `tickets` is the affected tickets as data, for clients that are programs. MCP maps `is_error` to `isError: true`; the text of a failure starts with `Error:` and says how to fix it. A batch lookup (`tickets(number=[...])`) that resolves at least one ticket is a success that names the numbers that failed.
+- An error means nothing changed. Writes validate first, write `INDEX.md` atomically (temp file + `os.replace`), and roll back a folder move or creation when the write after it fails. If the rollback itself fails, the message describes the exact state left on disk.
+- An `INDEX.md` that can't be read (I/O error, invalid UTF-8) is not an empty one: the ticket is listed as unreadable and can't be modified, and a folder that can't be listed fails the call rather than producing a partial list.
+- `move_ticket` and `edit_ticket` are idempotent: asking for the state a ticket is already in succeeds with "No changes". `new_ticket` is not: a caller that doesn't know whether its call went through must look with `tickets` before calling again.
+- Reads and writes share one lock (`model.disk_lock`): a read holds it while it lists the folders, a write for its whole duration. Without it a read that overlaps a move can find the ticket in neither place or in both. Taking the lock has a 20-second deadline, so an operation stalled on the drive makes the next ones fail with an error instead of queueing behind it forever.
+- One-line fields (`description`, `area`, `icon`) are collapsed to a single line before they are written, and a description is limited to 300 characters: the Extension reads only the first 2 KB of `INDEX.md`, and `parent` is the last field. Frontmatter is split on line feeds only, never on U+2028 and similar, so pasted text can't turn into an extra field.
+- A rewritten `INDEX.md` keeps its permissions. A read-only flag doesn't stop the tools: nothing in Duet sets it on a ticket, and where Duet does use it (deployed instruction files) it means "managed by Duet", which the frontmatter is.
+- `tickets(number=[...])` gives each number its own section; a number that fails gets an `Error:` section and the first line counts the successes. The call is an error only when every number fails. Writes take one ticket per call.
+- The MCP tools run the operation in a worker thread (`mcp_handler._ticket_tool`). Tickets live on a cloud-synced drive where a read can stall, and FastMCP would otherwise run a sync tool on the event loop and freeze every client. `tickets` gives up after 30 seconds with an error; writes have no deadline, because abandoning one halfway would leave its outcome unknown.
+- Unknown arguments are rejected, with the same message on both entry points: `services.tickets.check_arguments` names the argument, suggests the closest valid one and lists the rest, and also refuses wrong types and missing required arguments. FastMCP's argument model ignores extra keys by default, so `mcp_handler._reject_unknown_arguments` wraps each tool's validation to run that check first and publishes `additionalProperties: false`; a misspelled argument can't fall back to a default on a tool that writes to disk.
+
+**Arguments.** Values with a fixed set (`shelf`, `to`, `kind`) are published as an `enum` in the schema but accepted as plain strings, so that `"Archive"` reaches the service: it normalizes the case and answers an unknown value in the tools' own error format instead of a validation dump.
+
+**Tests.** `tests/test_ticket_cases.py` runs every folder under `tests/ticket_cases/` (a starting tree, a call, the expected response, the expected changes on disk; index in `tests/ticket_cases/CASES.md`). Behavior changes start there: the case first, then the code. The same file holds `TestRollback` (failed writes, file permissions), `TestConcurrency` (reads during moves), `TestMcpBoundary` (strict arguments, `isError`, timeouts) and `TestFrontmatter`; the REST entry point is covered by `tests/test_api.py::TestTicketsEndpoint`. To check behavior on the real cloud drive rather than a local temp folder, point pytest's `--basetemp` at a scratch folder on the drive that lies outside every root context.
 
 ### Alpha-path resolution (`resolve_paths`)
 
@@ -432,6 +465,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Deploy skills/instructions/system_prompt | `services/deploy_instructions.py:deploy_instructions()` |
 | `@<name>/<rest>` resolution | `services/at_paths.py` (`parse_at_path`, `find_base`, `join_under`, `resolve_at_path`) |
 | Agent alpha paths, tickets | `services/resolve_paths.py:resolve_paths()`, `WorkspaceService.resolve_paths()` |
+| Ticket tools | `services/tickets/` (`views.py` read, `writes.py` write, `frontmatter.py`, `naming.py`, `model.py`), `WorkspaceService.ticket_action()` |
 | Context-memory pointer | `services/workspace.py:_build_memory()` |
 | Description extraction | `description.py:extract_description()` |
 | Spec file fallback (legacy) | `description.py:find_spec_file()` |

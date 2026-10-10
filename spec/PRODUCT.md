@@ -332,6 +332,8 @@ Where the folder lies decides the answer.
 * `@Duet.git` (git-repo): `/Users/me/DuetData/repos/Duet.git`
 * `@cookbook.git` (reference repo, read-only): `/Users/me/DuetData/repos/cookbook.git`
 
+**Ticket code:** `DUE`
+
 **Next immediate steps:**
 * Read venture entry point: `/Users/me/Drive/!МетаЛаб/README.md`
 * Read business entry point: `/Users/me/Drive/!МетаЛаб/DuetLab/INDEX.md`
@@ -340,6 +342,7 @@ Where the folder lies decides the answer.
 - The venture is the root of the parent chain; intermediate parents are not listed. A venture itself is labelled `active venture folder` and has the single step `Read venture entry point`.
 - Repos are the manifest's `git_repos`, then its `reference_repos`, in manifest order, at the expected clone path whether or not the clone exists yet.
 - An entry point is `INDEX.md`, else `README.md`; a business with neither gets no step.
+- `Ticket code` is the business's `ticket_code`, given so the agent can call the ticket tools (`tickets(code="DUE")`); a business that declares none has no such line. The tools themselves are not named here: they come with the MCP connection.
 - **A meta venture** (`meta: true`) — the session is opened in its folder or anywhere under it that leads to it, a ticket's work folder included — gets one more section between the two, because it manages the other ventures. One line per other venture, in `root_context_folders` order; the entry point is named by file name only and is not a step. A business under a meta venture is not meta and gets no such section.
 
 ```

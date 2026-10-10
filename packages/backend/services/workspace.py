@@ -15,18 +15,22 @@ instructions uses the same rule (`resolve_business`).
 """
 
 import re
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from config import (
     get_duet_data_path,
     get_repos_path,
     get_root_context_folders,
+    get_timezone,
 )
 from db import DatabaseManager, Entity
 from normalization import normalize_path
 from paths import is_path_inside
 from services.manifest import read_manifest
 from services.resolve_paths import ContextRef, Resolution, resolve_paths as _resolve_paths
+from services.tickets import Result as TicketResult, run as _run_ticket_action
 from services.deploy_instructions import deploy_instructions as _deploy_instructions
 
 # A business's entry point: the first of these that exists in its folder.
@@ -135,7 +139,8 @@ class WorkspaceService:
         Only the active business and its venture (the root of the parent
         chain) are named; intermediate parents are left to the entry points.
         Repos are listed as the manifest declares them, at the expected
-        clone path, whether or not the clone exists yet. A meta venture
+        clone path, whether or not the clone exists yet. A business that
+        declares a ticket code gets it in one line, for the ticket tools. A meta venture
         also gets the other ventures (`_other_venture_lines`).
         """
         chain = self.db.get_entity_chain(entity.id)
@@ -171,6 +176,10 @@ class WorkspaceService:
             steps.append(f"* Read {kind} entry point: `{entry}`")
 
         blocks = [_join_sections([("Paths", paths)])]
+        if manifest and manifest.ticket_code:
+            # The one thing about tickets an agent can't get anywhere else: the
+            # tools and their descriptions come with the MCP connection.
+            blocks.append(f"**Ticket code:** `{manifest.ticket_code}`")
         if entity.meta and venture is None:
             others = self._other_venture_lines(entity)
             if others:
@@ -268,6 +277,20 @@ class WorkspaceService:
             for name, folder in self._build_context_folders().items()
         ]
         return _resolve_paths(paths, get_repos_path(), contexts)
+
+    def ticket_action(self, action: str, **arguments) -> TicketResult:
+        """Run a ticket operation: `tickets`, `new_ticket`, `move_ticket`, or `edit_ticket`.
+
+        Contexts come from the entities DB, ticket codes are read from the
+        manifests on every call, and "today" is the current date in the
+        timezone configured in settings.json. See `services/tickets.py`.
+        """
+        contexts = [
+            ContextRef(name=name, folder=Path(folder))
+            for name, folder in self._build_context_folders().items()
+        ]
+        today = datetime.now(ZoneInfo(get_timezone()["value"])).date()
+        return _run_ticket_action(action, contexts, today, **arguments)
 
     def deploy_instructions(self, workspace_paths: list[str]) -> dict:
         """Resolve the business for `workspace_paths` and deploy its

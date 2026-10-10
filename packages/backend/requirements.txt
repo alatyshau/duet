@@ -4,8 +4,14 @@
 starlette>=0.40.0
 uvicorn>=0.30.0
 
-# MCP SDK with FastMCP
-mcp>=1.2.0
+# MCP SDK with FastMCP. The ticket tools return `CallToolResult` to set `isError`
+# and make their argument models strict through FastMCP's tool metadata
+# (`mcp_handler._reject_unknown_arguments`); 1.26.0 is the version this was
+# built and tested on.
+mcp>=1.26.0
+
+# Worker threads for the ticket tools (`abandon_on_cancel` needs 4.1)
+anyio>=4.1.0
 
 # YAML frontmatter parsing
 PyYAML>=6.0

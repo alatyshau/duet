@@ -299,3 +299,93 @@ class TestDeployInstructionsEndpoint:
         assert "myskill" in data["deployed"]["skills_deployed"]
         assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
         assert (ctx_path / ".claude" / "CLAUDE.md").is_file()
+
+
+@pytest.mark.asyncio
+class TestTicketsEndpoint:
+    """POST /tickets/{action}: the REST entry to the code behind the ticket MCP tools."""
+
+    @pytest.fixture
+    def lab(self, db, duet_data_builder, monkeypatch) -> Path:
+        import shutil
+
+        from scanner import Scanner
+        from services.workspace import WorkspaceService
+        from mcp_handler import init_services
+
+        builder = duet_data_builder
+        builder.add_root_context("Root")
+        builder.build(monkeypatch)
+        lab = builder.get_root_context_path(0) / "DuetLab"
+        shutil.copytree(Path(__file__).parent / "ticket_cases" / "trees" / "lab", lab)
+        Scanner(db, repos_path=builder.get_repos_path()).scan()
+        init_services(WorkspaceService(db), EntitiesService(db), time.time())
+        return lab
+
+    async def test_unknown_action_returns_404(self, client: AsyncClient) -> None:
+        response = await client.post("/tickets/delete_ticket", json={})
+        assert response.status_code == 404
+        assert response.json()["code"] == "NOT_FOUND"
+
+    async def test_body_that_is_not_an_object_returns_400(self, client: AsyncClient) -> None:
+        response = await client.post("/tickets/tickets", json=["DUE"])
+        assert response.status_code == 400
+        assert response.json()["code"] == "BAD_REQUEST"
+
+    async def test_reads_tickets(self, client: AsyncClient, lab: Path) -> None:
+        response = await client.post("/tickets/tickets", json={"code": "DUE"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["is_error"] is False
+        assert body["text"].startswith("### Tickets of DuetLab (DUE)")
+
+    async def test_creates_a_ticket(self, client: AsyncClient, lab: Path) -> None:
+        response = await client.post(
+            "/tickets/new_ticket", json={"name": "Thesaurus", "parent": "DUEX02"})
+        body = response.json()
+        assert body["is_error"] is False
+        assert body["tickets"] == [{
+            "number": "DUE037", "name": "Thesaurus", "shelf": "work",
+            "folder": str(lab / "work" / "DUE037_Thesaurus"),
+        }]
+        assert (lab / "work" / "DUE037_Thesaurus" / "INDEX.md").is_file()
+
+    async def test_move_reports_the_new_place_as_data(
+        self, client: AsyncClient, lab: Path
+    ) -> None:
+        response = await client.post(
+            "/tickets/move_ticket", json={"ticket": "DUE008", "to": "backlog"})
+        body = response.json()
+        assert body["is_error"] is False
+        assert body["tickets"] == [{
+            "number": "DUE008", "name": "CoreProtocols", "shelf": "backlog",
+            "folder": str(lab / "backlog" / "DUE008_CoreProtocols"),
+        }]
+
+    async def test_failed_operation_is_flagged_not_an_http_error(
+        self, client: AsyncClient, lab: Path
+    ) -> None:
+        response = await client.post(
+            "/tickets/move_ticket", json={"ticket": "DUE099", "to": "archive"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["is_error"] is True
+        assert body["tickets"] == []
+        assert body["text"].startswith("Error: ticket DUE099 not found")
+
+    async def test_unknown_argument_is_refused_like_over_mcp(
+        self, client: AsyncClient, lab: Path
+    ) -> None:
+        response = await client.post(
+            "/tickets/new_ticket", json={"name": "Probe", "code": "DUE", "shelff": "backlog"})
+        body = response.json()
+        assert body["is_error"] is True
+        assert "has no argument `shelff`" in body["text"]
+        assert not (lab / "work" / "DUE037_Probe").exists()
+
+    async def test_wrong_argument_type_is_refused(self, client: AsyncClient, lab: Path) -> None:
+        response = await client.post("/tickets/move_ticket", json={"ticket": 28, "to": "work"})
+        body = response.json()
+        assert body["is_error"] is True
+        assert "`ticket` must be a string" in body["text"]
+

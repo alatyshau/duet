@@ -8,7 +8,7 @@ import { readPointer } from '../../core/pointer';
 import { planBusinessColor } from '../../core/intents/workspaceFile';
 import { TicketReader, readBusinessManifest } from '../../core/intents/tickets';
 import { businessKey } from '../../core/intents/window';
-import { getIntentsRuntime } from '../intents/current';
+import { getIntentsRuntime, getTicketService } from '../intents/current';
 import { getVentureFolders } from '../ventures';
 import { isSafeRepoName, prepareBusinessRepos } from './businessRepos';
 import { TicketOpener } from './openTicket';
@@ -43,10 +43,11 @@ async function openNode(
     const reader = runtime?.tickets ?? new TicketReader();
     const curator = await reader.findCurator(node.id);
     if (curator) {
-        if (!runtime) {
+        const tickets = getTicketService();
+        if (!runtime || !tickets) {
             throw new Error('Запуск тикетов недоступен — Куратор не открыт.');
         }
-        await new TicketOpener(paths, runtime).open(curator, {
+        await new TicketOpener(paths, runtime, tickets).open(curator, {
             name: node.label, absolute_path: node.id, git_repos: node.gitRepos,
             reference_repos: node.referenceRepos, meta: node.meta
         }, forceNewWindow, true);

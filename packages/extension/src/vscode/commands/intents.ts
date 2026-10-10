@@ -6,9 +6,9 @@ import { ActiveIntent } from '../../core/intents/active';
 import { TicketNode, binTickets, decideBinDrop } from '../../core/intents/binTree';
 import { TicketBoard } from '../../core/intents/board';
 import { pruneArchived, writeBinOrder } from '../../core/intents/binOrder';
-import { MAX_TICKET_NAME_LENGTH, NewTicket, createTicket, pascalCaseName } from '../../core/intents/newTicket';
 import { mergeOrderBlock } from '../../core/intents/order';
-import { moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
+import { MAX_TICKET_NAME_LENGTH, NewTicket, TicketService, ticketNameLength } from '../../core/intents/ticketService';
+import { readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
 import { BinProvider } from '../providers/BinProvider';
 import { IntentsProvider } from '../providers/IntentsProvider';
@@ -59,7 +59,9 @@ export async function switchToIntent(
 /**
  * The commands of the bin rows — open an intent, send a ticket to the backlog,
  * carry out a drop — and the creation of a new ticket. They run one at a
- * time. A command of a row finds its ticket on disk by number before it acts —
+ * time. Creating and moving is done by the Duet server (`TicketService`), the
+ * same code the agents' tools run; the commands decide what to ask for and
+ * show the result. A command of a row finds its ticket on disk by number before it acts —
  * a row is what the board read last, and no action runs on a stale path. After
  * it changed the business folder a command has the board read it at once, so
  * its own window shows the result without waiting for the file events.
@@ -73,8 +75,9 @@ export class BinActions {
         private readonly runtime: IntentsRuntime,
         private readonly bin: BinProvider,
         private readonly board: TicketBoard,
+        private readonly tickets: TicketService,
         private readonly fs: FileSystem = nodeFs
-    ) { this.opener = new TicketOpener(paths, runtime, () => board.reload(), this.fs); }
+    ) { this.opener = new TicketOpener(paths, runtime, tickets, () => board.reload(), this.fs); }
 
     open(node: TicketNode | undefined, forceNewWindow: boolean): Promise<void> {
         const target = this.capture(node);
@@ -100,7 +103,7 @@ export class BinActions {
         const typed = await vscode.window.showInputBox({
             title: `Новый тикет ${business.name}`,
             prompt: 'Название тикета; номер Duet подставит сам. Пустое — тикет без названия',
-            validateInput: value => pascalCaseName(value).length > MAX_TICKET_NAME_LENGTH
+            validateInput: value => ticketNameLength(value) > MAX_TICKET_NAME_LENGTH
                 ? `Слишком длинно: в названии не больше ${MAX_TICKET_NAME_LENGTH} букв и цифр`
                 : undefined
         });
@@ -108,7 +111,7 @@ export class BinActions {
         if (typed === undefined) {
             return;
         }
-        return this.enqueue(() => this.doCreate(business, pascalCaseName(typed)));
+        return this.enqueue(() => this.doCreate(business, typed));
     }
 
     toBacklog(node: TicketNode | undefined): Promise<void> {
@@ -143,8 +146,8 @@ export class BinActions {
         await this.opener.open(node.ticket, business, forceNewWindow);
     }
 
-    /** Make the ticket folder with the next number, show it in the bin, open its window. */
-    private async doCreate(business: TicketBusiness, slug: string): Promise<void> {
+    /** Have the server make the ticket with the next number, show it in the bin, open its window. */
+    private async doCreate(business: TicketBusiness, name: string): Promise<void> {
         const businessPath = business.absolute_path!;
         if (this.bin.windowBusiness()?.absolute_path !== businessPath) {
             say('Пока вводилось название, у окна сменился бизнес — тикет не создан.');
@@ -157,12 +160,12 @@ export class BinActions {
         }
         let ticket: NewTicket;
         try {
-            ticket = await createTicket(this.fs, this.runtime.tickets, businessPath, code, slug, new Date());
+            ticket = await this.tickets.create(code, name);
         } finally {
             // Also after a failure: a folder may have been made before it
             await this.board.reload();
         }
-        // Nothing holds a number while it is being taken: an agent or another window may have taken it too
+        // The server holds the number while it takes it, but a folder made by hand may still carry it
         // Names are compared in one Unicode form: a volume may list «й» as two characters
         const own = ticket.folder.normalize('NFC');
         const twins = (await this.runtime.tickets.locate(businessPath, ticket.number))
@@ -195,7 +198,7 @@ export class BinActions {
                 : `У номера ${ticketNumber} несколько папок — корзина обновлена, выберите строку заново.`);
         } else if (now.place.shelf === 'work') {
             try {
-                await moveTicketFolder(this.fs, businessPath, now.place.path, 'backlog');
+                await this.tickets.move(ticketNumber, 'backlog');
             } catch (error) {
                 say(`Не удалось перенести ${ticketNumber} в backlog/: ${messageOf(error)}`);
             }
@@ -234,7 +237,7 @@ export class BinActions {
         }
         if (drop.move) {
             try {
-                await moveTicketFolder(this.fs, businessPath, drop.ticket.path, drop.shelf);
+                await this.tickets.move(drop.ticket.number, drop.shelf);
             } catch (error) {
                 say(`Не удалось перенести ${drop.ticket.number} в ${drop.shelf}/: ${messageOf(error)}`);
                 await this.board.reload();

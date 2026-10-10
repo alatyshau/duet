@@ -126,6 +126,26 @@ class TestOrientationBusiness:
             f"* Read business entry point: `{lab / 'INDEX.md'}`"
         )
 
+    def test_ticket_code_is_given_when_the_business_declares_one(
+        self, tmp_path, db, monkeypatch
+    ) -> None:
+        builder, service, lab = _lab(tmp_path, db, monkeypatch, ticket_code="LAB")
+        root = builder.get_root_context_path(0)
+        duet_data = builder.duet_data_path.resolve()
+
+        assert service.get_orientation(str(lab)) == (
+            "**Paths:**\n"
+            f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
+            f"* `@Lab` (active business folder): `{lab}`\n"
+            f"* `@Root` (parent venture folder): `{root}`\n"
+            "\n"
+            "**Ticket code:** `LAB`"
+        )
+
+    def test_no_ticket_code_line_without_a_code(self, tmp_path, db, monkeypatch) -> None:
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        assert "Ticket code" not in service.get_orientation(str(lab))
+
     def test_venture(self, tmp_path, db, monkeypatch) -> None:
         builder, service, _ = _lab(tmp_path, db, monkeypatch)
         root = builder.get_root_context_path(0)

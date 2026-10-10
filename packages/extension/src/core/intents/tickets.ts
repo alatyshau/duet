@@ -6,8 +6,9 @@ import { spaceIntentName } from './naming';
 /**
  * Tickets of a business as they lie on disk: folders right inside `work/` and
  * `backlog/` whose name fits the ticket-number rule. Everything else in those
- * folders is not shown. The archive is read only to find one ticket by number
- * and to collect the numbers a new ticket must stay clear of.
+ * folders is not shown. The archive is read only to find one ticket by number.
+ * This module only reads: tickets are created and moved by the Duet server,
+ * see `ticketService.ts`.
  */
 
 /** The two folders whose tickets the bin shows. */
@@ -232,32 +233,6 @@ export class TicketReader {
         return search(path.join(businessPath, 'archive'), 1);
     }
 
-    /**
-     * Numbers of all tickets of a business: right inside `work/` and
-     * `backlog/`, and in `archive/` down to the depth `findInArchive` reads.
-     * What a new ticket's number must stay clear of — so, unlike the other
-     * readers here, a folder that is there but cannot be read is an error and
-     * not an empty folder: a number counted without it could be a taken one.
-     */
-    async allNumbers(businessPath: string): Promise<string[]> {
-        const numbers: string[] = [];
-        const collect = async (dir: string, levels: number): Promise<void> => {
-            for (const name of await this.subfoldersOrThrow(dir)) {
-                const parsed = parseTicketFolderName(name);
-                if (parsed) {
-                    numbers.push(parsed.number);
-                } else if (levels > 1) {
-                    await collect(path.join(dir, name), levels - 1);
-                }
-            }
-        };
-        await Promise.all([
-            ...SHELVES.map(shelf => collect(path.join(businessPath, shelf), 1)),
-            collect(path.join(businessPath, 'archive'), ARCHIVE_DEPTH)
-        ]);
-        return numbers;
-    }
-
     /** Subfolders of `dir`; an absent folder has none, any other failure to read it is thrown. */
     private async subfoldersOrThrow(dir: string): Promise<string[]> {
         try {
@@ -360,34 +335,6 @@ export async function resolveTicketNow(
         return { state: 'moved', place: places[0] };
     }
     return places.length === 0 ? { state: 'gone' } : { state: 'ambiguous' };
-}
-
-/**
- * Move a ticket folder to the other shelf of its business. Refuses when a
- * folder of that name is already there. The shelf folder is created when the
- * business has none yet; the ticket folder itself is never created.
- *
- * @returns the new path of the folder
- */
-export async function moveTicketFolder(
-    fileSystem: FileSystem,
-    businessPath: string,
-    folderPath: string,
-    toShelf: Shelf
-): Promise<string> {
-    const target = path.join(businessPath, toShelf, path.basename(folderPath));
-    let taken = true;
-    try {
-        await fileSystem.access(target);
-    } catch {
-        taken = false;
-    }
-    if (taken) {
-        throw new Error(`в ${toShelf}/ уже есть папка ${path.basename(folderPath)}`);
-    }
-    await fileSystem.mkdir(path.join(businessPath, toShelf), { recursive: true });
-    await fileSystem.rename(folderPath, target);
-    return target;
 }
 
 /** What `context.json` of a business says about its name, emoji and ticket code. */

@@ -55,6 +55,14 @@ export interface ScanResponse {
     duration_ms?: number;
 }
 
+/** Answer of `POST /tickets/{action}`: see `core/intents/ticketService.ts`. */
+export interface TicketActionResponse {
+    text: string;
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    is_error: boolean;
+    tickets: { number: string; name: string; shelf: string; folder: string }[];
+}
+
 export interface ApiError {
     error: string;
     code: string;
@@ -114,6 +122,16 @@ export class DuetApiClient {
      */
     async deployInstructions(workspacePaths: string[]): Promise<DeployInstructionsResponse> {
         return this.postJson('/deploy-instructions', { workspace_paths: workspacePaths });
+    }
+
+    /**
+     * Run a ticket action on the server: `new_ticket`, `move_ticket`,
+     * `edit_ticket` or `tickets`, with that action's arguments. A refused
+     * action is not an HTTP error: it comes back with `is_error: true`.
+     */
+    async ticketAction(action: string, args: Record<string, unknown>): Promise<TicketActionResponse> {
+        // Ticket folders lie on a cloud drive; the server itself gives up on a stalled one
+        return this.postJson(`/tickets/${action}`, args, 60000);
     }
 
     private async get<T>(path: string, timeoutMs: number = 10000): Promise<T> {

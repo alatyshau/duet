@@ -1,0 +1,1 @@
+new_ticket(name="Shell CI", parent="DUEX01", shelf="backlog", description="CI pipeline: what runs on every commit")

@@ -1,3 +1,4 @@
+import { TicketService } from '../../core/intents/ticketService';
 import { IntentsRuntime } from './IntentsRuntime';
 
 /**
@@ -13,4 +14,18 @@ export function setIntentsRuntime(runtime: IntentsRuntime | null): void {
 
 export function getIntentsRuntime(): IntentsRuntime | null {
     return current;
+}
+
+/**
+ * The ticket service of this window — the server that creates and moves
+ * tickets — for the same commands. Null until the port of the backend is known.
+ */
+let tickets: TicketService | null = null;
+
+export function setTicketService(service: TicketService | null): void {
+    tickets = service;
+}
+
+export function getTicketService(): TicketService | null {
+    return tickets;
 }

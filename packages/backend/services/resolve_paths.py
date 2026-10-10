@@ -252,29 +252,52 @@ def find_ticket_folders(context_folder: Path, number: str) -> list[tuple[Path, l
     Never descends into another ticket's folder: a ticket's materials are not
     a place where other tickets of the business live.
     """
-    found: list[tuple[Path, list[str]]] = []
+    return [
+        (folder, parts)
+        for folder, parts, name in list_ticket_folders(context_folder)
+        if name == number or name.startswith(number + "_")
+    ]
+
+
+def list_ticket_folders(
+    context_folder: Path, strict: bool = False
+) -> list[tuple[Path, list[str], str]]:
+    """List every ticket folder in a context's status dirs.
+
+    Returns `(folder, parts, name)` tuples, where `parts` is the same as in
+    `find_ticket_folders` and `name` is the NFC-normalized folder name. The
+    resolver and the ticket tools share this walk, so a number the tools
+    consider free is guaranteed to be one the resolver can't find.
+
+    With `strict=True`, an unreadable folder raises `OSError` instead of
+    being treated as empty; allocating a number without seeing it could
+    produce a duplicate. A missing status dir is treated as empty either way.
+    """
+    found: list[tuple[Path, list[str], str]] = []
     for status in STATUS_DIRS:
-        _walk(context_folder / status, [status], number, 0, found)
+        _walk(context_folder / status, [status], 0, found, strict)
     return found
 
 
-def _walk(folder: Path, parts: list[str], number: str, depth: int,
-          found: list[tuple[Path, list[str]]]) -> None:
+def _walk(folder: Path, parts: list[str], depth: int,
+          found: list[tuple[Path, list[str], str]], strict: bool) -> None:
     try:
         with os.scandir(folder) as it:
             entries = sorted(it, key=lambda e: e.name)
+    except (FileNotFoundError, NotADirectoryError):
+        return
     except OSError:
+        if strict:
+            raise
         return
     for entry in entries:
         if entry.name.startswith(".") or not entry.is_dir():
             continue
         name = normalize_path(entry.name)
-        if name == number or name.startswith(number + "_"):
-            found.append((Path(entry.path), list(parts)))
-        elif TICKET_FOLDER_RE.match(name):
-            continue
+        if TICKET_FOLDER_RE.match(name):
+            found.append((Path(entry.path), list(parts), name))
         elif depth < MAX_GROUPING_DEPTH:
-            _walk(Path(entry.path), parts + [name], number, depth + 1, found)
+            _walk(Path(entry.path), parts + [name], depth + 1, found, strict)
 
 
 def _ticket_info(number: str, business: str, parts: list[str]) -> TicketInfo:

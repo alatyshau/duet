@@ -13,12 +13,13 @@ import { Paths } from '../core/paths';
 import { ContextEntity, DuetApiClient } from '../core/api-client';
 import { SidebarStateManager } from '../core/sidebar-state';
 import { IntentsRuntime } from './intents/IntentsRuntime';
-import { setIntentsRuntime } from './intents/current';
+import { setIntentsRuntime, setTicketService } from './intents/current';
 import { ensureNotepad } from './intents/notepad';
 import { IntentsProvider } from './providers/IntentsProvider';
 import { BinProvider } from './providers/BinProvider';
 import { watchBoard } from './intents/boardWatch';
 import { TicketBoard } from '../core/intents/board';
+import { ServerTicketService, TicketService } from '../core/intents/ticketService';
 import { BinActions, switchToIntent } from './commands/intents';
 import { TicketNode } from '../core/intents/binTree';
 import { ActiveIntent, rowByNumber } from '../core/intents/active';
@@ -94,6 +95,9 @@ export async function activate(context: vscode.ExtensionContext) {
         const port = readPort();
         console.log('[Duet] port:', port);
         const apiClient = new DuetApiClient(`http://127.0.0.1:${port}`);
+        // Tickets are created and moved by the server: the same code the agents' tools run
+        const ticketService = new ServerTicketService(apiClient);
+        setTicketService(ticketService);
 
         backendOutputChannel = vscode.window.createOutputChannel('Duet Backend');
         context.subscriptions.push(backendOutputChannel);
@@ -163,7 +167,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const contextProvider = new ContextProvider(contexts);
             let binProvider: BinProvider | null = null;
             try {
-                binProvider = intentsRuntime ? registerBinView(context, intentsRuntime, paths, contexts, workView) : null;
+                binProvider = intentsRuntime ? registerBinView(context, intentsRuntime, paths, contexts, workView, ticketService) : null;
             } catch (e) {
                 console.error('[Duet] bin view not started:', e);
             }
@@ -286,11 +290,12 @@ function registerBinView(
     runtime: IntentsRuntime,
     paths: Paths,
     contexts: ContextEntity[],
-    work: WorkView | null
+    work: WorkView | null,
+    tickets: TicketService
 ): BinProvider {
     const board = new TicketBoard(runtime.tickets);
     const provider = new BinProvider(contexts, runtime, board);
-    const actions = new BinActions(paths, runtime, provider, board);
+    const actions = new BinActions(paths, runtime, provider, board, tickets);
     provider.onDrop = (sourceKey, targetKey) => actions.drop(sourceKey, targetKey);
 
     const view = vscode.window.createTreeView('duet.bin', {
@@ -331,5 +336,6 @@ export function deactivate() {
     workView = null;
     intentsRuntime?.removeOwnMarkerSync();
     setIntentsRuntime(null);
+    setTicketService(null);
     disposeGitOutputChannel();
 }

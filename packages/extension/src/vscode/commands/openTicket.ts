@@ -4,7 +4,8 @@ import { ContextEntity } from '../../core/api-client';
 import { FileSystem, nodeFs } from '../../core/fs';
 import { Paths } from '../../core/paths';
 import { intentIcon, intentIdentity, intentTabLabel } from '../../core/intents/naming';
-import { TicketInfo, moveTicketFolder, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
+import { TicketService } from '../../core/intents/ticketService';
+import { TicketInfo, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
 import { IntentWorkspacePlan, planIntentWorkspace } from '../../core/intents/workspaceFile';
 import { metaExtraFolders } from '../../core/workspace';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
@@ -19,6 +20,7 @@ export class TicketOpener {
     constructor(
         private readonly paths: Paths,
         private readonly runtime: IntentsRuntime,
+        private readonly tickets: TicketService,
         private readonly changed: () => Promise<void> = async () => undefined,
         private readonly fs: FileSystem = nodeFs
     ) {}
@@ -70,7 +72,7 @@ export class TicketOpener {
         let moved = now.state === 'moved';
         if (place.shelf === 'backlog') {
             try {
-                const movedPath = await moveTicketFolder(this.fs, businessPath, place.path, 'work');
+                const movedPath = await this.tickets.move(ticketNumber, 'work');
                 place = { shelf: 'work', folder: place.folder, path: movedPath };
                 moved = true;
             } catch (error) {

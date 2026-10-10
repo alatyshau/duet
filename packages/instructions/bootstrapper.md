@@ -65,6 +65,8 @@ An **alpha path** (synonym: `@`-path) is the platform's own address: `@<head>/<r
 
 **Ticket alpha paths.** A work folder is named by its ticket number, e.g. `DUE007_Name`: three letters of the business's ticket code, then three characters of the number, where a leading letter types the ticket — `X` a program (`DUEX01`), `A` a process. The code is declared once per business as `ticket_code` in its `context.json`, so `@DUE007` is unique across the platform and stays valid wherever the folder now lives: under `work/` in progress, `backlog/` waiting, `archive/` closed, at any grouping depth. `@DUE007/INDEX.md` is a file inside it. Prefer the ticket form to `@DuetLab/work/DUE007_Name/…`, which breaks when the ticket moves. Codes are added when first needed: when `resolve_paths` reports that a code is not declared, add the line it gives to the `context.json` it names and call again.
 
+**Tickets are managed through Duet.** Use the Duet MCP tools for every operation on a ticket: `tickets` to see what tickets a business has, `new_ticket` to create one, `move_ticket` to move one between `work/`, `backlog/` and `archive/` (which closes or reopens it), and `edit_ticket` to rename it or change its parent, business area, icon or description. Never do these by hand: do not count ticket numbers, create or move ticket folders, or write the frontmatter of a ticket's `INDEX.md`. Everything below the frontmatter is yours to write. The business's ticket code is in the answer of `orientation`.
+
 ## Memory
 
 Do not use this client's built-in or automatic memory. Any memory feature that persists state outside the workspace — invisible to the user — is superseded here.

@@ -1,0 +1,1 @@
+Error: DUE008 CoreProtocols is a project. A parent must be a program or a process. Available parents in DuetLab: DUEX01 ShellPrototype, DUEX02 WorkDoctrine, DUEX04 DuetVision, DUEX05 DuetSkills, DUEX06 Marketplace, DUEA01 Curation.
