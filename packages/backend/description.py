@@ -1,14 +1,48 @@
-"""Description extraction from markdown files and spec file resolution.
-
-Used by workspace_info to populate description fields in chain entities
-and components, and to locate spec files via fallback chains.
-"""
+"""Business descriptions from INDEX frontmatter and legacy Markdown utilities."""
 
 import logging
 import re
 from pathlib import Path
 
+import yaml
+
 logger = logging.getLogger(__name__)
+
+_FRONTMATTER = re.compile(
+    r"\A\ufeff?---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M
+)
+
+
+def read_business_description(folder: Path) -> str | None:
+    """Read a business's explicit description, without legacy fallbacks.
+
+    Args:
+        folder: The business folder containing INDEX.md.
+
+    Returns:
+        A nonempty string from YAML frontmatter, normalized to one line,
+        or None when absent or invalid. Never reads README or the manifest.
+    """
+    path = folder / "INDEX.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as exc:
+        logger.warning("Cannot read business description in %s: %s", path, exc)
+        return None
+    match = _FRONTMATTER.match(text)
+    if match is None:
+        return None
+    try:
+        fields = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        logger.warning("Invalid business frontmatter in %s", path)
+        return None
+    if not isinstance(fields, dict):
+        return None
+    value = fields.get("description")
+    return (" ".join(value.split()) or None) if isinstance(value, str) else None
 
 
 # Spec file fallback chains keyed by lookup category.

@@ -26,6 +26,9 @@ async def test_mcp_keeps_tree_data_and_rest_contract(client, db, duet_data_build
     ManifestBuilder.context(
         root / "Lab", "Lab", git_repos={"Product": "https://example.com/product.git"}
     )
+    index = root / "Lab" / "INDEX.md"
+    index.write_text("---\ndescription: Product research laboratory\n---\n# Lab\n", encoding="utf-8")
+    assert not (root / "Lab" / "README.md").exists()
     # Organizational areas without a manifest are not registry nodes.
     area = root / "Lab" / "Research"
     area.mkdir()
@@ -42,6 +45,7 @@ async def test_mcp_keeps_tree_data_and_rest_contract(client, db, duet_data_build
     assert lab["git_repos"] == {"Product": "https://example.com/product.git"}
     assert lab["absolute_path"] == str(root / "Lab")
     assert lab["type"] == "context"
+    assert lab["description"] == "Product research laboratory"
 
     _, structured = await mcp.call_tool("business_tree", {})
     assert structured == {"result": expected}

@@ -33,8 +33,6 @@ from services.resolve_paths import ContextRef, Resolution, resolve_paths as _res
 from services.tickets import Result as TicketResult, run as _run_ticket_action
 from services.deploy_instructions import deploy_instructions as _deploy_instructions
 
-# A business's entry point: the first of these that exists in its folder.
-ENTRY_POINT_FILES = ("INDEX.md", "README.md")
 
 OUTSIDE_DUET = "Not a business folder: this path is outside Duet."
 INSIDE_REPO = "Not a business folder: this path is inside a git-repo."
@@ -330,14 +328,11 @@ def _path_line(name: str, label: str, path: Path) -> str:
 
 
 def _entry_point(folder: Path | None) -> Path | None:
-    """The file a business is entered through: `INDEX.md`, else `README.md`."""
+    """Return the business's INDEX.md; repository READMEs are separate."""
     if folder is None:
         return None
-    for filename in ENTRY_POINT_FILES:
-        candidate = folder / filename
-        if candidate.is_file():
-            return candidate
-    return None
+    candidate = folder / "INDEX.md"
+    return candidate if candidate.is_file() else None
 
 
 def _join_sections(sections: list[tuple[str, list[str]]]) -> str:

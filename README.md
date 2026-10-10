@@ -64,7 +64,7 @@ Duet/
 └── projects/                ← GTD-проекты
 ```
 
-The shared AI instructions ship with Duet in `packages/instructions/`. Businesses add their own instructions and skills through `context.json`.
+The shared AI instructions ship with Duet in `packages/instructions/`. Businesses keep their entry point, local rules, memory, and description in `INDEX.md`; skills are declared in `context.json`.
 
 Подробнее о каждом компоненте — см. `spec/` внутри пакета.
 

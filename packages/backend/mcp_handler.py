@@ -269,7 +269,7 @@ def resolve_paths(paths: list[str]) -> str:
     lies, in work, backlog or archive.
 
     Args:
-        paths: Alpha paths, e.g. ["@DUE009/INDEX.md", "@DuetLab/README.md"].
+        paths: Alpha paths, e.g. ["@DUE009/INDEX.md", "@DuetLab/INDEX.md"].
 
     Returns Markdown, one `### <path>` section per address: the absolute path;
     for a ticket, its kind and state; for a missing file, the path anyway and

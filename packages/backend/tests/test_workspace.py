@@ -106,7 +106,7 @@ class TestOrientationBusiness:
             reference_repos={"cookbook": "https://github.com/x/cookbook"},
         )
         root = builder.get_root_context_path(0)
-        (root / "README.md").write_text("# Root", encoding="utf-8")
+        (root / "INDEX.md").write_text("# Root", encoding="utf-8")
         (lab / "INDEX.md").write_text("# Lab", encoding="utf-8")
         (lab / "README.md").write_text("# Lab readme", encoding="utf-8")
         repos = builder.get_repos_path()
@@ -122,9 +122,14 @@ class TestOrientationBusiness:
             f"* `@cookbook.git` (reference repo, read-only): `{repos / 'cookbook.git'}`\n"
             "\n"
             "**Next immediate steps:**\n"
-            f"* Read venture entry point: `{root / 'README.md'}`\n"
+            f"* Read venture entry point: `{root / 'INDEX.md'}`\n"
             f"* Read business entry point: `{lab / 'INDEX.md'}`"
         )
+
+    def test_readme_only_business_has_no_entry_point(self, tmp_path, db, monkeypatch):
+        _, service, lab = _lab(tmp_path, db, monkeypatch)
+        (lab / "README.md").write_text("# Legacy business entry", encoding="utf-8")
+        assert "Next immediate steps" not in service.get_orientation(str(lab))
 
     def test_ticket_code_is_given_when_the_business_declares_one(
         self, tmp_path, db, monkeypatch
@@ -149,7 +154,7 @@ class TestOrientationBusiness:
     def test_venture(self, tmp_path, db, monkeypatch) -> None:
         builder, service, _ = _lab(tmp_path, db, monkeypatch)
         root = builder.get_root_context_path(0)
-        (root / "README.md").write_text("# Root", encoding="utf-8")
+        (root / "INDEX.md").write_text("# Root", encoding="utf-8")
         duet_data = builder.duet_data_path.resolve()
 
         assert service.get_orientation(str(root)) == (
@@ -158,7 +163,7 @@ class TestOrientationBusiness:
             f"* `@Root` (active venture folder): `{root}`\n"
             "\n"
             "**Next immediate steps:**\n"
-            f"* Read venture entry point: `{root / 'README.md'}`"
+            f"* Read venture entry point: `{root / 'INDEX.md'}`"
         )
 
     def test_meta_venture_lists_the_other_ventures(self, tmp_path, db, monkeypatch) -> None:
@@ -170,7 +175,7 @@ class TestOrientationBusiness:
         base, lab, family = (builder.get_root_context_path(i) for i in range(3))
         ManifestBuilder.context(base, "Base", meta=True)
         (base / "INDEX.md").write_text("# Base", encoding="utf-8")
-        (lab / "README.md").write_text("# Lab", encoding="utf-8")
+        (lab / "INDEX.md").write_text("# Lab", encoding="utf-8")
         ticket = base / "work" / "SYS001_Ticket"
         ticket.mkdir(parents=True)
         Scanner(db, repos_path=builder.get_repos_path()).scan()
@@ -183,7 +188,7 @@ class TestOrientationBusiness:
             f"* `@Base` (active venture folder): `{base}`\n"
             "\n"
             "**Other Ventures** (this venture is meta: it manages others):\n"
-            f"* `@Lab`: `{lab}` — entry point `README.md`\n"
+            f"* `@Lab`: `{lab}` — entry point `INDEX.md`\n"
             f"* `@Family`: `{family}` — no entry point\n"
             "\n"
             "**Next immediate steps:**\n"
@@ -235,11 +240,11 @@ class TestOrientationBusiness:
         assert "Next immediate steps" not in answer
         assert answer.startswith("**Paths:**")
 
-    def test_readme_is_the_entry_point_without_index(self, tmp_path, db, monkeypatch) -> None:
+    def test_index_is_the_entry_point_without_readme(self, tmp_path, db, monkeypatch) -> None:
         _, service, lab = _lab(tmp_path, db, monkeypatch)
-        (lab / "README.md").write_text("# Lab", encoding="utf-8")
+        (lab / "INDEX.md").write_text("# Lab", encoding="utf-8")
         answer = service.get_orientation(str(lab))
-        assert f"* Read business entry point: `{lab / 'README.md'}`" in answer
+        assert f"* Read business entry point: `{lab / 'INDEX.md'}`" in answer
         assert "venture entry point" not in answer
 
     def test_declared_repo_is_listed_without_a_clone(self, tmp_path, db, monkeypatch) -> None:

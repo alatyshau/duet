@@ -31,7 +31,7 @@ server.py (entry point, lifecycle)
     │   └── manifest.py      strict v4 manifest reader
     ├── scanner.py           hierarchy scan, strict v4 reader
     ├── watcher.py           manifest file watcher, auto-rescan
-    ├── description.py       extract_description (for /contexts), spec file lookup
+    ├── description.py       business INDEX descriptions, legacy Markdown utilities
     ├── instructions.py      platform session prompt builder
     ├── db.py                SQLite operations
     ├── config.py            read-only configuration
@@ -58,7 +58,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `services/tickets/` | List, create, move and edit tickets; own the ticket folder name and the `INDEX.md` frontmatter; atomic writes with rollback | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes, anything below the frontmatter |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
 | `instructions.py` | Build the platform session prompt from duet-core.md | DB, HTTP |
-| `description.py` | Extract description from markdown, spec file lookup | DB, HTTP |
+| `description.py` | Read explicit business INDEX descriptions; legacy Markdown and spec utilities | DB, HTTP |
 | `db.py` | SQLite CRUD | Business rules |
 | `pointer.py` | Read pointer file | Write pointer |
 | `aliases.py` | Resolve `@alias` → absolute path | Config management |
@@ -297,7 +297,15 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic). Hos
 
 ### Description Extraction
 
-Extracts description from markdown — first sentence of first paragraph after H1, or H1 text if next content is structural. Used by `description` in `GET /contexts` (from README.md, when the manifest has none).
+`read_business_description(folder)` reads only the YAML frontmatter of the
+business's `INDEX.md`. It returns the nonempty string `description`, normalized
+to one line, or `None` for missing/invalid metadata. Invalid YAML, unreadable
+files, and invalid UTF-8 do not break the tree. There is no manifest, heading,
+body, or README fallback. Both `business_tree` and REST entity listings use this
+live reader. Repository README handling in orientation is unchanged.
+
+`extract_description()` remains a legacy Markdown utility; business listings
+no longer call it.
 
 **Legacy `find_spec_file()` fallback chain** (`ARCHITECTURE.md`, `INDEX.md`, `BUSINESS.md`, `STREAM.md`) has no caller in the Backend; the function is retained as a utility.
 
@@ -450,7 +458,7 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Agent alpha paths, tickets | `services/resolve_paths.py:resolve_paths()`, `WorkspaceService.resolve_paths()` |
 | Ticket tools | `services/tickets/` (`views.py` read, `writes.py` write, `frontmatter.py`, `naming.py`, `model.py`), `WorkspaceService.ticket_action()` |
 | Context-memory pointer | `services/workspace.py:_build_memory()` |
-| Description extraction | `description.py:extract_description()` |
+| Business description | `description.py:read_business_description()` |
 | Spec file fallback (legacy) | `description.py:find_spec_file()` |
 | Merge pipeline | `instructions.py:merge_duet_instructions()` |
 | Manifest watcher | `watcher.py:ManifestWatcher` |

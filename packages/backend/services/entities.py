@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config import get_repos_path, get_root_context_folders
 from db import DatabaseManager, Entity
-from description import extract_description
+from description import read_business_description
 from scanner import Scanner, make_scan_result
 from services.manifest import read_manifest, read_reference_repos
 
@@ -138,10 +138,10 @@ class EntitiesService:
     def _entity_to_dict(entity: Entity, path_lookup: dict | None = None) -> dict:
         """Convert Entity to dict for API response.
 
-        Context entities additionally surface (read live from manifest):
+        Context entities additionally surface live business metadata:
         - `git_repos` — alias→URL map; `null` when manifest has none.
         - `reference_repos` — name→URL map; `null` when manifest has none.
-        - `description` — chain-item description (manifest > README first sentence).
+        - `description` — the explicit description in INDEX.md frontmatter.
         """
         absolute_path = None
         if path_lookup is not None:
@@ -160,11 +160,7 @@ class EntitiesService:
                     git_repos = dict(manifest.git_repos)
                 if manifest.reference_repos:
                     ref_repos = dict(manifest.reference_repos)
-                if manifest.description and manifest.description.strip():
-                    description = manifest.description.strip()
-            if description is None:
-                readme = Path(absolute_path) / "README.md"
-                description = extract_description(readme)
+            description = read_business_description(Path(absolute_path))
         elif entity.type == "context":
             # Fallback path for contexts whose absolute path didn't resolve —
             # reference_repos still comes from the raw helper for parity.

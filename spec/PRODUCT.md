@@ -101,8 +101,6 @@ Three entity types live in `entities.db`:
 { "version": 4, "name": "DuetLab", "icon": "🎭",
   "git_repos": {"Duet": "git@github.com:owner/duet.git"},
   "skills": ["@anthropic-skills.git/skills/pdf"],
-  "instructions": ["@DuetLab/instructions/business-rules.md"],
-  "memory": "@DuetLab/README.md",
   "ticket_code": "DUE" }
 { "version": 4, "name": "БАЗА", "icon": "🗂", "meta": true }
 { "version": 4, "name": "ТехноЛаб", "icon": "📁", "reference_repos": {"cookbook": "https://..."} }
@@ -116,10 +114,10 @@ Three entity types live in `entities.db`:
 | `meta` | bool | optional | `true` marks the meta-context (see Invariants). Host migrates v1's `root` field |
 | `git_repos` | map | optional | `{alias: url}` declaring product clones. When present, scanner registers N `product_repo` children while continuing to recurse through the Drive folder for nested contexts. Insertion order preserved. Several contexts may declare the same alias with the same URL — one shared clone (see [Repository Naming](#repository-naming)) |
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
-| `description` | string | optional | Surfaces as `description` in `GET /contexts` and in the Extension's КОНТЕКСТ panel; takes priority over README first sentence |
+| `description` | string | legacy | Accepted by the v4 reader for compatibility, but ignored by business listings. Author descriptions in `INDEX.md` frontmatter |
 | `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` and `<context>/.agents/skills/` (see [Deploy Instructions](#deploy-instructions)) |
-| `instructions` | list | optional | `@`-paths whose bodies compose the per-client `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` / `.agents/rules/gemini.md` |
-| `memory` | string | optional | A single `@`-path to the context-memory file |
+| `instructions` | list | legacy | `@`-paths whose bodies compose the per-client `.claude/CLAUDE.md` / `.kimi-code/AGENTS.md` / `.agents/rules/gemini.md` |
+| `memory` | string | legacy | A single `@`-path to the context-memory file |
 | `ticket_code` | string | optional | The business's ticket code: three uppercase Latin letters (`DUE`). Tickets of the business are numbered `<code><3 chars>` (`DUE009`; a leading letter types the ticket — `X` program, `A` process), and `@<number>` resolves through the one context that declares the code (see [Agent alpha paths](#alias-resolution)). Codes are added when first needed, not assigned in advance |
 | `system_prompt` | string | optional | A single `@`-path to a Claude output-style file (frontmatter + body) that becomes the context's **system prompt** in Claude Code, Codex and Kimi Code (see [Deploy Instructions](#deploy-instructions)). Unlike `instructions`, it replaces the client's default prompt instead of joining the composed instruction files |
 
@@ -135,6 +133,37 @@ Three entity types live in `entities.db`:
 **Workspace assembly is context-first.** Opening a context builds a `.code-workspace` with the **Drive folder first**, cloned repos after (in `git_repos` order); a context without `git_repos` gets a file of that one folder — every context is opened through its file, which is also where the colour of its window lives. The order is fixed — the former `workspace_config.primary_folder` knob was removed in v4 (its migration drops the field). The first folder is the default cwd for terminals and the anchor for file pickers, so the context's Drive folder (and its `.claude/CLAUDE.md`) anchors the session. The same (re)generation also writes `<context>/.kimi-code/local.toml` with the repo dirs as `additional_dir` entries — a workaround for Kimi Code's blindness to VS Code multi-root workspaces.
 
 **`reference_repos`** declares read-only clones. Key = clone name, value = git URL. Cloned to `DuetData/repos/{name}.git`. Entity name includes `.git` suffix (enters global uniqueness space, shared with `git_repos` aliases).
+
+### Business entry point and description
+
+A business's entry point is `INDEX.md`, including areas that inherit their
+working environment. The file holds the mission, navigation, local rules, and
+business memory. Its YAML frontmatter carries a short, explicit `description`
+that adds meaning beyond the name; the description is not a status or a plan.
+New business manifests do not declare `description`, `memory`, or `instructions`;
+keep local rules in INDEX or link to their sources from it. The v4 reader still
+accepts those legacy fields; removing their deployment support is separate.
+
+```yaml
+---
+folder-type: business
+name: Research
+description: Product research laboratory
+area-type: experimental
+business-work: inherited
+---
+```
+
+`business_tree`, `GET /contexts`, and context records in `GET /entities` read
+`description` live from this frontmatter. A missing, blank, non-string, malformed,
+or unreadable value produces `null`, not a fallback to the manifest, a Markdown
+heading, body prose, or README. YAML strings are normalized to one line. Clients
+may show the business name when the description is absent. No rescan is needed
+to read an edited description on the next request.
+
+Business folders have no README entry or redirect. Product repositories keep
+README.md and their existing repository-entry behavior. An inherited area with
+INDEX but no manifest does not become a registry entity just by adding metadata.
 
 ### Invariants
 
@@ -338,19 +367,19 @@ Where the folder lies decides the answer.
 **Ticket code:** `DUE`
 
 **Next immediate steps:**
-* Read venture entry point: `/Users/me/Drive/!МетаЛаб/README.md`
+* Read venture entry point: `/Users/me/Drive/!МетаЛаб/INDEX.md`
 * Read business entry point: `/Users/me/Drive/!МетаЛаб/DuetLab/INDEX.md`
 ```
 
 - The venture is the root of the parent chain; intermediate parents are not listed. A venture itself is labelled `active venture folder` and has the single step `Read venture entry point`.
 - Repos are the manifest's `git_repos`, then its `reference_repos`, in manifest order, at the expected clone path whether or not the clone exists yet.
-- An entry point is `INDEX.md`, else `README.md`; a business with neither gets no step.
+- A business entry point is `INDEX.md`; a business without it gets no entry-point step. README is never a business fallback.
 - `Ticket code` is the business's `ticket_code`, given so the agent can call the ticket tools (`tickets(code="DUE")`); a business that declares none has no such line. The tools themselves are not named here: they come with the MCP connection.
 - **A meta venture** (`meta: true`) — the session is opened in its folder or anywhere under it that leads to it, a ticket's work folder included — gets one more section between the two, because it manages the other ventures. One line per other venture, in `root_context_folders` order; the entry point is named by file name only and is not a step. A business under a meta venture is not meta and gets no such section.
 
 ```
 **Other Ventures** (this venture is meta: it manages others):
-* `@МетаЛаб`: `/Users/me/Drive/!МетаЛаб` — entry point `README.md`
+* `@МетаЛаб`: `/Users/me/Drive/!МетаЛаб` — entry point `INDEX.md`
 * `@СЕМЬЯ`: `/Users/me/Drive/!СЕМЬЯ` — no entry point
 ```
 
