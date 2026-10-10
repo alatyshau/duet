@@ -8,7 +8,7 @@
  * - Backend: atomic swap (.new → rename) → DuetData/backend/
  * - Post-deploy: Python check, venv, pip install (async)
  * - VERSION file: app version → DuetData/backend/VERSION
- * - Platform instructions (duet-core + instruction templates): bundled next to
+ * - Platform instructions (duet-core): bundled next to
  *   backend. PROD — via electron-builder; DEV — copied from the sibling
  *   packages/instructions by copyPlatformInstructions (see deployBackend).
  *
@@ -291,7 +291,7 @@ export const deployBackend = (paths: DeployPaths): number => {
   mkdirSync(destNew, { recursive: true })
   cpSync(src, destNew, { recursive: true, force: true, filter: deployFilter })
 
-  // DEV: platform instructions (duet-core.md + instruction templates) live in
+  // DEV: platform instructions (duet-core.md) live in
   // the sibling packages/instructions, NOT inside the backend source dir. Copy them
   // next to server.py so the merge finds them as siblings (Path(__file__).parent).
   // In PROD they're already inside resourcesPath/backend (electron-builder bundles

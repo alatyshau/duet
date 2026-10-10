@@ -732,7 +732,7 @@ describe('core/deploy', () => {
       expect(readFileSync(join(ctx.duetDataDir, 'backend', 'app.py'), 'utf-8')).toBe('print("dev")')
     })
 
-    it('DEV: copies sibling packages/instructions (Markdown templates, not registry or README) next to backend', () => {
+    it('DEV: copies sibling packages/instructions (session prompt, not registry or README) next to backend', () => {
       const devBackend = join(ctx.tmpDir, 'dev-backend')
       mkdirSync(devBackend, { recursive: true })
       writeFileSync(join(devBackend, 'server.py'), 'print("dev")')
@@ -741,7 +741,6 @@ describe('core/deploy', () => {
       const instr = join(ctx.tmpDir, 'instructions')
       mkdirSync(instr, { recursive: true })
       writeFileSync(join(instr, 'duet-core.md'), '# boot')
-      writeFileSync(join(instr, 'CLAUDE_template.md'), '# client template')
       writeFileSync(join(instr, 'index.json'), '{}')
       writeFileSync(join(instr, 'README.md'), '# dev-only docs')
 
@@ -757,7 +756,6 @@ describe('core/deploy', () => {
       const dest = join(ctx.duetDataDir, 'backend')
       // Platform instructions land next to server.py so the merge finds them as siblings.
       expect(existsSync(join(dest, 'duet-core.md'))).toBe(true)
-      expect(existsSync(join(dest, 'CLAUDE_template.md'))).toBe(true)
       expect(existsSync(join(dest, 'index.json'))).toBe(false)
       // README is dev-only docs — excluded (mirrors electron-builder prod filter).
       expect(existsSync(join(dest, 'README.md'))).toBe(false)

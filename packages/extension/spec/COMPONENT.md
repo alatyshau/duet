@@ -97,7 +97,7 @@ All entity data flows from Backend:
 |--------|--------|------|
 | `GET /contexts` | `apiClient.contexts()` | All `context` entities with `absolute_path`, `parent_id`, `meta`, `description`, optional `git_repos` map |
 | `POST /scan` | `apiClient.scan()` | Triggers backend rescan |
-| `POST /deploy-instructions` | `apiClient.deployInstructions(paths)` | Asks backend to deploy the `skills`/`instructions` of the window's business into its Drive folder. Fire-and-forget |
+| `POST /deploy-instructions` | `apiClient.deployInstructions(paths)` | Asks backend to deploy the `skills`/`system_prompt` of the window's business into its Drive folder. Fire-and-forget |
 
 `ContextEntity[]` (from `/contexts`) is kept in memory and feeds both views, «Все Бизнесы» and КОНТЕКСТ. Both rebuild on workspace folder change (no HTTP) and reload on `duet.refresh`.
 
@@ -282,7 +282,7 @@ The intents runtime starts before this sequence, right after the pointer is read
 
 ### Deploy Instructions Trigger
 
-Extension asks Backend to deploy the instruction components of the window's business (skills / instructions) into its Drive folder via `apiClient.deployInstructions(workspacePaths)`. The call is **debounced** (500ms) and **fire-and-forget** — warnings/errors are logged to the "Duet Backend" output channel, never surfaced as blocking UI. Backend is idempotent and serializes concurrent calls per context.
+Extension asks Backend to deploy the instruction components of the window's business (skills / system_prompt) into its Drive folder via `apiClient.deployInstructions(workspacePaths)`. The call is **debounced** (500ms) and **fire-and-forget** — warnings/errors are logged to the "Duet Backend" output channel, never surfaced as blocking UI. Backend is idempotent and serializes concurrent calls per context.
 
 Fires on:
 - **Activation** — after the contexts load, with the current workspace folder paths.

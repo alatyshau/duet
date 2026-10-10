@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from services.manifest import (
     MANIFEST_FILENAME,
     TARGET_VERSION,
@@ -44,8 +46,6 @@ class TestReadManifestHappyPath:
         assert manifest.reference_repos is None
         assert manifest.description is None
         assert manifest.skills is None
-        assert manifest.instructions is None
-        assert manifest.memory is None
         assert errors == []
 
     def test_full_valid_v4(self, tmp_path: Path) -> None:
@@ -61,8 +61,6 @@ class TestReadManifestHappyPath:
             "reference_repos": {"cookbook": "https://github.com/anthropics/cookbook.git"},
             "description": "A platform.",
             "skills": ["@anthropic-skills.git/skills/skill-creator"],
-            "instructions": ["@DuetLab/README.md", "@Duet-Instructions.git/agents/executor.md"],
-            "memory": "@DuetLab/README.md",
         })
         manifest = read_manifest(tmp_path, [])
         assert manifest == Manifest(
@@ -77,8 +75,6 @@ class TestReadManifestHappyPath:
             reference_repos={"cookbook": "https://github.com/anthropics/cookbook.git"},
             description="A platform.",
             skills=["@anthropic-skills.git/skills/skill-creator"],
-            instructions=["@DuetLab/README.md", "@Duet-Instructions.git/agents/executor.md"],
-            memory="@DuetLab/README.md",
         )
 
     def test_git_repos_preserves_insertion_order(self, tmp_path: Path) -> None:
@@ -288,8 +284,8 @@ class TestGitReposValidation:
 
 
 class TestDeployFieldsValidation:
-    """`skills` / `instructions` are optional lists of @-path strings;
-    `memory` and `system_prompt` are optional non-empty strings. Resolution of
+    """`skills` is an optional list of @-path strings;
+    `system_prompt` is an optional non-empty string. Resolution of
     @-paths happens later (deploy / orientation) — here only the shape is
     validated."""
 
@@ -298,28 +294,16 @@ class TestDeployFieldsValidation:
         manifest = read_manifest(tmp_path, [])
         assert manifest is not None
         assert manifest.skills is None
-        assert manifest.instructions is None
-        assert manifest.memory is None
         assert manifest.system_prompt is None
 
-    def test_skills_and_instructions_lists(self, tmp_path: Path) -> None:
+    def test_skills_list(self, tmp_path: Path) -> None:
         _write(tmp_path, {
             "version": 4, "name": "X",
             "skills": ["@anthropic-skills.git/skills/skill-creator"],
-            "instructions": ["@DuetLab/README.md", "@Duet-Instructions.git/agents/executor.md"],
         })
         manifest = read_manifest(tmp_path, [])
         assert manifest is not None
         assert manifest.skills == ["@anthropic-skills.git/skills/skill-creator"]
-        assert manifest.instructions == [
-            "@DuetLab/README.md", "@Duet-Instructions.git/agents/executor.md",
-        ]
-
-    def test_memory_string(self, tmp_path: Path) -> None:
-        _write(tmp_path, {"version": 4, "name": "X", "memory": "@DuetLab/README.md"})
-        manifest = read_manifest(tmp_path, [])
-        assert manifest is not None
-        assert manifest.memory == "@DuetLab/README.md"
 
     def test_system_prompt_string(self, tmp_path: Path) -> None:
         _write(tmp_path, {"version": 4, "name": "X", "system_prompt": "@X/styles/game-master.md"})
@@ -329,11 +313,10 @@ class TestDeployFieldsValidation:
 
     def test_empty_lists_ok(self, tmp_path: Path) -> None:
         """An explicit empty list is valid (means "manage, deploy nothing")."""
-        _write(tmp_path, {"version": 4, "name": "X", "skills": [], "instructions": []})
+        _write(tmp_path, {"version": 4, "name": "X", "skills": []})
         manifest = read_manifest(tmp_path, [])
         assert manifest is not None
         assert manifest.skills == []
-        assert manifest.instructions == []
 
     def test_skills_not_list(self, tmp_path: Path) -> None:
         _write(tmp_path, {"version": 4, "name": "X", "skills": "@x"})
@@ -342,33 +325,12 @@ class TestDeployFieldsValidation:
         assert errors[0]["reason_code"] == "invalid_manifest"
         assert "skills" in errors[0]["description"]
 
-    def test_instructions_entry_not_string(self, tmp_path: Path) -> None:
-        _write(tmp_path, {"version": 4, "name": "X", "instructions": ["@ok", 42]})
-        errors: list[dict] = []
-        assert read_manifest(tmp_path, errors) is None
-        assert errors[0]["reason_code"] == "invalid_manifest"
-        assert "instructions" in errors[0]["description"]
-
     def test_skills_entry_empty(self, tmp_path: Path) -> None:
         _write(tmp_path, {"version": 4, "name": "X", "skills": ["@ok", "  "]})
         errors: list[dict] = []
         assert read_manifest(tmp_path, errors) is None
         assert errors[0]["reason_code"] == "invalid_manifest"
         assert "skills" in errors[0]["description"]
-
-    def test_memory_not_string(self, tmp_path: Path) -> None:
-        _write(tmp_path, {"version": 4, "name": "X", "memory": ["@x"]})
-        errors: list[dict] = []
-        assert read_manifest(tmp_path, errors) is None
-        assert errors[0]["reason_code"] == "invalid_manifest"
-        assert "memory" in errors[0]["description"]
-
-    def test_memory_empty_string(self, tmp_path: Path) -> None:
-        _write(tmp_path, {"version": 4, "name": "X", "memory": ""})
-        errors: list[dict] = []
-        assert read_manifest(tmp_path, errors) is None
-        assert errors[0]["reason_code"] == "invalid_manifest"
-        assert "memory" in errors[0]["description"]
 
     def test_system_prompt_not_string(self, tmp_path: Path) -> None:
         _write(tmp_path, {"version": 4, "name": "X", "system_prompt": ["@x"]})
@@ -435,3 +397,14 @@ class TestReadGitRepos:
     def test_returns_none_when_absent(self, tmp_path: Path) -> None:
         _write(tmp_path, {"version": 4, "name": "X"})
         assert read_git_repos(tmp_path) is None
+
+
+@pytest.mark.parametrize("field", ["instructions", "memory"])
+def test_retired_fields_are_unrecognized(tmp_path, field):
+    """Retired keys follow the existing unknown-key policy, with no consumer."""
+    _write(tmp_path, {"version": 4, "name": "Business", field: {"invalid": True}})
+    errors = []
+    manifest = read_manifest(tmp_path, errors)
+    assert manifest is not None
+    assert not hasattr(manifest, field)
+    assert errors == []

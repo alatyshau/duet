@@ -286,7 +286,7 @@ class TestDeployInstructionsEndpoint:
         skill = ctx_path / "_src" / "myskill"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text("# myskill", encoding="utf-8")
-        ManifestBuilder.context(ctx_path, "Proj", skills=["@Proj/_src/myskill"], instructions=[])
+        ManifestBuilder.context(ctx_path, "Proj", skills=["@Proj/_src/myskill"])
         Scanner(db, repos_path=builder.get_repos_path()).scan()
         init_services(WorkspaceService(db), EntitiesService(db), time.time())
 
@@ -298,7 +298,7 @@ class TestDeployInstructionsEndpoint:
         assert data["status"] == "ok"
         assert "myskill" in data["deployed"]["skills_deployed"]
         assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
-        assert (ctx_path / ".claude" / "CLAUDE.md").is_file()
+        assert not (ctx_path / ".claude" / "CLAUDE.md").exists()
 
 
 @pytest.mark.asyncio

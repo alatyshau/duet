@@ -168,7 +168,7 @@ Deploys backend from bundled resources to DuetData.
 |-----------|------------------------|--------|--------|
 | Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered): `.new` → rename → `.old` → delete |
 
-Platform instructions (`duet-core.md` and client instruction templates) are product-bundled — they live inside the product at `packages/instructions/` (no external repo). In DEV mode `deployBackend()` copies `packages/instructions/*.md` (minus `README.md`) next to the deployed backend via the `copyPlatformInstructions()` helper; in PROD they ship via electron-builder.
+Platform instructions (`duet-core.md`) are product-bundled — they live inside the product at `packages/instructions/` (no external repo). In DEV mode `deployBackend()` copies `packages/instructions/*.md` (minus `README.md`) next to the deployed backend via the `copyPlatformInstructions()` helper; in PROD they ship via electron-builder.
 
 **Deploy filter:** copy operations exclude dev artifact directories (`.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`). Prevents copying dev environment when deploying from source (`devBackendPath`).
 
@@ -280,7 +280,7 @@ Implementation: `core/ai-clients.ts`.
 
 ### Instructions
 
-The `duet-core.md` platform prompt and client instruction templates ship in `packages/instructions/`. Backend builds the session prompt through `POST /merge-duet-instructions`; Host does not read an agent registry or role-specific prompt files.
+The `duet-core.md` platform prompt ships in `packages/instructions/`. Backend builds the session prompt through `POST /merge-duet-instructions`; Host does not read an agent registry or role-specific prompt files.
 
 **Operations:**
 - `triggerMerge(port)` calls the build endpoint and returns `{ status, output_style, errors }`.
@@ -330,7 +330,7 @@ Host owns auto-upgrade of all on-disk Duet schemas. Policy and migration chain s
 |--------|---------|--------|-----------------|
 | `settings` | `settings.json` | v2 | v1 → v2: rename key `business_folders → root_context_folders`, add `version: 2`. Other keys preserved |
 | `machine` | `{machine}.json` | v2 | v1 → v2: add `version: 2`. No field renames |
-| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v4 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. v3 → v4: delete `workspace_config` (the `primary_folder` option is removed — workspace assembly is now always context-first); bump `version: 4`. The v4 `skills`/`instructions`/`memory`/`system_prompt` fields are additive (absent is valid, no migration). All other fields preserved |
+| `context` | `business.json` / `stream.json` / `product.json` → `context.json` | v4 | v1 → v2: rename file to `context.json`; rename field `root → meta` (only when `root: true`); add `version: 2`. Legacy file deleted after successful write. Other fields (`name`, `icon`, `git_url`, `reference_repos`, `description`, unknown keys) preserved. v2 → v3: when `git_url` is a non-empty string **and** `name` is a non-empty string, set `git_repos: { [name]: git_url }`; always delete `git_url`; bump `version: 3`. v3 → v4: delete `workspace_config` (the `primary_folder` option is removed — workspace assembly is now always context-first); bump `version: 4`. The v4 `skills`/`system_prompt` fields are additive (absent is valid, no migration). All other fields preserved |
 
 **Triggers:**
 1. **Host startup** — full sweep before backend spawn. Order: settings → machine → manifests under each root context. If settings or machine produces a critical error, the manifest walk is skipped and backend does not spawn.

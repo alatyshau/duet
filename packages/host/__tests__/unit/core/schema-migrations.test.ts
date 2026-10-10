@@ -234,13 +234,12 @@ describe('core/schema-migrations', () => {
       }
     })
 
-    it('CONTEXT_SCHEMA: v3 → v4 preserves additive skills/instructions/memory', () => {
+    it('CONTEXT_SCHEMA: v3 → v4 preserves skills and system_prompt', () => {
       const v3 = {
         version: 3,
         name: 'DuetLab',
         skills: ['@anthropic-skills.git/skills/skill-creator'],
-        instructions: ['@DuetLab/README.md'],
-        memory: '@DuetLab/README.md'
+        system_prompt: '@DuetLab/styles/custom.md'
       }
       const result = applyMigrations(CONTEXT_SCHEMA, v3)
       expect(result.ok).toBe(true)
@@ -249,8 +248,7 @@ describe('core/schema-migrations', () => {
           version: 4,
           name: 'DuetLab',
           skills: ['@anthropic-skills.git/skills/skill-creator'],
-          instructions: ['@DuetLab/README.md'],
-          memory: '@DuetLab/README.md'
+          system_prompt: '@DuetLab/styles/custom.md'
         })
       }
     })

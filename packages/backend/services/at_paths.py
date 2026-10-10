@@ -2,9 +2,8 @@
 
 Two callers resolve alpha paths and both stand on this module:
 
-- deployment declarations in `context.json` (`skills`, `instructions`,
-  `memory`, `system_prompt`) through `resolve_at_path` below, which returns a
-  path or ``None``;
+- deployment declarations in `context.json` (`skills`, `system_prompt`)
+  through `resolve_at_path` below, which returns a path or ``None``;
 - the `resolve_paths` MCP tool (`services/resolve_paths.py`), which adds ticket
   heads and explains every refusal. Ticket heads are not here: deploy
   declarations never accept them, and looking one up scans manifests and disk.

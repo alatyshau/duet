@@ -3,7 +3,7 @@
 The module owns the form of `@<head>/<rest>`, the two roots a head can stand
 for (git repos under `<DuetData>/repos` by dir name, context folders on Drive
 by context name) and the containment check. `resolve_at_path` maps deployment
-declarations (`skills` / `instructions` / `memory`) over it; the `resolve_paths`
+declarations (`skills` / `system_prompt`) over it; the `resolve_paths`
 tool stands on the same functions (see `test_resolve_paths.py`).
 """
 

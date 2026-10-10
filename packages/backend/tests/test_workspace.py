@@ -521,7 +521,7 @@ class TestDeployInstructionsService:
         skill = ctx_path / "_src" / "myskill"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text("# myskill", encoding="utf-8")
-        ManifestBuilder.context(ctx_path, "Proj", skills=["@Proj/_src/myskill"], instructions=[])
+        ManifestBuilder.context(ctx_path, "Proj", skills=["@Proj/_src/myskill"])
         Scanner(db, repos_path=builder.get_repos_path()).scan()
 
         service = WorkspaceService(db)
@@ -530,10 +530,10 @@ class TestDeployInstructionsService:
         assert result["status"] == "ok"
         assert "myskill" in result["deployed"]["skills_deployed"]
         assert (ctx_path / ".claude" / "skills" / "myskill" / "SKILL.md").is_file()
-        # instructions always generated from the real per-client templates
-        assert (ctx_path / ".claude" / "CLAUDE.md").is_file()
-        assert (ctx_path / ".kimi-code" / "AGENTS.md").is_file()
-        assert (ctx_path / ".agents" / "rules" / "gemini.md").is_file()
+        # Business rules are read from INDEX; no client instruction files are generated.
+        assert not (ctx_path / ".claude" / "CLAUDE.md").exists()
+        assert not (ctx_path / ".kimi-code" / "AGENTS.md").exists()
+        assert not (ctx_path / ".agents" / "rules" / "gemini.md").exists()
 
     def test_repo_folder_chooses_no_business(self, tmp_path, db, monkeypatch):
         """A window with only a repo folder deploys nothing: the repo may be shared."""

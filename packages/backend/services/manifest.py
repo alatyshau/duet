@@ -7,9 +7,9 @@ including upgrades from legacy v1 (`business.json` / `stream.json` /
 
 v3 introduced multi-repo terminal contexts via the `git_repos` map
 (alias → URL). v4 drops `workspace_config` (workspace assembly is now always
-context-first) and adds per-context deployment declarations: `skills`,
-`instructions` (lists of @-paths), `memory` and `system_prompt` (a single
-@-path each), and `ticket_code` — the business's three-letter ticket code.
+context-first) and adds per-context deployment declarations: `skills` (a list
+of @-paths), `system_prompt` (a single @-path), and `ticket_code` — the
+business's three-letter ticket code.
 """
 
 from __future__ import annotations
@@ -37,8 +37,6 @@ class Manifest:
     reference_repos: dict[str, str] | None = None
     description: str | None = None
     skills: list[str] | None = None
-    instructions: list[str] | None = None
-    memory: str | None = None
     system_prompt: str | None = None
     ticket_code: str | None = None
 
@@ -215,13 +213,7 @@ def read_manifest(
     skills, ok = _read_at_path_list(data, "skills", errors, manifest_path, folder)
     if not ok:
         return None
-    instructions, ok = _read_at_path_list(data, "instructions", errors, manifest_path, folder)
-    if not ok:
-        return None
 
-    memory, ok = _read_at_path_string(data, "memory", errors, manifest_path, folder)
-    if not ok:
-        return None
     system_prompt, ok = _read_at_path_string(data, "system_prompt", errors, manifest_path, folder)
     if not ok:
         return None
@@ -237,8 +229,6 @@ def read_manifest(
         reference_repos=ref_repos,
         description=description,
         skills=skills,
-        instructions=instructions,
-        memory=memory,
         system_prompt=system_prompt,
         ticket_code=ticket_code,
     )
@@ -266,9 +256,9 @@ def _read_at_path_list(
     manifest_path: Path,
     folder: Path | str,
 ) -> tuple[list[str] | None, bool]:
-    """Parse an optional list-of-@-paths field (`skills`, `instructions`).
+    """Parse an optional list-of-@-paths field (`skills`).
 
-    @-path *resolution* happens later (deploy / orientation); here we only
+    @-path *resolution* happens later (deploy); here we only
     validate shape — a list of non-empty strings. Returns (value_or_None, ok).
     """
     raw = data.get(key)
@@ -297,7 +287,7 @@ def _read_at_path_string(
     manifest_path: Path,
     folder: Path | str,
 ) -> tuple[str | None, bool]:
-    """Parse an optional single-@-path field (`memory`, `system_prompt`).
+    """Parse an optional single-@-path field (`system_prompt`).
 
     Shape only — a non-empty string. Returns (value_or_None, ok).
     """

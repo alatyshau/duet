@@ -292,7 +292,7 @@ class WorkspaceService:
 
     def deploy_instructions(self, workspace_paths: list[str]) -> dict:
         """Resolve the business for `workspace_paths` and deploy its
-        instruction components (skills / instructions / system_prompt) into its Drive folder.
+        instruction components (skills / system_prompt) into its Drive folder.
 
         The business comes from business folders only (`resolve_business`):
         a repo folder among the paths chooses nothing.

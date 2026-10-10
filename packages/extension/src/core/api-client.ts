@@ -117,7 +117,7 @@ export class DuetApiClient {
     }
 
     /**
-     * Deploy the owning context's instruction components (skills / instructions)
+     * Deploy the owning context's instruction components (skills / system_prompt)
      * into its Drive folder. Idempotent — safe to call on every workspace open.
      */
     async deployInstructions(workspacePaths: string[]): Promise<DeployInstructionsResponse> {

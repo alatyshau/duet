@@ -51,7 +51,7 @@ extraResources:
       - "!**/tests/**"
       - "!**/__pycache__/**"
       - "!**/.pytest_cache/**"
-  # Platform instructions (duet-core + instruction templates) live in
+  # Platform instructions (duet-core) live in
   # packages/instructions; bundle them next to backend so server.py finds them
   # as siblings (Path(__file__).parent). README.md is dev-only docs, excluded.
   - from: ../../packages/instructions/

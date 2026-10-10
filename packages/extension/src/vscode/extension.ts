@@ -127,7 +127,7 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.commands.registerCommand('duet.selectNode', () => {})
         );
 
-        // Deploy the open context's instruction components (skills / instructions)
+        // Deploy the open context's instruction components (skills / system_prompt)
         // into its Drive folder. Fire-and-forget and debounced: activation,
         // workspace-folder changes and `duet.refresh` can fire near-together;
         // the backend is also idempotent + serialized per context.

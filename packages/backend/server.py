@@ -224,7 +224,7 @@ async def deploy_instructions_handler(request: Request) -> JSONResponse:
     """POST /deploy-instructions - Deploy a context's instruction components.
 
     Request body: {"workspace_paths": ["/path1", "/path2"]}. Picks the
-    business from the business folders among the paths and materializes its `skills` / `instructions` declarations
+    business from the business folders among the paths and materializes its `skills` / `system_prompt` declarations
     into its Drive folder. Idempotent.
 
     Response: {status, deployed: {...}, warnings: [...]}.

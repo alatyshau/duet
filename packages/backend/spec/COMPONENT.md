@@ -24,7 +24,7 @@ server.py (entry point, lifecycle)
     ├── services/
     │   ├── workspace.py     WorkspaceService — folder → business, orientation answer
     │   ├── entities.py      EntitiesService — /contexts, /scan
-    │   ├── deploy_instructions.py  deploy a context's skills/instructions/system_prompt into its Drive folder
+    │   ├── deploy_instructions.py  deploy a context's skills/system_prompt into its Drive folder
     │   ├── at_paths.py      alpha-path grammar: form, repo/context heads, containment
     │   ├── resolve_paths.py agent-facing alpha-path resolver (repos / contexts / tickets) behind `resolve_paths`
     │   ├── tickets/         ticket operations behind `tickets`, `new_ticket`, `move_ticket`, `edit_ticket`
@@ -51,8 +51,8 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `mcp_handler.py` | MCP tool registration, service getters | DB access |
 | `services/*.py` | Business logic, atomic file writes | Direct HTTP, MCP |
 | `scanner.py` | Hierarchy scan (strict v4), `git_repos` → N product_repo while Drive context recursion continues; a repo declared by several contexts under one name and address is registered once | HTTP, config writes, manifest upgrades |
-| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`instructions`/`memory`/`system_prompt` @-path declarations and the field-level `ticket_code`) | Migrations (Host owns) |
-| `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `instructions` (`.claude/CLAUDE.md` + `.kimi-code/AGENTS.md` + `.agents/rules/gemini.md`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
+| `services/manifest.py` | Strict v4 manifest parsing (incl. optional `skills`/`system_prompt` @-path declarations and the field-level `ticket_code`) | Migrations (Host owns) |
+| `services/deploy_instructions.py` | Materialize a context's `skills` (`.claude/skills/<name>/` + `.agents/skills/<name>/`) + `system_prompt` (`.claude/output-styles/` + `outputStyle`, `.codex/config.toml` key, `.kimi-code/agents/agent.md`) into its Drive folder; idempotent | HTTP, @-path resolution policy, DB |
 | `services/at_paths.py` | The one grammar of alpha paths, shared by deploy and `resolve_paths`: parse `@<head>/<rest>`, find the repo dir (under `DuetData/repos`) or context (→ its Drive folder) a head stands for, keep the target inside it; refuse `.` / `..` segments | Tickets, file copy, HTTP, DB |
 | `services/resolve_paths.py` | Resolve agent alpha paths incl. tickets (`@DUE009`), explain every failure, render the tool's Markdown | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes |
 | `services/tickets/` | List, create, move and edit tickets; own the ticket folder name and the `INDEX.md` frontmatter; atomic writes with rollback | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes, anything below the frontmatter |
@@ -96,7 +96,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | GET | `/duet-data-path` | `{ path: "/absolute/path" }` |
 | GET | `/contexts` | `{ contexts: [...] }` — `type='context'` entities. Each entity carries `absolute_path`, `git_url`, `git_repos` (map or `null`), `meta`, `reference_repos`, `description`. **Order: roots in `root_context_folders` config order; non-root siblings alphabetical by `name`** — see /spec/PRODUCT.md → Invariants |
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
-| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Picks the business from the paths, deploys its `skills`/`instructions`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
+| POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Picks the business from the paths, deploys its `skills`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
 | POST | `/tickets/{action}` | `action` is `tickets`, `new_ticket`, `move_ticket` or `edit_ticket`; body is a JSON object of that operation's arguments. Runs the same code as the MCP tool of that name and returns `{ text, is_error, tickets }`: Markdown, whether the operation failed, and the tickets it looked up, created, moved or edited as `{ number, name, shelf, folder }`, so a client never parses the text. 404 for an unknown action, 400 for a body that is not a JSON object; a failed operation is HTTP 200 with `is_error: true` — see [Ticket tools](#ticket-tools) |
 | POST | `/merge-duet-instructions` | Builds `duet.md` from the `duet-core.md` platform prompt. Returns `{ status, output_style, errors[] }` |
 
@@ -191,7 +191,7 @@ The MCP tool `resolve_paths(paths)` resolves the alpha paths agents write (norma
 
 ### Deploy Instructions
 
-`POST /deploy-instructions` with body `{"workspace_paths": [...]}` picks the business and materializes that context's `skills` / `instructions` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Each path goes through `resolve_business`; when several businesses resolve, the meta-context (`meta=true`) wins, otherwise the first; when none does (a window with only repo folders), the answer is `no_owning_context`. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
+`POST /deploy-instructions` with body `{"workspace_paths": [...]}` picks the business and materializes that context's `skills` / `system_prompt` declarations into its Drive folder. Idempotent — safe to call on every workspace open. Each path goes through `resolve_business`; when several businesses resolve, the meta-context (`meta=true`) wins, otherwise the first; when none does (a window with only repo folders), the answer is `no_owning_context`. Logic: `services/deploy_instructions.py`; service method `WorkspaceService.deploy_instructions` (per-context lock serializes concurrent calls).
 
 **@-path resolution** (`services/at_paths.py`): `parse_at_path` takes `@<head>/<rest>` apart (`/` and `\` both separate segments, empty segments are dropped, text is compared in NFC), `find_base` resolves `<head>` to either a repo directory `<DuetData>/repos/<head>` (when it exists) or a context named `<head>` (→ that context's Drive folder), `join_under` keeps the target inside it. A `.` or `..` segment is refused anywhere in the address, because nothing needs one and leaving it to `Path.resolve()` once let `@..` reach the parent of the repos dir. `resolve_at_path` is those three for deploy declarations: a malformed, dotted, unknown or escaping entry resolves to `None` (warning + skip). The `resolve_paths` tool calls the same three and adds only ticket heads and its explanations; `tests/test_resolve_paths.py::TestSameGrammarAsDeploy` pins that both give one answer on every non-ticket address. Ticket heads are not accepted in deploy declarations.
 
@@ -201,14 +201,10 @@ The MCP tool `resolve_paths(paths)` resolves the alpha paths agents write (norma
 - Reserved name `.pruned` and deploy-name collisions are skipped with a warning.
 - Not deployed, at any depth of the skill: directories named `tests`, `evals`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache` (`SKILL_EXCLUDED_DIRS`) — the skill's own test suite, eval set and dev caches, which a client never needs. Only directory names match, so a file `tests.md` or a singular `test/` still ships. A copy of them left by an earlier deploy is removed on the next one, like any entry the source dropped.
 - Mirroring is **incremental**: a file is written only when its bytes differ, via temp-file + rename; entries the source dropped are removed. Contexts live on Drive, where deleting a file means "moved to Drive trash" and deploy runs on every window open — rebuilding the tree unconditionally filled the user's trash with every skill, many times a day.
-- Deployed files are **read-only**: `0444`, or `0555` when the source file has the user x-bit (a skill may ship scripts meant to be run directly). Same reasoning as the instruction files — the whole tree is Duet-managed, so a hand edit here is reverted on the next window open; the source is the thing to edit. Directories keep their default mode, since the prune pass has to unlink inside them. A file whose bytes already match but whose mode doesn't is `chmod`-ed in place, never rewritten — a catch-up deploy over an existing tree costs no Drive revision.
+- Deployed files are **read-only**: `0444`, or `0555` when the source file has the user x-bit (a skill may ship scripts meant to be run directly). The whole tree is Duet-managed, so a hand edit here is reverted on the next window open; the source is the thing to edit. Directories keep their default mode, since the prune pass has to unlink inside them. A file whose bytes already match but whose mode doesn't is `chmod`-ed in place, never rewritten — a catch-up deploy over an existing tree costs no Drive revision.
 - Prune (per target): any `<target>/skills/<x>` not in the declared set is moved into `<target>/skills/.pruned/<name>` (backup) before removal; `.pruned` is never itself pruned.
 
-**instructions** (per-client dot-folder files inside the context folder: `.claude/CLAUDE.md` for Claude Code, `.kimi-code/AGENTS.md` for Kimi Code, `.agents/rules/gemini.md` for Antigravity):
-- Composes the bodies of declared @-path sources (order preserved) into the per-client templates `packages/instructions/{CLAUDE,AGENTS,GEMINI}_template.md` at the `<!-- INSERT USER INSTRUCTIONS -->` marker.
-- ALWAYS generates all three (templates carry the client-specific memory policy even with no user sources). Files written read-only (`0444`).
-- A pre-existing hand-written file (lacking the `AUTO-GENERATED by Duet` banner) is backed up to `<name>.bak` once before the first overwrite.
-- Legacy migration: root-level `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` (pre-dot-folder layout) carrying the banner are removed on deploy; hand-written ones are left untouched.
+Business instructions are read from INDEX after `orientation`, not generated into client files. The retired `instructions` and `memory` manifest fields have no consumers. Normal deployment leaves existing client instruction files untouched. Retired generated files are removed in a one-time migration after the new backend is deployed, not by a product maintenance component.
 
 **system_prompt** (one @-path to a Claude output-style file; single source wired into three clients — normative description in [PRODUCT.md → Deploy Instructions](../../../spec/PRODUCT.md#deploy-instructions)):
 - Claude Code: bannered read-only copy at `<context>/.claude/output-styles/<name>.md` (frontmatter kept at byte 0, banner right after it; `<name>` = frontmatter `name`, else the source file stem, validated `\w[\w.-]*`) + `outputStyle` in `.claude/settings.json`.
@@ -219,7 +215,7 @@ The MCP tool `resolve_paths(paths)` resolves the alpha paths agents write (norma
 - **Absent key → withdraw** what carries the `AUTO-GENERATED by Duet` banner (generated style files; the Codex line, banner in its trailing comment; the Kimi agent file) and `outputStyle` only when it names a removed style. Hand-written files/keys are never touched. A renamed source prunes the previous generated style. Declared-but-unusable source → warning, current deployment left as is.
 
 **Response:**
-- `{ status: "ok", deployed: { skills_deployed: [...], skills_pruned: [...], agents_skills_deployed: [...], agents_skills_pruned: [...], instructions_written: [...], instructions_legacy_removed: [...], system_prompt_written: [...], system_prompt_withdrawn: [...] }, warnings: [...] }` when an owning context resolves.
+- `{ status: "ok", deployed: { skills_deployed: [...], skills_pruned: [...], agents_skills_deployed: [...], agents_skills_pruned: [...], system_prompt_written: [...], system_prompt_withdrawn: [...] }, warnings: [...] }` when an owning context resolves.
 - `{ status: "unknown", reason: "no_owning_context" | "no_context_manifest" }` when no owning context / manifest resolves.
 - `400` (`BAD_REQUEST`) on invalid JSON body or non-list `workspace_paths`; `422` (`CONFIG_ERROR`) on backend config error.
 
@@ -453,11 +449,10 @@ Backend has no standalone build — bundled into Host's `extraResources` (see [`
 | Entity listing | `services/entities.py` |
 | Hierarchy scan | `scanner.py:_scan_context()` |
 | Manifest reader (strict v4) | `services/manifest.py:read_manifest()` |
-| Deploy skills/instructions/system_prompt | `services/deploy_instructions.py:deploy_instructions()` |
+| Deploy skills/system_prompt | `services/deploy_instructions.py:deploy_instructions()` |
 | `@<name>/<rest>` resolution | `services/at_paths.py` (`parse_at_path`, `find_base`, `join_under`, `resolve_at_path`) |
 | Agent alpha paths, tickets | `services/resolve_paths.py:resolve_paths()`, `WorkspaceService.resolve_paths()` |
 | Ticket tools | `services/tickets/` (`views.py` read, `writes.py` write, `frontmatter.py`, `naming.py`, `model.py`), `WorkspaceService.ticket_action()` |
-| Context-memory pointer | `services/workspace.py:_build_memory()` |
 | Business description | `description.py:read_business_description()` |
 | Spec file fallback (legacy) | `description.py:find_spec_file()` |
 | Merge pipeline | `instructions.py:merge_duet_instructions()` |
