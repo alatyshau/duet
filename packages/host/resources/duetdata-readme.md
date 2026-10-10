@@ -12,7 +12,7 @@ Local cache directory for [Duet](https://github.com/anthropics/duet) — knowled
 | `repos/` | Cloned git repositories (products, instructions) |
 | `data/` | JSON cache files (scan, streams, errors) |
 | `.pid` | Backend process PID file |
-| `duet-instructions.md` | Merged AI instructions (bootstrapper + user core) |
+| `duet.md` | Platform session prompt built from duet-core.md |
 
 ## Files in `data/`
 

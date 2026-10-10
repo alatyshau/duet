@@ -136,7 +136,7 @@ When adding a new skill:
 | Don't | Why not | Do instead |
 |-------|---------|------------|
 | Stack ALWAYS/NEVER/MUST rules | Rigid rules break on edge cases; agents respond better to reasoning | Explain the why, let agent generalize |
-| Repeat bootstrapper or index.md content | Bloat; agent already has it in context | Focus on what only THIS file teaches |
+| Repeat duet-core or index.md content | Bloat; agent already has it in context | Focus on what only THIS file teaches |
 | Teach built-in knowledge | Waste of tokens and attention | Focus on YOUR specific conventions |
 | Include design-choice defence in always-loaded files («we chose X because Y is worse») | No agent needs convincing at execution time; no human reviews the design. Pure attention cost on every turn | Strip to operational content. Rationale, if preserved at all, goes in commit message or design note outside loaded context — never in the file |
 | Write narrow patches for one-off failures | Accumulates into brittle instructions | Fix the pattern, not the instance |

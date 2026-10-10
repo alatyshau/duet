@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createTestContext, type TestContext } from '../../helpers'
 
-import { readMergedAgent, readMergedAgents, readCachedErrors } from '../../../src/core/instructions'
+import { readSessionPrompt, readCachedErrors } from '../../../src/core/instructions'
 
 describe('core/instructions', () => {
   let ctx: TestContext
@@ -19,58 +19,21 @@ describe('core/instructions', () => {
     ctx.cleanup()
   })
 
-  // ===========================================================================
-  // readMergedAgent / readMergedAgents
-  // ===========================================================================
-
-  describe('readMergedAgent', () => {
-    it('returns null when an agent merged file does not exist', () => {
-      expect(readMergedAgent(ctx.duetDataDir, 'executor')).toBeNull()
-      expect(readMergedAgent(ctx.duetDataDir, 'vizir')).toBeNull()
+  describe('readSessionPrompt', () => {
+    it('returns null when no platform prompt exists', () => {
+      expect(readSessionPrompt(ctx.duetDataDir)).toBeNull()
     })
 
-    it('returns content when the agent merged file exists', () => {
-      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
-      writeFileSync(join(ctx.duetDataDir, 'duet-vizir.md'), '# Vizir\n', 'utf-8')
+    it('reads only the platform prompt', () => {
+      writeFileSync(join(ctx.duetDataDir, 'duet.md'), '# Duet\n')
+      expect(readSessionPrompt(ctx.duetDataDir)).toBe('# Duet\n')
+    })
 
-      expect(readMergedAgent(ctx.duetDataDir, 'executor')).toBe('# Exec\n')
-      expect(readMergedAgent(ctx.duetDataDir, 'vizir')).toBe('# Vizir\n')
+    it('does not fall back to retired role files', () => {
+      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Old role')
+      expect(readSessionPrompt(ctx.duetDataDir)).toBeNull()
     })
   })
-
-  describe('readMergedAgents', () => {
-    it('returns all nulls when no merged files', () => {
-      expect(readMergedAgents(ctx.duetDataDir)).toEqual({
-        sessionPrompt: null,
-        executor: null,
-        vizir: null
-      })
-    })
-
-    it('returns mixed values when only one is present', () => {
-      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
-      expect(readMergedAgents(ctx.duetDataDir)).toEqual({
-        sessionPrompt: null,
-        executor: '# Exec\n',
-        vizir: null
-      })
-    })
-
-    it('returns all bodies when all files exist (incl. thin session prompt duet.md)', () => {
-      writeFileSync(join(ctx.duetDataDir, 'duet.md'), '# Duet\n', 'utf-8')
-      writeFileSync(join(ctx.duetDataDir, 'duet-executor.md'), '# Exec\n', 'utf-8')
-      writeFileSync(join(ctx.duetDataDir, 'duet-vizir.md'), '# Vizir\n', 'utf-8')
-      expect(readMergedAgents(ctx.duetDataDir)).toEqual({
-        sessionPrompt: '# Duet\n',
-        executor: '# Exec\n',
-        vizir: '# Vizir\n'
-      })
-    })
-  })
-
-  // ===========================================================================
-  // readCachedErrors
-  // ===========================================================================
 
   describe('readCachedErrors', () => {
     it('returns null when file does not exist (merge never ran)', () => {

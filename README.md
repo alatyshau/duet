@@ -64,7 +64,7 @@ Duet/
 └── projects/                ← GTD-проекты
 ```
 
-AI-инструкции живут в отдельном репозитории **Duet-Instructions** (принадлежит пользователю, не продукту). Duet предоставляет платформенный bootstrapper и инструменты для работы с ними.
+The shared AI instructions ship with Duet in `packages/instructions/`. Businesses add their own instructions and skills through `context.json`.
 
 Подробнее о каждом компоненте — см. `spec/` внутри пакета.
 
@@ -104,7 +104,7 @@ Backend запускает MCP Server. AI-агенты вызывают `orienta
 
 ### AI-инструкции
 
-Инструкции для AI-агентов живут в отдельном репо **Duet-Instructions**, которым владеет пользователь. Duet компонует платформенный bootstrapper с пользовательскими инструкциями и конфигурирует три AI-клиента: Claude Code, Codex, Antigravity (Gemini).
+Duet ships the shared `duet-core` platform prompt and configures AI clients to use it. Business-specific instructions and skills are separate; Executor and Vizir are no longer built-in platform roles.
 
 ### Reference Repos
 

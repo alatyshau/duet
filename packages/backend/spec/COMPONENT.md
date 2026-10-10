@@ -11,7 +11,7 @@ Backend is the system's strict reader and DB owner. It does not write manifests,
 Three things Backend is the only authority for:
 1. **The entity database.** SQLite at `DuetData/data/entities.db`, native sqlite3.
 2. **Orientation.** Resolves a folder → its business (or its repo) → the text answer an agent starts a session with; the same rule picks the business for deploying instructions.
-3. **Merged AI instructions.** Composes bootstrapper + per-agent core → one file per agent.
+3. **Platform session prompt.** Builds `DuetData/duet.md` from the bundled `duet-core.md`.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ server.py (entry point, lifecycle)
     ├── scanner.py           hierarchy scan, strict v4 reader
     ├── watcher.py           manifest file watcher, auto-rescan
     ├── description.py       extract_description (for /contexts), spec file lookup
-    ├── instructions.py      merge pipeline (multi-agent)
+    ├── instructions.py      platform session prompt builder
     ├── db.py                SQLite operations
     ├── config.py            read-only configuration
     ├── pointer.py           pointer file reader
@@ -57,7 +57,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `services/resolve_paths.py` | Resolve agent alpha paths incl. tickets (`@DUE009`), explain every failure, render the tool's Markdown | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes |
 | `services/tickets/` | List, create, move and edit tickets; own the ticket folder name and the `INDEX.md` frontmatter; atomic writes with rollback | DB (gets contexts from `WorkspaceService`), HTTP, manifest writes, anything below the frontmatter |
 | `watcher.py` | Watch manifest files, debounce, trigger rescan | DB, HTTP, config |
-| `instructions.py` | Merge bootstrapper + per-agent core → one file per agent | DB, HTTP |
+| `instructions.py` | Build the platform session prompt from duet-core.md | DB, HTTP |
 | `description.py` | Extract description from markdown, spec file lookup | DB, HTTP |
 | `db.py` | SQLite CRUD | Business rules |
 | `pointer.py` | Read pointer file | Write pointer |
@@ -98,7 +98,7 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | POST | `/scan` | `{ status, entities_count, duration_ms, errors[] }` |
 | POST | `/deploy-instructions` | Body: `{"workspace_paths": [...]}`. Picks the business from the paths, deploys its `skills`/`instructions`/`system_prompt` declarations into its Drive folder (idempotent). Returns `{ status: "ok", deployed, warnings }` or `{ status: "unknown", reason }` — see Deploy Instructions below |
 | POST | `/tickets/{action}` | `action` is `tickets`, `new_ticket`, `move_ticket` or `edit_ticket`; body is a JSON object of that operation's arguments. Runs the same code as the MCP tool of that name and returns `{ text, is_error, tickets }`: Markdown, whether the operation failed, and the tickets it looked up, created, moved or edited as `{ number, name, shelf, folder }`, so a client never parses the text. 404 for an unknown action, 400 for a body that is not a JSON object; a failed operation is HTTP 200 with `is_error: true` — see [Ticket tools](#ticket-tools) |
-| POST | `/merge-duet-instructions` | Merges bootstrapper + per-agent core → one file per agent, plus the thin session prompt `duet.md`. Returns `{ status, paths: { agent_name: path }, output_style, errors[] }` |
+| POST | `/merge-duet-instructions` | Builds `duet.md` from the `duet-core.md` platform prompt. Returns `{ status, output_style, errors[] }` |
 
 ### MCP Tools
 
@@ -114,9 +114,11 @@ mcp_stdio_bridge.py          separate process: stdio ⇄ /mcp for Claude Desktop
 | `new_ticket` | Markdown: the new number, folder, stable `@NUMBER` address and the frontmatter written; not idempotent |
 | `move_ticket` | Markdown: the new folder and, when a close or reopen date was recorded, the updated frontmatter; idempotent |
 | `edit_ticket` | Markdown: what changed (with the previous values) and the updated frontmatter; idempotent |
-| `contexts` | list directly |
+| `business_tree` | Flat list of registered businesses linked by `id` / `parent_id`, with repository declarations; areas without their own manifest are not separate records |
 | `scan` | dict directly |
 | `health` | `{ status, version, uptime_seconds }` |
+
+**Business discovery:** `business_tree` replaces the former MCP `contexts` tool; the old MCP name is no longer registered. This is an agent-facing rename only: `GET /contexts`, its response, the `contexts.json` cache, and `EntitiesService.get_contexts()` remain unchanged for Extension and Host consumers.
 
 **Format note:** REST wraps in `{ key: value }` (extensibility); MCP returns data directly (AI convenience).
 
@@ -229,35 +231,17 @@ Examples: `260131_143052M` (Moscow), `260131_103052Z` (UTC).
 
 Source: `timestampTZ` in `DuetConfig/settings.json` → `{id}` becomes the suffix.
 
-### `/merge-duet-instructions` — Merged Instructions (multi-agent)
+### `/merge-duet-instructions` — Platform Session Prompt
 
-`POST /merge-duet-instructions` merges platform bootstrapper + each agent's core file into one file per agent. Writes results to `DuetData/duet-{agent}.md` for every entry in `index.json.agents`. It also writes `DuetData/duet.md` — the **thin session prompt** (bootstrapper with the `<!-- INSERT USER CORE INSTRUCTIONS -->` core marker removed, i.e. no agent core). The full per-agent cores still go to `duet-{agent}.md`.
+`POST /merge-duet-instructions` builds `DuetData/duet.md` from the bundled `duet-core.md`. The endpoint keeps its existing name, but there is no agent registry, core insertion marker, or per-role output. Role instructions are explicit-only skills in the separate `duet-work` repository, not platform artifacts.
 
-> **Source of agents.** `bootstrapper.md`, `index.json`, and the agent cores (`executor.md`, `vizir.md`) are all **platform artifacts in `packages/instructions/`**, bundled next to backend at runtime (Host must bundle them via electron-builder for prod and the dev backend-deploy). The merge no longer reads them from the user instructions workspace (`instructionsPath`) — that decoupling lets `Duet-Instructions.git` be retired.
+`merge_duet_instructions(core_prompt_path, output_dir, errors_path)` reads the source, prepends the provenance banner naming `@Duet.git/packages/instructions/duet-core.md`, and writes the prompt atomically. It writes build errors to `DuetData/data/duet-instructions-errors.json`; a clean rebuild clears that cache. The existing source-naming check still reports `version_suffix` warnings for Markdown files ending in `_vN`, excluding archived and development directories; those warnings do not fail the build.
 
-**Pipeline** (`merge_duet_instructions()` in `instructions.py`):
-1. Reads `bootstrapper.md` (in `packages/instructions/`, bundled next to backend; the core marker required) — once.
-2. Reads `index.json` (same platform dir) — once. Required field: `agents: { name → relative_path }` map.
-3. Scans the platform dir for version-suffix files (`_v2`, `_v3`, …) — once.
-4. Writes the thin session prompt `DuetData/duet.md` (atomic) — bootstrapper, core marker substituted with empty string (`_build_bare_session_prompt`). The file opens with the provenance banner `<!-- AUTO-GENERATED by Duet from @Duet.git/packages/instructions/bootstrapper.md — edit the source, not this file -->`; the per-agent files below open with the same banner naming `bootstrapper.md + <agent core path>`. Host wraps these bodies unchanged, so every deployed copy carries the banner.
-5. For each agent in `index.agents`:
-   - Reads agent file at `packages/instructions / relative_path`.
-   - Extracts user content (first H2 onwards, H1 stripped).
-   - Substitutes the bootstrapper core marker (`<!-- INSERT USER CORE INSTRUCTIONS -->`).
-   - Writes `DuetData/duet-{agent}.md` (atomic).
-6. Writes errors to `DuetData/data/duet-instructions-errors.json` (atomic).
+**Response:** `{ status: "ok" | "error", output_style: "/absolute/path/to/duet.md" | null, errors: [{path, reason_code, description}] }`.
 
-**Response:** `{ status: "ok" | "error", paths: { agent_name: "/absolute/path" }, output_style: "/absolute/path/to/duet.md", errors: [{path, reason_code, description}] }`.
+A source-read failure (`core_prompt_read_error`) or prompt-write failure (`prompt_write_error`) returns `error` with a null output path. Host must not deploy stale cached content after a failed build. A previous prompt is not deliberately removed on failure. Error-cache write failures propagate to the HTTP layer.
 
-**Status semantics:**
-- `"ok"` ⇔ every agent declared in `index.agents` merged successfully (warnings allowed).
-- `"error"` ⇔ a fatal pre-condition failed (bootstrapper, index, no agents) OR at least one agent merge failed. Successful agents still appear in `paths`; failed ones do not.
-
-**Error reason codes:** `version_suffix`, `content_between_h1_h2`, `no_h2_found`, `bootstrapper_not_found`, `bootstrapper_missing_marker`, `index_not_found`, `index_invalid`, `index_missing_field`, `agent_file_not_found`.
-
-> Note: this pipeline does not validate skill/persona frontmatter — `duet-instructions-errors.json` carries merge + version-suffix errors only. (Skill/persona scanning was removed along with the skills table; skills are now native Anthropic skills deployed via `deploy_instructions`.)
-
-**Consumer:** Host reads `DuetData/duet-{agent}.md` from disk and writes them to AI client config files. No HTTP fetch for content — file-based delivery via JSON cache pattern.
+**Consumer:** Host reads `duet.md` from disk and deploys the same platform body to supported AI clients. Its configure-time migration removes retired, provenance-marked role files; Backend no longer produces or reads them.
 
 ## Behaviors
 
@@ -304,8 +288,7 @@ Backend writes operation results to `DuetData/data/` as JSON files (atomic). Hos
 
 | File | Source | Consumer |
 |------|--------|----------|
-| `DuetData/duet.md` (thin session prompt: bootstrapper, no core) | `POST /merge-duet-instructions` | Host → Claude output-style + Codex/Antigravity system prompt |
-| `DuetData/duet-{agent}.md` (one per agent in `index.json.agents`) | `POST /merge-duet-instructions` | Host → AI client configs (Claude `duet-{agent}` subagents) |
+| `DuetData/duet.md` (shared platform session prompt) | `POST /merge-duet-instructions` | Host → Claude output-style + Codex/Antigravity system prompt |
 | `DuetData/data/duet-instructions-errors.json` | `POST /merge-duet-instructions` | Host wizard |
 | `DuetData/data/scan.json` | `POST /scan` | Host wizard |
 | `DuetData/data/contexts.json` | `GET /contexts` / scan-completion sweep | Host wizard |

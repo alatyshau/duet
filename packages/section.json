@@ -14,6 +14,6 @@
         "backend": "Backend (Python, MCP-сервер Duet)",
         "extension": "VS Code Extension",
         "host": "Duet Host (Electron)",
-        "instructions": "Платформенный bootstrapper.md — системный промпт-каркас агента (ориентация, онтология контекста, ритуал работы)"
+        "instructions": "Public duet-core.md system prompt: orientation, the context model, and shared operating rules"
     }
 }

@@ -600,14 +600,19 @@ def orientation(path: str) -> str:
 
 
 @mcp.tool()
-def contexts() -> list[dict]:
-    """Find any context in the user's hierarchy.
+def business_tree() -> list[dict]:
+    """Discover registered businesses across all ventures and their products.
 
-    Use this to locate a context (or its bound product repo) by name, discover
-    what exists, or navigate the context tree. Prefer this over filesystem
-    searches (find, ls, glob) for discovering contexts.
+    Use this to find a business by name or explore the business hierarchy,
+    rather than searching the filesystem. Areas without their own
+    context.json are described in business entry points, not in this registry.
+    Use resolve_paths for a known alpha path.
 
-    Each entity has: id, type, name, icon, path, parent_id, meta, git_url.
+    Returns a flat list linked by id and parent_id, with roots in configured
+    order and other businesses alphabetically by name. Records include name,
+    icon, absolute_path, description, meta, git_repos, and reference_repos.
+    The storage type remains context; repository declarations are fields,
+    not separate tree nodes.
     """
     service = _get_entities_service()
     return service.get_contexts()
@@ -618,7 +623,7 @@ def scan() -> dict:
     """Rescan configured business folders and rebuild the entity hierarchy.
 
     Use when the file structure has changed (new folders, moved products)
-    and `streams` returns stale data.
+    and `business_tree` returns stale data.
 
     Returns scan statistics including entities_count.
     """

@@ -1,587 +1,124 @@
-"""Tests for instructions workspace scanning and merge pipeline."""
+"""The platform prompt is built without an agent registry or role cores."""
 
 import json
+from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
-import config
-from db import DatabaseManager
-from instructions import (
-    merge_duet_instructions,
-    _extract_user_content,
-    _read_bootstrapper_and_index,
-    _merge_one_agent,
-)
-from scanner import Scanner
-from tests.fixtures import DuetDataBuilder, ManifestBuilder
+from instructions import GENERATED_BANNER, merge_duet_instructions
 
 
-# === Tests for meta column in DB ===
+def test_builds_only_session_prompt(tmp_path):
+    source = tmp_path / "duet-core.md"
+    source.write_text("# Duet\n\nPlatform instructions.\n\n", encoding="utf-8")
+    output = tmp_path / "output"
+    errors = output / "data/errors.json"
 
+    result = merge_duet_instructions(source, output, errors)
 
-class TestMetaContext:
-    """Tests for `meta` field on context entities."""
-
-    def test_scanner_stores_meta_field(self, tmp_path, monkeypatch):
-        """Scanner reads `meta: true` from `context.json` and stores it in DB."""
-        builder = DuetDataBuilder(tmp_path)
-        builder.add_root_context("Plain", "Plain")
-        builder.add_root_context("Meta", "Meta", meta=True)
-        duet_data = builder.build(monkeypatch)
-
-        db = DatabaseManager(duet_data / "data" / "test.db")
-        db.init()
-
-        scanner = Scanner(db, repos_path=builder.get_repos_path())
-        scanner.scan()
-
-        plain = db.find_by_name("Plain")
-        assert plain is not None
-        assert plain.meta is False
-
-        meta = db.find_by_name("Meta")
-        assert meta is not None
-        assert meta.meta is True
-
-        meta_from_db = db.find_meta_context()
-        assert meta_from_db is not None
-        assert meta_from_db.name == "Meta"
-
-        db.close()
-
-
-# === Tests for bootstrapper merge ===
-
-
-class TestExtractUserContent:
-    """Tests for _extract_user_content."""
-
-    def test_extracts_from_first_h2(self):
-        text = "# Title\n\n## Section 1\nContent 1\n\n## Section 2\nContent 2\n"
-        result = _extract_user_content(text)
-        assert result.startswith("## Section 1")
-        assert "Content 1" in result
-        assert "## Section 2" in result
-        assert "# Title" not in result
-
-    def test_no_h1_still_works(self):
-        text = "## Section 1\nContent\n"
-        result = _extract_user_content(text)
-        assert result == "## Section 1\nContent\n"
-
-    def test_content_between_h1_and_h2_raises(self):
-        text = "# Title\nSome rogue content\n## Section\n"
-        with pytest.raises(ValueError, match="Content found between H1 and first H2"):
-            _extract_user_content(text)
-
-    def test_no_h2_raises(self):
-        text = "# Title\nJust content no sections\n"
-        with pytest.raises(ValueError, match="No H2"):
-            _extract_user_content(text)
-
-    def test_empty_lines_between_h1_h2_ok(self):
-        """Empty lines between H1 and H2 are not content."""
-        text = "# Title\n\n\n## Section\nContent\n"
-        result = _extract_user_content(text)
-        assert result.startswith("## Section")
-
-
-# === Tests for merge_duet_instructions (full pipeline) ===
-
-
-def _make_instructions(
-    tmp_path,
-    agents=None,
-    agents_index=None,
-):
-    """Helper: create minimal instructions workspace (agents + index.json).
-
-    Args:
-        agents: dict {agent_name: full_md_text} placed in agents/<name>.md.
-                Default: a single 'executor' with a minimal valid body.
-        agents_index: optional override for index.json.agents map; defaults to
-                      mapping each key in `agents` to agents/<name>.md.
-
-    Returns:
-        Path to instructions workspace root.
-    """
-    instr_path = tmp_path / "instructions"
-    instr_path.mkdir(exist_ok=True)
-
-    if agents is None:
-        agents = {"executor": "# Executor\n\n## L7+\nBe excellent\n"}
-
-    agents_dir = instr_path / "agents"
-    agents_dir.mkdir(exist_ok=True)
-    for agent_name, body in agents.items():
-        (agents_dir / f"{agent_name}.md").write_text(body, encoding="utf-8")
-
-    if agents_index is None:
-        agents_index = {name: f"agents/{name}.md" for name in agents}
-
-    index = {"agents": agents_index}
-    (instr_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
-
-    return instr_path
-
-
-def _make_bootstrapper(tmp_path):
-    """Helper: create bootstrapper.md with both markers."""
-    bootstrapper = tmp_path / "bootstrapper.md"
-    bootstrapper.write_text(
-        "# Platform\n\n## Instructions\n\n"
-        "## User\n\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
-        encoding="utf-8",
+    assert result == {
+        "status": "ok",
+        "output_style": str(output / "duet.md"),
+        "errors": [],
+    }
+    assert (output / "duet.md").read_text() == (
+        GENERATED_BANNER + "# Duet\n\nPlatform instructions.\n"
     )
-    return bootstrapper
-
-
-def _output_dir(tmp_path) -> "Path":
-    """Helper: ephemeral output directory for merge_duet_instructions."""
-    out = tmp_path / "duetdata"
-    out.mkdir(exist_ok=True)
-    return out
-
-
-EXEC_BODY = "# Executor\n\n## L7+\nBe excellent\n"
-VIZIR_BODY = "# Vizir\n\n## Loop\nDelegate, monitor, archive\n"
-
-
-class TestMergeDuetInstructions:
-    """Tests for merge_duet_instructions full multi-agent pipeline."""
-
-    # --- B1: happy path ---
-    def test_success_writes_one_file_per_agent(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "ok"
-        assert set(result["paths"].keys()) == {"executor", "vizir"}
-        assert result["errors"] == []
-
-        exec_path = output_dir / "duet-executor.md"
-        vizir_path = output_dir / "duet-vizir.md"
-        assert exec_path.exists()
-        assert vizir_path.exists()
-        assert result["paths"]["executor"] == str(exec_path)
-        assert result["paths"]["vizir"] == str(vizir_path)
-
-        exec_content = exec_path.read_text(encoding="utf-8")
-        vizir_content = vizir_path.read_text(encoding="utf-8")
-
-        # Each merged file contains its agent's body
-        assert "## L7+" in exec_content and "Be excellent" in exec_content
-        assert "## Loop" in vizir_content and "Delegate" in vizir_content
-
-        # Core marker replaced
-        for content in (exec_content, vizir_content):
-            assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in content
-
-        # Each merged file opens with the provenance banner naming its sources,
-        # so a deployed copy found on disk points back at the platform sources.
-        assert exec_content.startswith(
-            "<!-- AUTO-GENERATED by Duet from @Duet.git/packages/instructions/"
-            "bootstrapper.md + agents/executor.md — edit the source, not this file -->\n\n"
-        )
-        assert vizir_content.startswith("<!-- AUTO-GENERATED by Duet from ")
-
-    # --- B1b: thin session prompt duet.md (bootstrapper + skills, no core) ---
-    def test_emits_thin_session_prompt_without_core(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        bare_path = output_dir / "duet.md"
-        assert bare_path.exists()
-        assert result["output_style"] == str(bare_path)
-
-        bare = bare_path.read_text(encoding="utf-8")
-        # The core marker is resolved (removed)...
-        assert "<!-- INSERT USER CORE INSTRUCTIONS -->" not in bare
-        # ...but NO agent core body leaked into the session prompt.
-        assert "## L7+" not in bare
-        assert "Be excellent" not in bare
-        assert "## Loop" not in bare
-        # The session prompt carries the same provenance banner as the agents.
-        assert bare.startswith(
-            "<!-- AUTO-GENERATED by Duet from @Duet.git/packages/instructions/"
-            "bootstrapper.md — edit the source, not this file -->\n\n"
-        )
-
-    # --- B2: bootstrapper missing ---
-    def test_bootstrapper_not_found(self, tmp_path):
-        instr_path = _make_instructions(tmp_path)
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        bogus_bootstrapper = tmp_path / "no-such-bootstrapper.md"
-        result = merge_duet_instructions(bogus_bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert result["paths"] == {}
-        assert len(result["errors"]) == 1
-        assert result["errors"][0]["reason_code"] == "bootstrapper_not_found"
-        # No agent files written
-        assert not (output_dir / "duet-executor.md").exists()
-
-    # --- B3: bootstrapper missing USER CORE marker ---
-    def test_bootstrapper_missing_marker(self, tmp_path):
-        bootstrapper = tmp_path / "bootstrapper.md"
-        bootstrapper.write_text(
-            "# Platform\n## Instructions\n## User\n# no user core marker\n",
-            encoding="utf-8",
-        )
-        instr_path = _make_instructions(tmp_path)
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert result["errors"][0]["reason_code"] == "bootstrapper_missing_marker"
-
-    # --- B4: index.json missing ---
-    def test_missing_index_json(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        # no index.json
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert result["errors"][0]["reason_code"] == "index_not_found"
-        assert result["errors"][0]["path"] == "index.json"
-
-    # --- B4b: index.json invalid ---
-    def test_invalid_index_json(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        (instr_path / "index.json").write_text("{ not valid json!!", encoding="utf-8")
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-        assert result["status"] == "error"
-        assert result["errors"][0]["reason_code"] == "index_invalid"
-
-    # --- B5: index.json without `agents` field ---
-    def test_index_missing_agents(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        (instr_path / "index.json").write_text(
-            json.dumps({"personas": {"path": "p"}, "skill_folders": []}),
-            encoding="utf-8",
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert result["errors"][0]["reason_code"] == "index_missing_field"
-        assert "agents" in result["errors"][0]["description"]
-
-    # --- B5b: agents present but empty dict ---
-    def test_index_empty_agents(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        (instr_path / "index.json").write_text(
-            json.dumps({"agents": {}, "personas": {"path": "p"}, "skill_folders": []}),
-            encoding="utf-8",
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-        assert result["status"] == "error"
-        assert result["errors"][0]["reason_code"] == "index_missing_field"
-
-    # --- B6: one agent file is missing — strict mode: status=error,
-    #         other agents merge anyway (partial paths in result).
-    def test_one_agent_file_missing(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        # vizir declared but file missing on disk
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": EXEC_BODY},
-            agents_index={
-                "executor": "agents/executor.md",
-                "vizir": "agents/vizir.md",
-            },
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        # Strict: missing one agent ⇒ status=error
-        assert result["status"] == "error"
-        assert "executor" in result["paths"]
-        assert "vizir" not in result["paths"]
-        codes = {e["reason_code"] for e in result["errors"]}
-        assert "agent_file_not_found" in codes
-        # The successful agent still got written
-        assert (output_dir / "duet-executor.md").exists()
-        assert not (output_dir / "duet-vizir.md").exists()
-
-    # --- B7: agent file with no H2 ---
-    def test_agent_no_h2(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": "# Title\nJust content no sections\n"},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert result["errors"][0]["path"] == "agents/executor.md"
-        assert result["errors"][0]["reason_code"] == "no_h2_found"
-
-    # --- B8: content between H1 and first H2 ---
-    def test_agent_content_between_h1_h2(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": "# Title\nrogue content\n## Section\nbody\n"},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert result["errors"][0]["path"] == "agents/executor.md"
-        assert result["errors"][0]["reason_code"] == "content_between_h1_h2"
-
-    # --- B10: bootstrapper read once even with many agents ---
-    def test_bootstrapper_read_once(self, tmp_path, monkeypatch):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={
-                "executor": EXEC_BODY,
-                "vizir": VIZIR_BODY,
-                "third": "# Third\n\n## Body\nx\n",
-            },
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        from pathlib import Path as _Path
-
-        original_read_text = _Path.read_text
-        bootstrapper_reads = {"count": 0}
-
-        def counting_read_text(self, *args, **kwargs):
-            if self == bootstrapper:
-                bootstrapper_reads["count"] += 1
-            return original_read_text(self, *args, **kwargs)
-
-        monkeypatch.setattr(_Path, "read_text", counting_read_text)
-
-        merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert bootstrapper_reads["count"] == 1, (
-            f"Bootstrapper should be read once for N agents, got {bootstrapper_reads['count']}"
-        )
-
-    # --- B11: extract_user_content applied to each agent independently ---
-    def test_each_agent_body_extracted_independently(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={
-                "executor": "# Executor\n\n## SectionA\nFor executor only\n",
-                "vizir": "# Vizir\n\n## SectionB\nFor vizir only\n",
-            },
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        exec_text = (output_dir / "duet-executor.md").read_text(encoding="utf-8")
-        vizir_text = (output_dir / "duet-vizir.md").read_text(encoding="utf-8")
-
-        assert "## SectionA" in exec_text and "For executor only" in exec_text
-        assert "## SectionA" not in vizir_text and "For executor only" not in vizir_text
-        assert "## SectionB" in vizir_text and "For vizir only" in vizir_text
-        assert "## SectionB" not in exec_text and "For vizir only" not in exec_text
-
-        # Neither file contains the H1 of the other (or its own — H1 stripped)
-        assert "# Executor" not in exec_text
-        assert "# Vizir" not in vizir_text
-
-    # --- B12: non-fatal warnings (version_suffix) aggregate; status still ok if all agents merged ---
-    def test_validation_errors_dont_block_status_ok(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": EXEC_BODY, "vizir": VIZIR_BODY},
-        )
-        # A stray version-suffixed file is a non-fatal warning.
-        (instr_path / "agents" / "executor_v2.md").write_text("# old\n", encoding="utf-8")
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        # Status ok despite the warning
-        assert result["status"] == "ok"
-        assert set(result["paths"].keys()) == {"executor", "vizir"}
-        codes = {e["reason_code"] for e in result["errors"]}
-        assert "version_suffix" in codes
-
-    # --- Errors JSON file written ---
-    def test_errors_json_persisted(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(tmp_path)
-        (instr_path / "stale_v3.md").write_text("# stale\n", encoding="utf-8")
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        errors_data = json.loads(errors_file.read_text(encoding="utf-8"))
-        assert any(e["reason_code"] == "version_suffix" for e in errors_data)
-
-class TestMergeOneAgent:
-    """Direct tests for the per-agent merge primitive."""
-
-    def test_returns_merged_text(self, tmp_path):
-        instr = _make_instructions(tmp_path, agents={"executor": EXEC_BODY})
-        merged, err = _merge_one_agent(
-            bootstrapper_text="# B\n## I\n## U\n<!-- INSERT USER CORE INSTRUCTIONS -->\n",
-            platform_dir=instr,
-            agent_name="executor",
-            agent_rel_path="agents/executor.md",
-        )
-        assert err is None
-        assert merged is not None
-        assert "## L7+" in merged
-
-    def test_missing_file_returns_error(self, tmp_path):
-        instr = tmp_path / "instructions"
-        instr.mkdir()
-        merged, err = _merge_one_agent(
-            bootstrapper_text="<!-- INSERT USER CORE INSTRUCTIONS -->\n",
-            platform_dir=instr,
-            agent_name="ghost",
-            agent_rel_path="agents/ghost.md",
-        )
-        assert merged is None
-        assert err is not None
-        assert err["reason_code"] == "agent_file_not_found"
-        assert err["path"] == "agents/ghost.md"
-        assert "ghost" in err["description"]
-
-
-class TestAgentPathSafety:
-    """Path-traversal protection on user-controlled `agents` entries in index.json."""
-
-    def test_absolute_path_rejected(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": EXEC_BODY},
-            agents_index={"executor": "/etc/passwd"},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert any(
-            e["reason_code"] == "agent_file_not_found" and "unsafe" in e["description"]
-            for e in result["errors"]
-        )
-        assert "executor" not in result["paths"]
-
-    def test_dotdot_escape_rejected(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = _make_instructions(
-            tmp_path,
-            agents={"executor": EXEC_BODY},
-            agents_index={"executor": "../../sensitive.md"},
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        # Even if a file exists at that resolved location, we refuse it.
-        sibling = tmp_path / "sensitive.md"
-        sibling.write_text("# secret\n## body\n", encoding="utf-8")
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-
-        assert result["status"] == "error"
-        assert any(
-            e["reason_code"] == "agent_file_not_found" and "unsafe" in e["description"]
-            for e in result["errors"]
-        )
-
-    def test_safe_relative_subdir_accepted(self, tmp_path):
-        """Nested paths within instructions root remain valid."""
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr_path = tmp_path / "instructions"
-        instr_path.mkdir()
-        nested = instr_path / "agents" / "nested"
-        nested.mkdir(parents=True)
-        (nested / "exec.md").write_text(EXEC_BODY, encoding="utf-8")
-        personas = instr_path / "personas"
-        personas.mkdir()
-        (instr_path / "index.json").write_text(
-            json.dumps({
-                "agents": {"executor": "agents/nested/exec.md"},
-                "personas": {"path": "personas"},
-                "skill_folders": [],
-            }),
-            encoding="utf-8",
-        )
-        output_dir = _output_dir(tmp_path)
-        errors_file = tmp_path / "data" / "errors.json"
-
-        result = merge_duet_instructions(bootstrapper, instr_path, output_dir, errors_file)
-        assert result["status"] == "ok"
-        assert "executor" in result["paths"]
-
-
-class TestReadBootstrapperAndIndex:
-    """Direct tests for the shared-input reader."""
-
-    def test_happy(self, tmp_path):
-        bootstrapper = _make_bootstrapper(tmp_path)
-        instr = _make_instructions(tmp_path)
-        text, idx, errs = _read_bootstrapper_and_index(bootstrapper, instr)
-        assert text is not None
-        assert idx is not None
-        assert errs == []
-
-    def test_bootstrapper_missing(self, tmp_path):
-        instr = _make_instructions(tmp_path)
-        text, idx, errs = _read_bootstrapper_and_index(tmp_path / "nope.md", instr)
-        assert text is None and idx is None
-        assert errs[0]["reason_code"] == "bootstrapper_not_found"
+    assert sorted(p.name for p in output.glob("*.md")) == ["duet.md"]
+    assert json.loads(errors.read_text()) == []
+
+
+def test_missing_source_preserves_previous_prompt_and_reports_error(tmp_path):
+    prompt = tmp_path / "duet.md"
+    prompt.write_text("previous prompt", encoding="utf-8")
+    errors = tmp_path / "data/errors.json"
+
+    result = merge_duet_instructions(tmp_path / "missing.md", tmp_path, errors)
+
+    assert result["status"] == "error"
+    assert result["output_style"] is None
+    assert result["errors"][0]["reason_code"] == "core_prompt_read_error"
+    assert json.loads(errors.read_text()) == result["errors"]
+    assert prompt.read_text() == "previous prompt"
+
+
+def test_write_failure_is_reported(tmp_path):
+    source = tmp_path / "duet-core.md"
+    source.write_text("# Duet", encoding="utf-8")
+    output = tmp_path / "not-a-directory"
+    output.write_text("keep me", encoding="utf-8")
+    errors = tmp_path / "data/errors.json"
+
+    result = merge_duet_instructions(source, output, errors)
+
+    assert result["status"] == "error"
+    assert result["errors"][0]["reason_code"] == "prompt_write_error"
+    assert output.read_text() == "keep me"
+
+
+def test_rebuild_uses_current_source_and_clears_errors(tmp_path):
+    source = tmp_path / "duet-core.md"
+    output = tmp_path / "output"
+    errors = output / "data/errors.json"
+    merge_duet_instructions(source, output, errors)
+    source.write_text("# Current platform prompt", encoding="utf-8")
+
+    result = merge_duet_instructions(source, output, errors)
+
+    assert result["status"] == "ok"
+    assert json.loads(errors.read_text()) == []
+    assert (output / "duet.md").read_text().endswith("# Current platform prompt\n")
+
+
+def test_real_platform_source_has_no_role_dependency(tmp_path):
+    source = Path(__file__).resolve().parents[2] / "instructions/duet-core.md"
+    result = merge_duet_instructions(source, tmp_path, tmp_path / "errors.json")
+    assert result["status"] == "ok"
+    assert "INSERT USER CORE" not in (tmp_path / "duet.md").read_text()
+    assert not (source.parent / "index.json").exists()
+    assert not (source.parent / "bootstrapper.md").exists()
+    assert "## Scripts in Business Folders" in source.read_text()
+    assert "@Duet.git/packages/instructions/duet-core.md" in GENERATED_BANNER
+
+
+def test_core_uses_business_vocabulary_and_current_discovery_tool():
+    source = Path(__file__).resolve().parents[2] / "instructions/duet-core.md"
+    text = source.read_text()
+    assert "`business_tree()`" in text
+    assert "## Businesses and work" in text
+    assert "`INDEX.md`" in text
+    assert "`context.json`" in text  # The actual manifest name is not renamed.
+    for obsolete in (
+        "contexts()", "Context — the unit of productive life", "Platform context",
+        "Work context", "work/WIP_", "one operating ritual (next section)",
+    ):
+        assert obsolete not in text
+
+
+@pytest.mark.asyncio
+async def test_http_build_contract(client, duet_data):
+    response = await client.post("/merge-duet-instructions")
+    assert response.status_code == 200
+    result = response.json()
+    assert result == {
+        "status": "ok",
+        "output_style": str(duet_data / "duet.md"),
+        "errors": [],
+    }
+    assert (duet_data / "duet.md").read_text().startswith(GENERATED_BANNER)
+    assert sorted(path.name for path in duet_data.glob("duet*.md")) == ["duet.md"]
+
+
+def test_source_naming_warnings_do_not_block_the_build(tmp_path):
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    source = sources / "duet-core.md"
+    source.write_text("# Duet", encoding="utf-8")
+    (sources / "rules_v2.md").write_text("# Draft", encoding="utf-8")
+    (sources / "old").mkdir()
+    (sources / "old/rules_v3.md").write_text("# Archived", encoding="utf-8")
+    result = merge_duet_instructions(source, tmp_path / "output", tmp_path / "errors.json")
+    assert result["status"] == "ok"
+    assert result["output_style"] is not None
+    assert [error["path"] for error in result["errors"]] == ["rules_v2.md"]
+    assert result["errors"][0]["reason_code"] == "version_suffix"

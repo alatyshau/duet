@@ -332,7 +332,7 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       )
       if (proc) monitorBackendProcess(proc, state.duetDataPath)
       // Re-merge + re-deploy agents from the freshly deployed platform bundle, so
-      // duet.md / duet-{agent}.md never go stale after a backend upgrade. Needs the
+      // duet.md never goes stale after a backend upgrade. Needs the
       // backend running (merge is an HTTP call) — skip if it didn't start.
       if (proc) {
         try {

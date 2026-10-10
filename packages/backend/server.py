@@ -292,29 +292,17 @@ async def tickets_handler(request: Request) -> JSONResponse:
 
 
 async def merge_instructions_handler(request: Request) -> JSONResponse:
-    """POST /merge-duet-instructions - Merge bootstrapper + per-agent core.
-
-    Iterates agents declared in index.json (e.g. executor, vizir) and writes one
-    merged file per agent to DuetData/duet-{agent}.md.
-    Errors aggregated into DuetData/data/duet-instructions-errors.json.
-
-    Response: { status, paths: { agent: absolute_path }, errors: [...] }.
-    """
-    # Bundled/deployed: electron-builder copies bootstrapper.md next to server.py
+    """POST /merge-duet-instructions: build the platform session prompt."""
+    # Bundled/deployed: electron-builder copies duet-core.md next to server.py
     # (packages/instructions/ -> backend/). Dev: read it from the sibling package.
-    bootstrapper_path = Path(__file__).parent / "bootstrapper.md"
-    if not bootstrapper_path.exists():
-        bootstrapper_path = Path(__file__).parent.parent / "instructions" / "bootstrapper.md"
+    core_prompt_path = Path(__file__).parent / "duet-core.md"
+    if not core_prompt_path.exists():
+        core_prompt_path = Path(__file__).parent.parent / "instructions" / "duet-core.md"
     try:
         duet_data = get_duet_data_path()
         errors_path = duet_data / "data" / "duet-instructions-errors.json"
 
-        # Agent cores (executor.md, vizir.md) + index.json are platform artifacts
-        # bundled next to backend alongside bootstrapper.md — read them from there,
-        # not from the user instructions workspace.
-        result = merge_duet_instructions(
-            bootstrapper_path, bootstrapper_path.parent, duet_data, errors_path
-        )
+        result = merge_duet_instructions(core_prompt_path, duet_data, errors_path)
         return JSONResponse(result)
     except ConfigError as e:
         return JSONResponse(

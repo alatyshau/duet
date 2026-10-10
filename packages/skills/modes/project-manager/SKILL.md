@@ -60,7 +60,7 @@ Anti-patterns that mean the wall slipped back in:
 
 ## PM-specific plan.md rules
 
-The bootstrapper already defines plan.md structure (Goal, ЧТО СДЕЛАНО, ЧТО ДАЛЬШЕ, one screen, archive conventions). These additions are specific to the PM loop:
+`duet-core` already defines plan.md structure (Goal, ЧТО СДЕЛАНО, ЧТО ДАЛЬШЕ, one screen, archive conventions). These additions are specific to the PM loop:
 
 **Every reference is a line of context, not a bare link.** A reader opening plan.md cold must understand why each subfolder or file exists, what its goal is, and how it connects to the work — from the plan alone, without descending into it.
 

@@ -996,3 +996,31 @@ def test_system_prompt_withdrawal_keeps_outputstyle_not_naming_our_file(ctx, bac
     _withdraw_sp(ctx, backend_dir, sources)
     assert json.loads((ctx / SETTINGS_REL).read_text(encoding="utf-8")) == {"outputStyle": "mine"}
     assert not (ctx / STYLE_REL).exists()
+
+
+def test_withdraw_private_core_override_keeps_global_core(ctx, backend_dir, sources, tmp_path):
+    """Removing the business override restores global selection, even after its source is gone."""
+    core_body = "# Duet Core\n\nShared platform instructions.\n"
+    _style_source(sources, core_body, name="duet-core.md")
+    report = _deploy_sp(ctx, backend_dir, sources, entry="@Src/styles/duet-core.md")
+    assert report["warnings"] == []
+    local_style = ctx / ".claude/output-styles/duet-core.md"
+    assert local_style.is_file()
+    assert json.loads((ctx / SETTINGS_REL).read_text())["outputStyle"] == "duet-core"
+
+    # Global and project styles may share a name, but are separate scopes.
+    home = tmp_path / "user-home"
+    global_style = home / ".claude/output-styles/duet-core.md"
+    global_style.parent.mkdir(parents=True)
+    global_style.write_text(core_body, encoding="utf-8")
+    global_settings = home / ".claude/settings.json"
+    global_settings.write_text('{"outputStyle": "duet-core"}', encoding="utf-8")
+    (sources / "styles/duet-core.md").unlink()
+
+    report = _withdraw_sp(ctx, backend_dir, sources)
+    assert report["warnings"] == []
+    assert not local_style.exists()
+    for rel in (SETTINGS_REL, CODEX_REL, KIMI_REL):
+        assert not (ctx / rel).exists()
+    assert global_style.read_text(encoding="utf-8") == core_body
+    assert json.loads(global_settings.read_text())["outputStyle"] == "duet-core"

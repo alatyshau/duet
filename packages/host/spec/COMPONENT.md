@@ -10,7 +10,7 @@ Host is the **single writer** of system configuration and the **owner of backend
 
 1. **Pointer + config.** Writes `~/.org.ve68.duet`. Writes and migrates `DuetConfig/settings.json` and `{machine}.json`. Writes and migrates context manifests on disk. Enforces structural invariants (meta-context at position 0).
 2. **Deployment.** Deploys backend Python code from bundled `extraResources` to `DuetData/backend/`, manages venv + dependencies, writes `VERSION`, owns process spawn / stop / health monitoring.
-3. **AI client integration.** Reads the thin session prompt (`DuetData/duet.md`) and the full per-agent instructions (`DuetData/duet-{agent}.md`) and writes them into Claude Code / Codex / Antigravity / Kimi Code config locations; registers the Duet MCP server in all of them and in Claude Desktop.
+3. **AI client integration.** Reads the platform session prompt (`DuetData/duet.md`) and writes them into Claude Code / Codex / Antigravity / Kimi Code config locations; registers the Duet MCP server in all of them and in Claude Desktop.
 
 Everything in this file describes how Host fulfils these three roles. UI surfaces (tray, wizard, pages) — see [UI.md](UI.md).
 
@@ -168,7 +168,7 @@ Deploys backend from bundled resources to DuetData.
 |-----------|------------------------|--------|--------|
 | Backend | `backend/` | `DuetData/backend/` | Atomic swap (filtered): `.new` → rename → `.old` → delete |
 
-Platform instructions (`bootstrapper.md`, agent cores, `index.json`) are product-bundled — they live inside the product at `packages/instructions/` (no external repo). In DEV mode `deployBackend()` copies `packages/instructions/{*.md,index.json}` (minus `README.md`) next to the deployed backend via the `copyPlatformInstructions()` helper; in PROD they ship via electron-builder.
+Platform instructions (`duet-core.md` and client instruction templates) are product-bundled — they live inside the product at `packages/instructions/` (no external repo). In DEV mode `deployBackend()` copies `packages/instructions/*.md` (minus `README.md`) next to the deployed backend via the `copyPlatformInstructions()` helper; in PROD they ship via electron-builder.
 
 **Deploy filter:** copy operations exclude dev artifact directories (`.venv`, `__pycache__`, `.pytest_cache`, `node_modules`, `.git`). Prevents copying dev environment when deploying from source (`devBackendPath`).
 
@@ -180,7 +180,7 @@ Platform instructions (`bootstrapper.md`, agent cores, `index.json`) are product
 
 **Flow:** PROD guard → VERSION check (semver) → skip if not newer → **stop backend** (POST `/stop` + grace sleep — no SIGTERM/SIGKILL because deploy has no process reference, see *Backend stop before deploy* below) → deploy backend (atomic swap; in DEV also copy platform instructions via `copyPlatformInstructions()`) → Python check → venv + pip → write VERSION (only on full success).
 
-**Post-deploy configure:** after `runDeploy()` completes, the deploy IPC handler calls `configureAllAgents(...)` so `duet.md` and the per-agent files are rebuilt and redeployed — `duet.md` never goes stale after a backend upgrade.
+**Post-deploy configure:** after `runDeploy()` completes, the deploy IPC handler calls `configureAllAgents(...)` so `duet.md` is rebuilt and redeployed — `duet.md` never goes stale after a backend upgrade.
 
 **VERSION file:** `DuetData/backend/VERSION` contains version with build metadata:
 
@@ -243,18 +243,14 @@ Implementation: `core/backend.ts`.
 
 ### AI Clients
 
-Detects and configures AI clients via direct file writes (no CLI). Backend produces two kinds of merged file: the **thin session prompt** `DuetData/duet.md` (bootstrapper, no agent core) and one **full per-agent** file `DuetData/duet-{agent}.md` (bootstrapper + agent core) for each agent declared in `index.json.agents` (e.g. `duet-executor.md`, `duet-vizir.md`). Host reads them via `readMergedAgents()` and deploys per platform.
+Host configures AI clients through direct file writes. Backend builds one platform session prompt, `DuetData/duet.md`, and Host reads it through `readSessionPrompt()`. No client receives built-in Executor or Vizir subagents; role-specific behavior is supplied by explicitly invoked skills.
 
-`configureAllAgents()` is **async** and merges-then-deploys: it first calls `triggerMerge(port)` (Backend rebuilds `duet.md` + `duet-{agent}.md` from the bundled platform sources), then reads the merged files and deploys them to the AI clients. The "Настроить все" button on the AI Агенты page and the startup / post-deploy auto-configure paths all go through this single function.
-
-**Thin/full split:** the session-level deployments — Claude output-style, Codex instructions, Antigravity `GEMINI.md`, Kimi Code `SYSTEM.md` — all use the thin session prompt (`merged.sessionPrompt`, from `duet.md`). The behavioral agent layer comes from the per-context instruction files (`.claude/CLAUDE.md`, `.kimi-code/AGENTS.md`, `.agents/rules/gemini.md`, deployed by Backend), not from the session prompt. The Claude `duet-executor` / `duet-vizir` custom subagents still carry the full agent cores (`merged.executor` / `merged.vizir`, from `duet-{agent}.md`).
+`configureAllAgents()` first calls `triggerMerge(port)`, then reads and deploys the rebuilt prompt. A failed build leaves client files unchanged and reports `needs_setup` for installed clients. Manual configure, startup, and post-deploy configure share this path.
 
 | Client | Config files | What |
 |--------|-------------|------|
-| Claude Code | `~/.claude/output-styles/duet-executor.md` | Thin session prompt (`duet.md` / `sessionPrompt`) as output style. Frontmatter `name: duet-executor`, `keep-coding-instructions: true` |
-| Claude Code | `~/.claude/agents/duet-executor.md` | Executor full core as custom subagent (kebab-case `name`, separate frontmatter without `keep-coding-instructions`) |
-| Claude Code | `~/.claude/agents/duet-vizir.md` | Vizir full core as custom subagent |
-| Claude Code | `~/.claude/settings.json` | `outputStyle: "duet-executor"` |
+| Claude Code | `~/.claude/output-styles/duet-core.md` | Thin session prompt (`duet.md` / `sessionPrompt`) as output style. Frontmatter `name: duet-core`, `keep-coding-instructions: true` |
+| Claude Code | `~/.claude/settings.json` | `outputStyle: "duet-core"` |
 | Claude Code | `~/.claude.json` | MCP server (`mcpServers.duet`, HTTP) |
 | Codex | `~/.codex/duet_instructions.md` | Host-managed instructions file (thin session prompt) |
 | Codex | `~/.codex/config.toml` | `model_instructions_file` + `[mcp_servers.duet]` |
@@ -264,36 +260,32 @@ Detects and configures AI clients via direct file writes (no CLI). Backend produ
 | Kimi Code | `~/.kimi-code/mcp.json` | MCP server (`mcpServers.duet`, HTTP; `url` without `type` — a `url` entry implies HTTP transport) |
 | Claude Desktop | `claude_desktop_config.json` in Desktop's config dir | MCP server only (`mcpServers.duet`, stdio): `command` = `DuetData/.venv` Python, `args` = [`DuetData/backend/mcp_stdio_bridge.py`, `http://127.0.0.1:<port>/mcp/`] |
 
-**Provenance banner:** every body Host deploys opens with Backend's line `<!-- AUTO-GENERATED by Duet from @Duet.git/packages/instructions/… — edit the source, not this file -->` (see Backend spec, `/merge-duet-instructions`). Host adds frontmatter around it and never strips it, so an agent that opens `~/.claude/output-styles/duet-executor.md` or a Codex / Antigravity / Kimi prompt file is told where the source lives.
+**Provenance banner:** every body Host deploys opens with Backend's line `<!-- AUTO-GENERATED by Duet from @Duet.git/packages/instructions/… — edit the source, not this file -->` (see Backend spec, `/merge-duet-instructions`). Host adds frontmatter around it and never strips it, so an agent that opens `~/.claude/output-styles/duet-core.md` or a Codex / Antigravity / Kimi prompt file is told where the source lives.
 
-**Platform asymmetry:** custom subagents (full agent cores) are deployed only for Claude Code. Codex, Antigravity and Kimi Code get only the thin session prompt. Claude Desktop gets no prompt at all — its chats have no file for one — only the MCP server.
+**Platform coverage:** Claude Code, Codex, Antigravity, and Kimi Code receive the platform session prompt. Claude Desktop receives only MCP configuration because its chats have no system-prompt file.
 
 **Claude Desktop.** Its config file launches only stdio servers (`type: "http"` is not read), so Desktop reaches the backend's HTTP MCP through the backend's stdio bridge (Backend spec, *MCP stdio bridge*). Python and the bridge are put in place by the backend deploy (`DuetData/.venv`, `DuetData/backend/`), so the entry is the same on macOS and Windows and needs no Node/npx. The URL ends in `/` because `/mcp` answers 307 and the bridge does not follow redirects. Config dir (`claudeDesktopConfigDir()`, as documented on modelcontextprotocol.io, *Connect to local MCP servers*): macOS `~/Library/Application Support/Claude`, Windows `%APPDATA%\Claude`, Linux `$XDG_CONFIG_HOME/Claude` (no official Linux build). The Microsoft Store (MSIX) install reads a different path and is not supported. The file is Desktop's own (it keeps its preferences there), so configure touches only `mcpServers.duet`, writes atomically and only when the entry differs, and leaves an unreadable file untouched (`needs_setup`). Detect checks three things — the entry, the venv Python, the bridge script — and stays `needs_setup` until a backend deploy has put the last two in place. Desktop reads the file at launch, so a fresh entry takes effect only after a full Desktop restart, which the configure result asks for; a running Desktop may also rewrite the file from memory, and detect then shows `needs_setup` until the next configure.
 
-**Host knows two agents:** the deployment logic is hard-coded for `executor` and `vizir` (`MergedAgents = { sessionPrompt, executor, vizir }`). Backend (`merge_duet_instructions`) accepts any agent set declared in `index.json.agents`, but additional agents would be merged to disk and ignored by host. If/when a third agent is added, host needs to be extended to read the agent set dynamically from the backend response.
+**Pattern:** read `DuetData/duet.md` → detect installed clients → configure → show results. Card order: Claude Code, Codex, Antigravity, Kimi Code, Claude Desktop. Missing clients are informational, not errors. A direct per-client configure call without a prompt may configure MCP but skips the prompt (`needs_setup`).
 
-**Pattern:** read per-agent merged content from disk (`DuetData/duet-{agent}.md`) → detect (config dir exists?) → configure (write files) → show result. Card order: Claude Code, Codex, Antigravity, Kimi Code, Claude Desktop. Not found = info, not error. Content not generated = MCP configured, instructions skipped (`needs_setup`).
-
-**Content freshness (per-file):** for each Claude Code file, detect compares on-disk content against the expected wrapper (frontmatter + body) for that file. Output style and each custom agent have **different** frontmatters wrapping (potentially) different bodies — staleness in any one file flips its `checkedFile.ok` to `false`.
+**Content freshness:** Claude Code detection checks the shared output style (frontmatter plus body), the `outputStyle` setting, and MCP configuration. Custom agent files are neither required nor checked. Other prompt-capable clients compare their own wrapper and body against the same platform source.
 
 **Issues:** `AgentIssue[]` — actionable problems beyond basic config (e.g. `additionalDirectories` in Claude Code `settings.json`). Each issue has `reason_code`, `description`, `fixable`. Fix via `fixAgentIssue(agentId, reasonCode)`.
 
 **`additionalDirectories` check:** Claude Code `settings.json` may contain `additionalDirectories`, which adds extra folders to the VS Code multi-root workspace. Detect reports issue with `reason_code: "additional_directories"`, fixable by removing the key.
 
-**Legacy uborka:** `cleanupLegacyClaudeFiles(duetDataPath)` removes pre-multi-agent artifacts (`~/.claude/output-styles/duet.md`, `~/.claude/agents/duet.md`, `DuetData/duet-instructions.md`). Idempotent. Does **not** touch user-personal `~/.claude/agents/vizir.md` or any non-Duet files. **Runs automatically** at the end of every successful Claude Code configure pass — immediately after the three new files (`duet-executor.md` output-style + executor/vizir custom agents) are written. Safe-by-construction: the cleanup runs only after the new files exist on disk, so users have no migration window where both old and new are missing. Failed deletions surface in the agent's `details` string for the wizard.
+**Retired role files:** after writing `~/.claude/output-styles/duet-core.md` and selecting `outputStyle: "duet-core"`, `cleanupLegacyClaudeFiles()` removes the old `duet` and `duet-executor` output styles, the `duet-executor` / `duet-vizir` custom agents, their DuetData prompt files, and older `agents/duet.md` / `duet-instructions.md` artifacts. Only files bearing the platform provenance banner are removed. Unmarked files and a user's personal `agents/vizir.md` are preserved. Cleanup is idempotent and runs only after a replacement style is ready; failures are returned to the caller.
 
 Implementation: `core/ai-clients.ts`.
 
 ### Instructions
 
-Manages merged AI instructions lifecycle. Platform instruction sources (`bootstrapper.md`, agent cores, `index.json`) are product-bundled at `packages/instructions/`. Backend merges them into the thin session prompt `DuetData/duet.md` and per-agent `DuetData/duet-{agent}.md` via `POST /merge-duet-instructions`.
+The `duet-core.md` platform prompt and client instruction templates ship in `packages/instructions/`. Backend builds the session prompt through `POST /merge-duet-instructions`; Host does not read an agent registry or role-specific prompt files.
 
 **Operations:**
-- `triggerMerge(port)` — calls Backend endpoint, returns `InstructionsMergeResult` (`{ status, paths: { agent → path }, errors }`). Not a user-facing screen — invoked internally as the prelude of `configureAllAgents()`.
-- `readMergedAgent(duetDataPath, agent)` — reads one agent's merged file from disk; returns `null` if missing.
-- `readSessionPrompt(duetDataPath)` — reads the thin session prompt `DuetData/duet.md` (const `SESSION_PROMPT_FILE = 'duet.md'`); returns `null` if missing.
-- `readMergedAgents(duetDataPath)` — reads the session prompt + both agents into a `MergedAgents` bag (`{ sessionPrompt, executor, vizir }`).
-- `readCachedErrors(duetDataPath)` — reads errors from `DuetData/data/duet-instructions-errors.json`.
+- `triggerMerge(port)` calls the build endpoint and returns `{ status, output_style, errors }`.
+- `readSessionPrompt(duetDataPath)` reads `duet.md`, returning `null` if unavailable.
+- `readCachedErrors(duetDataPath)` reads `data/duet-instructions-errors.json`.
 
 Implementation: `core/instructions.ts`.
 
