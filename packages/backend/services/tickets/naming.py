@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import unicodedata
 
-# The character after the business code determines the ticket kind.
-KIND_BY_LETTER = {"": "project", "X": "program", "A": "process"}
-LETTER_BY_KIND = {kind: letter for letter, kind in KIND_BY_LETTER.items()}
+# The character after the business code determines the ticket's work type.
+WORK_TYPE_BY_LETTER = {"": "project", "X": "program", "A": "routine"}
+LETTER_BY_WORK_TYPE = {work_type: letter for letter, work_type in WORK_TYPE_BY_LETTER.items()}
 
 
 def humanize_name(raw: str) -> str:
@@ -58,18 +58,28 @@ def to_pascal_case(raw: str) -> str:
     return "".join(words)
 
 
+def count_words(text: str) -> int:
+    """Count the words of a name or a description, as a reader would.
+
+    Words are what stands between spaces, and a word of one character isn't
+    counted: `Shell — first commit` has three words, `Release 0.1.26` has
+    two, `Button in the editor title` has five.
+    """
+    return sum(1 for word in unicodedata.normalize("NFC", text).split() if len(word) > 1)
+
+
 def _category(char: str) -> str:
     return unicodedata.category(char)
 
 
-def next_number(code: str, kind: str, taken: list[str]) -> str | None:
-    """Return the next free number for a ticket kind, or None if none are left.
+def next_number(code: str, work_type: str, taken: list[str]) -> str | None:
+    """Return the next free number for a work type, or None if none are left.
 
-    Each kind has its own sequence: projects use `DUE001`-`DUE999`, programs
-    `DUEX01`-`DUEX99`, processes `DUEA01`-`DUEA99`. The result is always one
+    Each work type has its own sequence: projects use `DUE001`-`DUE999`, programs
+    `DUEX01`-`DUEX99`, routines `DUEA01`-`DUEA99`. The result is always one
     past the highest number in use; gaps are never reused.
     """
-    letter = LETTER_BY_KIND[kind]
+    letter = LETTER_BY_WORK_TYPE[work_type]
     width = 3 - len(letter)
     prefix = code + letter
     highest = 0

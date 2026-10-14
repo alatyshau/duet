@@ -21,19 +21,19 @@ class TestRendering:
 
     def test_first_step_in_progress(self) -> None:
         out = turn_plan(["Разобрать промпт", "Выполнить работу", "Написать респонз"])
-        assert "- [ ] **Разобрать промпт** ← сейчас" in out
+        assert "- [ ] **Разобрать промпт** ← now" in out
         assert "- [ ] Выполнить работу" in out
         assert "- [x]" not in out
 
     def test_earlier_steps_are_closed(self) -> None:
         out = turn_plan(["Разобрать промпт", "Выполнить работу"], current=1)
         assert "- [x] ~~Разобрать промпт~~" in out
-        assert "- [ ] **Выполнить работу** ← сейчас" in out
+        assert "- [ ] **Выполнить работу** ← now" in out
 
     def test_all_steps_closed(self) -> None:
         out = turn_plan(["Разобрать промпт", "Написать респонз"], current=2)
         assert out.count("- [x]") == 2
-        assert "← сейчас" not in out
+        assert "← now" not in out
 
     def test_starts_with_heading(self) -> None:
         out = turn_plan(["Один шаг"])

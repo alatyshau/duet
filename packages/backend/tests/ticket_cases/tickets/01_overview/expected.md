@@ -56,7 +56,7 @@ Tickets: 1 in backlog, 1 in archive
 9 tickets, including:
 
 * 1 program (DUEX03)
-* 1 process (DUEA02)
+* 1 routine (DUEA02)
 * 2 projects without a parent
 
 For more detail: `tickets(code="DUE", shelf="backlog")`, `tickets(code="DUE", shelf="archive")`, `tickets(parent="DUEX01")`, `tickets(number="DUE004")`.

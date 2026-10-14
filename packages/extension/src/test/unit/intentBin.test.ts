@@ -35,7 +35,7 @@ function index(workType: string | null, parent: string | null): string {
 
 describe('parseTicketFrontmatter', () => {
     it('reads parent and work-type', () => {
-        expect(parseTicketFrontmatter(index('project', 'DUEX02'))).toEqual({ parent: 'DUEX02', workType: 'project', processType: null, icon: '' });
+        expect(parseTicketFrontmatter(index('project', 'DUEX02'))).toEqual({ parent: 'DUEX02', workType: 'project', routineType: null, icon: '' });
     });
 
     it('an empty value and null both mean no parent', () => {
@@ -71,8 +71,8 @@ describe('parseTicketFrontmatter', () => {
     });
 
     it('a file without frontmatter gives nothing', () => {
-        expect(parseTicketFrontmatter('# Title\nparent: DUEX02\n')).toEqual({ parent: null, workType: null, processType: null, icon: '' });
-        expect(parseTicketFrontmatter('')).toEqual({ parent: null, workType: null, processType: null, icon: '' });
+        expect(parseTicketFrontmatter('# Title\nparent: DUEX02\n')).toEqual({ parent: null, workType: null, routineType: null, icon: '' });
+        expect(parseTicketFrontmatter('')).toEqual({ parent: null, workType: null, routineType: null, icon: '' });
     });
 
     it('does not read past the closing line', () => {
@@ -81,7 +81,7 @@ describe('parseTicketFrontmatter', () => {
 
     it('reads Windows line breaks', () => {
         expect(parseTicketFrontmatter('---\r\nparent: DUEX02\r\nwork-type: project\r\n---\r\n'))
-            .toEqual({ parent: 'DUEX02', workType: 'project', processType: null, icon: '' });
+            .toEqual({ parent: 'DUEX02', workType: 'project', routineType: null, icon: '' });
     });
 });
 
@@ -112,7 +112,7 @@ describe('TicketReader', () => {
             name: 'Intent Switcher',
             path: `${B}/work/DUE017_IntentSwitcher`,
             shelf: 'work',
-            workType: 'project', processType: null,
+            workType: 'project', routineType: null,
             parent: 'DUEX03',
             icon: ''
         });
@@ -122,7 +122,7 @@ describe('TicketReader', () => {
     it('a ticket without a readable INDEX.md has no parent, no type and no icon', async () => {
         const mem = createMemFs(files);
         const tickets = await new TicketReader(mem.fs).readShelves(B);
-        expect(tickets.find(t => t.number === 'DUE099')).toMatchObject({ workType: null, processType: null, parent: null, icon: '' });
+        expect(tickets.find(t => t.number === 'DUE099')).toMatchObject({ workType: null, routineType: null, parent: null, icon: '' });
     });
 
     it('reads the icon of every ticket, and of one ticket by its folder', async () => {
@@ -173,7 +173,7 @@ describe('TicketReader', () => {
             : readHead(p, bytes);
 
         const tickets = await new TicketReader(mem.fs, 20).readShelves(B);
-        expect(tickets.find(t => t.number === 'DUE017')).toMatchObject({ workType: null, processType: null, parent: null });
+        expect(tickets.find(t => t.number === 'DUE017')).toMatchObject({ workType: null, routineType: null, parent: null });
         expect(tickets.find(t => t.number === 'DUEX03')?.workType).toBe('program');
     });
 
@@ -295,7 +295,7 @@ function ticket(folder: string, shelf: 'work' | 'backlog', workType: string | nu
         path: `${B}/${shelf}/${folder}`,
         shelf,
         workType,
-        processType: null,
+        routineType: null,
         parent,
         icon: ''
     };
@@ -310,7 +310,7 @@ const EXAMPLE: TicketInfo[] = [
     ticket('DUE011_DuetWork2', 'work', 'project', 'DUEX02'),
     ticket('DUE013_DuetOrientation', 'work', 'project', 'DUEX02'),
     ticket('DUE017_IntentSwitcher', 'work', 'project', null),
-    ticket('DUEA01_DuetLabCuration', 'work', 'process', null),
+    ticket('DUEA01_DuetLabCuration', 'work', 'routine', null),
     ticket('DUEX01_ShellPrototype', 'work', 'program', null),
     ticket('DUEX02_WorkDoctrine', 'work', 'program', null),
     ticket('DUE001_DuetWork_Full', 'backlog', 'project', 'DUEX02'),
@@ -345,13 +345,13 @@ describe('buildBinTree', () => {
         ]);
     });
 
-    it('root order: processes, programs, Unsorted, root Backlog', () => {
+    it('root order: routines, programs, Unsorted, root Backlog', () => {
         const tree = buildBinTree([
             ticket('DUEX09_Late', 'backlog', 'program', null),
             ticket('DUE050_Loose', 'backlog', 'project', null),
             ticket('DUEX01_Program', 'work', 'program', null),
-            ticket('DUEA02_SecondProcess', 'work', 'process', null),
-            ticket('DUEA01_FirstProcess', 'work', 'process', null)
+            ticket('DUEA02_SecondRoutine', 'work', 'routine', null),
+            ticket('DUEA01_FirstRoutine', 'work', 'routine', null)
         ], []);
         expect(draw(tree)).toEqual([
             'DUEA01',
@@ -386,7 +386,7 @@ describe('buildBinTree', () => {
         expect(draw(tree)).toEqual(['Backlog', '  DUEX05', '    Backlog', '      DUE052']);
     });
 
-    it('the container is the nearest process or program up the parent chain', () => {
+    it('the container is the nearest routine or program up the parent chain', () => {
         const tree = buildBinTree([
             ticket('DUEX01_Program', 'work', 'program', null),
             ticket('DUE010_Project', 'work', 'project', 'DUEX01'),
@@ -435,14 +435,14 @@ describe('buildBinTree', () => {
         ]);
     });
 
-    it('containers follow the remembered order among themselves, processes and programs mixed', () => {
+    it('containers follow the remembered order among themselves, routines and programs mixed', () => {
         const tree = buildBinTree(EXAMPLE, ['DUEX02', 'DUEX01', 'DUEA01']);
         expect(draw(tree).filter(l => !l.startsWith(' '))).toEqual(['DUEX02', 'DUEX01', 'DUEA01', 'Unsorted']);
     });
 
-    it('a container the order does not hold stands after the listed ones: processes, then programs, by number', () => {
+    it('a container the order does not hold stands after the listed ones: routines, then programs, by number', () => {
         const tree = buildBinTree(
-            [...EXAMPLE, ticket('DUEA02_SecondProcess', 'work', 'process', null), ticket('DUEX05_Late', 'work', 'program', null)],
+            [...EXAMPLE, ticket('DUEA02_SecondRoutine', 'work', 'routine', null), ticket('DUEX05_Late', 'work', 'program', null)],
             ['DUEX02', 'DUE008']
         );
         expect(draw(tree).filter(l => !l.startsWith(' ')))
@@ -554,7 +554,7 @@ describe('decideBinDrop', () => {
         expect(decideBinDrop(tree, key('DUE008_CoreProtocols'), key('DUE013_DuetOrientation'), open).ok).toBe(true);
     });
 
-    describe('a dragged process or program', () => {
+    describe('a dragged routine or program', () => {
         const A01 = key('DUEA01_DuetLabCuration');
         const X01 = key('DUEX01_ShellPrototype');
         const X02 = key('DUEX02_WorkDoctrine');
@@ -568,7 +568,7 @@ describe('decideBinDrop', () => {
                 .toMatchObject({ ok: true, move: false, shelfOrder: ['DUEX02', 'DUEA01', 'DUEX01'] });
         });
 
-        it('a program can stand before a process: the two kinds are one sequence', () => {
+        it('a program can stand before a routine: the two kinds are one sequence', () => {
             const drop = decideBinDrop(tree, X01, A01, closed);
             expect(drop).toMatchObject({ ok: true, shelfOrder: ['DUEX01', 'DUEA01', 'DUEX02'] });
             const reordered = buildBinTree(EXAMPLE, (drop as { shelfOrder: string[] }).shelfOrder);

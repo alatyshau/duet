@@ -4,11 +4,6 @@
 
 > Read this FIRST when entering the monorepo. Component specs reference this file and never duplicate the domain.
 
-## Agent Rules
-
-- **NEVER make git commits.** All commits are done by the user manually.
-- **NEVER make destructive git operations** (checkout, reset, force push, etc.).
-
 ## Components
 
 ```
@@ -116,7 +111,7 @@ Three entity types live in `entities.db`:
 | `reference_repos` | map | optional | `{name: url}` for read-only clones |
 | `description` | string | legacy | Accepted by the v4 reader for compatibility, but ignored by business listings. Author descriptions in `INDEX.md` frontmatter |
 | `skills` | list | optional | `@`-paths to skill dirs deployed into `<context>/.claude/skills/` and `<context>/.agents/skills/` (see [Deploy Instructions](#deploy-instructions)) |
-| `ticket_code` | string | optional | The business's ticket code: three uppercase Latin letters (`DUE`). Tickets of the business are numbered `<code><3 chars>` (`DUE009`; a leading letter types the ticket — `X` program, `A` process), and `@<number>` resolves through the one context that declares the code (see [Agent alpha paths](#alias-resolution)). Codes are added when first needed, not assigned in advance |
+| `ticket_code` | string | optional | The business's ticket code: three uppercase Latin letters (`DUE`). Tickets of the business are numbered `<code><3 chars>` (`DUE009`; a leading letter types the ticket — `X` program, `A` routine), and `@<number>` resolves through the one context that declares the code (see [Agent alpha paths](#alias-resolution)). Codes are added when first needed, not assigned in advance |
 | `system_prompt` | string | optional | A single `@`-path to a Claude output-style file (frontmatter + body) that becomes the context's **system prompt** in Claude Code, Codex and Kimi Code (see [Deploy Instructions](#deploy-instructions)). It replaces the client's default prompt |
 
 **Validation rules** (strict v4 reader; implementation `packages/backend/services/manifest.py:read_manifest`):
@@ -309,7 +304,7 @@ DuetConfig/
 
 **Deploy-time `@`-paths share one grammar with the agents' alpha paths, but not the ticket heads.** The `skills` / `system_prompt` declarations use `@<head>/<rest>` resolved by `packages/backend/services/at_paths.py`, the same code the `resolve_paths` tool stands on — `<head>` is a **repo dir** under `DuetData/repos` (e.g. `@anthropic-skills.git`) or a **context name** (e.g. `@DuetLab` → that context's Drive folder), drawn from the Backend's internal hierarchy, not from `{machine}.json`. A `.` or `..` segment anywhere in the address is rejected, as is a target that leaves the matched root (a symlink out of it); ticket numbers are not accepted here; an unresolvable `@`-path is skipped with a warning (not fatal — deploy is best-effort per declaration).
 
-**Agent alpha paths are resolved by the MCP tool `resolve_paths`.** Agents write `@<head>/<rest>` in notes, plans and chat, and resolve it through Duet MCP, never by searching the disk. `<head>` is, in this order: a repo dir under `DuetData/repos` (`@Duet.git`), a context name exactly as registered in the entities DB (`@DuetLab`, `@МетаЛаб` — not the folder name `!МетаЛаб`; no aliases), or a ticket number (`@DUE009`, `@DUEX01`). A ticket resolves through the context whose manifest declares its `ticket_code`, to the folder `<number>_*` wherever it lies inside that context's `work/` (active), `backlog/` (waiting) or `archive/` (closed), at any grouping depth (`archive/202609/`, `archive/2026/09/`); so the short form stays valid when the ticket moves. Alpha paths keep their spaces and are always written in backticks. The tool answers in Markdown: the absolute path whenever one can be built (also for a file that does not exist yet, with the nearest existing folder), the ticket's kind and state, or the reason an address does not resolve and what to do — including the exact `ticket_code` line to add when a code is not declared yet. Ticket heads are not part of the deploy-time alias space above: `skills` / `system_prompt` declarations do not accept them. Backend detail: [backend COMPONENT.md → Alpha-path resolution](../packages/backend/spec/COMPONENT.md#alpha-path-resolution-resolve_paths). Decisions: DUE009 (`@DUE009/Решения.md`).
+**Agent alpha paths are resolved by the MCP tool `resolve_paths`.** It takes the `@<head>/<rest>` addresses agents write in notes, plans and chat. `<head>` is, in this order: a repo dir under `DuetData/repos` (`@Duet.git`), a context name exactly as registered in the entities DB (`@DuetLab`, `@МетаЛаб` — not the folder name `!МетаЛаб`; no aliases), or a ticket number (`@DUE009`, `@DUEX01`). A ticket resolves through the context whose manifest declares its `ticket_code`, to the folder `<number>_*` wherever it lies inside that context's `work/` (active), `backlog/` (waiting) or `archive/` (closed), at any grouping depth (`archive/202609/`, `archive/2026/09/`); so the short form stays valid when the ticket moves. Alpha paths keep their spaces and are always written in backticks. The tool answers in Markdown: the absolute path whenever one can be built (also for a file that does not exist yet, with the nearest existing folder), the ticket's work type, number and state (with the archive month of a closed one), or the reason an address does not resolve and what to do — including the exact `ticket_code` line to add when a code is not declared yet. Ticket heads are not part of the deploy-time alias space above: `skills` / `system_prompt` declarations do not accept them. Backend detail: [backend COMPONENT.md → Alpha-path resolution](../packages/backend/spec/COMPONENT.md#alpha-path-resolution-resolve_paths). Decisions: DUE009 (`@DUE009/Решения.md`).
 
 ### Repository Naming
 
@@ -457,7 +452,7 @@ Products and components are described by **single canonical spec files** — no 
 | `DuetData/workspaces/{Business}/{Ticket folder}.code-workspace` | — | **writes** (whole file, rebuilt on every open of the intent by button; never while a window has it open) | — | — |
 | `DuetData/intents/{program}/windows/*.json`, `DuetData/intents/{program}/active.json` | — | **writes** (each window its own marker; any window removes dead ones and writes the order) | — | — |
 | Ticket folders under `<business>/work/` and `<business>/backlog/` | — | **creates** one in `work/` — the «new ticket» button: the folder and its `INDEX.md`, nothing else; **moves** between the two; never deletes one; reads the listing, and the listing of `archive/` for the next number | — | create and move (work rules, not the platform) |
-| Ticket `INDEX.md` | — | reads frontmatter (`parent`, `work-type`, `icon`) | — | **write** (work rules, not the platform) |
+| Ticket `INDEX.md` | — | reads frontmatter (`parent`, `work-type`, `routine-type`, `icon`) | — | **write** (work rules, not the platform) |
 | Ticket `notepad.md` | — | **creates**; keeps its first-line heading (through the editor's document); the rest is the user's | — | — |
 | `<business>/.vscode/duet-intents.json` | — | **writes** (order of the bin, on drag only) | — | — |
 | `<business>/.vscode/duet-work-order/{number}.json` | — | **writes** (pinned rows of a ticket in «Рабочая папка»: on pin and unpin, on a drag among pinned rows, on a rename of a pinned row, on reset) | — | — |
@@ -512,10 +507,8 @@ npm run verify:backend  # pytest
 
 1. Make code changes; ensure `npm run verify` passes.
 2. `cd packages/host && npm run release` (or `cd packages/extension && npm run vsix` for Extension).
-3. Copy the artifacts into `DuetData/`: `packages/host/dist/Duet-{version}.dmg` and `packages/extension/dist/duet-{version}.vsix`. Always, on every release — the user installs Host and the Extension from there (rule set by Andrei, 2026-10-02).
+3. Copy the artifacts into `DuetData/`: `packages/host/dist/Duet-{version}.dmg` and `packages/extension/dist/duet-{version}.vsix`. Always, on every release: the user installs Host and the Extension from there.
 4. Commit: code + bumped `version` together (`resources/BUILD_SHA` is gitignored — it ships inside the build, not in the commit).
 5. Push.
-
-Agent never commits — only prepares the message.
 
 Per-package build & release pipelines: each component's `Engineering` chapter. CI workflows: `.github/workflows/build-host.yml` (build artifacts for macOS/Windows/Linux on push to main if `packages/host/` changed) and `.github/workflows/host-test.yml` (vitest on the same trigger; E2E disabled — monorepo symlink issues). No auto-publish — artifacts are downloaded manually from Actions → GitHub Release.

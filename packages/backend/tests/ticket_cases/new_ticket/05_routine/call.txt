@@ -1,0 +1,1 @@
+new_ticket(name="Weekly Review", work_type="routine", business="DuetLab", area="DuetLab")

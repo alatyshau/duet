@@ -1,1 +1,1 @@
-new_ticket(name="Sub Program", kind="program", parent="DUEX02")
+new_ticket(name="Sub Program", work_type="program", parent="DUEX02")

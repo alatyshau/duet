@@ -88,7 +88,7 @@ function ticket(
 ): TicketInfo {
     const number = folder.split('_')[0];
     return {
-        number, folder, name: folder.slice(number.length + 1), path: `${B}/${shelf}/${folder}`, shelf, workType, processType: null, parent, icon
+        number, folder, name: folder.slice(number.length + 1), path: `${B}/${shelf}/${folder}`, shelf, workType, routineType: null, parent, icon
     };
 }
 

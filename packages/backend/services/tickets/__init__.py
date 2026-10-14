@@ -1,7 +1,7 @@
 """Ticket operations shared by the MCP tools and the extension.
 
 A ticket is a folder named `<number>_<Name>` under a business's `work/`,
-`backlog/`, or `archive/` directory. Its metadata (kind, parent, dates) lives
+`backlog/`, or `archive/` directory. Its metadata (work type, parent, dates) lives
 in the YAML frontmatter of its `INDEX.md`.
 
 Four operations are exposed, each a single call:

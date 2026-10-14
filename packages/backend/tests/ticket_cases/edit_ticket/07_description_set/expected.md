@@ -4,7 +4,7 @@
 
 **Index:** `@DUE004/INDEX.md`
 
-* Description set to "Initial shell commit: scaffolding and build"
+* Description set to "Initial shell commit and scaffolding"
 
 Updated frontmatter:
 
@@ -12,7 +12,7 @@ Updated frontmatter:
 ---
 folder-type: work
 work-type: project
-description: "Initial shell commit: scaffolding and build"
+description: Initial shell commit and scaffolding
 opened: 2026-10-01
 business-area: DuetShell
 parent: DUEX01

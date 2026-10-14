@@ -5,7 +5,7 @@ import { FileSystem, nodeFs } from '../../core/fs';
 import { Paths } from '../../core/paths';
 import { intentIcon, intentIdentity, intentTabLabel } from '../../core/intents/naming';
 import { TicketService } from '../../core/intents/ticketService';
-import { TicketInfo, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
+import { BUSINESS_CURATION, TicketInfo, readBusinessManifest, resolveTicketNow } from '../../core/intents/tickets';
 import { IntentWorkspacePlan, planIntentWorkspace } from '../../core/intents/workspaceFile';
 import { metaExtraFolders } from '../../core/workspace';
 import { IntentsRuntime } from '../intents/IntentsRuntime';
@@ -47,7 +47,7 @@ export class TicketOpener {
         await this.runtime.refresh();
         if (requireCurator) {
             const resolved = await resolveTicketNow(this.runtime.tickets, businessPath, ticket);
-            if (!('place' in resolved) || !await this.runtime.tickets.isCuratorAt(resolved.place.path)) {
+            if (!('place' in resolved) || !await this.runtime.tickets.isRoutineAt(resolved.place.path, BUSINESS_CURATION)) {
                 throw new Error(`Куратор ${ticketNumber} изменился или перемещён — повторите открытие бизнеса.`);
             }
         }
@@ -112,7 +112,7 @@ export class TicketOpener {
         }, ticketNumber);
 
         // Repository preparation can wait on a clone: do not launch an obsolete criterion afterwards.
-        if (requireCurator && !await this.runtime.tickets.isCuratorAt(place.path)) {
+        if (requireCurator && !await this.runtime.tickets.isRoutineAt(place.path, BUSINESS_CURATION)) {
             throw new Error(`Куратор ${ticketNumber} изменился — повторите открытие бизнеса.`);
         }
 

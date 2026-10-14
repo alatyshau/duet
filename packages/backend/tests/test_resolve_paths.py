@@ -3,7 +3,7 @@
 The resolver works over a context list and a repos dir, so these tests build
 a small tree in tmp_path: repos, a business with a ticket code and tickets in
 every status folder, a business without a code, and a business with another
-code. They pin what the agent gets: the absolute path, the ticket's kind and
+code. They pin what the agent gets: the absolute path, the ticket's work type and
 state, the nearest folder for a missing file, and a reason for every failure.
 """
 
@@ -128,7 +128,7 @@ class TestMissingFile:
 
     def test_rendered_with_both_paths(self, tree: dict) -> None:
         out = render_markdown([_one(tree, "@DuetLab/нет.md")])
-        assert "Файла нет. Ближайшая существующая папка — `@DuetLab`:" in out
+        assert "Doesn't exist yet. Nearest existing folder: `@DuetLab`" in out
         assert out.count("`/") == 2
 
 
@@ -138,23 +138,24 @@ class TestTickets:
     def test_ticket_in_work(self, tree: dict) -> None:
         res = _one(tree, "@DUE009/INDEX.md")
         assert res.absolute == (tree["lab"] / "work/DUE009_AlphaPaths/INDEX.md").resolve()
-        assert res.ticket.state == "active" and res.ticket.kind == ""
-        assert describe_ticket(res.ticket) == "Проект DUE009 в работе."
+        assert res.ticket.state == "active" and res.ticket.letter == ""
+        assert describe_ticket(res.ticket) == "Project DUE009, in work. Business: DuetLab."
 
     def test_ticket_in_archive_month_folder(self, tree: dict) -> None:
         res = _one(tree, "@DUE002")
         assert res.ticket.state == "closed"
-        assert describe_ticket(res.ticket) == "Проект DUE002 закрыт, лежит в архиве за сентябрь 2026."
+        assert res.ticket.archive_month == (2026, 9)
+        assert describe_ticket(res.ticket) == "Project DUE002, closed (archived September 2026). Business: DuetLab."
 
     def test_ticket_in_backlog_section(self, tree: dict) -> None:
         res = _one(tree, "@DUE008")
         assert res.absolute.name == "DUE008_Blockers"
-        assert describe_ticket(res.ticket) == "Проект DUE008 ждёт."
+        assert describe_ticket(res.ticket) == "Project DUE008, in backlog. Business: DuetLab."
 
-    def test_program_and_process_kinds(self, tree: dict) -> None:
-        assert describe_ticket(_one(tree, "@DUEX01").ticket) == "Программа DUEX01 в работе."
-        assert describe_ticket(_one(tree, "@DUEX02").ticket).startswith("Программа DUEX02 закрыта,")
-        assert describe_ticket(_one(tree, "@DUEA01").ticket) == "Процесс DUEA01 в работе."
+    def test_program_and_routine_work_types(self, tree: dict) -> None:
+        assert describe_ticket(_one(tree, "@DUEX01").ticket) == "Program DUEX01, in work. Business: DuetLab."
+        assert describe_ticket(_one(tree, "@DUEX02").ticket).startswith("Program DUEX02, closed (archived")
+        assert describe_ticket(_one(tree, "@DUEA01").ticket) == "Routine DUEA01, in work. Business: DuetLab."
 
     def test_missing_file_inside_ticket(self, tree: dict) -> None:
         res = _one(tree, "@DUE009/новое/отчёт.md")
@@ -167,12 +168,12 @@ class TestTickets:
         _manifest(tree["game"], "Stardew_Valley", ticket_code="VAL")
         res = _one(tree, "@VAL001")
         assert res.error is None
-        assert describe_ticket(res.ticket) == "Проект VAL001 закрыт, лежит в архиве за сентябрь 2026."
+        assert describe_ticket(res.ticket) == "Project VAL001, closed (archived September 2026). Business: Stardew_Valley."
 
     def test_ticket_not_found_in_owner(self, tree: dict) -> None:
         res = _one(tree, "@DUE099")
         assert res.error_code == "ticket_not_found"
-        assert "в DuetLab нет папки DUE099_*" in res.error
+        assert "ticket DUE099 not found in DuetLab" in res.error
 
     def test_never_searches_inside_another_ticket(self, tree: dict) -> None:
         assert find_ticket_folders(tree["lab"], "DUE777") == []
@@ -188,7 +189,7 @@ class TestTickets:
         lines = out.split("\n")
         assert lines[0] == "### @DUE002"
         assert lines[2].startswith("`/") and lines[2].endswith("DUE002_DuetChat`")
-        assert lines[4] == "Проект DUE002 закрыт, лежит в архиве за сентябрь 2026."
+        assert lines[4] == "Project DUE002, closed (archived September 2026). Business: DuetLab."
 
 
 class TestTicketCodes:
@@ -197,21 +198,21 @@ class TestTicketCodes:
     def test_unregistered_code_points_to_manifest(self, tree: dict) -> None:
         res = _one(tree, "@VAL001")
         assert res.error_code == "ticket_code_unregistered"
-        assert "код VAL не записан ни у одного бизнеса" in res.error
-        assert "найдена в бизнесе Stardew_Valley" in res.error
+        assert "no business has ticket code VAL" in res.error
+        assert "is in Stardew_Valley" in res.error
         assert '`"ticket_code": "VAL"`' in res.error
         assert str(tree["game"] / "context.json") in res.error
 
     def test_unregistered_code_folder_in_business_with_other_code(self, tree: dict) -> None:
         res = _one(tree, "@QQQ001")
         assert res.error_code == "ticket_code_unregistered"
-        assert "другой код, SBT" in res.error
+        assert "whose ticket code is SBT" in res.error
         assert "ticket_code" not in res.error
 
     def test_unregistered_code_and_no_folder(self, tree: dict) -> None:
         res = _one(tree, "@ZZZ001")
         assert res.error_code == "ticket_code_unregistered"
-        assert "нет ни в одном бизнесе" in res.error
+        assert "No business has a ticket folder ZZZ001_*" in res.error
 
     def test_code_declared_twice_is_refused(self, tree: dict) -> None:
         _manifest(tree["sub"], "Subjectum", ticket_code="DUE")

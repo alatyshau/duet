@@ -110,7 +110,7 @@ The bin is for managing the backlog and the order of work. It never switches win
 
 ### Tree shape
 
-Built by `core/intents/binTree.ts:buildBinTree`. A *container* is a ticket with `work-type: process` or `program`.
+Built by `core/intents/binTree.ts:buildBinTree`. A *container* is a routine or a program. A number with a letter types the ticket (`DUEA01` a routine, `DUEX01` a program), as on the Backend; `work-type` in `INDEX.md` decides only for a number without one.
 
 ```
 КОРЗИНА
@@ -130,9 +130,9 @@ Built by `core/intents/binTree.ts:buildBinTree`. A *container* is a ticket with 
 
 | Rule | Detail |
 |------|--------|
-| Root order | containers, «Unsorted», root «Backlog». Containers stand in the remembered order, processes and programs mixed as the user put them; those the order does not hold come after — processes, then programs, each by number |
+| Root order | containers, «Unsorted», root «Backlog». Containers stand in the remembered order, routines and programs mixed as the user put them; those the order does not hold come after — routines, then programs, each by number |
 | Under a container | its tickets from `work/`, then a «Backlog» node with its tickets from `backlog/` |
-| Container of a ticket | the nearest process or program up the `parent` chain of `INDEX.md`; an empty value and `null` mean «no parent» |
+| Container of a ticket | the nearest routine or program up the `parent` chain of `INDEX.md`; an empty value and `null` mean «no parent» |
 | «Unsorted» | tickets whose parent is not in `work/` or `backlog/` of this business, or whose chain has no container, or whose `INDEX.md` cannot be read; the same shape as a container group |
 | Containers stand flat | a container's own `parent` is ignored |
 | Where a container group stands | in the root while the container lies in `work/` or at least one of its tickets does — a program does not hide in the backlog while its ticket is in work; otherwise the whole group, in the same shape, goes under the root «Backlog» |
@@ -158,7 +158,7 @@ Built by `core/intents/binTree.ts:buildBinTree`. A *container* is a ticket with 
 | A ticket from `work/` without an open window has a third button — «to the backlog». A ticket with an open window has no buttons | An empty «Backlog» is not shown, so a drop target may be missing |
 | A container row is a ticket with the same buttons; moving a container to the backlog does not touch its tickets | Containers are tickets too |
 | A ticket is dragged only inside its group: between its «Backlog» and its work (the folder moves) and to reorder its tickets. Up — before the target, down — after it. A drop on the header puts the ticket first in work; on «Backlog» from work — first in the backlog, from the backlog — last in work | The tree reports only the row a drop landed on |
-| A process or a program is dragged to change its place among the containers of its level — those of the root, or those under the root «Backlog»; its folder never moves. A drop on a row inside another container counts as a drop on that container; on «Unsorted» or past the rows — last; on the root «Backlog» from inside it — first | The order of programs and processes is the top level of the order of work. One sequence for both kinds: a program may stand before a process |
+| A routine or a program is dragged to change its place among the containers of its level — those of the root, or those under the root «Backlog»; its folder never moves. A drop on a row inside another container counts as a drop on that container; on «Unsorted» or past the rows — last; on the root «Backlog» from inside it — first | The order of programs and routines is the top level of the order of work. One sequence for both kinds: a program may stand before a routine |
 | Not dragged: tickets between programs, a container between the root and the root «Backlog», a ticket with an open window into «Backlog», the rows «Unsorted» and «Backlog», rows between the two views | Each would change more than an order: a ticket in another program means another `parent` in its `INDEX.md`, which the extension only reads |
 | A refused drop is told in one line | The tree cannot forbid a drop in advance: a forbidden target is highlighted like an allowed one |
 | Before any action the disk is read; the tree never shows a result ahead of the disk | The folders may have been moved by an agent or by sync |
@@ -292,7 +292,7 @@ Everything is in the context menu of a row; the title has no create buttons. The
 
 ## Все Бизнесы — forest navigation
 
-Selecting a real business previews its Корзина and clears Work; an arrow only expands or collapses the tree. The two explicit open buttons first look for the business's Curator among its immediate `work/` and `backlog/` tickets: both `work-type: process` and `process-type: curator` in INDEX.md are required. With several candidates the lowest canonical ticket number wins, independently of display order. A found Curator opens through the normal ticket path (including backlog → work and focusing an already open window); with none, the business opens as before. An unreadable shelf or header is an error, not "none". Merely selecting a business never launches its Curator; switching an existing «Активная Работа» row is unchanged.
+Selecting a real business previews its Корзина and clears Work; an arrow only expands or collapses the tree. The two explicit open buttons first look for the business's Curator among its immediate `work/` and `backlog/` tickets: both `work-type: routine` and `routine-type: business-curation` in INDEX.md are required. A business has one such routine: with two the buttons refuse with an error that names both. A found Curator opens through the normal ticket path (including backlog → work and focusing an already open window); with none, the business opens as before. An unreadable shelf or header is an error, not "none". Merely selecting a business never launches its Curator; switching an existing «Активная Работа» row is unchanged.
 
 Full forest of root contexts and descendants, accordion pattern, alias-based highlighting.
 

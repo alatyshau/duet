@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
 import { ContextEntity } from '../../core/api-client';
 import { Paths } from '../../core/paths';
-import { Shelf, TicketReader } from '../../core/intents/tickets';
+import { BUSINESS_CURATION, Shelf, TicketReader } from '../../core/intents/tickets';
 import { TicketService } from '../../core/intents/ticketService';
 import { TicketBoard } from '../../core/intents/board';
 import { binTickets } from '../../core/intents/binTree';
@@ -39,7 +39,7 @@ const C = `${F}/backlog/OTHA01_Curator`;
 const business = (id: string, name: string, absolute_path: string): ContextEntity => ({
     id, name, absolute_path, path: name, type: 'context', icon: null, parent_id: null, meta: false, git_repos: null
 });
-const curator = '---\nwork-type: process\nprocess-type: curator\n---\n';
+const curator = '---\nwork-type: routine\nroutine-type: business-curation\n---\n';
 
 /**
  * Stands in for the Duet server: makes and moves ticket folders in the same
@@ -144,7 +144,7 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
 
     it('curator from backlog is opened as a normal ticket with the correct business and moved into work', async () => {
         const { bin, board, tickets, runtime, mem, service } = setup();
-        const row = await tickets.findCurator(F);
+        const row = await tickets.findRoutine(F, BUSINESS_CURATION);
         const changed = vi.fn(async () => undefined);
         const opener = new TicketOpener(new Paths('/data'), runtime as never, service, changed, mem.fs);
         expect(await opener.open(row!, business('2', 'Foreign', F), false, true)).toBe(true);
@@ -159,7 +159,7 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
     it('existing curator window is focused without rewriting its workspace or moving its folder', async () => {
         const { bin, board, tickets, runtime, mem, service } = setup();
         runtime.getActive.mockReturnValue([{ ticket: 'OTHA01', workspaceFile: '/existing.code-workspace' }]);
-        const row = await tickets.findCurator(F);
+        const row = await tickets.findRoutine(F, BUSINESS_CURATION);
         const before = mem.calls.atomicWriteFile;
         await new TicketOpener(new Paths('/data'), runtime as never, service, undefined, mem.fs)
             .open(row!, business('2', 'Foreign', F), false, true);
@@ -171,7 +171,7 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
 
     it('changed criterion is revalidated before moving or opening the selected curator', async () => {
         const { bin, board, tickets, runtime, mem, service } = setup();
-        const row = await tickets.findCurator(F);
+        const row = await tickets.findRoutine(F, BUSINESS_CURATION);
         await mem.fs.writeFile(`${C}/INDEX.md`, '', 'utf8');
         await expect(new TicketOpener(new Paths('/data'), runtime as never, service, undefined, mem.fs)
             .open(row!, business('2', 'Foreign', F), true, true)).rejects.toThrow('изменился');
@@ -186,6 +186,32 @@ describe('DUE019: explicit ownership of bin actions and shared ticket opening', 
         await actions.create();
         expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Duet: no project numbers left for code HOM');
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        bin.dispose(); board.dispose();
+    });
+
+    it('a refused name is offered again in the box, and forgotten once a ticket is made', async () => {
+        const { bin, board, actions, service } = setup();
+        const made = service.create;
+        service.create = async () => { throw new Error('the name "New Ticket" has 4 words'); };
+        await actions.create();
+        await actions.create();
+        expect(vi.mocked(vscode.window.showInputBox).mock.calls.at(-1)?.[0]).toMatchObject({ value: 'New Ticket' });
+        service.create = made;
+        await actions.create();
+        await actions.create();
+        expect(vi.mocked(vscode.window.showInputBox).mock.calls.at(-1)?.[0]?.value).toBeUndefined();
+        bin.dispose(); board.dispose();
+    });
+
+    it('a refused name is offered once: after Escape the next box is empty', async () => {
+        const { bin, board, actions, service } = setup();
+        service.create = async () => { throw new Error('the name "New Ticket" has 4 words'); };
+        await actions.create();
+        vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce(undefined);
+        await actions.create();
+        expect(vi.mocked(vscode.window.showInputBox).mock.calls.at(-1)?.[0]).toMatchObject({ value: 'New Ticket' });
+        await actions.create();
+        expect(vi.mocked(vscode.window.showInputBox).mock.calls.at(-1)?.[0]?.value).toBeUndefined();
         bin.dispose(); board.dispose();
     });
 

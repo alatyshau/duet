@@ -6,7 +6,7 @@ import { WorkspaceManager, metaExtraFolders } from '../../core/workspace';
 import { Paths } from '../../core/paths';
 import { readPointer } from '../../core/pointer';
 import { planBusinessColor } from '../../core/intents/workspaceFile';
-import { TicketReader, readBusinessManifest } from '../../core/intents/tickets';
+import { BUSINESS_CURATION, TicketReader, readBusinessManifest } from '../../core/intents/tickets';
 import { businessKey } from '../../core/intents/window';
 import { getIntentsRuntime, getTicketService } from '../intents/current';
 import { getVentureFolders } from '../ventures';
@@ -41,7 +41,7 @@ async function openNode(
 
     const runtime = getIntentsRuntime();
     const reader = runtime?.tickets ?? new TicketReader();
-    const curator = await reader.findCurator(node.id);
+    const curator = await reader.findRoutine(node.id, BUSINESS_CURATION);
     if (curator) {
         const tickets = getTicketService();
         if (!runtime || !tickets) {

@@ -102,7 +102,7 @@ describe('VS Code Commands', () => {
 
         it.each([false, true])('DUE019: curator redirects business open, forceNewWindow=%s', async forceNewWindow => {
             const curator = { number: 'DUEA01', folder: 'DUEA01_Curator', shelf: 'work', path: '/path/to/folder/work/DUEA01_Curator' } as TicketInfo;
-            vi.spyOn(TicketReader.prototype, 'findCurator').mockResolvedValue(curator);
+            vi.spyOn(TicketReader.prototype, 'findRoutine').mockResolvedValue(curator);
             setIntentsRuntime({ tickets: new TicketReader() } as never);
             setTicketService({ create: vi.fn(), move: vi.fn() });
             const opened = vi.spyOn(TicketOpener.prototype, 'open').mockResolvedValue(true);
@@ -113,7 +113,7 @@ describe('VS Code Commands', () => {
         });
 
         it('DUE019: failed search and unavailable ticket runtime never silently open a business', async () => {
-            const search = vi.spyOn(TicketReader.prototype, 'findCurator').mockRejectedValue(new Error('INDEX unreadable'));
+            const search = vi.spyOn(TicketReader.prototype, 'findRoutine').mockRejectedValue(new Error('INDEX unreadable'));
             await openInCurrentWindow(plainContext());
             expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Duet: INDEX unreadable');
             search.mockResolvedValue({ number: 'DUEA01' } as TicketInfo);

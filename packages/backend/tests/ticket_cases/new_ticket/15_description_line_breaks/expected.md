@@ -12,7 +12,7 @@ Frontmatter written to INDEX.md:
 ---
 folder-type: work
 work-type: project
-description: "First line second line parent: DUEX04"
+description: "First line second parent: DUEX04"
 opened: 2026-10-08
 business-area: DuetWork
 parent: DUEX02

@@ -51,7 +51,7 @@ from mcp_handler import mcp
 from services.resolve_paths import ContextRef
 from services.tickets import ACTIONS, Result, run
 from services.tickets.frontmatter import Frontmatter
-from services.tickets.naming import humanize_name, next_number, to_pascal_case
+from services.tickets.naming import count_words, humanize_name, next_number, to_pascal_case
 
 
 CASES_DIR = Path(__file__).parent / "ticket_cases"
@@ -253,6 +253,33 @@ class TestFrontmatter:
         assert not fm.present and fm.body == "# Just a title\n"
 
 
+class TestWordRule:
+    """Words are what stands between spaces; a one-character word isn't counted."""
+
+    def test_words_stand_between_spaces(self) -> None:
+        assert count_words("Single entry point for businesses") == 5
+        assert count_words("Release 0.1.26") == 2
+        assert count_words("ui-research-notes") == 1
+        assert count_words("  two   words\n") == 2
+
+    def test_a_one_character_word_is_not_counted(self) -> None:
+        assert count_words("Shell — first commit") == 3
+        assert count_words("R & D plan") == 1
+        assert count_words("Кнопка Claude Code в заголовке редактора") == 5
+        assert count_words("a b c") == 0
+
+    def test_a_name_with_a_dash_is_not_refused_for_it(self) -> None:
+        assert tickets_writes._slugify("Shell — first commit") == "ShellFirstCommit"
+
+    def test_a_fourth_word_is_refused_in_a_name(self) -> None:
+        with pytest.raises(tickets_model.TicketError, match="has 4 words; a name is two words"):
+            tickets_writes._slugify("Shell UI research notes")
+
+    def test_one_character_words_do_not_use_up_a_description(self) -> None:
+        text, note = tickets_writes._clean_description("Кнопка Claude Code в заголовке редактора")
+        assert text == "Кнопка Claude Code в заголовке редактора" and note == ""
+
+
 class TestNumbers:
     def test_one_past_the_highest(self) -> None:
         assert next_number("DUE", "project", ["DUE004", "DUE022", "DUE017"]) == "DUE023"
@@ -260,11 +287,11 @@ class TestNumbers:
     def test_first(self) -> None:
         assert next_number("DUE", "project", []) == "DUE001"
 
-    def test_each_kind_has_its_own_sequence(self) -> None:
+    def test_each_work_type_has_its_own_sequence(self) -> None:
         taken = ["DUE007", "DUEX03", "DUEA01", "MET512"]
         assert next_number("DUE", "project", taken) == "DUE008"
         assert next_number("DUE", "program", taken) == "DUEX04"
-        assert next_number("DUE", "process", taken) == "DUEA02"
+        assert next_number("DUE", "routine", taken) == "DUEA02"
 
     def test_returns_none_when_exhausted(self) -> None:
         assert next_number("DUE", "project", ["DUE999"]) is None

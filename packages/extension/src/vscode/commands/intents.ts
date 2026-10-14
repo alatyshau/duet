@@ -69,6 +69,8 @@ export async function switchToIntent(
 export class BinActions {
     private readonly opener: TicketOpener;
     private chain: Promise<void> = Promise.resolve();
+    /** The name the server refused last: offered again in the box, so a refusal does not cost the typing. */
+    private refusedName: string | undefined;
 
     constructor(
         paths: Paths,
@@ -100,9 +102,13 @@ export class BinActions {
             say(`Имя бизнеса «${business.name}» не годится для имени папки — тикет не создан.`);
             return;
         }
+        // Offered once: a box closed by Escape must not bring the name back later
+        const offered = this.refusedName;
+        this.refusedName = undefined;
         const typed = await vscode.window.showInputBox({
             title: `Новый тикет ${business.name}`,
             prompt: 'Название тикета; номер Duet подставит сам. Пустое — тикет без названия',
+            value: offered,
             validateInput: value => ticketNameLength(value) > MAX_TICKET_NAME_LENGTH
                 ? `Слишком длинно: в названии не больше ${MAX_TICKET_NAME_LENGTH} букв и цифр`
                 : undefined
@@ -161,6 +167,9 @@ export class BinActions {
         let ticket: NewTicket;
         try {
             ticket = await this.tickets.create(code, name);
+        } catch (error) {
+            this.refusedName = name;
+            throw error;
         } finally {
             // Also after a failure: a folder may have been made before it
             await this.board.reload();

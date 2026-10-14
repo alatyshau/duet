@@ -34,7 +34,9 @@ from services.tickets.model import (
     record,
     resolve_business,
 )
-from services.tickets.naming import LETTER_BY_KIND, humanize_name, next_number, to_pascal_case
+from services.tickets.naming import (
+    LETTER_BY_WORK_TYPE, count_words, humanize_name, next_number, to_pascal_case,
+)
 
 # The folder name is also used as a workspace file name, so keep it short.
 MAX_NAME_LENGTH = 100
@@ -42,7 +44,19 @@ MAX_NAME_LENGTH = 100
 # long description would push the fields after it out of its sight.
 MAX_DESCRIPTION_LENGTH = 300
 
+# Word rules (DUE039). Each rule is one constant used by the warning and the
+# error alike, so the caller always reads the rule, never just a number.
+# Words are counted by `naming.count_words`: what stands between spaces,
+# one-character words left out.
+NAME_RULE = "two words, three only when two can't name it"
+NAME_WORD_LIMIT = 3
+DESCRIPTION_RULE = ("the fewest words that carry what the ticket is for: 3 when "
+                    "they do, 4 or 5 when they say it better")
+DESCRIPTION_WORD_RULE = 5
+DESCRIPTION_WORD_LIMIT = 7
+
 _MANAGED_NOTE = "this tool only manages the frontmatter"
+_ROUTINE_TYPE_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 
 
 # === Input validation ===
@@ -52,6 +66,11 @@ def _slugify(name: str) -> str:
     """Convert a name to its folder form. An empty name is allowed: a ticket can be just a number."""
     if not name.strip():
         return ""
+    words = count_words(name)
+    if words > NAME_WORD_LIMIT:
+        raise TicketError(f'the name "{name.strip()}" has {words} words; a name is '
+                          f"{NAME_RULE}. Put the rest in `description` or below the "
+                          f"frontmatter in {INDEX_FILENAME}.")
     slug = to_pascal_case(name)
     if not slug:
         raise TicketError(f"the name `{name}` contains no letters or digits.")
@@ -78,14 +97,43 @@ def _one_line(value: str) -> str:
     return " ".join(value.split())
 
 
-def _clean_description(value: str) -> str:
+def _clean_routine_type(value: str) -> str:
+    """Normalize a routine's class name: one line, lower case, words joined by hyphens.
+
+    The value is a key that work skills and the extension match exactly
+    (`business-curation`), so its shape is checked and its case is not left
+    to the caller. An empty value clears the field.
+    """
+    text = _one_line(value).lower()
+    if text and not _ROUTINE_TYPE_RE.fullmatch(text):
+        raise TicketError(f'`routine_type` "{text}" is not a class name. Write lowercase '
+                          f'words joined by hyphens, e.g. "business-curation".')
+    return text
+
+
+def _clean_description(value: str) -> tuple[str, str]:
+    """Collapse a description to one line and apply the word rule.
+
+    Returns the cleaned text and a warning line: empty within the rule, a
+    `Note:` at 6 or 7 words. More than 7 words, or an overlong line, raises.
+    """
     text = _one_line(value)
+    words = count_words(text)
+    if words > DESCRIPTION_WORD_LIMIT:
+        raise TicketError(
+            f"`description` has {words} words; the rule is {DESCRIPTION_RULE}, and "
+            f"{DESCRIPTION_WORD_LIMIT} is the limit. The details belong below the "
+            f"frontmatter in {INDEX_FILENAME}.")
     if len(text) > MAX_DESCRIPTION_LENGTH:
         raise TicketError(
             f"`description` is {len(text)} characters; the limit is {MAX_DESCRIPTION_LENGTH}. "
             f"Keep it to one line and put the details below the frontmatter in "
             f"{INDEX_FILENAME}.")
-    return text
+    if words > DESCRIPTION_WORD_RULE:
+        return text, (f"Note: the description has {words} words; the rule is "
+                      f"{DESCRIPTION_RULE}. If fewer words say it as well, set them "
+                      f"with `edit_ticket`.")
+    return text, ""
 
 
 def _available_parents(biz: Business) -> str:
@@ -94,19 +142,19 @@ def _available_parents(biz: Business) -> str:
                           if t.is_group and t.shelf != "archive")
     if available:
         return f"Available parents in {biz.name}: {available}."
-    return (f"{biz.name} has no programs or processes yet; create one with "
-            f'`new_ticket(name="...", kind="program", code="{biz.code}")`.')
+    return (f"{biz.name} has no programs or routines yet; create one with "
+            f'`new_ticket(name="...", work_type="program", code="{biz.code}")`.')
 
 
-def _validate_parent(biz: Business, raw: str, child_kind: str, child: str = "") -> Ticket:
+def _validate_parent(biz: Business, raw: str, child_work_type: str, child: str = "") -> Ticket:
     """Return the parent ticket, or raise if it can't be a parent.
 
-    A parent must be an open program or process in the same business, and
+    A parent must be an open program or routine in the same business, and
     only projects can have one, so nesting is never more than one level deep.
     """
-    if child_kind in ("program", "process"):
-        raise TicketError(f"a {child_kind} can't have a parent. Only projects can, and "
-                          f"the parent must be a program or a process.")
+    if child_work_type in ("program", "routine"):
+        raise TicketError(f"a {child_work_type} can't have a parent. Only projects can, and "
+                          f"the parent must be a program or a routine.")
     number = parse_number(raw)
     if number[:3] != biz.code:
         raise TicketError(f"{number} is not a {biz.name} ticket: its code is {number[:3]}, "
@@ -118,8 +166,8 @@ def _validate_parent(biz: Business, raw: str, child_kind: str, child: str = "") 
                           f"and archive). {_available_parents(biz)}")
     parent = find_ticket(biz, number)
     if not parent.is_group:
-        raise TicketError(f"{parent.title} is a project. A parent must be a program or a "
-                          f"process. {_available_parents(biz)}")
+        raise TicketError(f"{parent.title} is a project. A parent must be a program or "
+                          f"a routine. {_available_parents(biz)}")
     if parent.shelf == "archive":
         raise TicketError(f"{parent.title} is closed. Reopen it with "
                           f'`move_ticket(ticket="{number}", to="work")` or pick a '
@@ -211,7 +259,7 @@ def _ensure_frontmatter(ticket: Ticket) -> None:
         return
     fm = ticket.frontmatter
     fm.present = True
-    fm.lines = ["folder-type: work", f"work-type: {ticket.kind}"]
+    fm.lines = ["folder-type: work", f"work-type: {ticket.work_type}"]
     if fm.body and not fm.body.startswith("\n"):
         fm.body = "\n" + fm.body
     if not fm.body:
@@ -234,21 +282,21 @@ def _frontmatter_block(frontmatter: Frontmatter, label: str) -> list[str]:
 
 
 def new_ticket(contexts: list[ContextRef], today: date, name: str, parent: str = "",
-               kind: str = "project", shelf: str = "work", description: str = "",
+               work_type: str = "project", shelf: str = "work", description: str = "",
                icon: str = "", area: str = "", code: str = "", business: str = "") -> str:
     """Create a ticket: allocate its number, create its folder, write `INDEX.md`.
 
     Not idempotent: every successful call creates a new ticket.
     """
-    kind = (kind or "project").strip().lower()
+    work_type = (work_type or "project").strip().lower()
     shelf = (shelf or "work").strip().lower()
-    if kind not in LETTER_BY_KIND:
-        raise TicketError(f'`kind` must be "project", "program", or "process"; got "{kind}".')
+    if work_type not in LETTER_BY_WORK_TYPE:
+        raise TicketError(f'`work_type` must be "project", "program", or "routine"; got "{work_type}".')
     if shelf not in ("work", "backlog"):
         raise TicketError(f'new tickets can only be created in "work" or "backlog"; '
                           f'got "{shelf}".')
     slug = _slugify(name)
-    description = _clean_description(description or "")
+    description, description_note = _clean_description(description or "")
     area = _one_line(area or "")
     icon = _one_line(icon or "")
     with disk_lock():
@@ -256,7 +304,7 @@ def new_ticket(contexts: list[ContextRef], today: date, name: str, parent: str =
             parent_number = parse_number(parent)
             biz = resolve_business(contexts, code=parent_number[:3])
             check_same_business(biz, parent_number, code, business)
-            parent_ticket = _validate_parent(biz, parent, kind)
+            parent_ticket = _validate_parent(biz, parent, work_type)
             parent_area = parent_ticket.frontmatter.get("business-area")
             if area and parent_area and area != parent_area:
                 raise TicketError(f"`area` conflicts with the parent: {parent_ticket.title} "
@@ -269,15 +317,15 @@ def new_ticket(contexts: list[ContextRef], today: date, name: str, parent: str =
             biz = resolve_business(contexts, code, business)
             parent_ticket = None
 
-        number = next_number(biz.code, kind, [t.number for t in biz.tickets])
+        number = next_number(biz.code, work_type, [t.number for t in biz.tickets])
         if number is None:
-            raise TicketError(f"no {kind} numbers left for code {biz.code}. Numbers are never "
+            raise TicketError(f"no {work_type} numbers left for code {biz.code}. Numbers are never "
                               f"reused, so the highest one in use decides.")
 
         folder = biz.folder / shelf / (f"{number}_{slug}" if slug else number)
         heading = f"# {number} — {humanize_name(slug)}" if slug else f"# {number}"
         frontmatter = Frontmatter(present=True, body=f"\n{heading}\n")
-        frontmatter.lines = ["folder-type: work", f"work-type: {kind}"]
+        frontmatter.lines = ["folder-type: work", f"work-type: {work_type}"]
         if icon:
             frontmatter.set("icon", icon)
         if description:
@@ -291,7 +339,7 @@ def new_ticket(contexts: list[ContextRef], today: date, name: str, parent: str =
 
     created = Ticket(number, slug, folder, shelf, frontmatter)
     record(created)
-    summary = [f"{kind.capitalize()} in {shelf}."]
+    summary = [f"{work_type.capitalize()} in {shelf}."]
     summary.append(f"Parent: {parent_ticket.title}." if parent_ticket else "No parent.")
     if area:
         summary.append(f"Business area: {area}.")
@@ -301,6 +349,8 @@ def new_ticket(contexts: list[ContextRef], today: date, name: str, parent: str =
              " ".join(summary), ""]
     if note := _name_note(name, slug):
         lines += [f"{note[0].upper()}{note[1:]}.", ""]
+    if description_note:
+        lines += [description_note, ""]
     lines += [*_frontmatter_block(frontmatter, f"Frontmatter written to {INDEX_FILENAME}:"), "",
               f"{INDEX_FILENAME} already has a title heading. Add your content below it; "
               f"{_MANAGED_NOTE}."]
@@ -451,25 +501,29 @@ def _closed_parent(biz: Business, ticket: Ticket) -> Ticket | None:
 def edit_ticket(contexts: list[ContextRef], today: date, ticket: str,
                 name: str | None = None, parent: str | None = None,
                 area: str | None = None, icon: str | None = None,
-                description: str | None = None) -> str:
-    """Change a ticket's name, parent, business area, icon, or description.
+                description: str | None = None, routine_type: str | None = None) -> str:
+    """Change a ticket's name, parent, business area, icon, description, or routine type.
 
     For every field, None means "leave unchanged" and an empty string means
     "clear" (a name can't be cleared). Idempotent: if the ticket already has
     the requested values, the call succeeds without writing anything.
     """
-    if all(value is None for value in (name, parent, area, icon, description)):
+    if all(value is None for value in (name, parent, area, icon, description, routine_type)):
         raise TicketError("nothing to change. Pass at least one of `name`, `parent`, "
-                          "`area`, `icon`, or `description`. To clear a field, pass an "
-                          "empty string; null leaves it unchanged.")
+                          "`area`, `icon`, `description`, or `routine_type`. To clear a "
+                          "field, pass an empty string; null leaves it unchanged.")
     if name is not None and not name.strip():
         raise TicketError("a ticket's name can't be cleared. Pass the new name, or leave "
                           "`name` out to keep the current one.")
     slug = _slugify(name) if name is not None else None
     area = _one_line(area) if area is not None else None
     icon = _one_line(icon) if icon is not None else None
-    description = _clean_description(description) if description is not None else None
-    return _edit_one(contexts, today, ticket, name, slug, parent, area, icon, description)
+    description_note = ""
+    if description is not None:
+        description, description_note = _clean_description(description)
+    routine_type = _clean_routine_type(routine_type) if routine_type is not None else None
+    return _edit_one(contexts, today, ticket, name, slug, parent, area, icon, description,
+                     description_note, routine_type)
 
 
 def _describe_change(label: str, old: str | None, new: str | None, quote: bool = False,
@@ -485,12 +539,16 @@ def _describe_change(label: str, old: str | None, new: str | None, quote: bool =
 
 def _edit_one(contexts: list[ContextRef], today: date, ticket: str, name: str | None,
               slug: str | None, parent: str | None, area: str | None, icon: str | None,
-              description: str | None) -> str:
+              description: str | None, description_note: str = "",
+              routine_type: str | None = None) -> str:
     number = parse_number(ticket)
     with disk_lock():
         biz = resolve_business(contexts, code=number[:3])
         item = find_ticket(biz, number)
         _require_editable(item)
+        if routine_type and item.work_type != "routine":
+            raise TicketError(f"{item.title} is a {item.work_type}. Only a routine has a "
+                              f"`routine-type`: it names the routine's class.")
         changes: list[str] = []
         target = item.folder
         old_name, old_folder_name = item.name, item.folder.name
@@ -514,7 +572,7 @@ def _edit_one(contexts: list[ContextRef], today: date, ticket: str, name: str | 
                     f"`{parent}` is not a valid ticket number. Expected the 3-letter "
                     f"business code followed by 3 characters, e.g. DUE009, DUEX01, or "
                     f"DUEA01. To clear the parent, pass an empty string.")
-            new_parent = _validate_parent(biz, parent, item.kind, child=number)
+            new_parent = _validate_parent(biz, parent, item.work_type, child=number)
 
         # The business area is inherited from the parent the ticket will have after this call.
         final_parent = new_parent if new_parent else (None if clear_parent else old_parent)
@@ -555,7 +613,8 @@ def _edit_one(contexts: list[ContextRef], today: date, ticket: str, name: str | 
             changes.append(_describe_change("Business area", new_area, area))
             new_area = area or None
         for key, label, value, quote in (("icon", "Icon", icon, False),
-                                         ("description", "Description", description, True)):
+                                         ("description", "Description", description, True),
+                                         ("routine-type", "Routine type", routine_type, False)):
             old = fm.get(key)
             if value is None or (old or "") == value:
                 continue
@@ -576,8 +635,12 @@ def _edit_one(contexts: list[ContextRef], today: date, ticket: str, name: str | 
         item.name = slug
     record(item)
     title = item.title
+    # The word-rule note matters only when this call wrote the description;
+    # an idempotent retry that changed nothing shouldn't repeat it.
+    description_changed = any(change.startswith("Description ") for change in changes)
+    note_lines = [description_note, ""] if description_note and description_changed else []
     lines = [f"### Updated {title}", "", *location_lines(item), *_created_index_note(item), "",
-             *[f"* {change}" for change in changes], "",
+             *[f"* {change}" for change in changes], "", *note_lines,
              *_frontmatter_block(fm, "Updated frontmatter:")]
     return "\n".join(lines)
 

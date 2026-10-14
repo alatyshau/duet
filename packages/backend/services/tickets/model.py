@@ -11,7 +11,7 @@ from pathlib import Path
 from services.manifest import MANIFEST_FILENAME, read_manifest
 from services.resolve_paths import ContextRef, TICKET_NUMBER_RE, list_ticket_folders
 from services.tickets.frontmatter import Frontmatter
-from services.tickets.naming import KIND_BY_LETTER
+from services.tickets.naming import WORK_TYPE_BY_LETTER
 
 INDEX_FILENAME = "INDEX.md"
 SHELVES = ("work", "backlog", "archive")
@@ -56,14 +56,14 @@ class Ticket:
     has_index: bool = True
 
     @property
-    def kind(self) -> str:
+    def work_type(self) -> str:
         letter = self.number[3] if self.number[3].isalpha() else ""
-        return KIND_BY_LETTER.get(letter, "ticket")
+        return WORK_TYPE_BY_LETTER.get(letter, "ticket")
 
     @property
     def is_group(self) -> bool:
-        """Whether this ticket can be a parent (a program or a process)."""
-        return self.kind in ("program", "process")
+        """Whether this ticket can be a parent (a program or a routine)."""
+        return self.work_type in ("program", "routine")
 
     @property
     def parent(self) -> str | None:
@@ -232,7 +232,7 @@ def check_same_business(biz: Business, number: str, code: str, business: str) ->
 
 
 def group_numbers(biz: Business) -> list[str]:
-    """Return group numbers: programs, then processes, then any other parent in use."""
+    """Return group numbers: programs, then routines, then any other parent in use."""
     own = {t.number for t in biz.tickets if t.is_group}
     referenced = {t.parent for t in biz.tickets if t.parent}
     rank = {"X": 0, "A": 1}

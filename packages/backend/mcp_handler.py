@@ -164,9 +164,9 @@ def turn_plan(items: list[str], current: int = 0, fmt: str = "md") -> str:
         )
 
     if current >= len(items):
-        title = f"План хода — все {len(items)} шагов закрыты"
+        title = f"Turn plan: all {len(items)} steps done"
     else:
-        title = f"План хода — шаг {current + 1} из {len(items)}"
+        title = f"Turn plan: step {current + 1} of {len(items)}"
 
     def state(index: int) -> str:
         if index < current:
@@ -200,7 +200,7 @@ def turn_plan(items: list[str], current: int = 0, fmt: str = "md") -> str:
             if state(index) == "done":
                 rows.append(f"  <li>{mark} <s>{text}</s></li>")
             elif state(index) == "current":
-                rows.append(f"  <li>{mark} <b>{text}</b> \u2190 сейчас</li>")
+                rows.append(f"  <li>{mark} <b>{text}</b> \u2190 now</li>")
             else:
                 rows.append(f"  <li>{mark} {text}</li>")
         body = "\n".join(rows)
@@ -211,7 +211,7 @@ def turn_plan(items: list[str], current: int = 0, fmt: str = "md") -> str:
         if state(index) == "done":
             lines.append(f"- [x] ~~{item}~~")
         elif state(index) == "current":
-            lines.append(f"- [ ] **{item}** \u2190 сейчас")
+            lines.append(f"- [ ] **{item}** \u2190 now")
         else:
             lines.append(f"- [ ] {item}")
     return "\n".join(lines)
@@ -233,9 +233,9 @@ def turn_report(report: str) -> str:
     ```markdown
     ### PPUAA — R18
 
-    **Parse.** Вопрос: кто задаёт формат отчёта. Ответ нужен, а не действие.
+    **Parse.** The question is who sets the report format. It asks for an answer, not an action.
 
-    **Plan.** Ответить, разделив, что задаёт инструмент и что задаёт агент.
+    **Plan.** Answer by separating what the tool sets from what the agent sets.
     ```
 
     Args:
@@ -272,9 +272,10 @@ def resolve_paths(paths: list[str]) -> str:
         paths: Alpha paths, e.g. ["@DUE009/INDEX.md", "@DuetLab/INDEX.md"].
 
     Returns Markdown, one `### <path>` section per address: the absolute path;
-    for a ticket, its kind and state; for a missing file, the path anyway and
-    the nearest existing folder; for an address that does not resolve, the
-    reason and what to do.
+    for a ticket, its work type, number and state; for a missing file, the path anyway and
+    the nearest existing folder. An address that does not resolve gets a line
+    starting with `Error:` that says why and what to do; the other addresses
+    in the call still resolve.
     """
     if not paths:
         raise McpError(ErrorData(code=INVALID_PARAMS, message="paths must not be empty"))
@@ -345,7 +346,7 @@ async def tickets(
         description="List only the tickets on this shelf. Combines with `parent`.",
         json_schema_extra=_one_of("", "work", "backlog", "archive"))] = "",
     parent: Annotated[str, Field(
-        description='List the tickets under this program or process, e.g. "DUEX02". '
+        description='List the tickets under this program or routine, e.g. "DUEX02". '
                     'Use "unsorted" for projects with no parent. Combines with '
                     "`shelf`.")] = "",
     number: Annotated[TicketNumbers, Field(
@@ -356,10 +357,10 @@ async def tickets(
 
     Three ways to call it:
 
-    1. Overview: `tickets(code="DUE")`. One section per program or process
+    1. Overview: `tickets(code="DUE")`. One section per program or routine
        that is in work or has a ticket in work. Each section shows the
        description, a `Tickets:` line counting the group's tickets on every
-       shelf (not counting the program or process itself), and every work
+       shelf (not counting the program or routine itself), and every work
        and backlog ticket as `NUMBER Name "description"`. Projects with no
        parent are under `Unsorted`. A program that is itself in the backlog
        is shown with counts only. The archive is summarized by counts.
@@ -368,7 +369,7 @@ async def tickets(
        leaves backlog tickets out. `parent` lists a group's tickets on every
        shelf. Together they list that group's tickets on that shelf.
     3. Lookup: `number`. Shows where a ticket is, its stable `@NUMBER`
-       address, and its frontmatter. For a program or process it also lists
+       address, and its frontmatter. For a program or routine it also lists
        every ticket under it, so no second call is needed.
 
     A ticket's state is the shelf it's on. `closed` and `reopened` in the
@@ -392,23 +393,30 @@ async def tickets(
                                       idempotentHint=False, openWorldHint=False))
 async def new_ticket(
     name: Annotated[str, Field(
-        description='The ticket name in plain words, e.g. "ui research". Converted to a '
-                    "PascalCase folder name (`UiResearch`): only letters and digits are "
-                    'kept, and each word is capitalized. "" creates a ticket with just '
-                    "its number.")],
+        description='The ticket name: two words, e.g. "ui research"; three only when two '
+                    "can't name it; four or more are rejected. It becomes the folder "
+                    "name, so keep it short. Converted to a PascalCase folder name "
+                    "(`UiResearch`): only letters and digits are kept, and each word is "
+                    'capitalized. "" creates a ticket with just its number.')],
     parent: Annotated[str | None, Field(
-        description='The program or process this ticket belongs to, e.g. "DUEX02". It '
+        description='The program or routine this ticket belongs to, e.g. "DUEX02". It '
                     "must be open (in work or backlog). The business and business area "
                     "are inherited from it.")] = None,
-    kind: Annotated[str, Field(
-        description="Only a project can have a parent.",
-        json_schema_extra=_one_of("project", "program", "process"))] = "project",
+    work_type: Annotated[str, Field(
+        description="A project completes with its deliverable, a program ends when "
+                    "its goal is reached, a routine is standing work that never "
+                    "completes. Only a project can have a parent.",
+        json_schema_extra=_one_of("project", "program", "routine"))] = "project",
     shelf: Annotated[str, Field(
         description="Where to create the ticket.",
         json_schema_extra=_one_of("work", "backlog"))] = "work",
     description: Annotated[str | None, Field(
-        description="A one-line summary shown next to the ticket in `tickets`, up to 300 "
-                    "characters. Line breaks become spaces.")] = None,
+        description="What the ticket is for, shown next to its name in `tickets`, e.g. "
+                    '"Single entry point for businesses". The fewest words that carry '
+                    "it: 3 when they do, 4 or 5 when they say it better; 6 or 7 pass "
+                    "with a warning, 8 or more are rejected. It must add meaning to the "
+                    "name, not repeat it. Not a sentence and not a summary of the work: "
+                    "that belongs in INDEX.md. No trailing period.")] = None,
     icon: Annotated[str | None, Field(description="An emoji for the ticket.")] = None,
     area: Annotated[str | None, Field(
         description="The business area. Only for a ticket without a parent.")] = None,
@@ -431,7 +439,7 @@ async def new_ticket(
 
     Example: `new_ticket(name="Thesaurus", parent="DUEX02")`.
 
-    Not covered: changing a ticket's kind, moving it to another business,
+    Not covered: changing a ticket's work type, moving it to another business,
     merging tickets, and deleting them. Ask the user how to proceed.
 
     Returns:
@@ -441,7 +449,7 @@ async def new_ticket(
         message says otherwise.
     """
     return await _ticket_tool(
-        "new_ticket", name=name, parent=parent or "", kind=kind, shelf=shelf,
+        "new_ticket", name=name, parent=parent or "", work_type=work_type, shelf=shelf,
         description=description or "", icon=icon or "",
         area=area or "", code=code or "", business=business or "")
 
@@ -465,7 +473,7 @@ async def move_ticket(
     date to `reopened`. Dates accumulate; nothing is overwritten. Moves
     between work and backlog don't record a date.
 
-    Only the named ticket moves. Moving a program or process doesn't move
+    Only the named ticket moves. Moving a program or routine doesn't move
     the tickets under it, and one can't be closed while any ticket under it
     is still in work or backlog: close those first.
 
@@ -490,12 +498,13 @@ async def move_ticket(
 async def edit_ticket(
     ticket: Annotated[str, Field(description='The ticket number, e.g. "DUE028".')],
     name: Annotated[str | None, Field(
-        description="The new name in plain words. Renames the folder, updates the title "
+        description="The new name: two words; three only when two can't name it; four "
+                    "or more are rejected. Renames the folder, updates the title "
                     "heading in INDEX.md, and records the previous folder name in "
                     "`renamed-from` and the date in `renamed`. "
                     "Can't be empty.")] = None,
     parent: Annotated[str | None, Field(
-        description='The new parent, an open program or process, e.g. "DUEX02". The '
+        description='The new parent, an open program or routine, e.g. "DUEX02". The '
                     'business area is updated to match. Pass "" to remove the parent.')] = None,
     area: Annotated[str | None, Field(
         description="The business area, for a ticket with no parent. A ticket with a "
@@ -503,10 +512,17 @@ async def edit_ticket(
     icon: Annotated[str | None, Field(
         description='An emoji. Pass "" to remove it.')] = None,
     description: Annotated[str | None, Field(
-        description='A one-line summary shown in `tickets`, up to 300 characters. Pass '
-                    '"" to remove it.')] = None,
+        description="What the ticket is for, shown next to its name in `tickets`. The "
+                    "fewest words that carry it: 3 when they do, 4 or 5 when they say "
+                    "it better; 6 or 7 pass with a warning, 8 or more are rejected. It "
+                    "must add meaning to the name, not repeat it; no trailing period. "
+                    'Pass "" to remove it.')] = None,
+    routine_type: Annotated[str | None, Field(
+        description='The class of a routine, e.g. "business-curation": lowercase words '
+                    "joined by hyphens that name the activity and its subject. Only a "
+                    'routine has one. Pass "" to remove it.')] = None,
 ) -> str:
-    """Change a ticket's name, parent, business area, icon, or description.
+    """Change a ticket's name, parent, business area, icon, description, or routine type.
 
     Always use this to rename a ticket or edit the frontmatter of its
     `INDEX.md`. Renaming changes the name everywhere it is the ticket's name:
@@ -522,8 +538,8 @@ async def edit_ticket(
     Safe to retry: if the ticket already has the requested values, the call
     succeeds with "No changes".
 
-    Not covered: changing a ticket's kind or number, `process-type`, and any
-    other frontmatter field. To close, reopen, or shelve a ticket, use
+    Not covered: changing a ticket's work type or number, and any other
+    frontmatter field. To close, reopen, or shelve a ticket, use
     `move_ticket`. For anything else, ask the user how to proceed.
 
     Returns:
@@ -533,7 +549,8 @@ async def edit_ticket(
         the message says otherwise.
     """
     return await _ticket_tool("edit_ticket", ticket=ticket, name=name, parent=parent,
-                              area=area, icon=icon, description=description)
+                              area=area, icon=icon, description=description,
+                              routine_type=routine_type)
 
 
 def _reject_unknown_arguments(names: tuple[str, ...]) -> None:

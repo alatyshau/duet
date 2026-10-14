@@ -6,7 +6,7 @@ An alpha path is `@<head>/<rest>`. `<head>` is, in this order:
 2. a context name, canonical as in the entities DB (``@DuetLab``);
 3. a ticket number (``@DUE009``, ``@DUEX01``) — three letters of the
    business's ticket code, then three characters of the number. A leading
-   letter in the number types the ticket: ``X`` program, ``A`` process, none
+   letter in the number types the ticket: ``X`` program, ``A`` routine, none
    a project.
 
 A ticket resolves through the context whose `context.json` declares that
@@ -53,22 +53,25 @@ STATE_BY_DIR = {"work": "active", "backlog": "waiting", "archive": "closed"}
 # Grouping levels allowed below a status dir: `archive/2026/09/<ticket>`.
 MAX_GROUPING_DEPTH = 3
 
-# Ticket kind by the leading letter of the number: (word, grammatical gender).
-TICKET_KINDS = {"": ("Проект", "m"), "X": ("Программа", "f"), "A": ("Процесс", "m")}
-UNKNOWN_KIND = ("Тикет", "m")
+# Work type by the leading letter of the number.
+WORK_TYPE_BY_LETTER = {"": "Project", "X": "Program", "A": "Routine"}
+UNKNOWN_WORK_TYPE = "Ticket"
+# The same words the `tickets` tool uses for a ticket's state; a closed ticket
+# also gets its archive month here when the folder shows one.
+STATE_LABELS = {"active": "in work", "waiting": "in backlog", "closed": "closed (archived)"}
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
+          "September", "October", "November", "December")
 
 # What the agent is told when an address is refused by its form alone.
+# Messages follow the ticket tools: lowercase, what is wrong, then what to do.
+# `render_markdown` puts `Error:` in front.
 _FORM_REFUSALS = {
-    "not_alpha_path": "Не альфа-путь: адрес начинается с `@`, за которым идёт имя "
-                      "бизнеса, репозитория или номер тикета.",
-    "dot_segment": "Не разрешён: в альфа-пути нет сегментов `.` и `..`. Пишите путь "
-                   "от имени бизнеса, репозитория или номера тикета, без переходов.",
+    "not_alpha_path": "not an alpha path. An alpha path starts with `@` and a business "
+                      "name, a repo, or a ticket number, e.g. `@DuetLab/INDEX.md`, "
+                      "`@Duet.git/README.md`, or `@DUE009`.",
+    "dot_segment": "an alpha path can't contain `.` or `..` segments. Write the full "
+                   "path from the business, repo, or ticket.",
 }
-
-MONTHS = (
-    "январь", "февраль", "март", "апрель", "май", "июнь",
-    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
-)
 
 
 @dataclass
@@ -82,7 +85,7 @@ class ContextRef:
 @dataclass
 class TicketInfo:
     number: str
-    kind: str          # "" project, "X" program, "A" process, other letter
+    letter: str        # "" project, "X" program, "A" routine, other letter
     state: str         # "active" | "waiting" | "closed"
     business: str
     archive_month: tuple[int, int] | None = None  # (year, month)
@@ -150,10 +153,10 @@ class _Resolver:
         owners = [c for c in self.contexts if self._code_of(c) == code]
 
         if len(owners) > 1:
-            names = _join_names([c.name for c in owners])
+            names = ", ".join(c.name for c in owners)
             return _fail(res, "ticket_code_conflict",
-                         f"Не разрешён: код {code} записан у нескольких бизнесов: {names}. "
-                         f"Нужно оставить его одному.")
+                         f"ticket code {code} is declared by multiple businesses: "
+                         f"{names}. Remove it from all but one.")
 
         if not owners:
             return self._unregistered_code(res, number, code)
@@ -162,13 +165,14 @@ class _Resolver:
         found = find_ticket_folders(Path(owner.folder), number)
         if not found:
             return _fail(res, "ticket_not_found",
-                         f"Не найден: в {owner.name} нет папки {number}_* "
-                         f"ни в работе, ни в ожидании, ни в архиве.")
+                         f"ticket {number} not found in {owner.name} "
+                         f"(checked work, backlog, and archive).")
         if len(found) > 1:
-            listing = "\n".join(f"`{f}`" for f, _ in found)
+            listing = ", ".join(f"`{f}`" for f, _ in found)
             return _fail(res, "ticket_ambiguous",
-                         f"Не разрешён: в {owner.name} несколько папок с номером {number}; "
-                         f"нужно оставить одну:\n{listing}")
+                         f"multiple folders in {owner.name} use ticket number {number}: "
+                         f"{listing}. This needs a human decision: ask the user which one "
+                         f"to keep. Don't delete or renumber folders yourself.")
 
         folder, parts = found[0]
         res.ticket = _ticket_info(number, owner.name, parts)
@@ -177,31 +181,31 @@ class _Resolver:
     def _unregistered_code(self, res: Resolution, number: str, code: str) -> Resolution:
         hits = [(c, found) for c in self.contexts
                 if (found := find_ticket_folders(Path(c.folder), number))]
-        head = f"Не разрешён: код {code} не записан ни у одного бизнеса."
+        head = f"no business has ticket code {code}."
 
         if not hits:
             return _fail(res, "ticket_code_unregistered",
-                         f"{head} Папки {number}_* нет ни в одном бизнесе "
-                         f"(искал в работе, в ожидании и в архиве).")
+                         f"{head} No business has a ticket folder {number}_* either "
+                         f"(checked work, backlog, and archive).")
 
         if len(hits) > 1:
-            lines = "\n".join(f"{c.name}: `{found[0][0]}`" for c, found in hits)
+            lines = ", ".join(f"{c.name} (`{found[0][0]}`)" for c, found in hits)
             return _fail(res, "ticket_code_unregistered",
-                         f"{head} Папка {number}_* найдена в нескольких бизнесах; "
-                         f"код можно записать только одному из них:\n{lines}")
+                         f"{head} A folder {number}_* exists in several businesses: "
+                         f"{lines}. Only one business can own a code: ask the user "
+                         f"which one.")
 
         context, found = hits[0]
         folder = found[0][0]
         other = self._code_of(context)
         if other:
             return _fail(res, "ticket_code_unregistered",
-                         f"{head} Папка {folder.name} найдена в бизнесе {context.name}, "
-                         f"но у него записан другой код, {other}:\n`{folder}`")
+                         f"{head} `{folder}` is in {context.name}, whose ticket code "
+                         f"is {other}.")
         manifest = Path(context.folder) / MANIFEST_FILENAME
         return _fail(res, "ticket_code_unregistered",
-                     f"{head}\nПапка {folder.name} найдена в бизнесе {context.name}: "
-                     f"`{folder}`\nДобавьте в его context.json строку "
-                     f"`\"ticket_code\": \"{code}\"`:\n`{manifest}`")
+                     f"{head} `{folder}` is in {context.name}. Add "
+                     f"`\"ticket_code\": \"{code}\"` to `{manifest}` and try again.")
 
     def _code_of(self, context: ContextRef) -> str | None:
         if self._codes is None:
@@ -217,7 +221,7 @@ class _Resolver:
         try:
             target = join_under(base, rest)
         except AtPathError as e:
-            return _fail(res, e.code, f"Не разрешён: путь выходит за пределы `@{head}`.")
+            return _fail(res, e.code, f"the path escapes `@{head}`.")
         res.absolute = target
         res.exists = target.exists()
         if not res.exists:
@@ -236,11 +240,12 @@ class _Resolver:
                 candidates += [e.name for e in entries if e.is_dir()]
         lowered = head.casefold()
         close = sorted({normalize_path(n) for n in candidates if normalize_path(n).casefold() == lowered})
-        message = (f"Не разрешён: нет бизнеса, репозитория или номера тикета `{head}`. "
-                   f"Имя бизнеса пишется точно как в Duet, номер тикета — три заглавные "
-                   f"латинские буквы кода и три символа номера (`DUE009`, `DUEX01`).")
+        message = (f"`@{head}` is not a business, a repo, or a ticket number. A business "
+                   f"name must match the name Duet registers exactly; a ticket number is "
+                   f"the 3-letter business code followed by 3 characters, e.g. DUE009 "
+                   f"or DUEX01.")
         if close:
-            message += " Возможно, имелось в виду: " + ", ".join(f"`@{n}`" for n in close) + "."
+            message += " Did you mean " + ", ".join(f"`@{n}`" for n in close) + "?"
         return message
 
 
@@ -304,7 +309,7 @@ def _ticket_info(number: str, business: str, parts: list[str]) -> TicketInfo:
     letter = number[3] if number[3].isalpha() else ""
     status = parts[0]
     month = _archive_month(parts[1:]) if status == "archive" else None
-    return TicketInfo(number=number, kind=letter, state=STATE_BY_DIR[status],
+    return TicketInfo(number=number, letter=letter, state=STATE_BY_DIR[status],
                       business=business, archive_month=month)
 
 
@@ -326,30 +331,17 @@ def _fail(res: Resolution, code: str, message: str) -> Resolution:
     return res
 
 
-def _join_names(names: list[str]) -> str:
-    return ", ".join(names[:-1]) + " и " + names[-1] if len(names) > 1 else names[0]
-
-
 # === Markdown rendering for the MCP tool ===
 
 
 def describe_ticket(ticket: TicketInfo) -> str:
-    """`Проект DUE002 закрыт, лежит в архиве за сентябрь 2026.`"""
-    word, gender = TICKET_KINDS.get(ticket.kind, UNKNOWN_KIND)
-    if ticket.state == "active":
-        state = "в работе"
-    elif ticket.state == "waiting":
-        state = "ждёт"
-    else:
-        state = "закрыта" if gender == "f" else "закрыт"
-    text = f"{word} {ticket.number} {state}"
-    if ticket.state == "closed":
-        if ticket.archive_month:
-            year, month = ticket.archive_month
-            text += f", лежит в архиве за {MONTHS[month - 1]} {year}"
-        else:
-            text += ", лежит в архиве"
-    return text + "."
+    """`Project DUE002, closed (archived September 2026). Business: DuetLab.`"""
+    word = WORK_TYPE_BY_LETTER.get(ticket.letter, UNKNOWN_WORK_TYPE)
+    state = STATE_LABELS[ticket.state]
+    if ticket.state == "closed" and ticket.archive_month:
+        year, month = ticket.archive_month
+        state = f"closed (archived {MONTHS[month - 1]} {year})"
+    return f"{word} {ticket.number}, {state}. Business: {ticket.business}."
 
 
 def render_markdown(results: list[Resolution]) -> str:
@@ -358,14 +350,14 @@ def render_markdown(results: list[Resolution]) -> str:
     for res in results:
         lines = [f"### {res.path}", ""]
         if res.error:
-            lines.append(res.error)
+            lines.append(f"Error: {res.error}")
         else:
             lines.append(f"`{res.absolute}`")
             if res.ticket:
                 lines += ["", describe_ticket(res.ticket)]
             if not res.exists and res.nearest:
                 alpha, folder = res.nearest
-                lines += ["", f"Файла нет. Ближайшая существующая папка — `{alpha}`:",
+                lines += ["", f"Doesn't exist yet. Nearest existing folder: `{alpha}`",
                           f"`{folder}`"]
         sections.append("\n".join(lines))
     return "\n\n".join(sections)

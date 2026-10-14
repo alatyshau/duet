@@ -106,7 +106,7 @@ describe('pathUtils', () => {
                 .toBe('`@VAL001/INDEX.md`');
         });
 
-        it('recognises program and process numbers', () => {
+        it('recognises program and routine numbers', () => {
             expect(formatTicketReference(`${lab}/work/DUEX01_ShellPrototype/plan.md`))
                 .toBe('`@DUEX01/plan.md`');
             expect(formatTicketReference(`${lab}/work/DUEA01_Weekly`)).toBe('`@DUEA01`');

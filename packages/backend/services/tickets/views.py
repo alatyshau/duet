@@ -198,7 +198,7 @@ def _render_archive_summary(biz: Business) -> list[str]:
 
     The lines under the count are deliberately not a breakdown that adds up:
     closed projects of a program are already counted in that program's own
-    section, so only closed programs, closed processes, and closed projects
+    section, so only closed programs, closed routines, and closed projects
     with no parent are named here. "including" says so.
     """
     archived = [t for t in biz.tickets if t.shelf == "archive"]
@@ -206,15 +206,15 @@ def _render_archive_summary(biz: Business) -> list[str]:
     if not archived:
         return lines + ["No tickets."]
     notable: list[str] = []
-    for kind in ("program", "process"):
-        of_kind = [t for t in archived if t.kind == kind]
-        if of_kind:
+    for work_type in ("program", "routine"):
+        of_type = [t for t in archived if t.work_type == work_type]
+        if of_type:
             by_close_date = sorted(
-                of_kind, key=lambda t: (t.frontmatter.get_list("closed")[-1:], t.number))
+                of_type, key=lambda t: (t.frontmatter.get_list("closed")[-1:], t.number))
             names = ", ".join(t.number for t in by_close_date[-5:])
-            suffix = ", 5 most recent" if len(of_kind) > 5 else ""
-            notable.append(f"* {pluralize(len(of_kind), kind)} ({names}{suffix})")
-    orphans = [t for t in archived if t.kind == "project" and t.parent is None]
+            suffix = ", 5 most recent" if len(of_type) > 5 else ""
+            notable.append(f"* {pluralize(len(of_type), work_type)} ({names}{suffix})")
+    orphans = [t for t in archived if t.work_type == "project" and t.parent is None]
     if orphans:
         word = "project" if len(orphans) == 1 else "projects"
         notable.append(f"* {len(orphans)} {word} without a parent")
@@ -281,7 +281,7 @@ _STATE_LABELS = {"work": "in work", "backlog": "in backlog", "archive": "closed 
 def _render_ticket(biz: Business, ticket: Ticket) -> str:
     """Render a single ticket: its location, its frontmatter fields, and any tickets under it."""
     lines = [f"### {ticket.title}", "",
-             f"{ticket.kind.capitalize()}, {_STATE_LABELS[ticket.shelf]}. "
+             f"{ticket.work_type.capitalize()}, {_STATE_LABELS[ticket.shelf]}. "
              f"Business: {biz.name} ({biz.code}).", "",
              *location_lines(ticket), ""]
     if ticket.read_error:

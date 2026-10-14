@@ -31,7 +31,7 @@ Starting data is defined once, in `trees/`. Changing a shared tree changes the e
 - `DUEX06 Marketplace`: active program with no tickets.
 - `DUEX05 DuetSkills`: program in the backlog. `DUE027` is in the backlog; `DUE021` is archived.
 - `DUEX03 WorkSupport`: closed program. `DUE017` and `DUE036` are archived; `DUE036` is the highest project number in the business.
-- `DUEA01 Curation`: active process with no tickets. `DUEA02 Migration`: closed process.
+- `DUEA01 Curation`: active routine with no tickets. `DUEA02 Migration`: closed routine whose frontmatter still says `work-type: process`, as written by an earlier version; the number's letter types it.
 - No parent: `DUE026` and `DUE033` (no frontmatter in its `INDEX.md`) in work, `DUE029` in the backlog, `DUE002` and `DUE009` archived.
 
 ## tickets
@@ -73,7 +73,7 @@ Starting data is defined once, in `trees/`. Changing a shared tree changes the e
 - `new_ticket/02_name_in_plain_words`: a plain-words name with no parent becomes a PascalCase folder with `parent: null`. Starts from `lab`.
 - `new_ticket/03_into_backlog_with_description`: created directly in the backlog, with a description. Starts from `lab`.
 - `new_ticket/04_program`: a program gets the next DUEX number, plus an icon and a business area. Starts from `lab`.
-- `new_ticket/05_process`: a process gets the next DUEA number; the business is looked up by name. Starts from `lab`.
+- `new_ticket/05_routine`: a routine gets the next DUEA number; the business is looked up by name. Starts from `lab`.
 - `new_ticket/06_number_in_grouped_folders`: the highest number is in a year/month archive and another ticket is in a backlog grouping folder; both are counted, and gaps aren't reused. Own `before/`.
 - `new_ticket/07_first_ticket_cyrillic_name`: the first ticket of a business, with a Cyrillic name. Non-Latin letters are kept in the folder name, and `work/` is created on demand. Starts from `empty`.
 - `new_ticket/08_error_parent_is_project`: error when the parent is a project. Starts from `lab`.
@@ -84,8 +84,11 @@ Starting data is defined once, in `trees/`. Changing a shared tree changes the e
 - `new_ticket/13_error_no_business`: error when no parent, code, or business is given. Starts from `empty`.
 - `new_ticket/14_error_area_against_parent`: error when `area` conflicts with the parent's business area. Starts from `lab`.
 - `new_ticket/15_description_line_breaks`: line breaks in a description, including U+2028, become spaces, so the text can't spill into another frontmatter field. Starts from `lab`.
-- `new_ticket/16_error_description_too_long`: error when the description is over 300 characters. Starts from `lab`.
+- `new_ticket/16_error_description_too_long`: error when the description is over 300 characters while staying within the word limit. Starts from `lab`.
 - `new_ticket/17_no_name`: an empty name creates a ticket with just its number, as the extension's new-ticket button allows. Starts from `lab`.
+- `new_ticket/18_error_description_too_many_words`: error when the description has 8 or more words; the message repeats the rule, not just the limit. Starts from `lab`.
+- `new_ticket/19_description_word_warning`: a 6-word description is written, and the response carries a note with the rule. Starts from `lab`.
+- `new_ticket/20_error_name_too_many_words`: error when the name has 4 or more words. Starts from `lab`.
 
 ## move_ticket
 
@@ -110,6 +113,7 @@ Starting data is defined once, in `trees/`. Changing a shared tree changes the e
 - `move_ticket/19_program_to_backlog`: moving a program moves only the program; the response says its tickets stay put. Starts from `lab`.
 - `move_ticket/20_close_folder_without_index`: closing a ticket that has no `INDEX.md` creates one and says so. Own `before/`.
 - `move_ticket/21_reopen_under_closed_parent`: reopening a ticket whose parent is closed works, with a note about the parent. Starts from `lab`.
+- `move_ticket/22_reopen_routine_with_old_frontmatter`: a routine archived by an earlier version, with `work-type: process`, reopens as any other; its frontmatter line is left as written, because the number's letter types the ticket for the Backend and the Extension alike. Starts from `lab`.
 
 ## edit_ticket
 
@@ -135,3 +139,9 @@ Starting data is defined once, in `trees/`. Changing a shared tree changes the e
 - `edit_ticket/22_rename_keeps_unrelated_heading`: a title heading that doesn't mention the old name is left alone, and the response says so. Own `before/`.
 - `edit_ticket/21_error_empty_name`: error when `name` is an empty string; a name can be changed but not cleared. Starts from `lab`.
 - `edit_ticket/19_error_null_string_is_not_a_parent`: the string "none" is not a way to clear the parent; the error says to pass an empty string. Starts from `lab`.
+- `edit_ticket/23_description_word_warning`: a 6-word description is written, and the response carries a note with the rule. Starts from `lab`.
+- `edit_ticket/24_error_description_too_many_words`: error when the description has 8 or more words; nothing is written. Starts from `lab`.
+- `edit_ticket/25_error_name_too_many_words`: error when the new name has 4 or more words. Starts from `lab`.
+- `edit_ticket/26_routine_type_set`: a routine gets its class; the value is lowercased and placed after `work-type`. Starts from `lab`.
+- `edit_ticket/27_error_routine_type_on_project`: error when the ticket isn't a routine. Starts from `lab`.
+- `edit_ticket/28_error_routine_type_shape`: error when the value isn't lowercase words joined by hyphens. Starts from `lab`.

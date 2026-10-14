@@ -25,10 +25,13 @@ export interface TicketInfo {
     /** Absolute path of the folder. */
     path: string;
     shelf: Shelf;
-    /** `work-type` of the ticket's `INDEX.md`, lower case; null when absent or unreadable. */
+    /**
+     * Work type: what the number's letter says (`workTypeOfNumber`), else
+     * `work-type` of the ticket's `INDEX.md`, lower case; null when neither tells.
+     */
     workType: string | null;
-    /** `process-type` from INDEX.md; null when absent. */
-    processType: string | null;
+    /** `routine-type` from INDEX.md, lower case; null when absent. */
+    routineType: string | null;
     /** Number of the parent ticket from `parent`; null when the ticket has none. */
     parent: string | null;
     /** Emoji of the ticket from `icon`; empty when it has none. */
@@ -38,8 +41,8 @@ export interface TicketInfo {
 export interface TicketFrontmatter {
     parent: string | null;
     workType: string | null;
-    /** `process-type` from INDEX.md; null when absent. */
-    processType: string | null;
+    /** `routine-type` from INDEX.md, lower case; null when absent. */
+    routineType: string | null;
     icon: string;
 }
 
@@ -57,27 +60,27 @@ const MAX_PARENT_CHAIN = 16;
 const ARCHIVE_DEPTH = 3;
 
 /**
- * Read `parent`, `work-type` and `icon` from the frontmatter at the start of a
+ * Read `parent`, `work-type`, `routine-type` and `icon` from the frontmatter at the start of a
  * ticket's `INDEX.md`. An empty value and `null` both mean "no parent" and "no
  * icon". A parent written as a folder name or an alpha path is reduced to its
  * ticket number.
  */
 export function parseTicketFrontmatter(head: string): TicketFrontmatter {
-    const result: TicketFrontmatter = { parent: null, workType: null, processType: null, icon: '' };
+    const result: TicketFrontmatter = { parent: null, workType: null, routineType: null, icon: '' };
     const lines = head.replace(/^﻿/, '').split(/\r?\n/);
     if (lines[0] !== '---') {
         return result;
     }
     for (let i = 1; i < lines.length && lines[i] !== '---'; i++) {
-        const match = /^(parent|work-type|process-type|icon)\s*:(.*)$/.exec(lines[i]);
+        const match = /^(parent|work-type|routine-type|icon)\s*:(.*)$/.exec(lines[i]);
         if (!match) {
             continue;
         }
         const value = cleanValue(match[2]);
         if (match[1] === 'work-type') {
             result.workType = value ? value.toLowerCase() : null;
-        } else if (match[1] === 'process-type') {
-            result.processType = value ? value.toLowerCase() : null;
+        } else if (match[1] === 'routine-type') {
+            result.routineType = value ? value.toLowerCase() : null;
         } else if (match[1] === 'icon') {
             result.icon = value ?? '';
         } else {
@@ -153,16 +156,21 @@ export class TicketReader {
                 name: spaceIntentName(parsed.rest),
                 path: place.path,
                 shelf: place.shelf,
-                workType: front.workType,
-                processType: front.processType,
+                workType: workTypeOfNumber(parsed.number) ?? front.workType,
+                routineType: front.routineType,
                 parent: front.parent,
                 icon: front.icon
             };
         }));
     }
 
-    /** Search cannot silently treat unreadable shelves or headers as "no curator". */
-    async findCurator(businessPath: string): Promise<TicketInfo | null> {
+    /**
+     * The business's routine of a class, e.g. `findRoutine(path, BUSINESS_CURATION)`;
+     * null when it has none. A business has one routine of each class: two are
+     * an error that names both. The search cannot silently treat unreadable
+     * shelves or headers as "no routine".
+     */
+    async findRoutine(businessPath: string, routineType: string): Promise<TicketInfo | null> {
         const places = (await Promise.all(SHELVES.map(async shelf =>
             (await withTimeout(this.subfoldersOrThrow(path.join(businessPath, shelf)), this.timeoutMs))
                 .filter(folder => parseTicketFolderName(folder) !== null)
@@ -171,14 +179,19 @@ export class TicketReader {
         const tickets = await Promise.all(places.map(async place => {
             const parsed = parseTicketFolderName(place.folder)!;
             const front = await this.checkedFrontmatter(path.join(place.path, 'INDEX.md'));
-            return { ...place, number: parsed.number, name: spaceIntentName(parsed.rest), ...front };
+            return {
+                ...place, number: parsed.number, name: spaceIntentName(parsed.rest), ...front,
+                workType: workTypeOfNumber(parsed.number) ?? front.workType
+            };
         }));
-        return pickCurator(tickets);
+        return pickRoutine(tickets, routineType);
     }
 
     /** Revalidate the criterion on the resolved folder before opening it. */
-    async isCuratorAt(ticketPath: string): Promise<boolean> {
-        return isCurator(await this.checkedFrontmatter(path.join(ticketPath, 'INDEX.md')));
+    async isRoutineAt(ticketPath: string, routineType: string): Promise<boolean> {
+        const front = await this.checkedFrontmatter(path.join(ticketPath, 'INDEX.md'));
+        const number = parseTicketFolderName(path.basename(ticketPath))?.number;
+        return isRoutine({ ...front, workType: (number && workTypeOfNumber(number)) ?? front.workType }, routineType);
     }
 
     private async checkedFrontmatter(indexPath: string): Promise<TicketFrontmatter> {
@@ -186,7 +199,7 @@ export class TicketReader {
             return await withTimeout(this.readFrontmatter(indexPath, true), this.timeoutMs);
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return { parent: null, workType: null, processType: null, icon: '' };
+                return { parent: null, workType: null, routineType: null, icon: '' };
             }
             throw new Error(`Не удалось проверить Куратора: ${indexPath}: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -260,7 +273,7 @@ export class TicketReader {
         try {
             return await withTimeout(this.readFrontmatter(indexPath), this.timeoutMs);
         } catch {
-            return { parent: null, workType: null, processType: null, icon: '' };
+            return { parent: null, workType: null, routineType: null, icon: '' };
         }
     }
 
@@ -285,13 +298,37 @@ export class TicketReader {
     }
 }
 
-export function isCurator(ticket: Pick<TicketFrontmatter, 'workType' | 'processType'>): boolean {
-    return ticket.workType === 'process' && ticket.processType === 'curator';
+/**
+ * The work type a ticket number carries in its letter: `X` a program, `A` a
+ * routine; null for a plain number. The Backend types tickets by the same
+ * letter, so a ticket whose frontmatter says something else — an old
+ * `work-type: process`, a missing `INDEX.md` — is the same thing to both.
+ */
+export function workTypeOfNumber(number: string): string | null {
+    const letter = number.charAt(3);
+    return letter === 'X' ? 'program' : letter === 'A' ? 'routine' : null;
 }
 
-/** Canonical ticket numbers have fixed-width suffixes; choose independently of display order. */
-export function pickCurator(tickets: readonly TicketInfo[]): TicketInfo | null {
-    return tickets.filter(isCurator).sort((a, b) => a.number < b.number ? -1 : a.number > b.number ? 1 : 0)[0] ?? null;
+/** `routine-type` of the routine that curates a business; its chat is the business's Curator. */
+export const BUSINESS_CURATION = 'business-curation';
+
+export function isRoutine(ticket: Pick<TicketFrontmatter, 'workType' | 'routineType'>, routineType: string): boolean {
+    return ticket.workType === 'routine' && ticket.routineType === routineType;
+}
+
+/**
+ * The one routine of a class among the tickets, or null. Two routines of one
+ * class are refused with both named, in number order, rather than one being
+ * chosen silently.
+ */
+export function pickRoutine(tickets: readonly TicketInfo[], routineType: string): TicketInfo | null {
+    const found = tickets.filter(ticket => isRoutine(ticket, routineType))
+        .sort((a, b) => a.number < b.number ? -1 : a.number > b.number ? 1 : 0);
+    if (found.length > 1) {
+        const names = found.map(ticket => `${ticket.number} ${ticket.name}`).join(', ');
+        throw new Error(`У бизнеса несколько рутин класса ${routineType}: ${names}. Должна быть одна — оставьте одну и повторите.`);
+    }
+    return found[0] ?? null;
 }
 
 /** Reject with a timeout error when `promise` has not settled within `ms` milliseconds. */

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 # Canonical field order, used to place a field that isn't in the file yet.
 FIELD_ORDER = (
-    "folder-type", "work-type", "process-type", "icon", "description",
+    "folder-type", "work-type", "routine-type", "icon", "description",
     "opened", "closed", "reopened", "renamed-from", "renamed",
     "business-area", "parent",
 )

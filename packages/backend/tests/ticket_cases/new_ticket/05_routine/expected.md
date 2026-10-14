@@ -4,14 +4,14 @@
 
 **Index:** `@DUEA03/INDEX.md`
 
-Process in work. No parent. Business area: DuetLab.
+Routine in work. No parent. Business area: DuetLab.
 
 Frontmatter written to INDEX.md:
 
 ```yaml
 ---
 folder-type: work
-work-type: process
+work-type: routine
 opened: 2026-10-08
 business-area: DuetLab
 parent: null

@@ -1,0 +1,1 @@
+Error: `description` has 8 words; the rule is the fewest words that carry what the ticket is for: 3 when they do, 4 or 5 when they say it better, and 7 is the limit. The details belong below the frontmatter in INDEX.md.

@@ -5,9 +5,10 @@ import { Shelf, TicketInfo } from './tickets';
  * The bin: all tickets of a business from `work/` and `backlog/`, laid out by
  * container.
  *
- * A container is a ticket with `work-type: process` or `program`. Containers
+ * A container is a routine or a program (`TicketInfo.workType`: the number's
+ * letter, else `work-type` of INDEX.md). Containers
  * always stand flat, in the remembered order; those it does not hold come
- * after — processes first, then programs, by number. Under a
+ * after — routines first, then programs, by number. Under a
  * container go its tickets from `work/`, then a «Backlog» node with its tickets
  * from `backlog/`. Tickets without a container form the «Unsorted» group of the
  * same shape. A container group stands in the root while the container or one
@@ -15,7 +16,7 @@ import { Shelf, TicketInfo } from './tickets';
  * «Backlog». Every row appears once.
  */
 
-export const CONTAINER_TYPES: readonly string[] = ['process', 'program'];
+export const CONTAINER_TYPES: readonly string[] = ['routine', 'program'];
 export const UNSORTED_GROUP = 'unsorted';
 export const ROOT_GROUP = 'root';
 
@@ -24,7 +25,7 @@ export interface TicketNode {
     /** Stable across refreshes: `ticket:<folder path>`. Two folders with one number get two keys. */
     key: string;
     ticket: TicketInfo;
-    /** True for a process or a program. */
+    /** True for a routine or a program. */
     container: boolean;
     /** Group the row belongs to: the container's folder path, or `unsorted`. */
     group: string;
@@ -130,7 +131,7 @@ export function ticketKey(ticket: Pick<TicketInfo, 'path'>): string {
 }
 
 /**
- * The container of a ticket: the nearest process or program up the `parent`
+ * The container of a ticket: the nearest routine or program up the `parent`
  * chain. A parent that is not in `work/` or `backlog/` of the business, or a
  * chain that ends without a container, gives null — the ticket is «Unsorted».
  */
@@ -160,8 +161,8 @@ function byShelfThenPath(a: TicketInfo, b: TicketInfo): number {
 
 /**
  * Containers in shown order: those the remembered order holds, in its sequence —
- * processes and programs mixed as the user put them; the rest after them,
- * processes first, then programs, by number.
+ * routines and programs mixed as the user put them; the rest after them,
+ * routines first, then programs, by number.
  */
 function sortContainers(containers: TicketInfo[], order: string[]): TicketInfo[] {
     const position = new Map(order.map((n, i) => [n, i]));
@@ -180,7 +181,7 @@ function sortContainers(containers: TicketInfo[], order: string[]): TicketInfo[]
 
 function byTypeThenNumber(a: TicketInfo, b: TicketInfo): number {
     if (a.workType !== b.workType) {
-        return a.workType === 'process' ? -1 : 1;
+        return a.workType === 'routine' ? -1 : 1;
     }
     if (a.number !== b.number) {
         return a.number < b.number ? -1 : 1;
@@ -348,7 +349,7 @@ export function decideBinDrop(
 }
 
 /**
- * A dragged process or program changes its place among the containers of its
+ * A dragged routine or program changes its place among the containers of its
  * level: those of the root, or those under the root «Backlog». Its folder never
  * moves. The row the drop landed on stands for the row of the level it belongs
  * to: a drop on a ticket of another program is a drop on that program. Dragged
@@ -364,7 +365,7 @@ function decideContainerDrop(tree: BinNode[], source: TicketNode, targetKey: str
     const level = containersOf(inBacklog ? rootBacklog.children : tree);
     const numbers = level.map(n => n.ticket.number);
     const number = source.ticket.number;
-    const otherLevel = 'Процесс или программа перетаскиванием только меняет место среди соседних; в «Backlog» и обратно так не переносится.';
+    const otherLevel = 'Рутина или программа перетаскиванием только меняет место среди соседних; в «Backlog» и обратно так не переносится.';
 
     let next: string[];
     if (targetKey === null) {
