@@ -8,4 +8,4 @@ The MIT license that covers the code grants rights to the code only. It grants n
 
 **You may not, without permission:** call a fork, derivative product, or service "Duet", "Duet Shell", "Duet Work", or anything confusingly similar; use the logo; or suggest that your product is made or endorsed by the author of Duet. A fork needs a name of its own.
 
-Questions and permission requests: open a thread in the repository's GitHub Discussions, or contact the author directly.
+Questions and permission requests: open a thread in the repository's GitHub Discussions.
