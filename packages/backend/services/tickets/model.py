@@ -145,7 +145,8 @@ def load_business(context: ContextRef, code: str) -> Business:
     return Business(context.name, code, Path(context.folder), tickets)
 
 
-def _businesses_with_codes(contexts: list[ContextRef]) -> list[tuple[ContextRef, str]]:
+def businesses_with_codes(contexts: list[ContextRef]) -> list[tuple[ContextRef, str]]:
+    """Read ticket owners and their codes live from registered manifests."""
     out = []
     for context in contexts:
         manifest = read_manifest(context.folder)
@@ -155,7 +156,7 @@ def _businesses_with_codes(contexts: list[ContextRef]) -> list[tuple[ContextRef,
 
 
 def available_codes_hint(contexts: list[ContextRef]) -> str:
-    coded = _businesses_with_codes(contexts)
+    coded = businesses_with_codes(contexts)
     if not coded:
         return "No business has a ticket code yet."
     return "Businesses with ticket codes: " + ", ".join(
@@ -166,7 +167,7 @@ def resolve_business(contexts: list[ContextRef], code: str = "",
                      business: str = "") -> Business:
     """Look up a business by ticket code or by name and load its tickets."""
     if code:
-        owners = [(c, k) for c, k in _businesses_with_codes(contexts) if k == code]
+        owners = [(c, k) for c, k in businesses_with_codes(contexts) if k == code]
         if not owners:
             raise TicketError(f"no business has ticket code {code}. "
                               f"{available_codes_hint(contexts)}")

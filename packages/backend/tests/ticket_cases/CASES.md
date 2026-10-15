@@ -67,6 +67,13 @@ Starting data is defined once, in `trees/`. Changing a shared tree changes the e
 - `tickets/29_number_lowercase`: a number in lowercase is accepted; a ticket with empty fields shows them as `none`. Starts from `lab`.
 - `tickets/30_error_numbers_in_one_string`: several numbers in one comma-separated string get an error that shows the list form. Starts from `lab`.
 
+- `tickets/31_area_overview`: tickets(business="DuetShell"). Starts from `lab`.
+- `tickets/32_area_shelf`: tickets(code="DUE", business="DuetShell", shelf="backlog"). Starts from `lab`.
+- `tickets/33_area_parent_shelf`: tickets(business="DuetShell", parent="DUEX01", shelf="work"). Starts from `lab`.
+- `tickets/34_error_number_outside_area`: tickets(business="DuetShell", number="DUE008"). Starts from `lab`.
+- `tickets/35_error_parent_outside_area`: tickets(business="DuetShell", parent="DUEX02"). Starts from `lab`.
+- `tickets/36_area_empty_shelf`: tickets(business="DuetShell", shelf="archive"). Starts from `lab`.
+
 ## new_ticket
 
 - `new_ticket/01_project_under_program`: a project under a program. The number is one past the highest, DUE036, which is in the archive. The business area is inherited from the parent. Starts from `lab`.

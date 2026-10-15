@@ -341,7 +341,9 @@ TicketNumbers = str | Annotated[list[str], Field(min_length=1)]
 async def tickets(
     code: Annotated[str, Field(description='Ticket code of the business, e.g. "DUE".')] = "",
     business: Annotated[str, Field(
-        description='Name of the business, e.g. "DuetLab". An alternative to `code`.')] = "",
+        description='Business name ("DuetLab") or exact business-area value ("DuetShell"). '
+                    'An area selects only its tickets from the owning business; add `code` '
+                    'if the area occurs in multiple businesses.')] = "",
     shelf: Annotated[str, Field(
         description="List only the tickets on this shelf. Combines with `parent`.",
         json_schema_extra=_one_of("", "work", "backlog", "archive"))] = "",
@@ -354,6 +356,12 @@ async def tickets(
                     "Can't be combined with `parent` or `shelf`.")] = "",
 ) -> str:
     """List a business's tickets. Use this instead of browsing ticket folders.
+
+    `business` accepts a registered ticket owner or an exact `business-area`
+    value from ticket frontmatter. For example, `business="DuetShell"` selects
+    that area's tickets from DuetLab without a separate manifest or ticket code.
+    Area names must identify one ticket owner; add `code` to disambiguate.
+    The area filter applies to counts, shelves, parents, and number lookups.
 
     Three ways to call it:
 

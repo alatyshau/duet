@@ -310,6 +310,89 @@ def call(lab: Path, action: str, **arguments):
     return run(action, [ContextRef("DuetLab", lab)], DEFAULT_TODAY, **arguments)
 
 
+class TestAreaSelection:
+    """Area filters use live ticket metadata without requiring their own manifest."""
+
+    def test_owner_name_still_returns_all_areas(self, lab: Path) -> None:
+        by_name = call(lab, "tickets", business="DuetLab")
+        by_code = call(lab, "tickets", code="DUE")
+        assert by_name == by_code
+
+    def test_batch_lookup_checks_each_ticket(self, lab: Path) -> None:
+        result = call(lab, "tickets", business="DuetShell", number=["DUE007", "DUE008"])
+        assert not result.is_error
+        assert "Resolved 1 of 2 tickets. Failed: DUE008." in result.text
+        assert [t["number"] for t in result.tickets] == ["DUE007"]
+
+    def test_archive_and_unsorted_stay_in_area(self, lab: Path) -> None:
+        result = call(lab, "tickets", business="DuetOrig", shelf="archive")
+        assert not result.is_error
+        assert "DUE017" in result.text and "DUE036" in result.text
+        assert "DUE013" not in result.text and "DUE002" not in result.text
+        unsorted = call(lab, "tickets", business="DuetShell", parent="unsorted")
+        assert not unsorted.is_error and "Tickets: none" in unsorted.text
+        assert "DUE026" not in unsorted.text
+
+    def test_external_parent_is_context_not_a_matching_ticket(self, lab: Path) -> None:
+        parent = lab / "work/DUEX01_ShellPrototype/INDEX.md"
+        parent.write_text(parent.read_text().replace("DuetShell", "DuetWork"))
+        result = call(lab, "tickets", business="DuetShell", parent="DUEX01")
+        assert not result.is_error
+        assert "New Duet shell prototype" in result.text
+        assert "Tickets: 2 in work, 1 in backlog" in result.text
+        lookup = call(lab, "tickets", business="DuetShell", number="DUEX01")
+        assert lookup.is_error and "not in business area" in lookup.text
+
+    def test_area_changes_are_read_live(self, lab: Path) -> None:
+        ticket = lab / "work/DUE007_UIResearch/INDEX.md"
+        ticket.write_text(ticket.read_text().replace("DuetShell", "DuetWork"))
+        result = call(lab, "tickets", business="DuetShell")
+        assert not result.is_error and "DUE007" not in result.text
+
+    def test_unreadable_metadata_does_not_silently_disappear(self, lab: Path) -> None:
+        (lab / "work/DUE007_UIResearch/INDEX.md").write_bytes(b"\xff")
+        result = call(lab, "tickets", business="DuetShell")
+        assert result.is_error
+        assert "unreadable tickets (DUE007)" in result.text
+
+    def test_ambiguous_area_needs_owner_code(self, lab: Path, tmp_path: Path) -> None:
+        other = tmp_path / "OtherLab"
+        other.mkdir()
+        (other / "context.json").write_text(json.dumps(
+            {"version": 4, "name": "OtherLab", "ticket_code": "OTH"}))
+        ticket = other / "work/OTH001_Example"
+        ticket.mkdir(parents=True)
+        (ticket / "INDEX.md").write_text("---\nbusiness-area: DuetShell\n---\n")
+        contexts = [ContextRef("DuetLab", lab), ContextRef("OtherLab", other)]
+        result = run("tickets", contexts, DEFAULT_TODAY, business="DuetShell")
+        assert result.is_error and "multiple businesses" in result.text
+        scoped = run("tickets", contexts, DEFAULT_TODAY, business="DuetShell", code="DUE")
+        assert not scoped.is_error and "DUE007" in scoped.text
+        assert "OTH001" not in scoped.text
+
+    def test_registered_owner_takes_precedence_over_area_label(
+        self, lab: Path, tmp_path: Path
+    ) -> None:
+        owner = tmp_path / "DuetShell"
+        owner.mkdir()
+        (owner / "context.json").write_text(json.dumps(
+            {"version": 4, "name": "DuetShell", "ticket_code": "SHL"}))
+        result = run("tickets", [ContextRef("DuetLab", lab), ContextRef("DuetShell", owner)],
+                     DEFAULT_TODAY, business="DuetShell")
+        assert not result.is_error and "DuetShell (SHL)" in result.text
+        assert "DUE007" not in result.text
+
+    def test_unknown_area_is_not_an_empty_success(self, lab: Path) -> None:
+        result = call(lab, "tickets", business="DuetShel")
+        assert result.is_error and "not found" in result.text
+
+    def test_write_business_resolution_is_unchanged(self, lab: Path) -> None:
+        before = tree_of(lab)
+        result = call(lab, "new_ticket", business="DuetShell", name="New Work")
+        assert result.is_error
+        assert tree_of(lab) == before
+
+
 def fail_writes(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(path: Path, text: str) -> None:
         raise OSError("disk unavailable")
@@ -606,3 +689,6 @@ class TestTools:
         assert created.text.startswith("### Created DUE037 Thesaurus")
         assert (lab / "work" / "DUE037_Thesaurus" / "INDEX.md").is_file()
         assert "`DUE037` Thesaurus" in service.ticket_action("tickets", code="DUE").text
+        scoped = service.ticket_action("tickets", business="DuetShell")
+        assert not scoped.is_error and "DUE007" in scoped.text
+        assert "DUE037" not in scoped.text

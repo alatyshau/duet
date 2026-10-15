@@ -177,6 +177,24 @@ Four operations let an agent work with tickets in one call each instead of listi
 - The MCP tools run the operation in a worker thread (`mcp_handler._ticket_tool`). Tickets live on a cloud-synced drive where a read can stall, and FastMCP would otherwise run a sync tool on the event loop and freeze every client. `tickets` gives up after 30 seconds with an error; writes have no deadline, because abandoning one halfway would leave its outcome unknown.
 - Unknown arguments are rejected, with the same message on both entry points: `services.tickets.check_arguments` names the argument, suggests the closest valid one and lists the rest, and also refuses wrong types and missing required arguments. FastMCP's argument model ignores extra keys by default, so `mcp_handler._reject_unknown_arguments` wraps each tool's validation to run that check first and publishes `additionalProperties: false`; a misspelled argument can't fall back to a default on a tool that writes to disk.
 
+**Business selection for reads.** `tickets(business="DuetLab")` selects the registered
+owner as before. `tickets(business="DuetShell")` also accepts an exact
+`business-area` value from ticket frontmatter and selects only that area's tickets
+from its owning business. No separate manifest or ticket code is required for an
+area. Registered owners take precedence over area labels. An area found under
+multiple owners is ambiguous; `code` narrows the search to one owner. Unknown
+names remain errors rather than empty successes. Areas are discovered from live
+ticket metadata, not by scanning business entry points; an area with no tagged
+tickets cannot be resolved by this selector.
+
+The area selection applies before grouping, shelf filtering, and archive counts.
+Parent tickets outside the area may supply group headings, but are not counted as
+matches. `parent` outside the area with no matching children is an error; `number`
+requires the ticket itself to match. Batch lookups preserve per-number errors.
+Unreadable ticket metadata fails an area search because area membership cannot be
+determined safely. Follow-up listing examples retain the area and owner code.
+Write operations keep their existing business resolution and `area` argument.
+
 **Arguments.** Values with a fixed set (`shelf`, `to`, `work_type`) are published as an `enum` in the schema but accepted as plain strings, so that `"Archive"` reaches the service: it normalizes the case and answers an unknown value in the tools' own error format instead of a validation dump.
 
 **Tests.** `tests/test_ticket_cases.py` runs every folder under `tests/ticket_cases/` (a starting tree, a call, the expected response, the expected changes on disk; index in `tests/ticket_cases/CASES.md`). Behavior changes start there: the case first, then the code. The same file holds `TestRollback` (failed writes, file permissions), `TestConcurrency` (reads during moves), `TestMcpBoundary` (strict arguments, `isError`, timeouts) and `TestFrontmatter`; the REST entry point is covered by `tests/test_api.py::TestTicketsEndpoint`. To check behavior on the real cloud drive rather than a local temp folder, point pytest's `--basetemp` at a scratch folder on the drive that lies outside every root context.

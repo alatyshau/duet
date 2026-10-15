@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from datetime import date
 
 from services.resolve_paths import ContextRef
@@ -11,6 +13,7 @@ from services.tickets.model import (
     Business,
     Ticket,
     TicketError,
+    businesses_with_codes,
     check_same_business,
     find_ticket,
     group_numbers,
@@ -22,6 +25,56 @@ from services.tickets.model import (
 )
 
 UNSORTED = "Unsorted"
+
+
+@dataclass
+class AreaView(Business):
+    """A read-only area selection; parent headings still use the owning business."""
+
+    area: str
+    owner: Business
+
+    def find(self, number: str) -> list[Ticket]:
+        return self.owner.find(number)
+
+
+def _resolve_view(contexts: list[ContextRef], code: str = "", business: str = "",
+                  loaded: dict[str, Business] | None = None) -> Business:
+    """Resolve a ticket owner or an exact `business-area` value, without changing writes."""
+    if not business:
+        return resolve_business(contexts, code)
+    coded = businesses_with_codes(contexts)
+    # Registered ticket owners retain their existing meaning and conflict checks.
+    if any(context.name == business for context, _ in coded):
+        return resolve_business(contexts, code, business)
+    cache = loaded if loaded is not None else {}
+
+    def load(ticket_code: str) -> Business:
+        if ticket_code not in cache:
+            cache[ticket_code] = resolve_business(contexts, code=ticket_code)
+        return cache[ticket_code]
+
+    owners = [load(code)] if code else [load(k) for k in dict.fromkeys(k for _, k in coded)]
+    matches = []
+    for owner in owners:
+        if owner.unreadable:
+            numbers = ", ".join(t.number for t in owner.unreadable)
+            raise TicketError(f"can't select business area {business}: {owner.name} has "
+                              f"unreadable tickets ({numbers}), so their business area "
+                              "is unknown. Fix their INDEX.md files and try again.")
+        selected = [t for t in owner.tickets
+                    if t.frontmatter.get("business-area") == business]
+        if selected:
+            matches.append(AreaView(f"{business} — {owner.name}", owner.code,
+                                    owner.folder, selected, business, owner))
+    if len(matches) > 1:
+        names = ", ".join(f"{view.owner.name} ({view.code})" for view in matches)
+        raise TicketError(f"business area {business} occurs in multiple businesses: "
+                          f"{names}. Pass `code` as well to select its ticket owner.")
+    if matches:
+        return matches[0]
+    # Keep the existing actionable errors for unknown names and missing codes.
+    return resolve_business(contexts, code, business)
 
 
 def tickets(contexts: list[ContextRef], today: date, code: str = "", business: str = "",
@@ -47,9 +100,11 @@ def tickets(contexts: list[ContextRef], today: date, code: str = "", business: s
     if parent and parent.lower() != "unsorted":
         group = parse_number(parent)
         biz = resolve_business(contexts, code=group[:3])
-        check_same_business(biz, group, code, business)
+        check_same_business(biz, group, code, "")
+        if business:
+            biz = _resolve_view(contexts, biz.code, business, {biz.code: biz})
         return _render_group(biz, group, shelf)
-    biz = resolve_business(contexts, code, business)
+    biz = _resolve_view(contexts, code, business)
     if parent:
         return _render_group(biz, None, shelf)
     if shelf:
@@ -68,8 +123,13 @@ def _lookup(contexts: list[ContextRef], raw: str, code: str, business: str,
     if number[:3] not in loaded:
         loaded[number[:3]] = resolve_business(contexts, code=number[:3])
     biz = loaded[number[:3]]
-    check_same_business(biz, number, code, business)
+    check_same_business(biz, number, code, "")
     ticket = find_ticket(biz, number)
+    if business:
+        biz = _resolve_view(contexts, biz.code, business, loaded)
+        if isinstance(biz, AreaView) and ticket not in biz.tickets:
+            raise TicketError(f"{number} is not in business area {biz.area}. Omit "
+                              "`business` to look it up without an area filter.")
     record(ticket)
     return _render_ticket(biz, ticket)
 
@@ -170,11 +230,16 @@ def _render_overview(biz: Business) -> str:
     lines += _render_unreadable(biz, open_shelves)
     lines += _render_archive_summary(biz)
 
-    examples = [f'`tickets(code="{biz.code}", shelf="backlog")`',
-                f'`tickets(code="{biz.code}", shelf="archive")`']
+    selector = f'code="{biz.code}"'
+    if isinstance(biz, AreaView):
+        # JSON quoting also handles names containing quotes or backslashes.
+        selector += f", business={json.dumps(biz.area, ensure_ascii=False)}"
+    examples = [f'`tickets({selector}, shelf="backlog")`',
+                f'`tickets({selector}, shelf="archive")`']
     groups = [n for n in group_numbers(biz) if biz.find(n)]
     if groups:
-        examples.append(f'`tickets(parent="{groups[0]}")`')
+        scope = f"{selector}, " if isinstance(biz, AreaView) else ""
+        examples.append(f'`tickets({scope}parent="{groups[0]}")`')
     if biz.tickets:
         projects = [t for t in biz.tickets if not t.is_group and t.shelf == "work"]
         examples.append(f'`tickets(number="{(projects or biz.tickets)[0].number}")`')
@@ -247,6 +312,10 @@ def _render_shelf(biz: Business, shelf: str) -> str:
 def _render_group(biz: Business, number: str | None, shelf: str = "") -> str:
     """Render one group's tickets: every shelf by default, or just `shelf`."""
     items = biz.children(number)
+    if isinstance(biz, AreaView) and number and not items and not any(
+            t.number == number for t in biz.tickets):
+        raise TicketError(f"{number} has no tickets in business area {biz.area} "
+                          "and is not in that area itself.")
     note: list[str] = []
     group: Ticket | None = None
     if number is None:
