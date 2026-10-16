@@ -13,7 +13,8 @@ import {
   readMachineConfig,
   setMachineConfigKey,
   ensureConfigDefaults,
-  isValidMachineName
+  isValidMachineName,
+  saveUserName
 } from '../core/config'
 import {
   resolveDeployStatus,
@@ -234,6 +235,14 @@ export const setupIpcHandlers = (context: IpcHandlersContext): void => {
       return context.getAppState()
     }
   )
+
+  ipcMain.handle('config:set-user-name', (_event, name: unknown) => {
+    const critical = context.getMigrationStatus().critical
+    if (critical) throw new Error(`Cannot save user name: ${critical.description}`)
+    saveUserName(name)
+    context.updateAppState()
+    return context.getAppState()
+  })
 
   // Открыть путь в Finder/Explorer
   ipcMain.handle('shell:open-path', async (_event, path: string) => {

@@ -24,6 +24,7 @@ from config import (
     get_repos_path,
     get_root_context_folders,
     get_timezone,
+    get_user_name,
 )
 from db import DatabaseManager, Entity
 from normalization import normalize_path
@@ -120,6 +121,9 @@ class WorkspaceService:
 
     def get_orientation(self, path: str) -> str:
         """Build the orientation answer for one folder, as Markdown text."""
+        return f"**User:** `{get_user_name()}`\n\n{self._orientation_context(path)}"
+
+    def _orientation_context(self, path: str) -> str:
         folder = Path(normalize_path(path)).resolve()
 
         repos_path = get_repos_path()

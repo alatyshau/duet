@@ -4,7 +4,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { checkAppState, createInitialState } from '../../../src/core/app-state'
 import { createTestContext, writeTestConfig, type TestContext } from '../../helpers'
-import { rmSync } from 'fs'
+import { readFileSync, rmSync, writeFileSync } from 'fs'
+import { join } from 'path'
 
 describe('core/app-state', () => {
   let ctx: TestContext
@@ -25,6 +26,8 @@ describe('core/app-state', () => {
         duetDataPath: null,
         duetConfigPath: null,
         machine: null,
+        userName: 'Human',
+        userNameError: null,
         pathExists: false,
         deployChannel: 'prod',
         pythonPath: null,
@@ -71,6 +74,25 @@ describe('core/app-state', () => {
       expect(state.machine).toBe('test_machine')
       expect(state.pathExists).toBe(true)
     })
+
+    it.each(['3', 'true', '"text"', '[]', 'null'])(
+      'stays available when the settings root is the JSON primitive %s (UN2)',
+      (contents) => {
+        writeTestConfig(ctx.configFile, {
+          duetDataPath: ctx.duetDataDir,
+          duetConfigPath: ctx.duetConfigDir,
+          machine: 'test'
+        })
+        const path = join(ctx.duetConfigDir, 'settings.json')
+        writeFileSync(path, contents)
+        // The critical-migration banner owns this file's repair; state reading must not throw.
+        const state = checkAppState()
+        expect(state.status).toBe('ready')
+        expect(state.userName).toBe('Human')
+        expect(state.userNameError).toBeNull()
+        expect(readFileSync(path, 'utf-8')).toBe(contents)
+      }
+    )
 
     it('returns path_lost when paths do not exist', () => {
       writeTestConfig(ctx.configFile, {

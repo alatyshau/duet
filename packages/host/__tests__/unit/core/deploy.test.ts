@@ -372,6 +372,8 @@ describe('core/deploy', () => {
       duetDataPath: '', // will be set per test
       duetConfigPath: '/config',
       machine: 'test',
+      userName: 'Human',
+      userNameError: null,
       pathExists: true,
       deployChannel: 'prod',
       pythonPath: null,
@@ -451,6 +453,8 @@ describe('core/deploy', () => {
       duetDataPath: '', // will be set per test
       duetConfigPath: '/config',
       machine: 'test',
+      userName: 'Human',
+      userNameError: null,
       pathExists: true,
       deployChannel: 'prod',
       pythonPath: null,

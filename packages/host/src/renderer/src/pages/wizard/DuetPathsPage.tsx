@@ -63,6 +63,13 @@ export function DuetPathsPage({
   const configPath = appState.duetConfigPath
   const [machine, setMachine] = useState(appState.machine ?? '')
   const [machineError, setMachineError] = useState(false)
+  const [userName, setUserName] = useState(appState.userName)
+  const [userNameError, setUserNameError] = useState<string | null>(null)
+  const [savingUserName, setSavingUserName] = useState(false)
+
+  useEffect(() => {
+    setUserName(appState.userName)
+  }, [appState.userName])
   const [rootContexts, setRootContexts] = useState<RootContextEntry[]>([])
   const [folderError, setFolderError] = useState<string | null>(null)
   const [migrationStatus, setMigrationStatus] = useState<MigrationResult | null>(null)
@@ -223,6 +230,24 @@ export function DuetPathsPage({
     setMigrationStatus(mig)
   }
 
+  // Blur fires on every focus change, so an unchanged valid name is not rewritten.
+  // A stored value that breaks the rule is shown as Human with an error, and saving
+  // that Human is exactly the repair, so the shortcut applies only without an error.
+  const handleUserNameSave = async (): Promise<void> => {
+    if (savingUserName) return
+    if (userName === appState.userName && !appState.userNameError) return
+    setSavingUserName(true)
+    setUserNameError(null)
+    try {
+      const saved = await window.api.setUserName(userName)
+      setUserName(saved.userName)
+    } catch (error) {
+      setUserNameError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingUserName(false)
+    }
+  }
+
   const handleMachineKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Enter') {
       void handleMachineSave()
@@ -248,7 +273,9 @@ export function DuetPathsPage({
         <div className="rounded-xl border border-red-500/50 bg-red-500/5 p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-red-600">{criticalBannerTitle(migrationStatus.critical)}</div>
+            <div className="font-medium text-red-600">
+              {criticalBannerTitle(migrationStatus.critical)}
+            </div>
             <p className="text-sm text-red-600/80 mt-1 break-words">
               {migrationStatus.critical.description}
             </p>
@@ -372,6 +399,56 @@ export function DuetPathsPage({
           </div>
         </div>
 
+        {/* User name — saved like the machine name: on Enter and on blur. */}
+        <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-background">
+          <div className="flex-shrink-0 mt-0.5">
+            <CheckCircle className="w-5 h-5 text-green-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <label htmlFor="duet-user-name" className="font-medium text-foreground">
+              Пользователь
+            </label>
+            <p className="text-xs text-muted-foreground mt-1 mb-2">
+              Имя, которым вы подписаны в роллах и которое сессии получают из{' '}
+              <code className="text-[11px] bg-muted px-1 rounded">orientation</code>. Общее для всех
+              машин; по умолчанию Human.
+            </p>
+            <div className="flex gap-2">
+              <input
+                id="duet-user-name"
+                type="text"
+                value={userName}
+                onChange={(event) => {
+                  setUserName(event.target.value)
+                  if (userNameError) setUserNameError(null)
+                }}
+                onBlur={() => void handleUserNameSave()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void handleUserNameSave()
+                }}
+                disabled={
+                  !configPath || !appState.machine || savingUserName || !!migrationStatus?.critical
+                }
+                aria-invalid={userNameError !== null || appState.userNameError !== null}
+                placeholder="Human"
+                className={`flex-1 px-3 py-1.5 text-sm rounded-md border bg-background text-foreground
+                  ${userNameError || appState.userNameError ? 'border-red-500' : 'border-border'}
+                  focus:outline-none focus:ring-2 focus:ring-ring`}
+              />
+            </div>
+            {userNameError && (
+              <p role="alert" className="text-xs text-red-500 mt-1 break-words">
+                Не удалось сохранить имя: {userNameError}
+              </p>
+            )}
+            {!userNameError && appState.userNameError && (
+              <p role="alert" className="text-xs text-red-500 mt-1 break-words">
+                Имя в settings.json недопустимо: {appState.userNameError} Введите имя и сохраните.
+              </p>
+            )}
+          </div>
+        </div>
+
         <div className="text-xs text-muted-foreground space-y-1">
           <p>
             <strong>DuetData</strong> — быстрый локальный диск (SSD), не в облачном хранилище.
@@ -395,13 +472,16 @@ export function DuetPathsPage({
           Корневые контексты
         </h3>
         <p className="text-xs text-muted-foreground">
-          Top-level папки на Google Drive — каждая со своим <code className="text-[11px] bg-muted px-1 rounded">context.json</code>.
-          Можно отметить один meta-контекст (системный, например <code className="text-[11px] bg-muted px-1 rounded">!БАЗА</code>) короной.
+          Top-level папки на Google Drive — каждая со своим{' '}
+          <code className="text-[11px] bg-muted px-1 rounded">context.json</code>. Можно отметить
+          один meta-контекст (системный, например{' '}
+          <code className="text-[11px] bg-muted px-1 rounded">!БАЗА</code>) короной.
         </p>
 
         {rootContexts.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Ни одного контекста не добавлено. Добавьте корневые папки бизнесов из облачного хранилища.
+            Ни одного контекста не добавлено. Добавьте корневые папки бизнесов из облачного
+            хранилища.
           </p>
         )}
 

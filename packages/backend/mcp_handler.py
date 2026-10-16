@@ -613,7 +613,7 @@ def orientation(path: str) -> str:
     Args:
         path: Absolute path of the folder the session was opened in.
 
-    Returns Markdown: the paths of this machine, the business's ticket code
+    Returns Markdown: the user's name, the paths of this machine, the business's ticket code
     if it has one, and what to read first. A meta venture also gets the
     folders of the other ventures.
     """

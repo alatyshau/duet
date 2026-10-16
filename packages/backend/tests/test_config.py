@@ -423,3 +423,56 @@ class TestResetCache:
         # After reset, returns new value
         config.reset_cache()
         assert config.get_port() == 22222
+
+
+class TestUserName:
+    """The user-name rule shared with Host and the roll helper (DUE043, design section 2)."""
+
+    def test_missing_field_defaults_without_writing(self, duet_data):
+        path = config.get_duet_config_path() / "settings.json"
+        before = path.read_bytes()
+        assert config.get_user_name() == "Human"
+        assert path.read_bytes() == before
+
+    @pytest.mark.parametrize("value, expected", [
+        ("Andrei", "Andrei"),
+        ("  Андрей Латышев  ", "Андрей Латышев"),
+        ("\tAndrei\n", "Andrei"),
+        ("Human", "Human"),
+        ("я" * 100, "я" * 100),
+        ("😀" * 100, "😀" * 100),
+        ("\u00a0Andrei", "\u00a0Andrei"),
+    ])
+    def test_accepts_names_from_the_shared_table_and_rereads(self, duet_data, value, expected):
+        path = config.get_duet_config_path() / "settings.json"
+        settings = json.loads(path.read_text())
+        assert config.get_user_name() == "Human"
+        settings["user_name"] = value
+        path.write_text(json.dumps(settings))
+        assert config.get_user_name() == expected
+
+    @pytest.mark.parametrize("value", [
+        None, 3, [], {},
+        "", "  ", "я" * 101,
+        "User", "  User ",
+        "A\nB", "A\tB", "A\x7fB",
+        "\u0085Andrei", "\u001cAndrei",
+        "\ufeffAndrei", "An\u200bdrei",
+        "A`B", "A <!-- message-roll:",
+    ])
+    def test_rejects_names_from_the_shared_table(self, duet_data, value):
+        path = config.get_duet_config_path() / "settings.json"
+        settings = json.loads(path.read_text())
+        settings["user_name"] = value
+        path.write_text(json.dumps(settings))
+        with pytest.raises(config.ConfigError, match="user_name"):
+            config.get_user_name()
+
+
+@pytest.mark.parametrize("contents", ["[]", "null", "3", '"text"'])
+def test_user_name_rejects_non_object_settings(duet_data, contents):
+    path = config.get_duet_config_path() / "settings.json"
+    path.write_text(contents)
+    with pytest.raises(config.ConfigError, match="settings.json must be an object"):
+        config.get_user_name()
+    assert path.read_text() == contents

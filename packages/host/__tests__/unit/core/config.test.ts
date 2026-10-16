@@ -3,6 +3,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
+  readUserName,
+  readUserNameState,
+  saveUserName,
+  normalizeUserName,
   readConfig,
   readPointerStrict,
   writeConfig,
@@ -127,6 +131,7 @@ describe('core/config', () => {
       const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
       expect(settings).toEqual({
         version: 2,
+        user_name: 'Human',
         root_context_folders: [],
         timestampTZ: { id: 'Z', value: 'UTC' }
       })
@@ -383,6 +388,120 @@ describe('core/config', () => {
       expect(isValidMachineName('.hidden')).toBe(false)
       expect(isValidMachineName('-dash')).toBe(false)
       expect(isValidMachineName('a'.repeat(65))).toBe(false)
+    })
+  })
+  describe('shared user name', () => {
+    beforeEach(() => {
+      writeTestConfig(ctx.configFile, {
+        duetDataPath: ctx.duetDataDir,
+        duetConfigPath: ctx.duetConfigDir,
+        machine: 'test'
+      })
+      ensureConfigDefaults(ctx.duetConfigDir, 'test')
+    })
+
+    it('creates Human by default and defaults older settings without rewriting', () => {
+      expect(readSettingsConfig()?.user_name).toBe('Human')
+      const path = join(ctx.duetConfigDir, 'settings.json')
+      writeFileSync(path, JSON.stringify({ version: 2, root_context_folders: [] }))
+      const before = readFileSync(path, 'utf-8')
+      expect(readUserName()).toBe('Human')
+      expect(readFileSync(path, 'utf-8')).toBe(before)
+    })
+
+    it('saves a trimmed name in shared settings and preserves other fields', () => {
+      const before = readSettingsConfig()
+      saveUserName(' Андрей Латышев ')
+      expect(readUserName()).toBe('Андрей Латышев')
+      expect(readSettingsConfig()).toEqual({ ...before, user_name: 'Андрей Латышев' })
+      expect(
+        JSON.parse(readFileSync(join(ctx.duetConfigDir, 'test.json'), 'utf-8'))
+      ).not.toHaveProperty('user_name')
+      saveUserName('Andrei')
+      expect(readUserName()).toBe('Andrei')
+    })
+
+    it.each([
+      ['Andrei', 'Andrei'],
+      ['  Андрей Латышев  ', 'Андрей Латышев'],
+      ['\tAndrei\n', 'Andrei'],
+      ['Human', 'Human'],
+      ['я'.repeat(100), 'я'.repeat(100)],
+      ['\u00a0Andrei', '\u00a0Andrei']
+    ])('accepts %j from the shared table as %j', (value, expected) => {
+      expect(normalizeUserName(value)).toBe(expected)
+    })
+
+    it.each([
+      null,
+      3,
+      [],
+      {},
+      '',
+      '  ',
+      'я'.repeat(101),
+      'User',
+      '  User ',
+      'A\nB',
+      'A\tB',
+      'A\x7fB',
+      '\u0085Andrei',
+      '\u001cAndrei',
+      '\ufeffAndrei',
+      'An\u200bdrei',
+      'A`B',
+      'A <!-- message-roll:'
+    ])('rejects %j from the shared table without changing settings', (value) => {
+      const before = readSettingsConfig()
+      expect(() => saveUserName(value)).toThrow(/User name/)
+      expect(readSettingsConfig()).toEqual(before)
+    })
+
+    it.each(['[]', 'null', '3', '"text"'])(
+      'rejects non-object settings %s without writing',
+      (contents) => {
+        const path = join(ctx.duetConfigDir, 'settings.json')
+        writeFileSync(path, contents)
+        expect(() => saveUserName('Andrei')).toThrow(/settings must be an object/)
+        expect(readFileSync(path, 'utf-8')).toBe(contents)
+      }
+    )
+
+    it('distinguishes an absent field from a stored invalid value', () => {
+      const path = join(ctx.duetConfigDir, 'settings.json')
+      writeFileSync(path, JSON.stringify({ version: 2, root_context_folders: [] }))
+      expect(readUserNameState()).toEqual({ name: 'Human', error: null })
+      for (const invalid of [null, 3, 'User', ' ', 'A`B']) {
+        writeFileSync(path, JSON.stringify({ version: 2, user_name: invalid }))
+        const state = readUserNameState()
+        expect(state.name).toBe('Human')
+        expect(state.error).toMatch(/User name/)
+      }
+      writeFileSync(path, JSON.stringify({ version: 2, user_name: '  Andrei ' }))
+      expect(readUserNameState()).toEqual({ name: 'Andrei', error: null })
+    })
+
+    it.each(['3', 'true', '"text"', '[]', 'null', '{ broken'])(
+      'does not throw and does not write when the settings root is %s (UN2)',
+      (contents) => {
+        const path = join(ctx.duetConfigDir, 'settings.json')
+        writeFileSync(path, contents)
+        expect(readSettingsConfig()).toBeNull()
+        expect(readUserNameState()).toEqual({ name: 'Human', error: null })
+        expect(readFileSync(path, 'utf-8')).toBe(contents)
+      }
+    )
+
+    it('counts Unicode code points consistently with the backend', () => {
+      expect(normalizeUserName('😀'.repeat(100))).toBe('😀'.repeat(100))
+      expect(() => normalizeUserName('😀'.repeat(101))).toThrow()
+    })
+
+    it('does not replace corrupt settings with defaults when saving', () => {
+      const path = join(ctx.duetConfigDir, 'settings.json')
+      writeFileSync(path, '{ broken')
+      expect(() => saveUserName('Andrei')).toThrow(/Invalid JSON/)
+      expect(readFileSync(path, 'utf-8')).toBe('{ broken')
     })
   })
 })

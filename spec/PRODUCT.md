@@ -257,6 +257,7 @@ DuetConfig/
 {
   "version": 2,
   "timestampTZ": { "id": "M", "value": "Europe/Moscow" },
+  "user_name": "Human",
   "root_context_folders": ["@БАЗА", "@МетаЛаб"]
 }
 ```
@@ -264,6 +265,7 @@ DuetConfig/
 | Field | Who reads | Purpose |
 |-------|-----------|---------|
 | `root_context_folders` | Backend | Ordered list of top-level context folders (`@aliases`). Order is load-bearing — see Invariants. Renamed from `business_folders` in v1; Host owns startup migration |
+| `user_name` | Host, Backend | The person's name, shared across machines; optional in existing v2 settings, defaults to `Human`. Edited in Host's “Duet: пути” after “Машина”; returned by every `orientation` call. Validation: [Orientation → User-name rule](#orientation) |
 | `timestampTZ` | Backend | Timezone for timestamps; `id` becomes the suffix in `YYMMDD_HHMMSS<id>` |
 | `version` | Host | Schema version for Host's startup migration |
 
@@ -346,13 +348,19 @@ Extension (checks /health → detects when backend is up)
 
 ### Orientation
 
-AI agents call the MCP tool `orientation(path)` at session start, with the folder the session was opened in. The answer is Markdown in English with absolute paths. It gives only the base — the paths of this machine and the entry points to read; what a business means is written in those entry points.
+AI agents call the MCP tool `orientation(path)` at session start, with the folder the session was opened in. The answer is Markdown in English with absolute paths. It gives only the base — the user’s name, the paths of this machine and the entry points to read; what a business means is written in those entry points.
 
-Where the folder lies decides the answer.
+Every answer starts with ``**User:** `<name>` `` (for example ``**User:** `Human` ``). The name comes from shared `settings.json.user_name`, read on every call without restarting Backend; an absent field defaults to `Human`. A configured value that violates the user-name rule fails with a configuration error rather than silently replacing the person. This additive optional field does not require a schema-version migration.
+
+**User-name rule** — one rule, applied by Host on save (`core/config.ts`, `normalizeUserName`) and by Backend on read (`config.py`, `normalize_user_name`), in this order: (1) trim only U+0009–U+000D and U+0020 at both ends — not `trim()`/`strip()`, which disagree on U+0085, U+001C and U+FEFF; (2) 1–100 Unicode code points; (3) no code point of general category Cc, Cf, Zl or Zp (control and invisible characters, line and paragraph separators); (4) no backtick and no `<!-- message-roll:` (the roll record marker); (5) not the placeholder `User`. Inner spaces and non-Latin letters are fine (`Андрей Латышев`); U+00A0 is neither trimmed nor forbidden. Both implementations are pinned by the same example table in their tests.
+
+Where the folder lies decides the remaining answer.
 
 **Inside a venture folder** (a root context folder). The business is the nearest context up the tree, so a ticket's work folder or a direction without `context.json` leads to its business.
 
 ```
+**User:** `Andrei`
+
 **Paths:**
 * `@DuetData` (path to DuetData): `/Users/me/DuetData`
 * `@DuetLab` (active business folder): `/Users/me/Drive/!МетаЛаб/DuetLab`
@@ -382,6 +390,8 @@ Where the folder lies decides the answer.
 **Inside `DuetData/repos`.** The repo and the businesses that declare it. A repo never chooses a business, because several may declare it.
 
 ```
+**User:** `Andrei`
+
 Not a business folder: this path is inside a git-repo.
 
 **Paths:**

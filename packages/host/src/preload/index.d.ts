@@ -62,6 +62,7 @@ export interface DuetAPI {
   openPath: (path: string) => Promise<void>
 
   // Config
+  setUserName: (name: string) => Promise<AppState>
   setDeployChannel: (channel: 'dev' | 'prod') => Promise<AppState>
 
   // Deploy

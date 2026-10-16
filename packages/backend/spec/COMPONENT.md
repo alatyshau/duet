@@ -145,7 +145,7 @@ Standard library only, so it runs on any venv regardless of the installed MCP SD
 
 ### Orientation
 
-Contract — what the tool answers for which folder: [PRODUCT.md → Orientation](../../../spec/PRODUCT.md#orientation). Logic: `services/workspace.py`, `WorkspaceService.get_orientation(path)`. Below is only what the contract does not say.
+Contract — what the tool answers for which folder: [PRODUCT.md → Orientation](../../../spec/PRODUCT.md#orientation). Logic: `services/workspace.py`, `WorkspaceService.get_orientation(path)`. Every result is prefixed with the user name from `config.get_user_name()`, including repo, outside-Duet and unregistered-folder results. The getter rereads shared settings on every call, defaults only an absent `user_name` to `Human`, and validates a configured value with `normalize_user_name` (the shared user-name rule from the contract) without writing. Below is only what the contract does not say.
 
 - **Check order.** The input is NFC-normalized and resolved; `DuetData/repos` is checked before the venture folders.
 - **`resolve_business(folder)`** is the one rule "folder → business", shared with Deploy Instructions. The folder's path relative to its venture folder is matched against `drive_path` with `db.find_closest_entity`, so the nearest registered context wins. A folder under `DuetData/repos` resolves to `None`.

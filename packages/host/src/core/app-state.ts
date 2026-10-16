@@ -8,7 +8,7 @@
  * - Не зависят от Electron
  */
 import { existsSync } from 'fs'
-import { readConfig, readMachineConfig } from './config'
+import { readConfig, readMachineConfig, readUserNameState } from './config'
 import type { AppState, DeployChannel } from '../shared/types'
 
 // Re-export types for existing importers (source of truth: shared/types.ts)
@@ -27,10 +27,13 @@ export type { AppStatus, AppState } from '../shared/types'
 export const checkAppState = (): AppState => {
   const config = readConfig()
 
+  const user = readUserNameState()
   const base = {
     duetDataPath: config.duetDataPath ?? null,
     duetConfigPath: config.duetConfigPath ?? null,
-    machine: config.machine ?? null
+    machine: config.machine ?? null,
+    userName: user.name,
+    userNameError: user.error
   }
 
   // Все 3 поля обязательны
@@ -85,6 +88,8 @@ export const createInitialState = (): AppState => ({
   duetDataPath: null,
   duetConfigPath: null,
   machine: null,
+  userName: 'Human',
+  userNameError: null,
   pathExists: false,
   deployChannel: 'prod',
   pythonPath: null,

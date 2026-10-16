@@ -22,6 +22,8 @@ const baseAppState: AppState = {
   duetDataPath: '/data',
   duetConfigPath: '/config',
   machine: 'test',
+  userName: 'Human',
+  userNameError: null,
   pathExists: true,
   deployChannel: 'prod',
   pythonPath: '/usr/bin/python3',

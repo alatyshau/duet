@@ -113,6 +113,7 @@ class TestOrientationBusiness:
         duet_data = builder.duet_data_path.resolve()
 
         assert service.get_orientation(str(lab)) == (
+            "**User:** `Human`\n\n"
             "**Paths:**\n"
             f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
             f"* `@Lab` (active business folder): `{lab}`\n"
@@ -139,6 +140,7 @@ class TestOrientationBusiness:
         duet_data = builder.duet_data_path.resolve()
 
         assert service.get_orientation(str(lab)) == (
+            "**User:** `Human`\n\n"
             "**Paths:**\n"
             f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
             f"* `@Lab` (active business folder): `{lab}`\n"
@@ -158,6 +160,7 @@ class TestOrientationBusiness:
         duet_data = builder.duet_data_path.resolve()
 
         assert service.get_orientation(str(root)) == (
+            "**User:** `Human`\n\n"
             "**Paths:**\n"
             f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
             f"* `@Root` (active venture folder): `{root}`\n"
@@ -183,6 +186,7 @@ class TestOrientationBusiness:
         duet_data = builder.duet_data_path.resolve()
 
         expected = (
+            "**User:** `Human`\n\n"
             "**Paths:**\n"
             f"* `@DuetData` (path to DuetData): `{duet_data}`\n"
             f"* `@Base` (active venture folder): `{base}`\n"
@@ -238,7 +242,7 @@ class TestOrientationBusiness:
         _, service, lab = _lab(tmp_path, db, monkeypatch)
         answer = service.get_orientation(str(lab))
         assert "Next immediate steps" not in answer
-        assert answer.startswith("**Paths:**")
+        assert answer.startswith("**User:** `Human`\n\n**Paths:**")
 
     def test_index_is_the_entry_point_without_readme(self, tmp_path, db, monkeypatch) -> None:
         _, service, lab = _lab(tmp_path, db, monkeypatch)
@@ -287,6 +291,7 @@ class TestOrientationRepo:
         duet_data = builder.duet_data_path.resolve()
 
         assert service.get_orientation(str(repo / "packages" / "backend")) == (
+            "**User:** `Human`\n\n"
             "Not a business folder: this path is inside a git-repo.\n"
             "\n"
             "**Paths:**\n"
@@ -307,7 +312,7 @@ class TestOrientationRepo:
         repo = builder.get_repo_path("Duet")
         answer = service.get_orientation(str(repo))
 
-        assert answer.startswith(INSIDE_REPO)
+        assert answer.startswith("**User:** `Human`\n\n" + INSIDE_REPO)
         assert answer.endswith("**Declared by:**\nno business declares this repo")
         assert "Next immediate steps" not in answer
 
@@ -327,12 +332,12 @@ class TestOrientationOutside:
 
     def test_folder_outside_duet(self, tmp_path, db, monkeypatch) -> None:
         _, service, _ = _lab(tmp_path, db, monkeypatch)
-        assert service.get_orientation("/some/random/path") == OUTSIDE_DUET
+        assert service.get_orientation("/some/random/path") == "**User:** `Human`\n\n" + OUTSIDE_DUET
         assert OUTSIDE_DUET == "Not a business folder: this path is outside Duet."
 
     def test_repos_folder_itself(self, tmp_path, db, monkeypatch) -> None:
         builder, service, _ = _lab(tmp_path, db, monkeypatch)
-        assert service.get_orientation(str(builder.get_repos_path())) == OUTSIDE_DUET
+        assert service.get_orientation(str(builder.get_repos_path())) == "**User:** `Human`\n\n" + OUTSIDE_DUET
 
     def test_venture_folder_not_registered(self, tmp_path, db, monkeypatch) -> None:
         """Inside a venture folder, but the scan has not registered it yet."""
@@ -340,7 +345,7 @@ class TestOrientationOutside:
         builder.add_root_context("Root")
         builder.build(monkeypatch)
         root = builder.get_root_context_path(0)
-        assert WorkspaceService(db).get_orientation(str(root)) == NOT_REGISTERED
+        assert WorkspaceService(db).get_orientation(str(root)) == "**User:** `Human`\n\n" + NOT_REGISTERED
 
 
 class TestScannerRelativePaths:
@@ -557,7 +562,7 @@ class TestOrientationMcpTool:
         init_services(service, EntitiesService(db), time.time())
         try:
             assert orientation(str(lab)) == service.get_orientation(str(lab))
-            assert orientation("/some/random/path") == OUTSIDE_DUET
+            assert orientation("/some/random/path") == "**User:** `Human`\n\n" + OUTSIDE_DUET
         finally:
             reset_services()
 
@@ -570,3 +575,17 @@ class TestOrientationMcpTool:
 
         with pytest.raises(McpError):
             orientation(path)
+
+
+def test_orientation_rereads_shared_user_name(tmp_path, db, monkeypatch):
+    import json
+    from config import get_duet_config_path
+
+    _, service, lab = _lab(tmp_path, db, monkeypatch)
+    settings_path = get_duet_config_path() / "settings.json"
+    settings = json.loads(settings_path.read_text())
+    assert service.get_orientation(str(lab)).startswith("**User:** `Human`\n\n")
+    settings["user_name"] = "Andrei"
+    settings_path.write_text(json.dumps(settings))
+    assert service.get_orientation(str(lab)).startswith("**User:** `Andrei`\n\n")
+    assert service.get_orientation("/outside").startswith("**User:** `Andrei`\n\n")

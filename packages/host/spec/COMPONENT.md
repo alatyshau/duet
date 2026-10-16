@@ -102,6 +102,7 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 | `dialog:select-file` | renderer → main | Open system file picker |
 | `config:save-pointer` | renderer → main | Save pointer file (partial updates supported — missing fields preserved). Creates default DuetConfig files when both `duetConfigPath` and `machine` are present. Calls `updateAppState()`, returns new AppState |
 | `shell:open-path` | renderer → main | Open path in Finder/Explorer |
+| `config:set-user-name` | renderer → main | Validate and save shared `user_name`; reject a critical migration state; update AppState and return it |
 | `config:set-deploy-channel` | renderer → main | Set deploy channel (dev/prod) in machine config; calls `updateAppState()`, returns new AppState |
 | `deploy:get-status` | renderer → main | Get deploy status |
 | `deploy:start` | renderer → main | Start deploy (async). Broadcasts status + log events |
@@ -128,7 +129,9 @@ Host uses Electron `requestSingleInstanceLock()`. Second instance shows window o
 
 **Mutation contract:** `agents:configure`, `agents:fix-issue`, and config writers call `updateAppState()` after mutations to refresh tray icon. `deploy:start` runs async deploy, broadcasts status + log events.
 
-**Config defaults** (`ensureConfigDefaults(duetConfigPath, machine)`): creates `settings.json` (`{ version: 2, root_context_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ version: 2, port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
+**Config defaults** (`ensureConfigDefaults(duetConfigPath, machine)`): creates `settings.json` (`{ version: 2, user_name: "Human", root_context_folders: [], timestampTZ: { id: "Z", value: "UTC" } }`) and `{machine}.json` (`{ version: 2, port: 19680 }`) only if files don't exist. Never overwrites. Implementation: `core/config.ts`.
+
+**User name:** `readUserNameState()` exposes `settings.json.user_name` as `AppState.userName` plus `AppState.userNameError`: an absent field is the normal default (`Human`, no error), while a present value that breaks the rule is shown as `Human` with the violation in `userNameError`, because Backend refuses such a value and only Host can repair it. A `settings.json` whose root is not an object (a JSON primitive or an array) reads as absent settings (`readSettingsConfig()` returns `null`), so state reading never throws. Its repair is not this reader's job: a primitive or unparsable root is reported by the critical-migration banner, while an array root is rewritten into a v2 object by the schema migration itself. `saveUserName(unknown)` applies the shared user-name rule (`normalizeUserName`; the rule itself is in [/spec/PRODUCT.md → Orientation](/spec/PRODUCT.md#orientation)) and uses `setSettingsConfigKey` to preserve other settings. The IPC handler refuses to write while schema migration is in a critical state, like backend spawn. The renderer uses typed `setUserName` IPC and shows save errors; the existing settings watcher refreshes AppState after external edits. This is a shared personal preference, not a machine identifier or a new required setup step.
 
 **Machine config write** (`setMachineConfigKey(key, value)`): read-modify-write single field in `{machine}.json`. Throws if pointer incomplete, machine name invalid, or file missing/invalid JSON. `setSettingsConfigKey(key, value)` mirrors this for `settings.json`. Silent-recreate-from-`{}` paths are gone — they used to lose sibling fields (`timestampTZ`, `port`). Failures now surface to the UI so the user can re-run wizard step 1 (`ensureConfigDefaults`) to recover.
 

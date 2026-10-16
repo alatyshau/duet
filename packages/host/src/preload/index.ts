@@ -53,6 +53,9 @@ const api = {
 
   // === Config ===
 
+  setUserName: (name: string): Promise<AppState> =>
+    ipcRenderer.invoke('config:set-user-name', name),
+
   setDeployChannel: (channel: 'dev' | 'prod'): Promise<AppState> =>
     ipcRenderer.invoke('config:set-deploy-channel', channel),
 

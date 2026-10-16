@@ -169,7 +169,9 @@ export const setMachineConfigKey = (key: string, value: unknown): void => {
 
 /**
  * Читает settings.json из DuetConfig.
- * Возвращает null если pointer неполный или файла нет.
+ * Возвращает null если pointer неполный, файла нет, JSON не парсится или его
+ * корень — не объект (примитив, массив): такой файл чинит критическая ошибка
+ * миграции, а читатели состояния не должны на нём падать.
  */
 export const readSettingsConfig = (): Record<string, unknown> | null => {
   const config = readConfig()
@@ -177,7 +179,9 @@ export const readSettingsConfig = (): Record<string, unknown> | null => {
   const settingsPath = join(config.duetConfigPath, 'settings.json')
   if (!existsSync(settingsPath)) return null
   try {
-    return JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    const parsed: unknown = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
   } catch {
     return null
   }
@@ -213,6 +217,9 @@ export const setSettingsConfigKey = (key: string, value: unknown): void => {
       `Invalid JSON in ${settingsPath}: ${e instanceof Error ? e.message : String(e)}`
     )
   }
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+    throw new Error(`Invalid JSON object in ${settingsPath}: settings must be an object.`)
+  }
   existing[key] = value
   atomicWriteJson(settingsPath, existing)
 }
@@ -223,6 +230,7 @@ export const setSettingsConfigKey = (key: string, value: unknown): void => {
 
 const DEFAULT_SETTINGS = {
   version: 2,
+  user_name: 'Human',
   root_context_folders: [] as string[],
   timestampTZ: { id: 'Z', value: 'UTC' }
 }
@@ -263,4 +271,64 @@ export const ensureConfigDefaults = (duetConfigPath: string, machine: string): v
   if (!existsSync(machineConfigPath)) {
     atomicWriteJson(machineConfigPath, DEFAULT_MACHINE_CONFIG)
   }
+}
+
+// =============================================================================
+// USER NAME (settings.json.user_name)
+// =============================================================================
+
+/**
+ * The stored name as Host shows it, plus the rule violation if the stored value
+ * is invalid. An absent field is the normal default (`Human`, no error); a present
+ * value that breaks the rule is an error the UI must show, because Backend refuses
+ * it and only Host can repair it. The person is shared across machines; Host is
+ * the only config writer.
+ */
+export const readUserNameState = (): { name: string; error: string | null } => {
+  const settings = readSettingsConfig() // null for a missing, unparsable or non-object file
+  if (settings === null || !('user_name' in settings)) return { name: 'Human', error: null }
+  try {
+    return { name: normalizeUserName(settings.user_name), error: null }
+  } catch (e) {
+    return { name: 'Human', error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export const readUserName = (): string => readUserNameState().name
+
+// The user-name rule is shared with Backend (config.py, normalize_user_name) and
+// the duet-work roll helper. Only ASCII whitespace is trimmed, because
+// String.prototype.trim() and Python's str.strip() disagree on U+0085, U+001C
+// and U+FEFF; the Unicode categories below cover control and invisible characters.
+const USER_NAME_TRIM = /^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g
+const USER_NAME_MAX_LENGTH = 100
+const USER_NAME_FORBIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
+const USER_NAME_PLACEHOLDER = 'User'
+const ROLL_MARKER = '<!-- message-roll:'
+
+/**
+ * Validate a user name and return its canonical (trimmed) form.
+ * Throws with a message that names the violated rule.
+ */
+export const normalizeUserName = (value: unknown): string => {
+  if (typeof value !== 'string') throw new Error('User name must be a string.')
+  const name = value.replace(USER_NAME_TRIM, '')
+  const length = Array.from(name).length
+  if (length < 1 || length > USER_NAME_MAX_LENGTH) {
+    throw new Error(`User name must be 1–${USER_NAME_MAX_LENGTH} characters.`)
+  }
+  if (USER_NAME_FORBIDDEN.test(name)) {
+    throw new Error('User name must not contain control or invisible characters.')
+  }
+  if (name.includes('`') || name.includes(ROLL_MARKER)) {
+    throw new Error(`User name must not contain backticks or "${ROLL_MARKER}".`)
+  }
+  if (name === USER_NAME_PLACEHOLDER) {
+    throw new Error(`User name must not be the placeholder "${USER_NAME_PLACEHOLDER}".`)
+  }
+  return name
+}
+
+export const saveUserName = (value: unknown): void => {
+  setSettingsConfigKey('user_name', normalizeUserName(value))
 }

@@ -28,6 +28,10 @@ export interface AppState {
   duetDataPath: string | null
   duetConfigPath: string | null
   machine: string | null
+  /** Shown name: the stored `user_name`, or `Human` when absent or invalid. */
+  userName: string
+  /** Rule violation of the stored `user_name`, when present but invalid; null otherwise. */
+  userNameError: string | null
   pathExists: boolean
   deployChannel: DeployChannel
   /** Python interpreter path from machine.json (null if not configured). */

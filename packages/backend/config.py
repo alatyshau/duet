@@ -177,6 +177,60 @@ def read_machine_config() -> dict:
 # === Getters for specific config values ===
 
 
+# The user-name rule is shared with Host (core/config.ts, normalizeUserName) and
+# the duet-work roll helper: only ASCII whitespace is trimmed, because
+# str.strip() and String.prototype.trim() disagree on U+0085, U+001C and U+FEFF.
+USER_NAME_TRIM = "\t\n\x0b\x0c\r "
+USER_NAME_MAX_LENGTH = 100
+USER_NAME_FORBIDDEN_CATEGORIES = {"Cc", "Cf", "Zl", "Zp"}
+USER_NAME_PLACEHOLDER = "User"
+ROLL_MARKER = "<!-- message-roll:"
+
+
+def normalize_user_name(value: object) -> str:
+    """Validate a configured user name and return its canonical (trimmed) form.
+
+    Args:
+        value: The raw `user_name` value from settings.json.
+
+    Returns:
+        The trimmed name.
+
+    Raises:
+        ConfigError: If the value violates the shared user-name rule.
+    """
+    hint = "Set user_name in Duet Host."
+    if not isinstance(value, str):
+        raise ConfigError(f"user_name must be a string. {hint}")
+    name = value.strip(USER_NAME_TRIM)
+    if not 1 <= len(name) <= USER_NAME_MAX_LENGTH:
+        raise ConfigError(f"user_name must be 1–{USER_NAME_MAX_LENGTH} characters. {hint}")
+    if any(unicodedata.category(c) in USER_NAME_FORBIDDEN_CATEGORIES for c in name):
+        raise ConfigError(f"user_name must not contain control or invisible characters. {hint}")
+    if "`" in name or ROLL_MARKER in name:
+        raise ConfigError(f"user_name must not contain backticks or `{ROLL_MARKER}`. {hint}")
+    if name == USER_NAME_PLACEHOLDER:
+        raise ConfigError(f"user_name must not be the placeholder {USER_NAME_PLACEHOLDER!r}. {hint}")
+    return name
+
+
+def get_user_name() -> str:
+    """Return the shared person's name; an absent field means `Human`.
+
+    Reads settings.json on every call, so a name saved in Host is visible to
+    the next `orientation` without restarting Backend.
+
+    Raises:
+        ConfigError: If settings.json is not an object or the name is invalid.
+    """
+    settings = read_settings()
+    if not isinstance(settings, dict):
+        raise ConfigError("settings.json must be an object. Set user_name in Duet Host.")
+    if "user_name" not in settings:
+        return "Human"
+    return normalize_user_name(settings["user_name"])
+
+
 def get_port() -> int:
     """Get HTTP server port from machine config.
 
